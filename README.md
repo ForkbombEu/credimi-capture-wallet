@@ -44,6 +44,11 @@ pnpm dev
 ```
 
 Default local issuer URL is `http://localhost:8080`.
+Set `PORT` to override the configured listen port:
+
+```sh
+PORT=3000 pnpm dev
+```
 
 ## Capture Flow
 
@@ -100,4 +105,3 @@ task test
 task lint
 task build
 ```
-

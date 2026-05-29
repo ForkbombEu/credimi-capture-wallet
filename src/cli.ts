@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createServer } from "node:http";
-import { initIssuer, loadConfig, parseArgs, parseListenAddr } from "./config.js";
+import { initIssuer, loadConfig, parseArgs, resolveListenAddr } from "./config.js";
 import { createApp, initSummary } from "./server.js";
 
 const ASCII_HEADER = String.raw`
@@ -35,7 +35,7 @@ async function main(): Promise<void> {
     const dataDir = typeof args.data_dir === "string" ? args.data_dir : undefined;
     const config = loadConfig(dataDir);
     const app = createApp(config);
-    const { host, port } = parseListenAddr(config.listen_addr);
+    const { host, port } = resolveListenAddr(config);
     const server = createServer(app);
     server.listen(port, host, () => {
       console.log(ASCII_HEADER);

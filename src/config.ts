@@ -17,6 +17,8 @@ export const DEFAULT_CONFIG: AppConfig = {
   permissive_capture: true,
 };
 
+export const PORT_ENV_VAR = "PORT";
+
 export interface InitOptions {
   issuer_base_url?: string;
   data_dir?: string;
@@ -49,6 +51,27 @@ export function parseListenAddr(addr: string): { host?: string; port: number } {
   if (addr.startsWith(":")) return { port: Number.parseInt(addr.slice(1), 10) };
   const url = new URL(addr.includes("://") ? addr : `http://${addr}`);
   return { host: url.hostname, port: Number.parseInt(url.port || "8080", 10) };
+}
+
+export function resolveListenAddr(
+  config: AppConfig,
+  env: NodeJS.ProcessEnv = process.env,
+): { host?: string; port: number } {
+  const listenAddr = parseListenAddr(config.listen_addr);
+  const rawPort = env[PORT_ENV_VAR]?.trim();
+  if (!rawPort) return listenAddr;
+  return { ...listenAddr, port: parsePortEnv(rawPort) };
+}
+
+function parsePortEnv(value: string): number {
+  if (!/^\d+$/.test(value)) {
+    throw new Error(`${PORT_ENV_VAR} must be an integer between 1 and 65535`);
+  }
+  const port = Number.parseInt(value, 10);
+  if (port < 1 || port > 65535) {
+    throw new Error(`${PORT_ENV_VAR} must be an integer between 1 and 65535`);
+  }
+  return port;
 }
 
 export function stringifyYaml(record: JsonRecord): string {
