@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CONFIG } from "../src/config.js";
-import { credentialIssuerMetadata, credentialOffer } from "../src/metadata.js";
+import {
+  authorizationServerMetadata,
+  credentialIssuerMetadata,
+  credentialOffer,
+} from "../src/metadata.js";
 import type { JsonRecord } from "../src/types.js";
 
 describe("metadata", () => {
@@ -18,6 +22,17 @@ describe("metadata", () => {
     const configuration = configurations[DEFAULT_CONFIG.credential_configuration_id] as JsonRecord;
 
     expect(configuration.vct).toBe(DEFAULT_CONFIG.credential_configuration_id);
+  });
+
+  it("advertises client attestation support in authorization server metadata", () => {
+    const metadata = authorizationServerMetadata(DEFAULT_CONFIG) as JsonRecord;
+
+    expect(metadata.token_endpoint_auth_methods_supported).toEqual([
+      "none",
+      "attest_jwt_client_auth",
+    ]);
+    expect(metadata.client_attestation_signing_alg_values_supported).toEqual(["ES256"]);
+    expect(metadata.client_attestation_pop_signing_alg_values_supported).toEqual(["ES256"]);
   });
 
   it("does not put scope inside authorization_code credential offers", () => {
