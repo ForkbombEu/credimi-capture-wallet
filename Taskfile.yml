@@ -1,0 +1,39 @@
+version: "3"
+
+tasks:
+  install:
+    cmds:
+      - pnpm install
+
+  format:
+    cmds:
+      - pnpm format
+
+  dev:
+    cmds:
+      - pnpm dev
+
+  build:
+    cmds:
+      - pnpm build
+
+  test:
+    cmds:
+      - pnpm test
+
+  lint:
+    cmds:
+      - pnpm lint
+      - task lint:design
+
+  lint:design:
+    cmds:
+      - if [ -f DESIGN.md ]; then npx --yes @google/design.md lint DESIGN.md; fi
+
+  run:
+    cmds:
+      - pnpm run
+
+  init:
+    cmds:
+      - pnpm fake-issuer init
