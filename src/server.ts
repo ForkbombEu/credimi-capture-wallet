@@ -138,7 +138,9 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     session.checks.pkce_present =
       typeof params.code_challenge === "string" && typeof params.code_challenge_method === "string";
     store.addEvent(session, "par_request_received", { request_uri: par.request_uri, params });
-    res.json({ request_uri: par.request_uri, expires_in: config.par_request_uri_ttl_seconds });
+    res
+      .status(201)
+      .json({ request_uri: par.request_uri, expires_in: config.par_request_uri_ttl_seconds });
   });
 
   app.get("/authorize", (req, res) => {

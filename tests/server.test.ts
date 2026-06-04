@@ -184,6 +184,7 @@ async function postJson<T>(app: Express, path: string, body: object): Promise<T>
 
 async function postForm<T>(app: Express, path: string, body: Record<string, string>): Promise<T> {
   const response = await request(app).post(path).type("form").send(body);
+  if (path === "/par") expect(response.status).toBe(201);
   expect(response.status).toBeLessThan(400);
   return response.body as T;
 }
