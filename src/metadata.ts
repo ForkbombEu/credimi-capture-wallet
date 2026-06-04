@@ -1,24 +1,25 @@
 import type { AppConfig } from "./types.js";
 
 export function credentialIssuerMetadata(config: AppConfig): unknown {
+  const jwtConfigurationId = credentialConfigurationId(config, "jwt");
+  const attestationConfigurationId = credentialConfigurationId(config, "attestation");
+
   return {
     credential_issuer: config.issuer_base_url,
     authorization_servers: [config.issuer_base_url],
     credential_endpoint: `${config.issuer_base_url}/credential`,
     nonce_endpoint: `${config.issuer_base_url}/nonce`,
     credential_configurations_supported: {
-      [config.credential_configuration_id]: {
-        format: config.credential_format,
-        scope: config.credential_scope,
-        cryptographic_binding_methods_supported: ["jwk"],
-        credential_signing_alg_values_supported: ["ES256"],
-        vct: config.credential_configuration_id,
-        proof_types_supported: {
-          jwt: {
-            proof_signing_alg_values_supported: ["ES256"],
-          },
+      [jwtConfigurationId]: credentialConfiguration(config, jwtConfigurationId, {
+        jwt: {
+          proof_signing_alg_values_supported: ["ES256"],
         },
-      },
+      }),
+      [attestationConfigurationId]: credentialConfiguration(config, attestationConfigurationId, {
+        attestation: {
+          proof_signing_alg_values_supported: ["ES256"],
+        },
+      }),
     },
   };
 }
@@ -33,17 +34,36 @@ export function authorizationServerMetadata(config: AppConfig): unknown {
     response_types_supported: ["code"],
     grant_types_supported: ["authorization_code"],
     code_challenge_methods_supported: ["S256"],
-    token_endpoint_auth_methods_supported: ["none", "attest_jwt_client_auth"],
+    token_endpoint_auth_methods_supported: ["none", "private_key_jwt", "attest_jwt_client_auth"],
+    token_endpoint_auth_signing_alg_values_supported: ["ES256"],
     client_attestation_signing_alg_values_supported: ["ES256"],
     client_attestation_pop_signing_alg_values_supported: ["ES256"],
     dpop_signing_alg_values_supported: ["ES256"],
   };
 }
 
-export function credentialOffer(config: AppConfig, sessionId: string): unknown {
+export function credentialConfigurationId(
+  config: AppConfig,
+  proofType: "jwt" | "attestation",
+): string {
+  return `${config.credential_configuration_id}.${proofType}`;
+}
+
+export function supportedCredentialConfigurationIds(config: AppConfig): string[] {
+  return [
+    credentialConfigurationId(config, "jwt"),
+    credentialConfigurationId(config, "attestation"),
+  ];
+}
+
+export function credentialOffer(
+  config: AppConfig,
+  sessionId: string,
+  credentialConfigurationId = supportedCredentialConfigurationIds(config)[0],
+): unknown {
   return {
     credential_issuer: config.issuer_base_url,
-    credential_configuration_ids: [config.credential_configuration_id],
+    credential_configuration_ids: [credentialConfigurationId],
     grants: {
       authorization_code: {
         issuer_state: sessionId,
@@ -54,4 +74,19 @@ export function credentialOffer(config: AppConfig, sessionId: string): unknown {
 
 export function credentialOfferDeeplink(offer: unknown): string {
   return `openid-credential-offer://?credential_offer=${encodeURIComponent(JSON.stringify(offer))}`;
+}
+
+function credentialConfiguration(
+  config: AppConfig,
+  id: string,
+  proofTypesSupported: Record<string, { proof_signing_alg_values_supported: string[] }>,
+): unknown {
+  return {
+    format: config.credential_format,
+    scope: config.credential_scope,
+    cryptographic_binding_methods_supported: ["jwk"],
+    credential_signing_alg_values_supported: ["ES256"],
+    vct: id,
+    proof_types_supported: proofTypesSupported,
+  };
 }

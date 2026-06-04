@@ -14,6 +14,22 @@ const config = {
 };
 
 describe("capture issuer server", () => {
+  it("creates session offers for the requested credential configuration", async () => {
+    const app = createApp(config);
+    const requestedCredentialConfigurationId = `${config.credential_configuration_id}.attestation`;
+
+    const session = await postJson<SessionCreateResponse>(app, "/sessions", {
+      credential_configuration_id: requestedCredentialConfigurationId,
+    });
+    const offer = await getJson<CredentialOfferResponse>(
+      app,
+      `/sessions/${session.session_id}/offer`,
+    );
+
+    expect(session.credential_configuration_id).toBe(requestedCredentialConfigurationId);
+    expect(offer.credential_configuration_ids).toEqual([requestedCredentialConfigurationId]);
+  });
+
   it("stores PAR and merges it into authorize requests", async () => {
     const app = createApp(config);
     const session = await postJson<SessionCreateResponse>(app, "/sessions", {});
@@ -92,6 +108,54 @@ describe("capture issuer server", () => {
     expect(capture.checks.proof_jwt_header_jwk_present).toBe(true);
   });
 
+  it("captures wallet attestation client authentication on token requests", async () => {
+    const app = createApp(config);
+    const session = await postJson<SessionCreateResponse>(app, "/sessions", {});
+    const verifier = "pkce-verifier";
+    const challenge = createHash("sha256").update(verifier).digest("base64url");
+    const par = await postForm<ParResponse>(app, "/par", {
+      client_id: "wallet-client",
+      redirect_uri: "https://wallet.example/callback",
+      state: "abc",
+      issuer_state: session.session_id,
+      code_challenge: challenge,
+      code_challenge_method: "S256",
+    });
+    const authorize = await request(app)
+      .get(`/authorize?request_uri=${encodeURIComponent(par.request_uri)}`)
+      .redirects(0);
+    const code = new URL(authorize.headers.location ?? "").searchParams.get("code");
+    const attestation = unsignedJwt(
+      { alg: "ES256", typ: "oauth-client-attestation+jwt", kid: "attester-key" },
+      { sub: "wallet-client", cnf: { jwk: { kty: "EC", crv: "P-256", x: "x", y: "y" } } },
+    );
+    const pop = unsignedJwt(
+      { alg: "ES256", typ: "oauth-client-attestation-pop+jwt", kid: "instance-key" },
+      { iss: "wallet-client", aud: config.issuer_base_url, challenge: "token-nonce" },
+    );
+
+    const token = await request(app)
+      .post("/token")
+      .set("OAuth-Client-Attestation", attestation)
+      .set("OAuth-Client-Attestation-PoP", pop)
+      .type("form")
+      .send({
+        grant_type: "authorization_code",
+        code: code ?? "",
+        client_id: "wallet-client",
+        redirect_uri: "https://wallet.example/callback",
+        code_verifier: verifier,
+      });
+
+    expect(token.status).toBe(200);
+    const capture = await getJson<SessionCapture>(app, `/sessions/${session.session_id}`);
+    expect(capture.observed.client_authentication.method).toBe("wallet_attestation");
+    expect(capture.checks.wallet_attestation_present).toBe(true);
+    expect(capture.checks.wallet_attestation_pop_present).toBe(true);
+    expect(capture.checks.wallet_attestation_client_id_matches).toBe(true);
+    expect(capture.checks.wallet_attestation_pop_audience_matches).toBe(true);
+  });
+
   it("returns a clear JWKS failure before a wallet key is observed", async () => {
     const app = createApp(config);
     const session = await postJson<SessionCreateResponse>(app, "/sessions", {});
@@ -99,6 +163,16 @@ describe("capture issuer server", () => {
 
     expect(response.status).toBe(409);
     expect(response.body).toMatchObject({ error: "wallet_jwks_not_observed" });
+  });
+
+  it("rejects sessions for unsupported credential configurations", async () => {
+    const app = createApp(config);
+    const response = await request(app)
+      .post("/sessions")
+      .send({ credential_configuration_id: "unknown.credential" });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({ error: "unsupported_credential_configuration" });
   });
 });
 
@@ -122,6 +196,7 @@ async function getJson<T>(app: Express, path: string): Promise<T> {
 
 interface SessionCreateResponse extends JsonRecord {
   session_id: string;
+  credential_configuration_id: string;
 }
 
 interface ParResponse extends JsonRecord {
@@ -134,4 +209,8 @@ interface TokenResponse extends JsonRecord {
 
 interface JwksResponse extends JsonRecord {
   keys: JsonRecord[];
+}
+
+interface CredentialOfferResponse extends JsonRecord {
+  credential_configuration_ids: string[];
 }

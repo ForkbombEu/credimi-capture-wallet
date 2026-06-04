@@ -58,6 +58,14 @@ Create a session:
 curl -X POST http://localhost:8080/sessions
 ```
 
+Choose a specific credential configuration for the offer:
+
+```sh
+curl -X POST http://localhost:8080/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"credential_configuration_id":"urn:eu.europa.ec.eudi:pid:1.attestation"}'
+```
+
 Get a Wallet deeplink:
 
 ```sh

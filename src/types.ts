@@ -35,9 +35,36 @@ export interface ProofHeaderCapture {
   source: string;
 }
 
+export interface JwtCapture {
+  present: boolean;
+  source: string | null;
+  header: JsonRecord | null;
+  claims: JsonRecord | null;
+  error: string | null;
+}
+
+export interface ClientAuthenticationCapture {
+  method: "none" | "private_key_jwt" | "wallet_attestation" | "multiple";
+  private_key_jwt: JwtCapture & {
+    assertion_type: string | null;
+    assertion_type_valid: boolean;
+    client_id_matches: boolean | null;
+    audience_matches: boolean | null;
+  };
+  wallet_attestation: JwtCapture & {
+    cnf_jwk: JsonRecord | null;
+    client_id_matches: boolean | null;
+  };
+  wallet_attestation_pop: JwtCapture & {
+    audience_matches: boolean | null;
+    challenge: string | null;
+  };
+}
+
 export interface SessionCapture {
   session_id: string;
   status: string;
+  credential_configuration_id: string;
   observed: {
     client_id: ObservedValue<string>;
     redirect_uri: ObservedValue<string>;
@@ -53,6 +80,7 @@ export interface SessionCapture {
       jwk: JsonRecord | null;
       thumbprint: string | null;
     };
+    client_authentication: ClientAuthenticationCapture;
   };
   checks: {
     pkce_present: boolean;
@@ -62,6 +90,12 @@ export interface SessionCapture {
     proof_jwt_present: boolean;
     proof_jwt_header_jwk_present: boolean;
     nonce_verified: boolean;
+    private_key_jwt_present: boolean;
+    private_key_jwt_client_id_matches: boolean | null;
+    wallet_attestation_present: boolean;
+    wallet_attestation_pop_present: boolean;
+    wallet_attestation_client_id_matches: boolean | null;
+    wallet_attestation_pop_audience_matches: boolean | null;
   };
   events: CaptureEvent[];
   raw?: {

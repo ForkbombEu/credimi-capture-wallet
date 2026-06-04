@@ -17,11 +17,14 @@ export class CaptureStore {
 
   constructor(private readonly config: AppConfig) {}
 
-  createSession(): SessionCapture {
+  createSession(
+    credentialConfigurationId = defaultCredentialConfigurationId(this.config),
+  ): SessionCapture {
     const sessionId = randomUUID();
     const session: SessionCapture = {
       session_id: sessionId,
       status: "created",
+      credential_configuration_id: credentialConfigurationId,
       observed: {
         client_id: { value: null, source: null, also_seen_in: [] },
         redirect_uri: { value: null, source: null, also_seen_in: [] },
@@ -32,6 +35,7 @@ export class CaptureStore {
           observed_proof_header_fields: [],
         },
         dpop_jwk: { observed: false, source: null, jwk: null, thumbprint: null },
+        client_authentication: emptyClientAuthenticationCapture(),
       },
       checks: {
         pkce_present: false,
@@ -41,12 +45,20 @@ export class CaptureStore {
         proof_jwt_present: false,
         proof_jwt_header_jwk_present: false,
         nonce_verified: false,
+        private_key_jwt_present: false,
+        private_key_jwt_client_id_matches: null,
+        wallet_attestation_present: false,
+        wallet_attestation_pop_present: false,
+        wallet_attestation_client_id_matches: null,
+        wallet_attestation_pop_audience_matches: null,
       },
       events: [],
       raw: {},
     };
     this.sessions.set(sessionId, session);
-    this.addEvent(session, "session_created", {});
+    this.addEvent(session, "session_created", {
+      credential_configuration_id: credentialConfigurationId,
+    });
     return session;
   }
 
@@ -159,4 +171,32 @@ export function updateObservedValue(
 
 export function asStringOrNull(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function defaultCredentialConfigurationId(config: AppConfig): string {
+  return `${config.credential_configuration_id}.jwt`;
+}
+
+function emptyClientAuthenticationCapture(): SessionCapture["observed"]["client_authentication"] {
+  const emptyJwt = { present: false, source: null, header: null, claims: null, error: null };
+  return {
+    method: "none",
+    private_key_jwt: {
+      ...emptyJwt,
+      assertion_type: null,
+      assertion_type_valid: false,
+      client_id_matches: null,
+      audience_matches: null,
+    },
+    wallet_attestation: {
+      ...emptyJwt,
+      cnf_jwk: null,
+      client_id_matches: null,
+    },
+    wallet_attestation_pop: {
+      ...emptyJwt,
+      audience_matches: null,
+      challenge: null,
+    },
+  };
 }

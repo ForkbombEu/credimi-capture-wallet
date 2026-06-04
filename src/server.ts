@@ -1,11 +1,13 @@
 import { randomUUID } from "node:crypto";
 import express, { type Request } from "express";
+import { captureClientAuthentication } from "./client-auth.js";
 import { type InitOptions, initIssuer, loadIssuerJwks } from "./config.js";
 import {
   authorizationServerMetadata,
   credentialIssuerMetadata,
   credentialOffer,
   credentialOfferDeeplink,
+  supportedCredentialConfigurationIds,
 } from "./metadata.js";
 import { verifyPkce } from "./pkce.js";
 import { captureProofHeaders, decodeDpopHeader, firstWalletJwks } from "./proofs.js";
@@ -55,13 +57,24 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     }
   });
 
-  app.post("/sessions", (_req, res) => {
-    const session = store.createSession();
-    const offer = credentialOffer(config, session.session_id);
+  app.post("/sessions", (req, res) => {
+    const body = requestParams(req);
+    const credentialConfigurationId =
+      asStringOrNull(body.credential_configuration_id) ??
+      supportedCredentialConfigurationIds(config)[0];
+    if (!supportedCredentialConfigurationIds(config).includes(credentialConfigurationId)) {
+      return res.status(400).json({
+        error: "unsupported_credential_configuration",
+        supported_credential_configuration_ids: supportedCredentialConfigurationIds(config),
+      });
+    }
+
+    const session = store.createSession(credentialConfigurationId);
+    const offer = credentialOffer(config, session.session_id, session.credential_configuration_id);
     store.addEvent(session, "credential_offer_generated", {});
     res.status(201).json({
       session_id: session.session_id,
-      credential_configuration_id: config.credential_configuration_id,
+      credential_configuration_id: session.credential_configuration_id,
       offer_url: `${config.issuer_base_url}/sessions/${session.session_id}/offer`,
       deeplink: credentialOfferDeeplink(offer),
       status: session.status,
@@ -78,13 +91,15 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     const session = store.getSession(req.params.sessionId);
     if (!session) return res.status(404).json({ error: "session_not_found" });
     store.addEvent(session, "credential_offer_generated", {});
-    return res.json(credentialOffer(config, session.session_id));
+    return res.json(
+      credentialOffer(config, session.session_id, session.credential_configuration_id),
+    );
   });
 
   app.get("/sessions/:sessionId/deeplink", (req, res) => {
     const session = store.getSession(req.params.sessionId);
     if (!session) return res.status(404).json({ error: "session_not_found" });
-    const offer = credentialOffer(config, session.session_id);
+    const offer = credentialOffer(config, session.session_id, session.credential_configuration_id);
     store.addEvent(session, "credential_deeplink_generated", {});
     return res.json({ deeplink: credentialOfferDeeplink(offer), credential_offer: offer });
   });
@@ -188,6 +203,42 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         : false;
       store.addEvent(session, "token_request_received", { params, code_valid: Boolean(code) });
 
+      const clientAuthentication = captureClientAuthentication({
+        params,
+        oauthClientAttestation: req.header("OAuth-Client-Attestation"),
+        oauthClientAttestationPop: req.header("OAuth-Client-Attestation-PoP"),
+        issuerBaseUrl: config.issuer_base_url,
+      });
+      session.observed.client_authentication = clientAuthentication;
+      session.checks.private_key_jwt_present = clientAuthentication.private_key_jwt.present;
+      session.checks.private_key_jwt_client_id_matches =
+        clientAuthentication.private_key_jwt.client_id_matches;
+      session.checks.wallet_attestation_present = clientAuthentication.wallet_attestation.present;
+      session.checks.wallet_attestation_pop_present =
+        clientAuthentication.wallet_attestation_pop.present;
+      session.checks.wallet_attestation_client_id_matches =
+        clientAuthentication.wallet_attestation.client_id_matches;
+      session.checks.wallet_attestation_pop_audience_matches =
+        clientAuthentication.wallet_attestation_pop.audience_matches;
+      updateObservedValue(
+        session,
+        "client_id",
+        clientAuthentication.private_key_jwt.claims?.sub,
+        "token_request.client_assertion.claims.sub",
+      );
+      updateObservedValue(
+        session,
+        "client_id",
+        clientAuthentication.wallet_attestation.claims?.sub,
+        "token_request.headers.oauth_client_attestation.claims.sub",
+      );
+      store.addEvent(session, "client_authentication_observed", {
+        method: clientAuthentication.method,
+        private_key_jwt_present: clientAuthentication.private_key_jwt.present,
+        wallet_attestation_present: clientAuthentication.wallet_attestation.present,
+        wallet_attestation_pop_present: clientAuthentication.wallet_attestation_pop.present,
+      });
+
       const dpop = req.header("DPoP");
       const dpopCapture = await decodeDpopHeader(dpop);
       if (dpopCapture.jwk) {
@@ -271,7 +322,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
 
       res.json({
         format: config.credential_format,
-        credential: dummySdJwt(config),
+        credential: dummySdJwt(config, session.credential_configuration_id),
         c_nonce: randomUUID(),
         c_nonce_expires_in: config.nonce_ttl_seconds,
       });
@@ -315,7 +366,7 @@ function rawBodyCapture(req: Request, _res: express.Response, buffer: Buffer): v
   (req as Request & { rawBody?: string }).rawBody = buffer.toString("utf8");
 }
 
-function dummySdJwt(config: AppConfig): string {
+function dummySdJwt(config: AppConfig, credentialConfigurationId: string): string {
   const header = Buffer.from(JSON.stringify({ alg: "none", typ: "vc+sd-jwt" })).toString(
     "base64url",
   );
@@ -323,7 +374,7 @@ function dummySdJwt(config: AppConfig): string {
     JSON.stringify({
       iss: config.issuer_base_url,
       iat: Math.floor(Date.now() / 1000),
-      vct: config.credential_configuration_id,
+      vct: credentialConfigurationId,
       capture_only: true,
     }),
   ).toString("base64url");
