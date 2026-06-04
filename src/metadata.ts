@@ -26,6 +26,7 @@ export function credentialIssuerMetadata(config: AppConfig): unknown {
         credentialScope(config, "attestation"),
         {
           attestation: {
+            key_attestations_required: {},
             proof_signing_alg_values_supported: ["ES256"],
           },
         },
