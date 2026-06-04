@@ -50,7 +50,10 @@ describe("metadata", () => {
       jwt: { proof_signing_alg_values_supported: ["ES256"] },
     });
     expect(attestationConfiguration.proof_types_supported).toEqual({
-      attestation: { proof_signing_alg_values_supported: ["ES256"] },
+      attestation: {
+        key_attestations_required: {},
+        proof_signing_alg_values_supported: ["ES256"],
+      },
     });
   });
 

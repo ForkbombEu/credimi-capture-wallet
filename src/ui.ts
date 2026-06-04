@@ -155,6 +155,7 @@ function htmlPage({ title, body }: { title: string; body: string }): string {
     "<head>",
     '<meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
+    '<link rel="icon" type="image/svg+xml" href="https://credimi.io/logos/credimi_logo.svg">',
     "<title>",
     escapeHtml(title),
     "</title>",
@@ -164,9 +165,29 @@ function htmlPage({ title, body }: { title: string; body: string }): string {
     "</head>",
     "<body>",
     body,
+    footerHtml(),
     '<script>console.log("%cFake Issuer%c Credimi capture UI", "background:#312060;color:#fff;padding:5px 9px;font-weight:800;border-radius:6px 0 0 6px;", "background:#f1e9f7;color:#22172f;padding:5px 9px;font-weight:700;border-radius:0 6px 6px 0;");</script>',
     "</body>",
     "</html>",
+  ].join("");
+}
+
+function footerHtml(): string {
+  return [
+    '<footer class="footer">',
+    '<div class="footer-inner">',
+    '<div class="footer-content">',
+    '<div class="footer-brand">',
+    '<span class="brand-mark footer-mark">CI</span>',
+    "<p>Fake issuer for EUDI wallet metadata capture and conformance testing.</p>",
+    "</div>",
+    '<nav class="footer-links" aria-label="Project links">',
+    '<a class="footer-link" href="https://forkbomb.eu" target="_blank" rel="noreferrer">Developed by Forkbomb BV</a>',
+    '<a class="footer-link fork-link" href="https://github.com/ForkbombEu/fake-issuer" target="_blank" rel="noreferrer">Fork me on GitHub</a>',
+    "</nav>",
+    "</div>",
+    "</div>",
+    "</footer>",
   ].join("");
 }
 
@@ -189,6 +210,17 @@ function appCss(): string {
     ".brand-name { font-size: 14px; font-weight: 700; }",
     ".page-shell { min-height: calc(100vh - var(--topbar-height)); }",
     ".page-content { padding: 32px 0 64px; }",
+    ".footer { background: var(--brand-primary); color: white; padding: 32px 0; }",
+    ".footer-inner { max-width: var(--max-width); margin: 0 auto; padding: 0 24px; }",
+    ".footer-content { display: flex; align-items: center; justify-content: space-between; gap: 32px; }",
+    ".footer-brand { display: inline-flex; align-items: center; gap: 14px; min-width: 0; }",
+    ".footer-brand p { max-width: 420px; color: rgba(255,255,255,.76); font-size: 13px; line-height: 1.5; }",
+    ".footer-mark { background: white; color: var(--brand-primary); flex: 0 0 auto; }",
+    ".footer-links { display: inline-flex; align-items: center; justify-content: flex-end; gap: 12px; flex-wrap: wrap; }",
+    ".footer-link { display: inline-flex; align-items: center; min-height: 36px; padding: 0 14px; border: 1px solid rgba(255,255,255,.22); border-radius: var(--radius-md); color: white; font-size: 13px; font-weight: 700; text-decoration: none; white-space: nowrap; transition: background 150ms ease-out, border-color 150ms ease-out; }",
+    ".footer-link:hover { background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.44); }",
+    ".fork-link { background: white; color: var(--brand-primary); border-color: white; }",
+    ".fork-link:hover { background: var(--brand-secondary); border-color: var(--brand-secondary); }",
     ".hero-band { position: relative; overflow: hidden; padding: 64px 0; }",
     ".hero-band::after { content: ''; position: absolute; top: 0; right: 0; width: 300px; height: 300px; background: linear-gradient(135deg, transparent 49.5%, rgba(0,0,0,0.04) 49.5%, rgba(0,0,0,0.04) 50.5%, transparent 50.5%), linear-gradient(45deg, transparent 49.5%, rgba(0,0,0,0.04) 49.5%, rgba(0,0,0,0.04) 50.5%, transparent 50.5%); pointer-events: none; }",
     ".hero-inner { position: relative; z-index: 1; max-width: var(--max-width); margin: 0 auto; padding: 0 24px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 430px); gap: 32px; align-items: start; }",
@@ -243,7 +275,7 @@ function appCss(): string {
     ".readme-card li { margin-top: 6px; }",
     ".readme-card code { padding: 1px 4px; border-radius: var(--radius-md); background: var(--bg-muted); }",
     ".readme-card pre code { padding: 0; background: transparent; }",
-    "@media (max-width: 860px) { h1 { font-size: 32px; } h2 { font-size: 22px; } .container, .topbar-inner, .hero-inner { padding-left: 16px; padding-right: 16px; } .hero-band { padding: 40px 0; } .hero-inner, .session-layout { grid-template-columns: 1fr; } .session-header, .section-head { flex-direction: column; } .metadata-row { grid-template-columns: 1fr; } .qr-box { width: 100%; max-width: 336px; } }",
+    "@media (max-width: 860px) { h1 { font-size: 32px; } h2 { font-size: 22px; } .container, .topbar-inner, .hero-inner, .footer-inner { padding-left: 16px; padding-right: 16px; } .hero-band { padding: 40px 0; } .hero-inner, .session-layout { grid-template-columns: 1fr; } .session-header, .section-head, .footer-content { flex-direction: column; align-items: stretch; } .footer-links { justify-content: flex-start; } .metadata-row { grid-template-columns: 1fr; } .qr-box { width: 100%; max-width: 336px; } }",
   ].join("\n");
 }
 

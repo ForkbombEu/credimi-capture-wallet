@@ -23,6 +23,11 @@ describe("capture issuer server", () => {
     expect(response.text).toContain('href="/ui/help"');
     expect(response.text).toContain('target="_blank"');
     expect(response.text).toContain("Fake Issuer%c Credimi capture UI");
+    expect(response.text).toContain('href="https://credimi.io/logos/credimi_logo.svg"');
+    expect(response.text).toContain('href="https://forkbomb.eu"');
+    expect(response.text).toContain("Developed by Forkbomb BV");
+    expect(response.text).toContain('href="https://github.com/ForkbombEu/fake-issuer"');
+    expect(response.text).toContain("Fork me on GitHub");
   });
 
   it("renders README help with the GUI stylesheet", async () => {
