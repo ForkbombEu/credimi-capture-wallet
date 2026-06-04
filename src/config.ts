@@ -15,9 +15,11 @@ export const DEFAULT_CONFIG: AppConfig = {
   access_token_ttl_seconds: 600,
   nonce_ttl_seconds: 300,
   permissive_capture: true,
+  gui_enabled: true,
 };
 
 export const PORT_ENV_VAR = "PORT";
+export const GUI_ENABLED_ENV_VAR = "GUI_ENABLED";
 
 export interface InitOptions {
   issuer_base_url?: string;
@@ -74,6 +76,37 @@ function parsePortEnv(value: string): number {
   return port;
 }
 
+export function loadEnvFile(
+  path = ".env",
+  env: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  if (!existsSync(path)) return env;
+  return { ...parseEnvText(readFileSync(path, "utf8")), ...env };
+}
+
+export function parseEnvText(text: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const source = trimmed.startsWith("export ") ? trimmed.slice(7).trim() : trimmed;
+    const separator = source.indexOf("=");
+    if (separator < 1) continue;
+    const key = source.slice(0, separator).trim();
+    const rawValue = source.slice(separator + 1).trim();
+    result[key] = rawValue.replace(/^(["'])(.*)\1$/, "$2");
+  }
+  return result;
+}
+
+export function resolveGuiEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const raw = env[GUI_ENABLED_ENV_VAR]?.trim().toLowerCase();
+  if (!raw) return DEFAULT_CONFIG.gui_enabled;
+  if (["1", "true", "yes", "on"].includes(raw)) return true;
+  if (["0", "false", "no", "off"].includes(raw)) return false;
+  throw new Error(`${GUI_ENABLED_ENV_VAR} must be true or false`);
+}
+
 export function stringifyYaml(record: JsonRecord): string {
   return `${Object.entries(record)
     .map(([key, value]) => `${key}: ${JSON.stringify(value)}`)
@@ -120,14 +153,15 @@ export function privateJwkPath(dataDir: string): string {
 }
 
 export function loadConfig(dataDir = DEFAULT_CONFIG.data_dir): AppConfig {
+  const env = loadEnvFile();
   const path = configPath(dataDir);
-  if (!existsSync(path)) return DEFAULT_CONFIG;
-  const fileConfig = parseYamlConfig(readFileSync(path, "utf8"));
+  const fileConfig = existsSync(path) ? parseYamlConfig(readFileSync(path, "utf8")) : {};
   return {
     ...DEFAULT_CONFIG,
     ...fileConfig,
     issuer_base_url: normalizeBaseUrl(fileConfig.issuer_base_url ?? DEFAULT_CONFIG.issuer_base_url),
     data_dir: fileConfig.data_dir ?? dataDir,
+    gui_enabled: resolveGuiEnabled(env),
   };
 }
 

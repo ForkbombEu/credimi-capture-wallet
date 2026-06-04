@@ -12,6 +12,7 @@ export interface AppConfig {
   access_token_ttl_seconds: number;
   nonce_ttl_seconds: number;
   permissive_capture: boolean;
+  gui_enabled: boolean;
 }
 
 export interface ObservedValue<T> {

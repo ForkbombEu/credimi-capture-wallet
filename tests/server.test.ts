@@ -20,8 +20,30 @@ describe("capture issuer server", () => {
 
     expect(response.status).toBe(200);
     expect(response.text).toContain("New fake-issuance session");
+    expect(response.text).toContain('href="/ui/help"');
     expect(response.text).toContain('target="_blank"');
     expect(response.text).toContain("Fake Issuer%c Credimi capture UI");
+  });
+
+  it("renders README help with the GUI stylesheet", async () => {
+    const app = createApp(config);
+    const response = await request(app).get("/ui/help");
+
+    expect(response.status).toBe(200);
+    expect(response.text).toContain("Fake Issuer Help");
+    expect(response.text).toContain("Credimi Fake VCI Capture Issuer");
+    expect(response.text).toContain("readme-card");
+  });
+
+  it("can disable GUI routes while leaving API routes available", async () => {
+    const app = createApp({ ...config, gui_enabled: false });
+
+    expect((await request(app).get("/")).status).toBe(404);
+    expect((await request(app).get("/ui/help")).status).toBe(404);
+    expect((await request(app).post("/ui/sessions")).status).toBe(404);
+
+    const apiSession = await request(app).post("/sessions").send({});
+    expect(apiSession.status).toBe(201);
   });
 
   it("creates GUI sessions and renders a QR deeplink page", async () => {

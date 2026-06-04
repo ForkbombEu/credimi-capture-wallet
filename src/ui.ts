@@ -8,7 +8,10 @@ export function indexPage(): string {
       '<span class="brand-mark">CI</span>',
       '<span class="brand-name">Credimi Fake Issuer</span>',
       "</div>",
+      '<div class="topbar-actions">',
+      '<a class="btn btn-outline btn-md" href="/ui/help" target="_blank" rel="noreferrer">Help</a>',
       '<span class="status-chip status-issuer">local issuer</span>',
+      "</div>",
       "</div>",
       "</header>",
       '<main class="page-shell">',
@@ -52,7 +55,10 @@ export function sessionPage(sessionId: string, deeplink: string, qrSvg: string):
       '<span class="brand-mark">CI</span>',
       '<span class="brand-name">Credimi Fake Issuer</span>',
       "</a>",
+      '<div class="topbar-actions">',
+      '<a class="btn btn-outline btn-md" href="/ui/help" target="_blank" rel="noreferrer">Help</a>',
       '<span class="status-chip status-issuer" id="status-label">waiting</span>',
+      "</div>",
       "</div>",
       "</header>",
       '<main class="page-content session-page">',
@@ -120,6 +126,28 @@ export function errorPage(message: string): string {
   });
 }
 
+export function helpPage(readmeMarkdown: string): string {
+  return htmlPage({
+    title: "Fake Issuer Help",
+    body: [
+      '<header class="topbar">',
+      '<div class="topbar-inner">',
+      '<a class="brand-lockup" href="/">',
+      '<span class="brand-mark">CI</span>',
+      '<span class="brand-name">Credimi Fake Issuer</span>',
+      "</a>",
+      '<span class="status-chip status-wallet">help</span>',
+      "</div>",
+      "</header>",
+      '<main class="page-content">',
+      '<article class="card readme-card container">',
+      renderMarkdown(readmeMarkdown),
+      "</article>",
+      "</main>",
+    ].join(""),
+  });
+}
+
 function htmlPage({ title, body }: { title: string; body: string }): string {
   return [
     "<!doctype html>",
@@ -155,6 +183,7 @@ function appCss(): string {
     ".container { max-width: var(--max-width); margin: 0 auto; padding: 0 24px; }",
     ".topbar { position: sticky; top: 0; z-index: 100; height: var(--topbar-height); background: var(--bg); border-bottom: 1px solid var(--border); }",
     ".topbar-inner { max-width: var(--max-width); height: 100%; margin: 0 auto; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; gap: 24px; }",
+    ".topbar-actions { display: inline-flex; align-items: center; gap: 12px; }",
     ".brand-lockup { display: inline-flex; align-items: center; gap: 10px; color: var(--fg); text-decoration: none; }",
     ".brand-mark { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: var(--radius-md); background: var(--brand-primary); color: white; font-size: 12px; font-weight: 800; }",
     ".brand-name { font-size: 14px; font-weight: 700; }",
@@ -183,6 +212,8 @@ function appCss(): string {
     ".btn-md { min-height: 36px; padding: 0 20px; }",
     ".btn-primary { background: var(--brand-primary); color: white; }",
     ".btn-primary:hover { background: var(--brand-primary-700); }",
+    ".btn-outline { background: var(--bg); color: var(--fg); border: 1px solid var(--border); }",
+    ".btn-outline:hover { border-color: var(--border-strong); background: var(--bg-muted); }",
     ".capture-list { display: grid; gap: 12px; margin: 0; }",
     ".capture-list div { padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-muted); }",
     "dt { color: var(--fg); font-size: 13px; font-weight: 700; }",
@@ -203,8 +234,93 @@ function appCss(): string {
     ".metadata-json { min-height: 280px; max-height: 50vh; overflow: auto; margin: 0; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-muted); color: var(--fg); white-space: pre-wrap; font-size: 13px; line-height: 1.5; }",
     ".danger-panel { display: grid; gap: 20px; border-left: 3px solid var(--destructive); }",
     ".danger-panel h1 { font-size: 28px; }",
+    ".readme-card { max-width: 900px; }",
+    ".readme-card h1 { margin-bottom: 20px; }",
+    ".readme-card h2 { margin-top: 32px; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }",
+    ".readme-card h3 { margin-top: 24px; margin-bottom: 8px; font-size: 22px; line-height: 1.364; }",
+    ".readme-card p, .readme-card ul, .readme-card pre { margin-top: 12px; }",
+    ".readme-card ul { padding-left: 22px; color: var(--fg-muted); }",
+    ".readme-card li { margin-top: 6px; }",
+    ".readme-card code { padding: 1px 4px; border-radius: var(--radius-md); background: var(--bg-muted); }",
+    ".readme-card pre code { padding: 0; background: transparent; }",
     "@media (max-width: 860px) { h1 { font-size: 32px; } h2 { font-size: 22px; } .container, .topbar-inner, .hero-inner { padding-left: 16px; padding-right: 16px; } .hero-band { padding: 40px 0; } .hero-inner, .session-layout { grid-template-columns: 1fr; } .session-header, .section-head { flex-direction: column; } .metadata-row { grid-template-columns: 1fr; } .qr-box { width: 100%; max-width: 336px; } }",
   ].join("\n");
+}
+
+function renderMarkdown(markdown: string): string {
+  const html: string[] = [];
+  let listOpen = false;
+  let codeOpen = false;
+  let paragraph: string[] = [];
+
+  function flushParagraph(): void {
+    if (paragraph.length === 0) return;
+    html.push(`<p>${inlineMarkdown(paragraph.join(" "))}</p>`);
+    paragraph = [];
+  }
+
+  function closeList(): void {
+    if (!listOpen) return;
+    html.push("</ul>");
+    listOpen = false;
+  }
+
+  for (const line of markdown.split(/\r?\n/)) {
+    if (line.startsWith("```")) {
+      flushParagraph();
+      closeList();
+      if (codeOpen) {
+        html.push("</code></pre>");
+        codeOpen = false;
+      } else {
+        html.push("<pre><code>");
+        codeOpen = true;
+      }
+      continue;
+    }
+
+    if (codeOpen) {
+      html.push(escapeHtml(line), "\n");
+      continue;
+    }
+
+    const trimmed = line.trim();
+    if (!trimmed) {
+      flushParagraph();
+      closeList();
+      continue;
+    }
+
+    const heading = /^(#{1,3})\s+(.+)$/.exec(trimmed);
+    if (heading) {
+      flushParagraph();
+      closeList();
+      const level = heading[1].length;
+      html.push(`<h${level}>${inlineMarkdown(heading[2])}</h${level}>`);
+      continue;
+    }
+
+    if (trimmed.startsWith("- ")) {
+      flushParagraph();
+      if (!listOpen) {
+        html.push("<ul>");
+        listOpen = true;
+      }
+      html.push(`<li>${inlineMarkdown(trimmed.slice(2))}</li>`);
+      continue;
+    }
+
+    paragraph.push(trimmed);
+  }
+
+  flushParagraph();
+  closeList();
+  if (codeOpen) html.push("</code></pre>");
+  return html.join("");
+}
+
+function inlineMarkdown(value: string): string {
+  return escapeHtml(value).replace(/`([^`]+)`/g, "<code>$1</code>");
 }
 
 function clientScript(): string {

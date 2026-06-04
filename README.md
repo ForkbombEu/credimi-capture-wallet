@@ -1,11 +1,10 @@
 # Credimi Fake VCI Capture Issuer
 
-This project is a fake OpenID4VCI issuer for Credimi conformance work. It is not a
-production issuer. Its purpose is to drive an external Wallet through an
-authorization-code issuance flow and capture the Wallet protocol values needed by
-OpenID Foundation VCI Wallet tests.
+Credimi Fake VCI Capture Issuer is a local fake OpenID4VCI issuer for Credimi conformance work. It is not a production issuer.
 
-It captures:
+Its purpose is to drive an external Wallet through an authorization-code issuance flow and capture the Wallet protocol values needed by OpenID Foundation VCI Wallet tests.
+
+## What It Captures
 
 - Wallet OAuth `client_id`
 - Wallet `redirect_uri`
@@ -13,19 +12,23 @@ It captures:
 - DPoP public JWK when present
 - structured flow events for debugging and evidence
 
-The implementation exposes compatibility endpoints directly and keeps the
-credential response minimal so the Wallet reaches `/credential`. `@credo-ts/openid4vc`
-is declared as a project dependency for Credo-TS alignment, but capture mode uses
-thin HTTP route wrappers because the raw Wallet request values are the primary
-artifact.
+The implementation exposes compatibility endpoints directly and keeps the credential response minimal so the Wallet reaches `/credential`. `@credo-ts/openid4vc` is declared as a project dependency for Credo-TS alignment, but capture mode uses thin HTTP route wrappers because the raw Wallet request values are the primary artifact.
 
-## Install
+## Quick Start
+
+Install dependencies:
 
 ```sh
 pnpm install
 ```
 
-## Initialize
+Create local environment settings:
+
+```sh
+cp env.example .env
+```
+
+Initialize issuer state:
 
 ```sh
 pnpm fake-issuer init \
@@ -34,23 +37,41 @@ pnpm fake-issuer init \
   --credential-configuration-id urn:eu.europa.ec.eudi:pid:1
 ```
 
-Init is idempotent and writes generated issuer keys/config below `./data`, which is
-ignored by git. Use `--force` to replace existing generated state.
-
-## Run
+Start the issuer:
 
 ```sh
 pnpm dev
 ```
 
 Default local issuer URL is `http://localhost:8080`.
-Set `PORT` to override the configured listen port:
 
-```sh
-PORT=3000 pnpm dev
+## GUI
+
+The browser GUI is enabled by default.
+
+Open:
+
+```text
+http://localhost:8080/
 ```
 
-## Capture Flow
+From the launcher, click `New fake-issuance session` to open a QR session in a new tab. Scan the QR with an EUDI Wallet. The session page updates as Wallet metadata, proof keys, DPoP keys, checks, and flow events are observed.
+
+The GUI includes a `Help` button that opens the rendered project README in a new tab:
+
+```text
+http://localhost:8080/ui/help
+```
+
+Disable the GUI by setting `GUI_ENABLED=false` in `.env`:
+
+```sh
+GUI_ENABLED=false
+```
+
+When disabled, `/`, `/ui/help`, and `/ui/sessions/*` are unavailable. API endpoints remain available.
+
+## API Capture Flow
 
 Create a session:
 
@@ -103,18 +124,40 @@ Pass these captured values into the OIDF VCI Wallet conformance test:
 - `client_id`: `observed.client_id.value` from `GET /sessions/{sessionId}`
 - `redirect_uri`: `observed.redirect_uri.value` from `GET /sessions/{sessionId}`
 
+## Configuration
+
+Runtime configuration comes from generated issuer config and environment variables.
+
+### Issuer Config
+
+`pnpm fake-issuer init` is idempotent and writes generated issuer keys/config below `./data`, which is ignored by Git. Use `--force` to replace existing generated state.
+
+### Environment
+
+`.env` is loaded automatically when present and is ignored by Git. Use `env.example` as the template.
+
+Supported environment variables:
+
+- `GUI_ENABLED`: enables or disables browser GUI routes. Defaults to `true`.
+- `PORT`: overrides the configured listen port.
+
+Example:
+
+```sh
+PORT=3000 pnpm dev
+```
+
 ## Troubleshooting
 
-If `/sessions/{sessionId}/jwks` returns `wallet_jwks_not_observed`, the Wallet did
-not send a credential proof JWT with `header.jwk`. Inspect
-`/sessions/{sessionId}/events` and the session `raw.proof_headers` field to see
-whether only `kid` or `x5c` was present.
+If `/sessions/{sessionId}/jwks` returns `wallet_jwks_not_observed`, the Wallet did not send a credential proof JWT with `header.jwk`.
+
+Inspect `/sessions/{sessionId}/events` and the session `raw.proof_headers` field to see whether only `kid` or `x5c` was present.
 
 ## Validation
 
 ```sh
 task format
-task test
 task lint
+task test
 task build
 ```

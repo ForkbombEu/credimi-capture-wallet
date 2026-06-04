@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import express, { type Request } from "express";
 import QRCode from "qrcode";
 import { captureClientAuthentication } from "./client-auth.js";
@@ -14,7 +15,7 @@ import { verifyPkce } from "./pkce.js";
 import { captureProofHeaders, decodeDpopHeader, firstWalletJwks } from "./proofs.js";
 import { CaptureStore, asStringOrNull, updateObservedValue } from "./state.js";
 import type { AppConfig, JsonRecord, SessionCapture } from "./types.js";
-import { errorPage, indexPage, sessionPage } from "./ui.js";
+import { errorPage, helpPage, indexPage, sessionPage } from "./ui.js";
 
 export function createApp(config: AppConfig, store = new CaptureStore(config)): express.Express {
   const app = express();
@@ -27,45 +28,51 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
   );
   app.use(express.urlencoded({ extended: false, type: "application/x-www-form-urlencoded" }));
 
-  app.get("/", (_req, res) => {
-    res.type("html").send(indexPage());
-  });
+  if (config.gui_enabled) {
+    app.get("/", (_req, res) => {
+      res.type("html").send(indexPage());
+    });
 
-  app.post("/ui/sessions", (req, res) => {
-    const body = requestParams(req);
-    const credentialConfigurationId =
-      asStringOrNull(body.credential_configuration_id) ??
-      supportedCredentialConfigurationIds(config)[0];
-    if (!supportedCredentialConfigurationIds(config).includes(credentialConfigurationId)) {
-      return res.status(400).type("html").send(errorPage("Unsupported credential configuration"));
-    }
+    app.get("/ui/help", (_req, res) => {
+      res.type("html").send(helpPage(readFileSync("README.md", "utf8")));
+    });
 
-    const session = store.createSession(credentialConfigurationId);
-    store.addEvent(session, "credential_deeplink_generated", {});
-    return res.redirect(303, `/ui/sessions/${encodeURIComponent(session.session_id)}`);
-  });
+    app.post("/ui/sessions", (req, res) => {
+      const body = requestParams(req);
+      const credentialConfigurationId =
+        asStringOrNull(body.credential_configuration_id) ??
+        supportedCredentialConfigurationIds(config)[0];
+      if (!supportedCredentialConfigurationIds(config).includes(credentialConfigurationId)) {
+        return res.status(400).type("html").send(errorPage("Unsupported credential configuration"));
+      }
 
-  app.get("/ui/sessions/:sessionId", async (req, res, next) => {
-    try {
-      const session = store.getSession(req.params.sessionId);
-      if (!session) return res.status(404).type("html").send(errorPage("Session not found"));
-      const offer = credentialOffer(
-        config,
-        session.session_id,
-        session.credential_configuration_id,
-      );
-      const deeplink = credentialOfferDeeplink(offer);
-      const qrSvg = await QRCode.toString(deeplink, {
-        type: "svg",
-        errorCorrectionLevel: "M",
-        margin: 1,
-        width: 288,
-      });
-      return res.type("html").send(sessionPage(session.session_id, deeplink, qrSvg));
-    } catch (error) {
-      return next(error);
-    }
-  });
+      const session = store.createSession(credentialConfigurationId);
+      store.addEvent(session, "credential_deeplink_generated", {});
+      return res.redirect(303, `/ui/sessions/${encodeURIComponent(session.session_id)}`);
+    });
+
+    app.get("/ui/sessions/:sessionId", async (req, res, next) => {
+      try {
+        const session = store.getSession(req.params.sessionId);
+        if (!session) return res.status(404).type("html").send(errorPage("Session not found"));
+        const offer = credentialOffer(
+          config,
+          session.session_id,
+          session.credential_configuration_id,
+        );
+        const deeplink = credentialOfferDeeplink(offer);
+        const qrSvg = await QRCode.toString(deeplink, {
+          type: "svg",
+          errorCorrectionLevel: "M",
+          margin: 1,
+          width: 288,
+        });
+        return res.type("html").send(sessionPage(session.session_id, deeplink, qrSvg));
+      } catch (error) {
+        return next(error);
+      }
+    });
+  }
   app.get("/healthz", (_req, res) => {
     res.json({ status: "ok" });
   });
