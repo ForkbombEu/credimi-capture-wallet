@@ -3,7 +3,7 @@
 This repository is governed by `PURIA.md`.
 Agents MUST read `PURIA.md` before any action.
 `PURIA.md` is the single source of truth for agent behavior, engineering style, workflow, git rules, commits, testing, releases, and project-specific doctrine.
-`DESIGN.md` is the design source referenced by `PURIA.md`; agents MUST read it before any task that affects UI, TUI, visual identity, layout, components, typography, or colors.
+`DESIGN.md` is the design source referenced by `PURIA.md`; agents MUST read it before any task that affects UI, TUI, visual identity, layout, components, typography, or colors. If DESIGN.md is not present, skip this.
 Before doing anything, agents MUST read `PURIA.md`.
 If `PURIA.md` is missing, unreadable, or unclear:
 
