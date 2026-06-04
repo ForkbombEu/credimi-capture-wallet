@@ -10,16 +10,26 @@ export function credentialIssuerMetadata(config: AppConfig): unknown {
     credential_endpoint: `${config.issuer_base_url}/credential`,
     nonce_endpoint: `${config.issuer_base_url}/nonce`,
     credential_configurations_supported: {
-      [jwtConfigurationId]: credentialConfiguration(config, jwtConfigurationId, {
-        jwt: {
-          proof_signing_alg_values_supported: ["ES256"],
+      [jwtConfigurationId]: credentialConfiguration(
+        config,
+        jwtConfigurationId,
+        credentialScope(config, "jwt"),
+        {
+          jwt: {
+            proof_signing_alg_values_supported: ["ES256"],
+          },
         },
-      }),
-      [attestationConfigurationId]: credentialConfiguration(config, attestationConfigurationId, {
-        attestation: {
-          proof_signing_alg_values_supported: ["ES256"],
+      ),
+      [attestationConfigurationId]: credentialConfiguration(
+        config,
+        attestationConfigurationId,
+        credentialScope(config, "attestation"),
+        {
+          attestation: {
+            proof_signing_alg_values_supported: ["ES256"],
+          },
         },
-      }),
+      ),
     },
   };
 }
@@ -47,6 +57,10 @@ export function credentialConfigurationId(
   proofType: "jwt" | "attestation",
 ): string {
   return `${config.credential_configuration_id}.${proofType}`;
+}
+
+export function credentialScope(config: AppConfig, proofType: "jwt" | "attestation"): string {
+  return `${config.credential_scope}.${proofType}`;
 }
 
 export function supportedCredentialConfigurationIds(config: AppConfig): string[] {
@@ -79,11 +93,12 @@ export function credentialOfferDeeplink(offer: unknown): string {
 function credentialConfiguration(
   config: AppConfig,
   id: string,
+  scope: string,
   proofTypesSupported: Record<string, { proof_signing_alg_values_supported: string[] }>,
 ): unknown {
   return {
     format: config.credential_format,
-    scope: config.credential_scope,
+    scope,
     cryptographic_binding_methods_supported: ["jwk"],
     credential_signing_alg_values_supported: ["ES256"],
     vct: id,

@@ -66,6 +66,11 @@ curl -X POST http://localhost:8080/sessions \
   -d '{"credential_configuration_id":"urn:eu.europa.ec.eudi:pid:1.attestation"}'
 ```
 
+The issuer metadata exposes matching proof-specific scopes:
+
+- `urn:eu.europa.ec.eudi:pid:1.jwt`
+- `urn:eu.europa.ec.eudi:pid:1.attestation`
+
 Get a Wallet deeplink:
 
 ```sh

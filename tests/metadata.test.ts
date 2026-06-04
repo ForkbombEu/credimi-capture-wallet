@@ -11,11 +11,15 @@ describe("metadata", () => {
   it("advertises credential scope in issuer metadata", () => {
     const metadata = credentialIssuerMetadata(DEFAULT_CONFIG) as JsonRecord;
     const configurations = metadata.credential_configurations_supported as JsonRecord;
-    const configuration = configurations[
+    const jwtConfiguration = configurations[
       `${DEFAULT_CONFIG.credential_configuration_id}.jwt`
     ] as JsonRecord;
+    const attestationConfiguration = configurations[
+      `${DEFAULT_CONFIG.credential_configuration_id}.attestation`
+    ] as JsonRecord;
 
-    expect(configuration.scope).toBe(DEFAULT_CONFIG.credential_scope);
+    expect(jwtConfiguration.scope).toBe(`${DEFAULT_CONFIG.credential_scope}.jwt`);
+    expect(attestationConfiguration.scope).toBe(`${DEFAULT_CONFIG.credential_scope}.attestation`);
   });
 
   it("advertises the SD-JWT VC type in issuer metadata", () => {
