@@ -67,6 +67,9 @@ describe("capture issuer server", () => {
     expect(page.text).toContain("Same content as the QR code");
     expect(page.text).toContain("metadata-pending");
     expect(page.text).toContain("metadata-state-waiting");
+    expect(page.text).toContain("metadata-state-receiving");
+    expect(page.text).toContain("credentialRequestArrived");
+    expect(page.text).not.toContain("updated-label");
     expect(page.text).toContain("Wallet metadata");
   });
 
