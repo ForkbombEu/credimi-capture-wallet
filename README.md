@@ -12,7 +12,7 @@ Its purpose is to drive an external Wallet through an authorization-code issuanc
 - DPoP public JWK when present
 - structured flow events for debugging and evidence
 
-The implementation exposes compatibility endpoints directly and keeps the credential response minimal so the Wallet reaches `/credential`. `@credo-ts/openid4vc` is declared as a project dependency for Credo-TS alignment, but capture mode uses thin HTTP route wrappers because the raw Wallet request values are the primary artifact.
+The implementation exposes compatibility endpoints directly and keeps the credential response minimal so the Wallet reaches `/credential`. At the end of the flow it uses Credo-TS to issue a holder-bound EEA SD-JWT VC with demo PID claims and Credimi branding.
 
 ## Quick Start
 

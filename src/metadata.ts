@@ -1,3 +1,4 @@
+import { CREDIMI_LOGO_URL } from "./credential.js";
 import type { AppConfig } from "./types.js";
 
 export function credentialIssuerMetadata(config: AppConfig): unknown {
@@ -106,6 +107,16 @@ function credentialConfiguration(
   return {
     format: config.credential_format,
     scope,
+    display: [
+      {
+        name: "Credimi Demo PID",
+        locale: "en-US",
+        logo: {
+          uri: CREDIMI_LOGO_URL,
+          alt_text: "Credimi",
+        },
+      },
+    ],
     cryptographic_binding_methods_supported: ["jwk"],
     credential_signing_alg_values_supported: ["ES256"],
     vct: id,
