@@ -4,6 +4,7 @@ import express, { type Request } from "express";
 import QRCode from "qrcode";
 import { captureClientAuthentication } from "./client-auth.js";
 import { type InitOptions, initIssuer, loadIssuerJwks } from "./config.js";
+import { issueSdJwtCredential } from "./credential.js";
 import {
   authorizationServerMetadata,
   credentialIssuerMetadata,
@@ -371,9 +372,28 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         };
       }
 
+      const holderJwk = wallet.jwks?.keys[0];
+      if (!holderJwk) {
+        return res.status(400).json({
+          error: "invalid_proof",
+          error_description: "Credential proof JWT must contain a public JWK",
+        });
+      }
+
+      const credential = await issueSdJwtCredential({
+        config,
+        credentialConfigurationId: session.credential_configuration_id,
+        holderJwk,
+      });
+      session.status = "credential_issued";
+      store.addEvent(session, "credential_issued", {
+        format: config.credential_format,
+        credential_configuration_id: session.credential_configuration_id,
+      });
+
       res.json({
         format: config.credential_format,
-        credential: dummySdJwt(config, session.credential_configuration_id),
+        credential,
         c_nonce: randomUUID(),
         c_nonce_expires_in: config.nonce_ttl_seconds,
       });
@@ -415,19 +435,4 @@ function queryToRecord(query: Request["query"]): JsonRecord {
 
 function rawBodyCapture(req: Request, _res: express.Response, buffer: Buffer): void {
   (req as Request & { rawBody?: string }).rawBody = buffer.toString("utf8");
-}
-
-function dummySdJwt(config: AppConfig, credentialConfigurationId: string): string {
-  const header = Buffer.from(JSON.stringify({ alg: "none", typ: "vc+sd-jwt" })).toString(
-    "base64url",
-  );
-  const payload = Buffer.from(
-    JSON.stringify({
-      iss: config.issuer_base_url,
-      iat: Math.floor(Date.now() / 1000),
-      vct: credentialConfigurationId,
-      capture_only: true,
-    }),
-  ).toString("base64url");
-  return `${header}.${payload}.`;
 }

@@ -1,17 +1,37 @@
 import { createHash } from "node:crypto";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { DidJwk, Kms } from "@credo-ts/core";
 import type { Express } from "express";
+import { compactVerify, importJWK } from "jose";
 import request from "supertest";
-import { describe, expect, it } from "vitest";
-import { DEFAULT_CONFIG } from "../src/config.js";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { DEFAULT_CONFIG, initIssuer } from "../src/config.js";
+import { CREDIMI_LOGO_URL, CREDIMI_WEBSITE } from "../src/credential.js";
 import { createApp } from "../src/server.js";
 import type { JsonRecord, SessionCapture } from "../src/types.js";
 import { unsignedJwt } from "./helpers.js";
 
+const dataDir = mkdtempSync(join(tmpdir(), "fake-issuer-test-"));
 const config = {
   ...DEFAULT_CONFIG,
   issuer_base_url: "http://issuer.example.test",
-  data_dir: "./data-test",
+  data_dir: dataDir,
 };
+
+beforeAll(async () => {
+  await initIssuer({
+    issuer_base_url: config.issuer_base_url,
+    data_dir: dataDir,
+    credential_configuration_id: config.credential_configuration_id,
+    force: true,
+  });
+});
+
+afterAll(() => {
+  rmSync(dataDir, { recursive: true, force: true });
+});
 
 describe("capture issuer server", () => {
   it("serves a launcher button that opens new GUI sessions in a new tab", async () => {
@@ -172,6 +192,34 @@ describe("capture issuer server", () => {
       .send({ proof: { proof_type: "jwt", jwt: proof } });
 
     expect(credential.status).toBe(200);
+    expect(credential.body.format).toBe("dc+sd-jwt");
+    const compactSdJwt = credential.body.credential as string;
+    expect(compactSdJwt.split("~").length).toBeGreaterThan(2);
+    const issuerJwt = compactSdJwt.split("~")[0];
+    const issuerPayload = JSON.parse(
+      Buffer.from(issuerJwt.split(".")[1], "base64url").toString("utf8"),
+    ) as JsonRecord;
+    const issuerDid = DidJwk.fromDid(String(issuerPayload.iss));
+    const verified = await compactVerify(
+      issuerJwt,
+      await importJWK(issuerDid.publicJwk.toJson(), "ES256"),
+    );
+    expect(verified.protectedHeader).toMatchObject({ alg: "ES256", typ: "dc+sd-jwt" });
+
+    const decoded = new (await import("@credo-ts/core")).SdJwtVcService({} as never).fromCompact(
+      compactSdJwt,
+    );
+    expect(decoded.prettyClaims).toMatchObject({
+      vct: session.credential_configuration_id,
+      given_name: "Jane",
+      family_name: "Doe",
+      website: CREDIMI_WEBSITE,
+      logo_uri: CREDIMI_LOGO_URL,
+      cnf: { jwk },
+    });
+    expect(decoded.holder?.method).toBe("jwk");
+    if (decoded.holder?.method !== "jwk") throw new Error("expected JWK holder binding");
+    expect(Kms.PublicJwk.fromUnknown(jwk).equals(decoded.holder.jwk)).toBe(true);
     const walletJwks = await getJson<JwksResponse>(app, `/sessions/${session.session_id}/jwks`);
     expect(walletJwks.keys).toHaveLength(1);
     expect(walletJwks.keys[0]).toMatchObject({ ...jwk, alg: "ES256", use: "sig" });
@@ -179,6 +227,17 @@ describe("capture issuer server", () => {
     const capture = await getJson<SessionCapture>(app, `/sessions/${session.session_id}`);
     expect(capture.checks.pkce_valid).toBe(true);
     expect(capture.checks.proof_jwt_header_jwk_present).toBe(true);
+    expect(capture.status).toBe("credential_issued");
+  });
+
+  it("rejects credential issuance when the proof does not expose a holder JWK", async () => {
+    const app = createApp(config);
+    const response = await request(app)
+      .post("/credential")
+      .send({ proof: { proof_type: "jwt", jwt: unsignedJwt({ alg: "ES256", kid: "key-1" }) } });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({ error: "invalid_proof" });
   });
 
   it("captures wallet attestation client authentication on token requests", async () => {

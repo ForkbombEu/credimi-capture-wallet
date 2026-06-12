@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CONFIG } from "../src/config.js";
+import { CREDIMI_LOGO_URL } from "../src/credential.js";
 import {
   authorizationServerMetadata,
   credentialIssuerMetadata,
@@ -30,6 +31,13 @@ describe("metadata", () => {
     ] as JsonRecord;
 
     expect(configuration.vct).toBe(`${DEFAULT_CONFIG.credential_configuration_id}.jwt`);
+    expect(configuration.display).toEqual([
+      {
+        name: "Credimi Demo PID",
+        locale: "en-US",
+        logo: { uri: CREDIMI_LOGO_URL, alt_text: "Credimi" },
+      },
+    ]);
   });
 
   it("advertises separate credential configurations for jwt and attestation proofs", () => {
