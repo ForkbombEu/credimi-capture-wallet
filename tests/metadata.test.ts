@@ -5,6 +5,7 @@ import {
   authorizationServerMetadata,
   credentialIssuerMetadata,
   credentialOffer,
+  jwtVcIssuerMetadata,
 } from "../src/metadata.js";
 import type { JsonRecord } from "../src/types.js";
 
@@ -76,6 +77,15 @@ describe("metadata", () => {
     expect(metadata.token_endpoint_auth_signing_alg_values_supported).toEqual(["ES256"]);
     expect(metadata.client_attestation_signing_alg_values_supported).toEqual(["ES256"]);
     expect(metadata.client_attestation_pop_signing_alg_values_supported).toEqual(["ES256"]);
+  });
+
+  it("advertises JWT VC issuer metadata for the HTTPS issuer identifier", () => {
+    const metadata = jwtVcIssuerMetadata(DEFAULT_CONFIG) as JsonRecord;
+
+    expect(metadata).toEqual({
+      issuer: DEFAULT_CONFIG.issuer_base_url,
+      jwks_uri: `${DEFAULT_CONFIG.issuer_base_url}/jwks.json`,
+    });
   });
 
   it("does not put scope inside authorization_code credential offers", () => {

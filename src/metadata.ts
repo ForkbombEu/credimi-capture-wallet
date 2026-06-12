@@ -54,6 +54,13 @@ export function authorizationServerMetadata(config: AppConfig): unknown {
   };
 }
 
+export function jwtVcIssuerMetadata(config: AppConfig): unknown {
+  return {
+    issuer: config.issuer_base_url,
+    jwks_uri: `${config.issuer_base_url}/jwks.json`,
+  };
+}
+
 export function credentialConfigurationId(
   config: AppConfig,
   proofType: "jwt" | "attestation",

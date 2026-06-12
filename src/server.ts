@@ -10,6 +10,7 @@ import {
   credentialIssuerMetadata,
   credentialOffer,
   credentialOfferDeeplink,
+  jwtVcIssuerMetadata,
   supportedCredentialConfigurationIds,
 } from "./metadata.js";
 import { verifyPkce } from "./pkce.js";
@@ -84,6 +85,10 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
 
   app.get("/.well-known/oauth-authorization-server", (_req, res) => {
     res.json(authorizationServerMetadata(config));
+  });
+
+  app.get("/.well-known/jwt-vc-issuer", (_req, res) => {
+    res.json(jwtVcIssuerMetadata(config));
   });
 
   app.get("/jwks.json", (_req, res) => {
@@ -416,6 +421,7 @@ export function initSummary(config: AppConfig): JsonRecord {
     issuer_base_url: config.issuer_base_url,
     credential_issuer_metadata_url: `${config.issuer_base_url}/.well-known/openid-credential-issuer`,
     authorization_server_metadata_url: `${config.issuer_base_url}/.well-known/oauth-authorization-server`,
+    jwt_vc_issuer_metadata_url: `${config.issuer_base_url}/.well-known/jwt-vc-issuer`,
     jwks_url: `${config.issuer_base_url}/jwks.json`,
     health_url: `${config.issuer_base_url}/healthz`,
   };

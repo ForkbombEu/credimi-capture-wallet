@@ -1,7 +1,11 @@
+import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { CredoWebCrypto, Kms, X509Certificate, X509KeyUsage } from "@credo-ts/core";
 import { exportJWK, generateKeyPair } from "jose";
 import type { AppConfig, JsonRecord } from "./types.js";
+
+export const ISSUER_KEY_ID = "credimi-fake-issuer-key";
 
 export const DEFAULT_CONFIG: AppConfig = {
   issuer_base_url: "http://localhost:8080",
@@ -152,6 +156,10 @@ export function privateJwkPath(dataDir: string): string {
   return join(dataDir, "issuer-private-jwk.json");
 }
 
+export function issuerCertificatePath(dataDir: string): string {
+  return join(dataDir, "issuer-certificate.pem");
+}
+
 export function loadConfig(dataDir = DEFAULT_CONFIG.data_dir): AppConfig {
   const env = loadEnvFile();
   const path = configPath(dataDir);
@@ -181,8 +189,12 @@ export async function initIssuer(options: InitOptions): Promise<AppConfig> {
   const cfgPath = configPath(dataDir);
   const publicPath = jwksPath(dataDir);
   const secretPath = privateJwkPath(dataDir);
+  const certificatePath = issuerCertificatePath(dataDir);
 
   if (!force && existsSync(cfgPath) && existsSync(publicPath) && existsSync(secretPath)) {
+    if (!existsSync(certificatePath)) {
+      await writeIssuerCertificate(certificatePath, loadConfig(dataDir));
+    }
     return loadConfig(dataDir);
   }
 
@@ -192,8 +204,10 @@ export async function initIssuer(options: InitOptions): Promise<AppConfig> {
     const privateJwk = await exportJWK(privateKey);
     publicJwk.alg = "ES256";
     publicJwk.use = "sig";
+    publicJwk.kid = ISSUER_KEY_ID;
     privateJwk.alg = "ES256";
     privateJwk.use = "sig";
+    privateJwk.kid = ISSUER_KEY_ID;
     writeJson(publicPath, { keys: [publicJwk] });
     writeJson(secretPath, privateJwk);
   }
@@ -202,13 +216,87 @@ export async function initIssuer(options: InitOptions): Promise<AppConfig> {
     writeFileSync(cfgPath, stringifyYaml(config as unknown as JsonRecord), { mode: 0o600 });
   }
 
-  return loadConfig(dataDir);
+  const loadedConfig = loadConfig(dataDir);
+  if (force || !existsSync(certificatePath)) {
+    await writeIssuerCertificate(certificatePath, loadedConfig);
+  }
+
+  return loadedConfig;
 }
 
 export function loadIssuerJwks(config: AppConfig): { keys: JsonRecord[] } {
   const path = jwksPath(config.data_dir);
   if (!existsSync(path)) return { keys: [] };
   return JSON.parse(readFileSync(path, "utf8")) as { keys: JsonRecord[] };
+}
+
+export function loadIssuerCertificate(config: AppConfig): X509Certificate {
+  return X509Certificate.fromEncodedCertificate(
+    readFileSync(issuerCertificatePath(config.data_dir), "utf8"),
+  );
+}
+
+async function writeIssuerCertificate(path: string, config: AppConfig): Promise<void> {
+  const privateJwk = JSON.parse(
+    readFileSync(privateJwkPath(config.data_dir), "utf8"),
+  ) as JsonRecord;
+  const publicJwk = Kms.PublicJwk.fromUnknown(toPublicJwk(privateJwk));
+  publicJwk.keyId = ISSUER_KEY_ID;
+  const certificate = await X509Certificate.create(
+    {
+      authorityKey: publicJwk,
+      issuer: {
+        commonName: new URL(config.issuer_base_url).hostname,
+        organizationalUnit: "Credimi Fake Issuer",
+      },
+      validity: {
+        notBefore: new Date("2024-01-01T00:00:00Z"),
+        notAfter: new Date("2034-01-01T00:00:00Z"),
+      },
+      extensions: {
+        subjectKeyIdentifier: { include: true },
+        authorityKeyIdentifier: { include: true },
+        keyUsage: { usages: [X509KeyUsage.DigitalSignature] },
+        subjectAlternativeName: {
+          name: [
+            { type: "url", value: config.issuer_base_url },
+            { type: "dns", value: new URL(config.issuer_base_url).hostname },
+          ],
+        },
+        basicConstraints: { ca: false },
+      },
+    },
+    new CredoWebCrypto(createSigningContext(privateJwk) as never),
+  );
+  certificate.keyId = ISSUER_KEY_ID;
+  writeFileSync(path, certificate.toString("pem"), { mode: 0o600 });
+}
+
+function toPublicJwk(privateJwk: JsonRecord): JsonRecord {
+  const { d: _d, ...publicJwk } = privateJwk;
+  return publicJwk;
+}
+
+function createSigningContext(privateJwk: JsonRecord): object {
+  const kms = {
+    randomBytes: ({ length }: { length: number }) => randomBytes(length),
+    sign: async ({ keyId, data }: { keyId: string; data: Uint8Array }) => {
+      if (keyId !== ISSUER_KEY_ID) throw new Error(`Unknown issuer key id '${keyId}'`);
+      const { createPrivateKey, sign } = await import("node:crypto");
+      return {
+        signature: sign("sha256", data, {
+          key: createPrivateKey({ key: privateJwk as never, format: "jwk" }),
+          dsaEncoding: "ieee-p1363",
+        }),
+      };
+    },
+  };
+  const resolve = (token: unknown) => {
+    if (token === Kms.KeyManagementApi) return kms;
+    throw new Error("Unsupported Credo dependency requested while creating issuer certificate");
+  };
+
+  return { resolve, dependencyManager: { resolve } };
 }
 
 function writeJson(path: string, value: unknown): void {

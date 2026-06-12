@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DidJwk, Kms } from "@credo-ts/core";
+import { Kms, X509Certificate } from "@credo-ts/core";
 import type { Express } from "express";
 import { compactVerify, importJWK } from "jose";
 import request from "supertest";
@@ -199,12 +199,23 @@ describe("capture issuer server", () => {
     const issuerPayload = JSON.parse(
       Buffer.from(issuerJwt.split(".")[1], "base64url").toString("utf8"),
     ) as JsonRecord;
-    const issuerDid = DidJwk.fromDid(String(issuerPayload.iss));
+    const issuerHeader = JSON.parse(
+      Buffer.from(issuerJwt.split(".")[0], "base64url").toString("utf8"),
+    ) as JsonRecord;
+    const issuerCertificate = X509Certificate.fromEncodedCertificate(
+      (issuerHeader.x5c as string[])[0],
+    );
     const verified = await compactVerify(
       issuerJwt,
-      await importJWK(issuerDid.publicJwk.toJson(), "ES256"),
+      await importJWK(issuerCertificate.publicJwk.toJson(), "ES256"),
     );
-    expect(verified.protectedHeader).toMatchObject({ alg: "ES256", typ: "dc+sd-jwt" });
+    expect(issuerPayload.iss).toBe(config.issuer_base_url);
+    expect(issuerPayload.iss).not.toMatch(/^did:/);
+    expect(verified.protectedHeader).toMatchObject({
+      alg: "ES256",
+      typ: "dc+sd-jwt",
+      x5c: expect.any(Array),
+    });
 
     const decoded = new (await import("@credo-ts/core")).SdJwtVcService({} as never).fromCompact(
       compactSdJwt,
