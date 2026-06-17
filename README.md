@@ -71,6 +71,97 @@ GUI_ENABLED=false
 
 When disabled, `/`, `/ui/help`, and `/ui/sessions/*` are unavailable. API endpoints remain available.
 
+## Hosted REST API
+
+The deployed capture issuer is available at:
+
+```text
+https://capture-wallet.credimi.io
+```
+
+Use the REST API to create a wallet capture session, hand the returned deeplink to a Wallet, and retrieve the values observed during the OpenID4VCI issuance flow. The service is intended for test and conformance workflows, not production credential issuance.
+
+Set the base URL once for shell examples:
+
+```sh
+BASE_URL=https://capture-wallet.credimi.io
+```
+
+Check service health:
+
+```sh
+curl "$BASE_URL/healthz"
+```
+
+Fetch issuer metadata:
+
+```sh
+curl "$BASE_URL/.well-known/openid-credential-issuer"
+curl "$BASE_URL/.well-known/oauth-authorization-server"
+curl "$BASE_URL/.well-known/jwt-vc-issuer"
+curl "$BASE_URL/jwks.json"
+```
+
+Create a capture session with the default credential configuration:
+
+```sh
+curl -X POST "$BASE_URL/sessions"
+```
+
+Create a capture session for a specific credential configuration:
+
+```sh
+curl -X POST "$BASE_URL/sessions" \
+  -H 'Content-Type: application/json' \
+  -d '{"credential_configuration_id":"urn:eu.europa.ec.eudi:pid:1.attestation"}'
+```
+
+A successful response returns HTTP 201 and includes:
+
+```json
+{
+  "session_id": "...",
+  "credential_configuration_id": "urn:eu.europa.ec.eudi:pid:1.attestation",
+  "offer_url": "https://capture-wallet.credimi.io/sessions/.../offer",
+  "deeplink": "openid-credential-offer://...",
+  "status": "created"
+}
+```
+
+Open or transmit the returned `deeplink` to the Wallet under test. The Wallet will call the issuer metadata, PAR, authorization, token, nonce, and credential endpoints directly during the OpenID4VCI flow.
+
+Retrieve the deeplink again when needed:
+
+```sh
+curl "$BASE_URL/sessions/{sessionId}/deeplink"
+```
+
+Retrieve the normalized capture object:
+
+```sh
+curl "$BASE_URL/sessions/{sessionId}"
+```
+
+Retrieve event evidence for debugging or conformance records:
+
+```sh
+curl "$BASE_URL/sessions/{sessionId}/events"
+```
+
+Retrieve the captured Wallet holder-binding JWKS after the Wallet has called `/credential` with a proof JWT containing `header.jwk`:
+
+```sh
+curl "$BASE_URL/sessions/{sessionId}/jwks"
+```
+
+If the JWKS is not ready, the service returns HTTP 409 with `wallet_jwks_not_observed`. In that case, inspect the session object and event evidence to confirm whether the Wallet sent only `kid`, `x5c`, or no proof JWT header key material.
+
+For OIDF VCI Wallet conformance tests, use these captured values:
+
+- JWKS: response from `GET /sessions/{sessionId}/jwks`
+- `client_id`: `observed.client_id.value` from `GET /sessions/{sessionId}`
+- `redirect_uri`: `observed.redirect_uri.value` from `GET /sessions/{sessionId}`
+
 ## API Capture Flow
 
 Create a session:
@@ -152,6 +243,10 @@ PORT=3000 pnpm dev
 If `/sessions/{sessionId}/jwks` returns `wallet_jwks_not_observed`, the Wallet did not send a credential proof JWT with `header.jwk`.
 
 Inspect `/sessions/{sessionId}/events` and the session `raw.proof_headers` field to see whether only `kid` or `x5c` was present.
+
+## License
+
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE).
 
 ## Validation
 
