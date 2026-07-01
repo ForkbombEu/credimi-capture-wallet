@@ -41,7 +41,10 @@ describe("capture issuer server", () => {
     expect(response.status).toBe(200);
     expect(response.text).toContain("New fake-issuance session");
     expect(response.text).toContain(
-      '<span class="status-chip status-issuer">local issuer</span><a class="btn btn-outline btn-md" href="https://github.com/ForkbombEu/fake-issuer/blob/master/README.md"',
+      '<img class="brand-logo" src="/assets/credimi_logo.svg" alt="" aria-hidden="true"><span class="brand-name">Wallet metadata capture</span>',
+    );
+    expect(response.text).toContain(
+      '<span class="status-chip status-issuer">ISSUER READY</span><a class="btn btn-outline btn-md" href="https://github.com/ForkbombEu/fake-issuer/blob/master/README.md"',
     );
     expect(response.text).toContain('target="_blank"');
     expect(response.text).toContain("Fake Issuer%c Credimi capture UI");
@@ -50,6 +53,15 @@ describe("capture issuer server", () => {
     expect(response.text).toContain("Developed by Forkbomb BV");
     expect(response.text).toContain('href="https://github.com/ForkbombEu/fake-issuer"');
     expect(response.text).toContain("Fork me on GitHub");
+  });
+
+  it("serves the Credimi logo asset for the launcher topbar", async () => {
+    const app = createApp(config);
+    const response = await request(app).get("/assets/credimi_logo.svg");
+
+    expect(response.status).toBe(200);
+    expect(response.type).toBe("image/svg+xml");
+    expect(response.body.toString("utf8")).toContain("<svg");
   });
 
   it("renders README help with the GUI stylesheet", async () => {
