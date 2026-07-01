@@ -43,6 +43,12 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       res.type("image/svg+xml").send(readFileSync("src/design/logo/credimi_logo.svg", "utf8"));
     });
 
+    app.get("/assets/credimi_logo_negative.svg", (_req, res) => {
+      res
+        .type("image/svg+xml")
+        .send(readFileSync("src/design/logo/credimi_logo_negative.svg", "utf8"));
+    });
+
     app.post("/ui/sessions", (req, res) => {
       const body = requestParams(req);
       const credentialConfigurationId =

@@ -53,11 +53,23 @@ describe("capture issuer server", () => {
     expect(response.text).toContain("Developed by Forkbomb BV");
     expect(response.text).toContain('href="https://github.com/ForkbombEu/fake-issuer"');
     expect(response.text).toContain("Fork me on GitHub");
+    expect(response.text).toContain(
+      '<img class="footer-logo" src="/assets/credimi_logo_negative.svg" alt="" aria-hidden="true">',
+    );
   });
 
   it("serves the Credimi logo asset for the launcher topbar", async () => {
     const app = createApp(config);
     const response = await request(app).get("/assets/credimi_logo.svg");
+
+    expect(response.status).toBe(200);
+    expect(response.type).toBe("image/svg+xml");
+    expect(response.body.toString("utf8")).toContain("<svg");
+  });
+
+  it("serves the negative Credimi logo asset for the footer", async () => {
+    const app = createApp(config);
+    const response = await request(app).get("/assets/credimi_logo_negative.svg");
 
     expect(response.status).toBe(200);
     expect(response.type).toBe("image/svg+xml");
@@ -70,6 +82,9 @@ describe("capture issuer server", () => {
 
     expect(response.status).toBe(200);
     expect(response.text).toContain("Fake Issuer Help");
+    expect(response.text).toContain(
+      '<img class="brand-logo" src="/assets/credimi_logo.svg" alt="" aria-hidden="true"><span class="brand-name">Wallet metadata capture</span>',
+    );
     expect(response.text).toContain("Credimi Fake VCI Capture Issuer");
     expect(response.text).toContain("readme-card");
   });
@@ -97,6 +112,9 @@ describe("capture issuer server", () => {
     expect(page.text).toContain("<svg");
     expect(page.text).toContain("openid-credential-offer://");
     expect(page.text).toContain("Scan with an EUDI Wallet");
+    expect(page.text).toContain(
+      '<img class="brand-logo" src="/assets/credimi_logo.svg" alt="" aria-hidden="true"><span class="brand-name">Wallet metadata capture</span>',
+    );
     expect(page.text).toContain("Scan the offer and accept it in the wallet");
     expect(page.text).toContain("Same content as the QR code");
     expect(page.text).toContain("metadata-pending");
