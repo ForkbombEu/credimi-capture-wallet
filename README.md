@@ -113,7 +113,7 @@ Create a capture session for a specific credential configuration:
 ```sh
 curl -X POST "$BASE_URL/sessions" \
   -H 'Content-Type: application/json' \
-  -d '{"credential_configuration_id":"urn:eu.europa.ec.eudi:pid:1.attestation"}'
+  -d '{"credential_configuration_id":"urn:eu.europa.ec.eudi:pid:1.mdoc.jwt"}'
 ```
 
 A successful response returns HTTP 201 and includes:
@@ -121,7 +121,7 @@ A successful response returns HTTP 201 and includes:
 ```json
 {
   "session_id": "...",
-  "credential_configuration_id": "urn:eu.europa.ec.eudi:pid:1.attestation",
+  "credential_configuration_id": "urn:eu.europa.ec.eudi:pid:1.mdoc.jwt",
   "offer_url": "https://capture-wallet.credimi.io/sessions/.../offer",
   "deeplink": "openid-credential-offer://...",
   "status": "created"
@@ -175,13 +175,13 @@ Choose a specific credential configuration for the offer:
 ```sh
 curl -X POST http://localhost:8080/sessions \
   -H 'Content-Type: application/json' \
-  -d '{"credential_configuration_id":"urn:eu.europa.ec.eudi:pid:1.attestation"}'
+  -d '{"credential_configuration_id":"urn:eu.europa.ec.eudi:pid:1.mdoc.jwt"}'
 ```
 
 The issuer metadata exposes matching proof-specific scopes:
 
 - `urn:eu.europa.ec.eudi:pid:1.jwt`
-- `urn:eu.europa.ec.eudi:pid:1.attestation`
+- `urn:eu.europa.ec.eudi:pid:1.mdoc.jwt`
 
 Get a Wallet deeplink:
 

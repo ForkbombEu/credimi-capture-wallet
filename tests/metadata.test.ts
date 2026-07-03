@@ -19,15 +19,11 @@ describe("metadata", () => {
     const jwtConfiguration = configurations[
       `${DEFAULT_CONFIG.credential_configuration_id}.jwt`
     ] as JsonRecord;
-    const attestationConfiguration = configurations[
-      `${DEFAULT_CONFIG.credential_configuration_id}.attestation`
-    ] as JsonRecord;
     const mdocConfiguration = configurations[
       mdocCredentialConfigurationId(DEFAULT_CONFIG)
     ] as JsonRecord;
 
     expect(jwtConfiguration.scope).toBe(`${DEFAULT_CONFIG.credential_scope}.jwt`);
-    expect(attestationConfiguration.scope).toBe(`${DEFAULT_CONFIG.credential_scope}.attestation`);
     expect(mdocConfiguration.scope).toBe(`${DEFAULT_CONFIG.credential_scope}.mdoc.jwt`);
   });
 
@@ -55,14 +51,11 @@ describe("metadata", () => {
     });
   });
 
-  it("advertises separate credential configurations for jwt and attestation proofs", () => {
+  it("advertises the supported JWT proof credential configurations", () => {
     const metadata = credentialIssuerMetadata(DEFAULT_CONFIG) as JsonRecord;
     const configurations = metadata.credential_configurations_supported as JsonRecord;
     const jwtConfiguration = configurations[
       `${DEFAULT_CONFIG.credential_configuration_id}.jwt`
-    ] as JsonRecord;
-    const attestationConfiguration = configurations[
-      `${DEFAULT_CONFIG.credential_configuration_id}.attestation`
     ] as JsonRecord;
     const mdocConfiguration = configurations[
       mdocCredentialConfigurationId(DEFAULT_CONFIG)
@@ -70,7 +63,6 @@ describe("metadata", () => {
 
     expect(Object.keys(configurations)).toEqual([
       `${DEFAULT_CONFIG.credential_configuration_id}.jwt`,
-      `${DEFAULT_CONFIG.credential_configuration_id}.attestation`,
       mdocCredentialConfigurationId(DEFAULT_CONFIG),
     ]);
     expect(jwtConfiguration.proof_types_supported).toEqual({
@@ -78,12 +70,6 @@ describe("metadata", () => {
     });
     expect(jwtConfiguration.cryptographic_binding_methods_supported).toEqual(["jwk"]);
     expect(jwtConfiguration.credential_signing_alg_values_supported).toEqual(["ES256"]);
-    expect(attestationConfiguration.proof_types_supported).toEqual({
-      attestation: {
-        key_attestations_required: {},
-        proof_signing_alg_values_supported: ["ES256"],
-      },
-    });
     expect(mdocConfiguration.proof_types_supported).toEqual({
       jwt: { proof_signing_alg_values_supported: ["ES256"] },
     });
@@ -145,13 +131,13 @@ describe("metadata", () => {
     const offer = credentialOffer(
       DEFAULT_CONFIG,
       "session-id",
-      `${DEFAULT_CONFIG.credential_configuration_id}.attestation`,
+      mdocCredentialConfigurationId(DEFAULT_CONFIG),
     ) as JsonRecord;
     const grants = offer.grants as JsonRecord;
     const authorizationCode = grants.authorization_code as JsonRecord;
 
     expect(offer.credential_configuration_ids).toEqual([
-      `${DEFAULT_CONFIG.credential_configuration_id}.attestation`,
+      mdocCredentialConfigurationId(DEFAULT_CONFIG),
     ]);
     expect(authorizationCode).toEqual({ issuer_state: "session-id" });
   });

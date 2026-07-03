@@ -96,13 +96,6 @@ export function supportedCredentials(config: AppConfig): SupportedCredential[] {
       displayName: "Credimi Demo PID (SD-JWT VC, proof JWT)",
     },
     {
-      id: credentialConfigurationId(config, "attestation"),
-      scope: credentialScope(config, "attestation"),
-      format: "dc+sd-jwt",
-      proofType: "attestation",
-      displayName: "Credimi Demo PID (SD-JWT VC, wallet attestation)",
-    },
-    {
       id: mdocCredentialConfigurationId(config),
       scope: `${config.credential_scope}.mdoc.jwt`,
       format: "mso_mdoc",

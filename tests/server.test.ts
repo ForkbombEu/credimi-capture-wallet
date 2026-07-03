@@ -149,7 +149,7 @@ describe("capture issuer server", () => {
   });
   it("creates session offers for the requested credential configuration", async () => {
     const app = createApp(config);
-    const requestedCredentialConfigurationId = `${config.credential_configuration_id}.attestation`;
+    const requestedCredentialConfigurationId = mdocCredentialConfigurationId(config);
 
     const session = await postJson<SessionCreateResponse>(app, "/sessions", {
       credential_configuration_id: requestedCredentialConfigurationId,
