@@ -171,16 +171,18 @@ function credentialConfiguration(
   const common = {
     format: credential.format,
     scope: credential.scope,
-    display: [
-      {
-        name: credential.displayName,
-        locale: "en-US",
-        logo: {
-          uri: CREDIMI_LOGO_URL,
-          alt_text: "Credimi",
+    credential_metadata: {
+      display: [
+        {
+          name: credential.displayName,
+          locale: "en-US",
+          logo: {
+            uri: CREDIMI_LOGO_URL,
+            alt_text: "Credimi",
+          },
         },
-      },
-    ],
+      ],
+    },
     cryptographic_binding_methods_supported: ["jwk"],
     credential_signing_alg_values_supported: ["ES256"],
     proof_types_supported: proofTypesSupported,
@@ -190,16 +192,19 @@ function credentialConfiguration(
     return {
       ...common,
       doctype: PID_MDOC_DOCTYPE,
-      claims: {
-        [PID_MDOC_NAMESPACE]: {
-          family_name: {},
-          given_name: {},
-          birth_date: {},
-          issuing_country: {},
-          issuing_authority: {},
-          document_number: {},
-          website: {},
-          logo_uri: {},
+      credential_metadata: {
+        ...common.credential_metadata,
+        claims: {
+          [PID_MDOC_NAMESPACE]: {
+            family_name: {},
+            given_name: {},
+            birth_date: {},
+            issuing_country: {},
+            issuing_authority: {},
+            document_number: {},
+            website: {},
+            logo_uri: {},
+          },
         },
       },
     };

@@ -37,9 +37,11 @@ describe("metadata", () => {
     const configuration = configurations[
       `${DEFAULT_CONFIG.credential_configuration_id}.jwt`
     ] as JsonRecord;
+    const credentialMetadata = configuration.credential_metadata as JsonRecord;
 
     expect(configuration.vct).toBe(`${DEFAULT_CONFIG.credential_configuration_id}.jwt`);
-    expect(configuration.display).toEqual([
+    expect(configuration.display).toBeUndefined();
+    expect(credentialMetadata.display).toEqual([
       {
         name: "Credimi Demo PID (SD-JWT VC, proof JWT)",
         locale: "en-US",
@@ -86,11 +88,14 @@ describe("metadata", () => {
     const configuration = configurations[
       mdocCredentialConfigurationId(DEFAULT_CONFIG)
     ] as JsonRecord;
-    const claims = configuration.claims as JsonRecord;
+    const credentialMetadata = configuration.credential_metadata as JsonRecord;
+    const claims = credentialMetadata.claims as JsonRecord;
 
     expect(configuration.format).toBe("mso_mdoc");
     expect(configuration.doctype).toBe(PID_MDOC_DOCTYPE);
-    expect(configuration.display).toEqual([
+    expect(configuration.display).toBeUndefined();
+    expect(configuration.claims).toBeUndefined();
+    expect(credentialMetadata.display).toEqual([
       {
         name: "Credimi Demo PID (MDOC, proof JWT)",
         locale: "en-US",
