@@ -1,6 +1,6 @@
 import { createHash, createPrivateKey, randomBytes, sign } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { Document, MDoc, type MdocContext } from "@animo-id/mdoc";
+import { Document, type MdocContext, cborEncode } from "@animo-id/mdoc";
 import { Kms, SdJwtVcService } from "@credo-ts/core";
 import {
   ISSUER_KEY_ID,
@@ -99,7 +99,10 @@ export async function issueMdocCredential(options: {
       context,
     );
 
-  return Buffer.from(new MDoc([document]).encode()).toString("base64url");
+  const issuerSigned = document.prepare().get("issuerSigned");
+  if (!issuerSigned) throw new Error("MDOC issuer-signed structure was not generated");
+
+  return Buffer.from(cborEncode(issuerSigned)).toString("base64url");
 }
 
 function loadPrivateJwk(config: AppConfig): JsonRecord {

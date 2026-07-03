@@ -194,7 +194,8 @@ function credentialConfiguration(
         },
       ],
     },
-    cryptographic_binding_methods_supported: ["jwk"],
+    cryptographic_binding_methods_supported:
+      credential.format === "mso_mdoc" ? ["cose_key"] : ["jwk"],
     credential_signing_alg_values_supported:
       credential.format === "mso_mdoc" ? [-7, -9] : ["ES256"],
     proof_types_supported: proofTypesSupported,

@@ -76,6 +76,7 @@ describe("metadata", () => {
     expect(jwtConfiguration.proof_types_supported).toEqual({
       jwt: { proof_signing_alg_values_supported: ["ES256"] },
     });
+    expect(jwtConfiguration.cryptographic_binding_methods_supported).toEqual(["jwk"]);
     expect(jwtConfiguration.credential_signing_alg_values_supported).toEqual(["ES256"]);
     expect(attestationConfiguration.proof_types_supported).toEqual({
       attestation: {
@@ -86,6 +87,7 @@ describe("metadata", () => {
     expect(mdocConfiguration.proof_types_supported).toEqual({
       jwt: { proof_signing_alg_values_supported: ["ES256"] },
     });
+    expect(mdocConfiguration.cryptographic_binding_methods_supported).toEqual(["cose_key"]);
     expect(mdocConfiguration.credential_signing_alg_values_supported).toEqual([-7, -9]);
   });
 

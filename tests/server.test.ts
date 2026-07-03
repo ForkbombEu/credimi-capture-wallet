@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { cborDecodeUnknown } from "@animo-id/mdoc";
+import { parseIssuerSigned } from "@animo-id/mdoc";
 import { Kms, X509Certificate } from "@credo-ts/core";
 import type { Express } from "express";
 import { compactVerify, importJWK } from "jose";
@@ -204,17 +204,11 @@ describe("capture issuer server", () => {
 
     expect(credential.status, JSON.stringify(credential.body)).toBe(200);
     const encodedMdoc = (credential.body as CredentialResponse).credentials[0].credential;
-    const decoded = cborDecodeUnknown(Buffer.from(encodedMdoc, "base64url")) as
-      | JsonRecord
-      | Map<string, unknown>;
-    const documents = (decoded instanceof Map ? decoded.get("documents") : decoded.documents) as
-      | Array<JsonRecord | Map<string, unknown>>
-      | undefined;
-    const document = documents?.[0];
-    const docType = document instanceof Map ? document.get("docType") : document?.docType;
+    const decoded = parseIssuerSigned(Buffer.from(encodedMdoc, "base64url"), PID_MDOC_DOCTYPE);
 
     expect(session.credential_configuration_id).toBe(mdocCredentialConfigurationId(config));
-    expect(docType).toBe(PID_MDOC_DOCTYPE);
+    expect(decoded.docType).toBe(PID_MDOC_DOCTYPE);
+    expect(decoded.getIssuerNameSpace("eu.europa.ec.eudi.pid.1")?.get("given_name")).toBe("Jane");
     const capture = await getJson<SessionCapture>(app, `/sessions/${session.session_id}`);
     expect(capture.status).toBe("credential_issued");
   });
