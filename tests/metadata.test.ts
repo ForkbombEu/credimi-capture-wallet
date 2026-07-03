@@ -76,6 +76,7 @@ describe("metadata", () => {
     expect(jwtConfiguration.proof_types_supported).toEqual({
       jwt: { proof_signing_alg_values_supported: ["ES256"] },
     });
+    expect(jwtConfiguration.credential_signing_alg_values_supported).toEqual(["ES256"]);
     expect(attestationConfiguration.proof_types_supported).toEqual({
       attestation: {
         key_attestations_required: {},
@@ -85,6 +86,7 @@ describe("metadata", () => {
     expect(mdocConfiguration.proof_types_supported).toEqual({
       jwt: { proof_signing_alg_values_supported: ["ES256"] },
     });
+    expect(mdocConfiguration.credential_signing_alg_values_supported).toEqual([-7, -9]);
   });
 
   it("advertises the MDOC PID credential configuration", () => {

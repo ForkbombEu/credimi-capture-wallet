@@ -195,7 +195,8 @@ function credentialConfiguration(
       ],
     },
     cryptographic_binding_methods_supported: ["jwk"],
-    credential_signing_alg_values_supported: ["ES256"],
+    credential_signing_alg_values_supported:
+      credential.format === "mso_mdoc" ? [-7, -9] : ["ES256"],
     proof_types_supported: proofTypesSupported,
   };
 
