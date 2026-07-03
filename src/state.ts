@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { supportedCredentialConfigurationIds } from "./metadata.js";
 import type {
   AccessToken,
   AppConfig,
@@ -174,7 +175,7 @@ export function asStringOrNull(value: unknown): string | null {
 }
 
 function defaultCredentialConfigurationId(config: AppConfig): string {
-  return `${config.credential_configuration_id}.jwt`;
+  return supportedCredentialConfigurationIds(config)[0];
 }
 
 function emptyClientAuthenticationCapture(): SessionCapture["observed"]["client_authentication"] {

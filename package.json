@@ -18,6 +18,7 @@
     "init": "tsx src/cli.ts init"
   },
   "dependencies": {
+    "@animo-id/mdoc": "0.5.2",
     "@credo-ts/core": "latest",
     "@credo-ts/openid4vc": "latest",
     "@types/qrcode": "1.5.5",

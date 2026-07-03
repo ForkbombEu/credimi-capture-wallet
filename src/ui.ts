@@ -1,6 +1,8 @@
 const HELP_README_URL = "https://github.com/ForkbombEu/fake-issuer/blob/master/README.md";
 
-export function indexPage(): string {
+import type { SupportedCredential } from "./metadata.js";
+
+export function indexPage(credentials: SupportedCredential[]): string {
   return htmlPage({
     title: "Fake Issuer",
     body: [
@@ -26,6 +28,12 @@ export function indexPage(): string {
       "<h1>Wallet metadata capture</h1>",
       "<p>Start a one-time fake issuance flow, scan the offer, and inspect the wallet identifiers, callbacks, and proof keys observed by the issuer.</p>",
       '<form action="/ui/sessions" method="post" target="_blank">',
+      '<label class="credential-picker">',
+      "<span>Credential</span>",
+      '<select name="credential_configuration_id">',
+      credentials.map(credentialOptionHtml).join(""),
+      "</select>",
+      "</label>",
       '<button class="btn btn-primary btn-lg" type="submit">New fake-issuance session</button>',
       "</form>",
       "</div>",
@@ -46,6 +54,16 @@ export function indexPage(): string {
       "</main>",
     ].join(""),
   });
+}
+
+function credentialOptionHtml(credential: SupportedCredential): string {
+  return [
+    '<option value="',
+    escapeHtml(credential.id),
+    '">',
+    escapeHtml(credential.displayName),
+    "</option>",
+  ].join("");
 }
 
 export function sessionPage(sessionId: string, deeplink: string, qrSvg: string): string {
@@ -237,7 +255,11 @@ function appCss(): string {
     ".hero-band::after { content: ''; position: absolute; top: 0; right: 0; width: 300px; height: 300px; background: linear-gradient(135deg, transparent 49.5%, rgba(0,0,0,0.04) 49.5%, rgba(0,0,0,0.04) 50.5%, transparent 50.5%), linear-gradient(45deg, transparent 49.5%, rgba(0,0,0,0.04) 49.5%, rgba(0,0,0,0.04) 50.5%, transparent 50.5%); pointer-events: none; }",
     ".hero-inner { position: relative; z-index: 1; max-width: var(--max-width); margin: 0 auto; padding: 0 24px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 430px); gap: 32px; align-items: start; }",
     ".hero-copy { display: grid; gap: 20px; max-width: 740px; }",
+    ".hero-copy form { display: grid; gap: 14px; justify-items: start; }",
     ".hero-copy p:not(.eyebrow) { max-width: 640px; color: var(--fg-muted); font-size: 16px; line-height: 1.6; }",
+    ".credential-picker { display: grid; gap: 8px; width: min(100%, 520px); color: var(--fg); font-size: 13px; font-weight: 700; }",
+    ".credential-picker select { width: 100%; min-height: 44px; padding: 0 42px 0 14px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--bg); color: var(--fg); font: inherit; font-size: 14px; font-weight: 600; }",
+    ".credential-picker select:focus { outline: 2px solid color-mix(in oklch, var(--brand-primary) 36%, transparent); outline-offset: 2px; }",
     ".eyebrow { margin-bottom: 8px; color: var(--brand-primary); font-size: 12px; font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase; }",
     ".card, .summary-panel { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 24px; box-shadow: var(--shadow-sm); }",
     ".summary-panel { display: grid; gap: 18px; }",

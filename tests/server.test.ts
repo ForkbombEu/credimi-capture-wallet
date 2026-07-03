@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { cborDecodeUnknown } from "@animo-id/mdoc";
 import { Kms, X509Certificate } from "@credo-ts/core";
 import type { Express } from "express";
 import { compactVerify, importJWK } from "jose";
@@ -9,6 +10,7 @@ import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { DEFAULT_CONFIG, initIssuer } from "../src/config.js";
 import { CREDIMI_LOGO_URL, CREDIMI_WEBSITE } from "../src/credential.js";
+import { PID_MDOC_DOCTYPE, mdocCredentialConfigurationId } from "../src/metadata.js";
 import { createApp } from "../src/server.js";
 import type { JsonRecord, SessionCapture } from "../src/types.js";
 import { unsignedJwt } from "./helpers.js";
@@ -40,6 +42,9 @@ describe("capture issuer server", () => {
 
     expect(response.status).toBe(200);
     expect(response.text).toContain("New fake-issuance session");
+    expect(response.text).toContain('<select name="credential_configuration_id">');
+    expect(response.text).toContain("Credimi Demo PID (SD-JWT VC, proof JWT)");
+    expect(response.text).toContain("Credimi Demo PID (MDOC, proof JWT)");
     expect(response.text).toContain(
       '<img class="brand-logo" src="/assets/credimi_logo.svg" alt="" aria-hidden="true"><span class="brand-name">Wallet metadata capture</span>',
     );
@@ -156,6 +161,62 @@ describe("capture issuer server", () => {
 
     expect(session.credential_configuration_id).toBe(requestedCredentialConfigurationId);
     expect(offer.credential_configuration_ids).toEqual([requestedCredentialConfigurationId]);
+  });
+
+  it("issues an MDOC PID credential for the selected MDOC configuration", async () => {
+    const app = createApp(config);
+    const session = await postJson<SessionCreateResponse>(app, "/sessions", {
+      credential_configuration_id: mdocCredentialConfigurationId(config),
+    });
+    const verifier = "mdoc-pkce-verifier";
+    const challenge = createHash("sha256").update(verifier).digest("base64url");
+    const par = await postForm<ParResponse>(app, "/par", {
+      client_id: "wallet-client",
+      redirect_uri: "https://wallet.example/callback",
+      state: "abc",
+      issuer_state: session.session_id,
+      code_challenge: challenge,
+      code_challenge_method: "S256",
+    });
+    const authorize = await request(app)
+      .get(`/authorize?request_uri=${encodeURIComponent(par.request_uri)}`)
+      .redirects(0);
+    const code = new URL(authorize.headers.location ?? "").searchParams.get("code");
+    const token = await postForm<TokenResponse>(app, "/token", {
+      grant_type: "authorization_code",
+      code: code ?? "",
+      client_id: "wallet-client",
+      redirect_uri: "https://wallet.example/callback",
+      code_verifier: verifier,
+    });
+    const jwk = {
+      kty: "EC",
+      crv: "P-256",
+      x: "PSjSLsRih2uXZQG3yJUkEzIBnWHykzS0sU_vzrdLFoo",
+      y: "DPtPmdCGdkUTuhlE-iIl4OKl4hFdMIxgikukk9P-v_U",
+    };
+    const proof = unsignedJwt({ alg: "ES256", jwk });
+
+    const credential = await request(app)
+      .post("/credential")
+      .set("authorization", `Bearer ${token.access_token}`)
+      .send({ proof: { proof_type: "jwt", jwt: proof } });
+
+    expect(credential.status, JSON.stringify(credential.body)).toBe(200);
+    const encodedMdoc = (credential.body as CredentialResponse).credentials[0].credential;
+    const decoded = cborDecodeUnknown(Buffer.from(encodedMdoc, "base64url")) as
+      | JsonRecord
+      | Map<string, unknown>;
+    const documents = (decoded instanceof Map ? decoded.get("documents") : decoded.documents) as
+      | Array<JsonRecord | Map<string, unknown>>
+      | undefined;
+    const document = documents?.[0];
+    const docType = document instanceof Map ? document.get("docType") : document?.docType;
+
+    expect(session.credential_configuration_id).toBe(mdocCredentialConfigurationId(config));
+    expect(docType).toBe(PID_MDOC_DOCTYPE);
+    const capture = await getJson<SessionCapture>(app, `/sessions/${session.session_id}`);
+    expect(capture.status).toBe("credential_issued");
   });
 
   it("stores PAR and merges it into authorize requests", async () => {

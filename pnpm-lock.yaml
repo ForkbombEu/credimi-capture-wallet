@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@animo-id/mdoc':
+        specifier: 0.5.2
+        version: 0.5.2
       '@credo-ts/core':
         specifier: latest
         version: 0.7.0(typescript@5.9.3)

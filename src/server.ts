@@ -4,14 +4,16 @@ import express, { type Request } from "express";
 import QRCode from "qrcode";
 import { captureClientAuthentication } from "./client-auth.js";
 import { type InitOptions, initIssuer, loadIssuerJwks } from "./config.js";
-import { issueSdJwtCredential } from "./credential.js";
+import { issueMdocCredential, issueSdJwtCredential } from "./credential.js";
 import {
   authorizationServerMetadata,
   credentialIssuerMetadata,
   credentialOffer,
   credentialOfferDeeplink,
   jwtVcIssuerMetadata,
+  supportedCredentialById,
   supportedCredentialConfigurationIds,
+  supportedCredentials,
 } from "./metadata.js";
 import { verifyPkce } from "./pkce.js";
 import { captureProofHeaders, decodeDpopHeader, firstWalletJwks } from "./proofs.js";
@@ -32,7 +34,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
 
   if (config.gui_enabled) {
     app.get("/", (_req, res) => {
-      res.type("html").send(indexPage());
+      res.type("html").send(indexPage(supportedCredentials(config)));
     });
 
     app.get("/ui/help", (_req, res) => {
@@ -395,14 +397,28 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         });
       }
 
-      const credential = await issueSdJwtCredential({
+      const selectedCredential = supportedCredentialById(
         config,
-        credentialConfigurationId: session.credential_configuration_id,
-        holderJwk,
-      });
+        session.credential_configuration_id,
+      );
+      if (!selectedCredential) {
+        return res.status(400).json({
+          error: "unsupported_credential_configuration",
+          supported_credential_configuration_ids: supportedCredentialConfigurationIds(config),
+        });
+      }
+
+      const credential =
+        selectedCredential.format === "mso_mdoc"
+          ? await issueMdocCredential({ config, holderJwk })
+          : await issueSdJwtCredential({
+              config,
+              credentialConfigurationId: session.credential_configuration_id,
+              holderJwk,
+            });
       session.status = "credential_issued";
       store.addEvent(session, "credential_issued", {
-        format: config.credential_format,
+        format: selectedCredential.format,
         credential_configuration_id: session.credential_configuration_id,
       });
 
