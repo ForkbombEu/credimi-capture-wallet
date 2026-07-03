@@ -18,6 +18,17 @@ export interface SupportedCredential {
 
 export { PID_MDOC_DOCTYPE, PID_MDOC_NAMESPACE };
 
+const PID_CLAIMS = [
+  ["family_name", "Family Name"],
+  ["given_name", "Given Name"],
+  ["birth_date", "Birth Date"],
+  ["issuing_country", "Issuing Country"],
+  ["issuing_authority", "Issuing Authority"],
+  ["document_number", "Document Number"],
+  ["website", "Website"],
+  ["logo_uri", "Logo URI"],
+] as const;
+
 export function credentialIssuerMetadata(config: AppConfig): unknown {
   const credentials = supportedCredentials(config);
 
@@ -194,18 +205,7 @@ function credentialConfiguration(
       doctype: PID_MDOC_DOCTYPE,
       credential_metadata: {
         ...common.credential_metadata,
-        claims: {
-          [PID_MDOC_NAMESPACE]: {
-            family_name: {},
-            given_name: {},
-            birth_date: {},
-            issuing_country: {},
-            issuing_authority: {},
-            document_number: {},
-            website: {},
-            logo_uri: {},
-          },
-        },
+        claims: pidClaimDescriptions((claim) => [PID_MDOC_NAMESPACE, claim]),
       },
     };
   }
@@ -213,5 +213,26 @@ function credentialConfiguration(
   return {
     ...common,
     vct: credential.id,
+    credential_metadata: {
+      ...common.credential_metadata,
+      claims: pidClaimDescriptions((claim) => [claim]),
+    },
   };
+}
+
+function pidClaimDescriptions(pathForClaim: (claim: string) => string[]): Array<{
+  path: string[];
+  mandatory: boolean;
+  display: Array<{ name: string; locale: string }>;
+}> {
+  return PID_CLAIMS.map(([claim, name]) => ({
+    path: pathForClaim(claim),
+    mandatory: true,
+    display: [
+      {
+        name,
+        locale: "en-US",
+      },
+    ],
+  }));
 }

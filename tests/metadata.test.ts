@@ -48,6 +48,11 @@ describe("metadata", () => {
         logo: { uri: CREDIMI_LOGO_URL, alt_text: "Credimi" },
       },
     ]);
+    expect(credentialMetadata.claims).toContainEqual({
+      path: ["given_name"],
+      mandatory: true,
+      display: [{ name: "Given Name", locale: "en-US" }],
+    });
   });
 
   it("advertises separate credential configurations for jwt and attestation proofs", () => {
@@ -89,7 +94,7 @@ describe("metadata", () => {
       mdocCredentialConfigurationId(DEFAULT_CONFIG)
     ] as JsonRecord;
     const credentialMetadata = configuration.credential_metadata as JsonRecord;
-    const claims = credentialMetadata.claims as JsonRecord;
+    const claims = credentialMetadata.claims as JsonRecord[];
 
     expect(configuration.format).toBe("mso_mdoc");
     expect(configuration.doctype).toBe(PID_MDOC_DOCTYPE);
@@ -102,11 +107,12 @@ describe("metadata", () => {
         logo: { uri: CREDIMI_LOGO_URL, alt_text: "Credimi" },
       },
     ]);
-    expect(claims[PID_MDOC_NAMESPACE]).toMatchObject({
-      family_name: {},
-      given_name: {},
-      birth_date: {},
+    expect(claims).toContainEqual({
+      path: [PID_MDOC_NAMESPACE, "given_name"],
+      mandatory: true,
+      display: [{ name: "Given Name", locale: "en-US" }],
     });
+    expect(claims.map((claim) => claim.path)).toContainEqual([PID_MDOC_NAMESPACE, "birth_date"]);
   });
 
   it("advertises client attestation support in authorization server metadata", () => {
