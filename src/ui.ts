@@ -34,10 +34,10 @@ export function indexPage(credentials: SupportedCredential[]): string {
       credentials.map(credentialOptionHtml).join(""),
       "</select>",
       "</label>",
+      '<div class="session-actions">',
       '<button class="btn btn-primary btn-lg" type="submit">New fake-issuance session</button>',
-      "</form>",
-      '<form action="/ui/openid4vp/sessions" method="post" target="_blank">',
-      '<button class="btn btn-outline btn-lg" type="submit">New presentation session</button>',
+      '<button class="btn btn-outline btn-lg" type="submit" formaction="/ui/openid4vp/sessions">New presentation session</button>',
+      "</div>",
       "</form>",
       "</div>",
       '<aside class="summary-panel" aria-label="Captured values">',
@@ -330,6 +330,7 @@ function appCss(): string {
     ".hero-copy { display: grid; gap: 20px; max-width: 740px; }",
     ".hero-copy form { display: grid; gap: 14px; justify-items: start; }",
     ".hero-copy p:not(.eyebrow) { max-width: 640px; color: var(--fg-muted); font-size: 16px; line-height: 1.6; }",
+    ".session-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }",
     ".credential-picker { display: grid; gap: 8px; width: min(100%, 520px); color: var(--fg); font-size: 13px; font-weight: 700; }",
     ".credential-picker select { width: 100%; min-height: 44px; padding: 0 42px 0 14px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--bg); color: var(--fg); font: inherit; font-size: 14px; font-weight: 600; }",
     ".credential-picker select:focus { outline: 2px solid color-mix(in oklch, var(--brand-primary) 36%, transparent); outline-offset: 2px; }",
@@ -402,7 +403,7 @@ function appCss(): string {
     "@keyframes metadata-spin { to { transform: rotate(360deg); } }",
     "@keyframes metadata-flash { 0% { background: var(--warning-bg); box-shadow: 0 0 0 0 color-mix(in oklch, var(--warning) 32%, transparent); } 30% { background: var(--success-bg); box-shadow: 0 0 0 6px color-mix(in oklch, var(--success) 20%, transparent); } 100% { background: var(--bg); box-shadow: var(--shadow-sm); } }",
     "@media (prefers-reduced-motion: reduce) { .metadata-state-waiting::before, .metadata-state-receiving::before, .metadata-flash { animation: none; } }",
-    "@media (max-width: 860px) { h1 { font-size: 32px; } h2 { font-size: 22px; } .container, .topbar-inner, .hero-inner, .footer-inner { padding-left: 16px; padding-right: 16px; } .hero-band { padding: 40px 0; } .hero-inner, .session-layout { grid-template-columns: 1fr; } .session-header, .section-head, .footer-content { flex-direction: column; align-items: stretch; } .footer-links { justify-content: flex-start; } .metadata-row { grid-template-columns: 1fr; } .qr-box { width: 100%; max-width: 336px; } }",
+    "@media (max-width: 860px) { h1 { font-size: 32px; } h2 { font-size: 22px; } .container, .topbar-inner, .hero-inner, .footer-inner { padding-left: 16px; padding-right: 16px; } .hero-band { padding: 40px 0; } .hero-inner, .session-layout { grid-template-columns: 1fr; } .session-header, .section-head, .footer-content { flex-direction: column; align-items: stretch; } .session-actions { align-items: stretch; flex-direction: column; } .session-actions .btn { width: 100%; } .footer-links { justify-content: flex-start; } .metadata-row { grid-template-columns: 1fr; } .qr-box { width: 100%; max-width: 336px; } }",
   ].join("\n");
 }
 
