@@ -109,6 +109,26 @@ export interface SessionCapture {
   };
 }
 
+export interface VpSessionCapture {
+  session_id: string;
+  status: string;
+  authorization_request: JsonRecord;
+  request_uri: string;
+  deeplink: string;
+  response_uri: string;
+  observed: {
+    vp_token: ObservedValue<unknown>;
+    presentation_submission: ObservedValue<unknown>;
+    wallet_response: ObservedValue<JsonRecord>;
+  };
+  events: CaptureEvent[];
+  raw?: {
+    authorization_request?: JsonRecord;
+    presentation_response?: JsonRecord;
+    presentation_response_raw?: string;
+  };
+}
+
 export interface ParRecord {
   request_uri: string;
   expires_at: number;

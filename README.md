@@ -57,6 +57,8 @@ http://localhost:8080/
 
 From the launcher, click `New fake-issuance session` to open a QR session in a new tab. Scan the QR with an EUDI Wallet. The session page updates as Wallet metadata, proof keys, DPoP keys, checks, and flow events are observed.
 
+Click `New presentation session` to open an OpenID4VP QR session. The QR contains a presentation request for the credentials supported by this issuer. The page updates when the Wallet retrieves the request and posts the presentation response.
+
 The GUI includes a `Help` button that opens the project README on GitHub in a new tab:
 
 ```text
@@ -205,6 +207,71 @@ Retrieve event evidence:
 
 ```sh
 curl http://localhost:8080/sessions/{sessionId}/events
+```
+
+## OpenID4VP Presentation Flow
+
+Create a presentation session with the default request for this issuer's supported credentials:
+
+```sh
+curl -X POST http://localhost:8080/openid4vp/sessions
+```
+
+A successful response returns HTTP 201 and includes:
+
+```json
+{
+  "session_id": "...",
+  "request_uri": "http://localhost:8080/openid4vp/sessions/.../request",
+  "response_uri": "http://localhost:8080/openid4vp/sessions/.../response",
+  "deeplink": "openid4vp://...",
+  "authorization_request": {
+    "response_type": "vp_token",
+    "response_mode": "direct_post",
+    "state": "..."
+  },
+  "status": "created"
+}
+```
+
+Create a presentation session with an API-supplied request override:
+
+```sh
+curl -X POST http://localhost:8080/openid4vp/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "presentation_request": {
+      "nonce": "external-nonce",
+      "dcql_query": {
+        "credentials": [
+          {
+            "id": "email_credential",
+            "format": "dc+sd-jwt",
+            "meta": { "vct_values": ["https://example.test/email"] },
+            "claims": [{ "path": ["email"] }]
+          }
+        ]
+      }
+    }
+  }'
+```
+
+Retrieve the request object referenced by the QR:
+
+```sh
+curl http://localhost:8080/openid4vp/sessions/{sessionId}/request
+```
+
+Retrieve the capture object:
+
+```sh
+curl http://localhost:8080/openid4vp/sessions/{sessionId}
+```
+
+Retrieve event evidence:
+
+```sh
+curl http://localhost:8080/openid4vp/sessions/{sessionId}/events
 ```
 
 ## Conformance Values

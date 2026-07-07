@@ -8,6 +8,7 @@ import type {
   JsonRecord,
   ParRecord,
   SessionCapture,
+  VpSessionCapture,
 } from "./types.js";
 
 export class CaptureStore {
@@ -15,6 +16,7 @@ export class CaptureStore {
   readonly parRequests = new Map<string, ParRecord>();
   readonly authorizationCodes = new Map<string, AuthorizationCode>();
   readonly accessTokens = new Map<string, AccessToken>();
+  readonly vpSessions = new Map<string, VpSessionCapture>();
 
   constructor(private readonly config: AppConfig) {}
 
@@ -67,6 +69,35 @@ export class CaptureStore {
     return this.sessions.get(sessionId);
   }
 
+  createVpSession(sessionId: string, authorizationRequest: JsonRecord): VpSessionCapture {
+    const requestUri = `${this.config.issuer_base_url}/openid4vp/sessions/${sessionId}/request`;
+    const responseUri = `${this.config.issuer_base_url}/openid4vp/sessions/${sessionId}/response`;
+    const session: VpSessionCapture = {
+      session_id: sessionId,
+      status: "created",
+      authorization_request: authorizationRequest,
+      request_uri: requestUri,
+      response_uri: responseUri,
+      deeplink: "",
+      observed: {
+        vp_token: { value: null, source: null, also_seen_in: [] },
+        presentation_submission: { value: null, source: null, also_seen_in: [] },
+        wallet_response: { value: null, source: null, also_seen_in: [] },
+      },
+      events: [],
+      raw: {
+        authorization_request: authorizationRequest,
+      },
+    };
+    this.vpSessions.set(sessionId, session);
+    this.addEvent(session, "vp_session_created", {});
+    return session;
+  }
+
+  getVpSession(sessionId: string): VpSessionCapture | undefined {
+    return this.vpSessions.get(sessionId);
+  }
+
   ensureSession(sessionId?: string | null): SessionCapture {
     if (sessionId) {
       const existing = this.sessions.get(sessionId);
@@ -78,7 +109,11 @@ export class CaptureStore {
     return orphan;
   }
 
-  addEvent(session: SessionCapture, type: string, detail: JsonRecord): CaptureEvent {
+  addEvent(
+    session: SessionCapture | VpSessionCapture,
+    type: string,
+    detail: JsonRecord,
+  ): CaptureEvent {
     const event = { at: new Date().toISOString(), type, detail };
     session.events.push(event);
     return event;

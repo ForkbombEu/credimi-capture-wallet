@@ -133,6 +133,109 @@ describe("capture issuer server", () => {
     expect(page.text).toContain("Wallet metadata");
   });
 
+  it("creates GUI OpenID4VP sessions and renders a presentation QR page", async () => {
+    const app = createApp(config);
+    const created = await request(app).post("/ui/openid4vp/sessions").redirects(0);
+
+    expect(created.status).toBe(303);
+    expect(created.headers.location).toMatch(/^\/ui\/openid4vp\/sessions\//);
+
+    const page = await request(app).get(created.headers.location ?? "");
+    expect(page.status).toBe(200);
+    expect(page.text).toContain("<svg");
+    expect(page.text).toContain("openid4vp://");
+    expect(page.text).toContain("Scan the presentation request");
+    expect(page.text).toContain("Presentation response");
+    expect(page.text).toContain("vp_token");
+    expect(page.text).toContain("__FAKE_ISSUER_VP_SESSION_ID__");
+  });
+
+  it("creates OpenID4VP sessions with a default presentation request", async () => {
+    const app = createApp(config);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {});
+
+    expect(session.status).toBe("created");
+    expect(session.request_uri).toBe(
+      `${config.issuer_base_url}/openid4vp/sessions/${session.session_id}/request`,
+    );
+    expect(session.response_uri).toBe(
+      `${config.issuer_base_url}/openid4vp/sessions/${session.session_id}/response`,
+    );
+    expect(session.deeplink).toContain("openid4vp://");
+    expect(session.deeplink).toContain(encodeURIComponent(session.request_uri));
+    expect(session.authorization_request.response_type).toBe("vp_token");
+    expect(session.authorization_request.response_mode).toBe("direct_post");
+    expect(session.authorization_request.presentation_definition).toEqual(expect.any(Object));
+    expect(session.authorization_request.dcql_query).toEqual(expect.any(Object));
+  });
+
+  it("allows API callers to override the OpenID4VP presentation request", async () => {
+    const app = createApp(config);
+    const customDcql = {
+      credentials: [
+        {
+          id: "email_credential",
+          format: "dc+sd-jwt",
+          meta: { vct_values: ["https://example.test/email"] },
+          claims: [{ path: ["email"] }],
+        },
+      ],
+    };
+
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      presentation_request: {
+        nonce: "external-nonce",
+        dcql_query: customDcql,
+      },
+    });
+
+    expect(session.authorization_request.nonce).toBe("external-nonce");
+    expect(session.authorization_request.dcql_query).toEqual(customDcql);
+    expect(session.authorization_request.state).toBe(session.session_id);
+    expect(session.authorization_request.response_uri).toBe(session.response_uri);
+  });
+
+  it("serves OpenID4VP request_uri objects and captures wallet presentation responses", async () => {
+    const app = createApp(config);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {});
+
+    const requestObject = await getJson<JsonRecord>(
+      app,
+      `/openid4vp/sessions/${session.session_id}/request`,
+    );
+    expect(requestObject.state).toBe(session.session_id);
+
+    const retrieved = await getJson<VpSessionResponse>(
+      app,
+      `/openid4vp/sessions/${session.session_id}`,
+    );
+    expect(retrieved.status).toBe("request_retrieved");
+
+    const presentation = await request(app)
+      .post(`/openid4vp/sessions/${session.session_id}/response`)
+      .send({
+        state: session.session_id,
+        vp_token: "presentation-token",
+        presentation_submission: {
+          id: "submission-1",
+          definition_id: "credimi-issued-credentials",
+        },
+      });
+    expect(presentation.status).toBe(200);
+    expect(presentation.body).toEqual({ status: "ok" });
+
+    const capture = await getJson<VpSessionResponse>(
+      app,
+      `/openid4vp/sessions/${session.session_id}`,
+    );
+    expect(capture.status).toBe("presentation_received");
+    expect(capture.observed.vp_token.value).toBe("presentation-token");
+    expect(capture.observed.presentation_submission.value).toMatchObject({
+      id: "submission-1",
+    });
+    expect(capture.raw?.presentation_response?.state).toBe(session.session_id);
+  });
+
   it("marks GUI QR sessions consumed when the wallet retrieves the offer", async () => {
     const app = createApp(config);
     const created = await request(app).post("/ui/sessions").redirects(0);
@@ -469,4 +572,26 @@ interface CredentialResponse extends JsonRecord {
   credentials: Array<{
     credential: string;
   }>;
+}
+
+interface VpSessionCreateResponse extends JsonRecord {
+  session_id: string;
+  request_uri: string;
+  response_uri: string;
+  deeplink: string;
+  authorization_request: JsonRecord;
+  status: string;
+}
+
+interface VpSessionResponse extends JsonRecord {
+  session_id: string;
+  status: string;
+  authorization_request: JsonRecord;
+  observed: {
+    vp_token: { value: unknown };
+    presentation_submission: { value: unknown };
+  };
+  raw?: {
+    presentation_response?: JsonRecord;
+  };
 }

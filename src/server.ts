@@ -15,11 +15,16 @@ import {
   supportedCredentialConfigurationIds,
   supportedCredentials,
 } from "./metadata.js";
+import {
+  buildPresentationAuthorizationRequest,
+  defaultPresentationRequest,
+  presentationRequestByReferenceDeeplink,
+} from "./openid4vp.js";
 import { verifyPkce } from "./pkce.js";
 import { captureProofHeaders, decodeDpopHeader, firstWalletJwks } from "./proofs.js";
 import { CaptureStore, asStringOrNull, updateObservedValue } from "./state.js";
-import type { AppConfig, JsonRecord, SessionCapture } from "./types.js";
-import { errorPage, helpPage, indexPage, sessionPage } from "./ui.js";
+import type { AppConfig, JsonRecord, SessionCapture, VpSessionCapture } from "./types.js";
+import { errorPage, helpPage, indexPage, sessionPage, vpSessionPage } from "./ui.js";
 
 export function createApp(config: AppConfig, store = new CaptureStore(config)): express.Express {
   const app = express();
@@ -65,6 +70,12 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       return res.redirect(303, `/ui/sessions/${encodeURIComponent(session.session_id)}`);
     });
 
+    app.post("/ui/openid4vp/sessions", (req, res) => {
+      const session = createVpSession(config, store, {});
+      store.addEvent(session, "vp_deeplink_generated", {});
+      return res.redirect(303, `/ui/openid4vp/sessions/${encodeURIComponent(session.session_id)}`);
+    });
+
     app.get("/ui/sessions/:sessionId", async (req, res, next) => {
       try {
         const session = store.getSession(req.params.sessionId);
@@ -82,6 +93,22 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
           width: 288,
         });
         return res.type("html").send(sessionPage(session.session_id, deeplink, qrSvg));
+      } catch (error) {
+        return next(error);
+      }
+    });
+
+    app.get("/ui/openid4vp/sessions/:sessionId", async (req, res, next) => {
+      try {
+        const session = store.getVpSession(req.params.sessionId);
+        if (!session) return res.status(404).type("html").send(errorPage("VP session not found"));
+        const qrSvg = await QRCode.toString(session.deeplink, {
+          type: "svg",
+          errorCorrectionLevel: "M",
+          margin: 1,
+          width: 288,
+        });
+        return res.type("html").send(vpSessionPage(session.session_id, session.deeplink, qrSvg));
       } catch (error) {
         return next(error);
       }
@@ -188,6 +215,67 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
   app.get("/sessions/:sessionId/events", (req, res) => {
     const session = store.getSession(req.params.sessionId);
     if (!session) return res.status(404).json({ error: "session_not_found" });
+    return res.json(session.events);
+  });
+
+  app.post("/openid4vp/sessions", (req, res) => {
+    const body = requestParams(req);
+    const requestOverride = objectOrNull(body.presentation_request) ?? body;
+    const session = createVpSession(config, store, requestOverride);
+    store.addEvent(session, "vp_deeplink_generated", {});
+    res.status(201).json({
+      session_id: session.session_id,
+      request_uri: session.request_uri,
+      response_uri: session.response_uri,
+      deeplink: session.deeplink,
+      authorization_request: session.authorization_request,
+      status: session.status,
+    });
+  });
+
+  app.get("/openid4vp/sessions/:sessionId", (req, res) => {
+    const session = store.getVpSession(req.params.sessionId);
+    if (!session) return res.status(404).json({ error: "vp_session_not_found" });
+    return res.json(session);
+  });
+
+  app.get("/openid4vp/sessions/:sessionId/request", (req, res) => {
+    const session = store.getVpSession(req.params.sessionId);
+    if (!session) return res.status(404).json({ error: "vp_session_not_found" });
+    session.status = "request_retrieved";
+    store.addEvent(session, "vp_request_retrieved", {});
+    return res.json(session.authorization_request);
+  });
+
+  app.get("/openid4vp/sessions/:sessionId/deeplink", (req, res) => {
+    const session = store.getVpSession(req.params.sessionId);
+    if (!session) return res.status(404).json({ error: "vp_session_not_found" });
+    store.addEvent(session, "vp_deeplink_generated", {});
+    return res.json({
+      deeplink: session.deeplink,
+      authorization_request: session.authorization_request,
+    });
+  });
+
+  app.post("/openid4vp/sessions/:sessionId/response", (req, res) => {
+    const session = store.getVpSession(req.params.sessionId);
+    if (!session) return res.status(404).json({ error: "vp_session_not_found" });
+    const body = requestParams(req);
+    captureVpResponse(store, session, body, (req as Request & { rawBody?: string }).rawBody);
+    return res.json({ status: "ok" });
+  });
+
+  app.post("/openid4vp/response", (req, res) => {
+    const body = requestParams(req);
+    const session = store.getVpSession(asStringOrNull(body.state) ?? "");
+    if (!session) return res.status(404).json({ error: "vp_session_not_found" });
+    captureVpResponse(store, session, body, (req as Request & { rawBody?: string }).rawBody);
+    return res.json({ status: "ok" });
+  });
+
+  app.get("/openid4vp/sessions/:sessionId/events", (req, res) => {
+    const session = store.getVpSession(req.params.sessionId);
+    if (!session) return res.status(404).json({ error: "vp_session_not_found" });
     return res.json(session.events);
   });
 
@@ -468,4 +556,59 @@ function queryToRecord(query: Request["query"]): JsonRecord {
 
 function rawBodyCapture(req: Request, _res: express.Response, buffer: Buffer): void {
   (req as Request & { rawBody?: string }).rawBody = buffer.toString("utf8");
+}
+
+function createVpSession(
+  config: AppConfig,
+  store: CaptureStore,
+  requestOverride: JsonRecord,
+): VpSessionCapture {
+  const sessionId = randomUUID();
+  const request = {
+    ...defaultPresentationRequest(config),
+    ...requestOverride,
+  };
+  const authorizationRequest = buildPresentationAuthorizationRequest(config, sessionId, request);
+  const session = store.createVpSession(sessionId, authorizationRequest);
+  session.deeplink = presentationRequestByReferenceDeeplink(config, sessionId);
+  return session;
+}
+
+function captureVpResponse(
+  store: CaptureStore,
+  session: VpSessionCapture,
+  body: JsonRecord,
+  rawBody: string | undefined,
+): void {
+  session.status = "presentation_received";
+  session.raw ??= {};
+  session.raw.presentation_response = body;
+  session.raw.presentation_response_raw = rawBody ?? JSON.stringify(body);
+  session.observed.wallet_response = {
+    value: body,
+    source: "presentation_response",
+    also_seen_in: [],
+  };
+  session.observed.vp_token = {
+    value: body.vp_token ?? null,
+    source: body.vp_token === undefined ? null : "presentation_response.vp_token",
+    also_seen_in: [],
+  };
+  session.observed.presentation_submission = {
+    value: body.presentation_submission ?? null,
+    source:
+      body.presentation_submission === undefined
+        ? null
+        : "presentation_response.presentation_submission",
+    also_seen_in: [],
+  };
+  store.addEvent(session, "vp_presentation_response_received", {
+    vp_token_observed: body.vp_token !== undefined,
+    presentation_submission_observed: body.presentation_submission !== undefined,
+  });
+}
+
+function objectOrNull(value: unknown): JsonRecord | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as JsonRecord;
 }
