@@ -80,7 +80,6 @@ export class CaptureStore {
       response_uri: responseUri,
       deeplink: "",
       observed: {
-        vp_token: { value: null, source: null, also_seen_in: [] },
         presentation_submission: { value: null, source: null, also_seen_in: [] },
         wallet_response: { value: null, source: null, also_seen_in: [] },
       },

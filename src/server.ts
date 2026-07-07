@@ -630,11 +630,6 @@ function captureVpResponse(
     source: "presentation_response",
     also_seen_in: [],
   };
-  session.observed.vp_token = {
-    value: body.vp_token ?? null,
-    source: body.vp_token === undefined ? null : "presentation_response.vp_token",
-    also_seen_in: [],
-  };
   session.observed.presentation_submission = {
     value: body.presentation_submission ?? null,
     source:

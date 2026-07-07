@@ -148,7 +148,15 @@ describe("capture issuer server", () => {
     expect(page.text).toContain("openid4vp://");
     expect(page.text).toContain("Scan the presentation request");
     expect(page.text).toContain("Presentation response");
-    expect(page.text).toContain("vp_token");
+    expect(page.text).toContain("authorization_request");
+    expect(page.text).toContain("wallet_response");
+    expect(page.text).toContain("presentation_submission");
+    expect(page.text.indexOf("authorization_request")).toBeLessThan(
+      page.text.indexOf("wallet_response"),
+    );
+    expect(page.text.indexOf("wallet_response")).toBeLessThan(
+      page.text.indexOf("presentation_submission"),
+    );
     expect(page.text).toContain("__FAKE_ISSUER_VP_SESSION_ID__");
   });
 
@@ -294,7 +302,8 @@ describe("capture issuer server", () => {
       `/openid4vp/sessions/${session.session_id}`,
     );
     expect(capture.status).toBe("presentation_received");
-    expect(capture.observed.vp_token.value).toBe("presentation-token");
+    expect(capture.observed.vp_token).toBeUndefined();
+    expect(capture.observed.wallet_response.value?.vp_token).toBe("presentation-token");
     expect(capture.observed.presentation_submission.value).toMatchObject({
       id: "submission-1",
     });
@@ -668,7 +677,8 @@ interface VpSessionResponse extends JsonRecord {
   status: string;
   authorization_request: JsonRecord;
   observed: {
-    vp_token: { value: unknown };
+    vp_token?: { value: unknown };
+    wallet_response: { value: JsonRecord | null };
     presentation_submission: { value: unknown };
   };
   raw?: {
