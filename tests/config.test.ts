@@ -1,6 +1,12 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Kms, X509Certificate } from "@credo-ts/core";
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_CONFIG,
+  initIssuer,
+  loadIssuerJwks,
   parseEnvText,
   resolveGuiEnabled,
   resolveListenAddr,
@@ -49,5 +55,26 @@ QUOTED="value"
     expect(() => resolveGuiEnabled({ GUI_ENABLED: "maybe" })).toThrow(
       "GUI_ENABLED must be true or false",
     );
+  });
+
+  it("adds the self-signed issuer certificate chain to the issuer JWKS", async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "fake-issuer-config-test-"));
+    try {
+      const config = await initIssuer({
+        issuer_base_url: "http://issuer.example.test",
+        data_dir: dataDir,
+        force: true,
+      });
+
+      const jwks = loadIssuerJwks(config);
+      expect(jwks.keys).toHaveLength(1);
+      expect(jwks.keys[0]?.x5c).toEqual([expect.any(String)]);
+      const certificate = X509Certificate.fromEncodedCertificate(
+        (jwks.keys[0]?.x5c as string[])[0],
+      );
+      expect(Kms.PublicJwk.fromUnknown(jwks.keys[0]).equals(certificate.publicJwk)).toBe(true);
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true });
+    }
   });
 });

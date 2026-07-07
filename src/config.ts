@@ -195,6 +195,7 @@ export async function initIssuer(options: InitOptions): Promise<AppConfig> {
     if (!existsSync(certificatePath)) {
       await writeIssuerCertificate(certificatePath, loadConfig(dataDir));
     }
+    writeIssuerJwksCertificate(publicPath, certificatePath);
     return loadConfig(dataDir);
   }
 
@@ -220,6 +221,7 @@ export async function initIssuer(options: InitOptions): Promise<AppConfig> {
   if (force || !existsSync(certificatePath)) {
     await writeIssuerCertificate(certificatePath, loadedConfig);
   }
+  writeIssuerJwksCertificate(publicPath, certificatePath);
 
   return loadedConfig;
 }
@@ -227,7 +229,10 @@ export async function initIssuer(options: InitOptions): Promise<AppConfig> {
 export function loadIssuerJwks(config: AppConfig): { keys: JsonRecord[] } {
   const path = jwksPath(config.data_dir);
   if (!existsSync(path)) return { keys: [] };
-  return JSON.parse(readFileSync(path, "utf8")) as { keys: JsonRecord[] };
+  const jwks = JSON.parse(readFileSync(path, "utf8")) as { keys: JsonRecord[] };
+  const certificatePath = issuerCertificatePath(config.data_dir);
+  if (!existsSync(certificatePath)) return jwks;
+  return withIssuerCertificate(jwks, readFileSync(certificatePath, "utf8"));
 }
 
 export function loadIssuerCertificate(config: AppConfig): X509Certificate {
@@ -297,6 +302,30 @@ function createSigningContext(privateJwk: JsonRecord): object {
   };
 
   return { resolve, dependencyManager: { resolve } };
+}
+
+function writeIssuerJwksCertificate(jwksFilePath: string, certificatePath: string): void {
+  const jwks = JSON.parse(readFileSync(jwksFilePath, "utf8")) as { keys: JsonRecord[] };
+  writeJson(jwksFilePath, withIssuerCertificate(jwks, readFileSync(certificatePath, "utf8")));
+}
+
+function withIssuerCertificate(
+  jwks: { keys: JsonRecord[] },
+  certificatePem: string,
+): { keys: JsonRecord[] } {
+  const certificate = pemToBase64Der(certificatePem);
+  return {
+    keys: jwks.keys.map((key) =>
+      key.kid === ISSUER_KEY_ID || key.x5c === undefined ? { ...key, x5c: [certificate] } : key,
+    ),
+  };
+}
+
+function pemToBase64Der(certificatePem: string): string {
+  return certificatePem
+    .replace(/-----BEGIN CERTIFICATE-----/g, "")
+    .replace(/-----END CERTIFICATE-----/g, "")
+    .replace(/\s+/g, "");
 }
 
 function writeJson(path: string, value: unknown): void {

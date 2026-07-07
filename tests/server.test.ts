@@ -163,6 +163,16 @@ describe("capture issuer server", () => {
     expect(offer.credential_configuration_ids).toEqual([requestedCredentialConfigurationId]);
   });
 
+  it("serves issuer JWKS with the self-signed certificate chain", async () => {
+    const app = createApp(config);
+    const jwks = await getJson<JwksResponse>(app, "/jwks.json");
+
+    expect(jwks.keys).toHaveLength(1);
+    expect(jwks.keys[0]?.x5c).toEqual([expect.any(String)]);
+    const certificate = X509Certificate.fromEncodedCertificate((jwks.keys[0]?.x5c as string[])[0]);
+    expect(Kms.PublicJwk.fromUnknown(jwks.keys[0]).equals(certificate.publicJwk)).toBe(true);
+  });
+
   it("issues an MDOC PID credential for the selected MDOC configuration", async () => {
     const app = createApp(config);
     const session = await postJson<SessionCreateResponse>(app, "/sessions", {
