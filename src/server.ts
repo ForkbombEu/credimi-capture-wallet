@@ -72,7 +72,15 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     });
 
     app.post("/ui/openid4vp/sessions", (req, res) => {
-      const session = createVpSession(config, store, {});
+      const body = requestParams(req);
+      const credentialConfigurationId =
+        asStringOrNull(body.credential_configuration_id) ??
+        supportedCredentialConfigurationIds(config)[0];
+      if (!supportedCredentialConfigurationIds(config).includes(credentialConfigurationId)) {
+        return res.status(400).type("html").send(errorPage("Unsupported credential configuration"));
+      }
+
+      const session = createVpSession(config, store, {}, [credentialConfigurationId]);
       store.addEvent(session, "vp_deeplink_generated", {});
       return res.redirect(303, `/ui/openid4vp/sessions/${encodeURIComponent(session.session_id)}`);
     });
@@ -594,10 +602,11 @@ function createVpSession(
   config: AppConfig,
   store: CaptureStore,
   requestOverride: JsonRecord,
+  credentialConfigurationIds?: string[],
 ): VpSessionCapture {
   const sessionId = randomUUID();
   const request = {
-    ...defaultPresentationRequest(config),
+    ...defaultPresentationRequest(config, credentialConfigurationIds),
     ...requestOverride,
   };
   const authorizationRequest = buildPresentationAuthorizationRequest(config, sessionId, request);

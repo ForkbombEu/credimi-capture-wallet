@@ -2,7 +2,12 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { type JWK, SignJWT, importJWK } from "jose";
 import { VERIFIER_KEY_ID, verifierCertificatePath, verifierPrivateJwkPath } from "./config.js";
-import { PID_MDOC_DOCTYPE, supportedCredentials } from "./metadata.js";
+import {
+  PID_MDOC_DOCTYPE,
+  type SupportedCredential,
+  supportedCredentialById,
+  supportedCredentials,
+} from "./metadata.js";
 import type { AppConfig, JsonRecord } from "./types.js";
 
 const DEFAULT_CLAIMS = [
@@ -14,13 +19,17 @@ const DEFAULT_CLAIMS = [
   "document_number",
 ];
 
-export function defaultPresentationRequest(config: AppConfig): JsonRecord {
+export function defaultPresentationRequest(
+  config: AppConfig,
+  credentialConfigurationIds?: string[],
+): JsonRecord {
+  const credentials = selectedSupportedCredentials(config, credentialConfigurationIds);
   return {
     response_type: "vp_token",
     response_mode: "direct_post",
     nonce: randomUUID(),
-    presentation_definition: defaultPresentationDefinition(config),
-    dcql_query: defaultDcqlQuery(config),
+    presentation_definition: defaultPresentationDefinition(credentials),
+    dcql_query: defaultDcqlQuery(credentials),
   };
 }
 
@@ -96,12 +105,12 @@ export function vpResponseUri(config: AppConfig, sessionId: string): string {
   return `${config.issuer_base_url}/openid4vp/sessions/${sessionId}/response`;
 }
 
-function defaultPresentationDefinition(config: AppConfig): JsonRecord {
+function defaultPresentationDefinition(credentials: SupportedCredential[]): JsonRecord {
   return {
     id: "credimi-issued-credentials",
     name: "Credimi issued credentials",
     purpose: "Request credentials issued by this fake issuer.",
-    input_descriptors: supportedCredentials(config).map((credential) => ({
+    input_descriptors: credentials.map((credential) => ({
       id: credential.id,
       name: credential.displayName,
       format: {
@@ -124,9 +133,9 @@ function defaultPresentationDefinition(config: AppConfig): JsonRecord {
   };
 }
 
-function defaultDcqlQuery(config: AppConfig): JsonRecord {
+function defaultDcqlQuery(credentials: SupportedCredential[]): JsonRecord {
   return {
-    credentials: supportedCredentials(config).map((credential) => ({
+    credentials: credentials.map((credential) => ({
       id: dcqlCredentialId(credential.id),
       format: credential.format,
       meta:
@@ -138,6 +147,18 @@ function defaultDcqlQuery(config: AppConfig): JsonRecord {
       })),
     })),
   };
+}
+
+function selectedSupportedCredentials(
+  config: AppConfig,
+  credentialConfigurationIds: string[] | undefined,
+): SupportedCredential[] {
+  if (!credentialConfigurationIds || credentialConfigurationIds.length === 0) {
+    return supportedCredentials(config);
+  }
+  return credentialConfigurationIds
+    .map((credentialConfigurationId) => supportedCredentialById(config, credentialConfigurationId))
+    .filter((credential): credential is SupportedCredential => credential !== null);
 }
 
 function verifierClientMetadata(): JsonRecord {

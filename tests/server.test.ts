@@ -152,6 +152,30 @@ describe("capture issuer server", () => {
     expect(page.text).toContain("__FAKE_ISSUER_VP_SESSION_ID__");
   });
 
+  it("creates GUI OpenID4VP sessions for the selected credential", async () => {
+    const app = createApp(config);
+    const selectedCredentialConfigurationId = mdocCredentialConfigurationId(config);
+    const created = await request(app)
+      .post("/ui/openid4vp/sessions")
+      .type("form")
+      .send({ credential_configuration_id: selectedCredentialConfigurationId })
+      .redirects(0);
+    const sessionId = (created.headers.location ?? "").split("/").pop() ?? "";
+
+    expect(created.status).toBe(303);
+    const requestObject = await request(app).get(`/openid4vp/sessions/${sessionId}/request`);
+    const requestObjectClaims = decodeJwt(requestObject.text) as JsonRecord;
+    const presentationDefinition = requestObjectClaims.presentation_definition as JsonRecord;
+    const inputDescriptors = presentationDefinition.input_descriptors as JsonRecord[];
+    const dcqlQuery = requestObjectClaims.dcql_query as JsonRecord;
+    const dcqlCredentials = dcqlQuery.credentials as JsonRecord[];
+
+    expect(inputDescriptors).toHaveLength(1);
+    expect(inputDescriptors[0]?.id).toBe(selectedCredentialConfigurationId);
+    expect(dcqlCredentials).toHaveLength(1);
+    expect(dcqlCredentials[0]?.format).toBe("mso_mdoc");
+  });
+
   it("creates OpenID4VP sessions with a default presentation request", async () => {
     const app = createApp(config);
     const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {});
