@@ -300,7 +300,25 @@ Runtime configuration comes from generated issuer config and environment variabl
 
 ### Issuer Config
 
-`pnpm fake-issuer init` is idempotent and writes generated issuer keys/config below `./data`, which is ignored by Git. Use `--force` to replace existing generated state.
+`pnpm fake-issuer init` is idempotent and writes generated issuer, verifier, and config files below `./data`, which is ignored by Git. Use `--force` to replace existing generated state.
+
+Issuer material:
+
+```text
+data/issuer-private-jwk.json
+data/issuer-certificate.pem
+data/jwks.json
+```
+
+OpenID4VP verifier material:
+
+```text
+data/verifier-private-jwk.json
+data/verifier-certificate.pem
+data/verifier-jwks.json
+```
+
+To use a specific verifier key, replace `verifier-private-jwk.json` with an ES256 private JWK and replace `verifier-certificate.pem` with a certificate for the matching public key. Do not use `init --force` after replacing verifier material unless you want it regenerated. The verifier `x509_hash` client identifier is derived from `verifier-certificate.pem`, and signed request objects are signed with `verifier-private-jwk.json`.
 
 ### Environment
 

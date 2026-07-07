@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Kms, X509Certificate } from "@credo-ts/core";
@@ -8,8 +8,11 @@ import {
   initIssuer,
   loadIssuerJwks,
   parseEnvText,
+  privateJwkPath,
   resolveGuiEnabled,
   resolveListenAddr,
+  verifierCertificatePath,
+  verifierPrivateJwkPath,
 } from "../src/config.js";
 
 describe("configuration", () => {
@@ -73,6 +76,36 @@ QUOTED="value"
         (jwks.keys[0]?.x5c as string[])[0],
       );
       expect(Kms.PublicJwk.fromUnknown(jwks.keys[0]).equals(certificate.publicJwk)).toBe(true);
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+
+  it("creates separate verifier key material for OpenID4VP", async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "fake-verifier-config-test-"));
+    try {
+      await initIssuer({
+        issuer_base_url: "http://issuer.example.test",
+        data_dir: dataDir,
+        force: true,
+      });
+
+      expect(existsSync(verifierPrivateJwkPath(dataDir))).toBe(true);
+      expect(existsSync(verifierCertificatePath(dataDir))).toBe(true);
+      expect(readFileSync(verifierPrivateJwkPath(dataDir), "utf8")).not.toBe(
+        readFileSync(privateJwkPath(dataDir), "utf8"),
+      );
+
+      const verifierPrivateJwk = JSON.parse(
+        readFileSync(verifierPrivateJwkPath(dataDir), "utf8"),
+      ) as Record<string, unknown>;
+      const verifierCertificate = X509Certificate.fromEncodedCertificate(
+        readFileSync(verifierCertificatePath(dataDir), "utf8"),
+      );
+      const { d: _d, ...verifierPublicJwk } = verifierPrivateJwk;
+      expect(
+        Kms.PublicJwk.fromUnknown(verifierPublicJwk).equals(verifierCertificate.publicJwk),
+      ).toBe(true);
     } finally {
       rmSync(dataDir, { recursive: true, force: true });
     }

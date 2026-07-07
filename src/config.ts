@@ -6,6 +6,7 @@ import { exportJWK, generateKeyPair } from "jose";
 import type { AppConfig, JsonRecord } from "./types.js";
 
 export const ISSUER_KEY_ID = "credimi-fake-issuer-key";
+export const VERIFIER_KEY_ID = "credimi-fake-verifier-key";
 
 export const DEFAULT_CONFIG: AppConfig = {
   issuer_base_url: "http://localhost:8080",
@@ -160,6 +161,18 @@ export function issuerCertificatePath(dataDir: string): string {
   return join(dataDir, "issuer-certificate.pem");
 }
 
+export function verifierPrivateJwkPath(dataDir: string): string {
+  return join(dataDir, "verifier-private-jwk.json");
+}
+
+export function verifierJwksPath(dataDir: string): string {
+  return join(dataDir, "verifier-jwks.json");
+}
+
+export function verifierCertificatePath(dataDir: string): string {
+  return join(dataDir, "verifier-certificate.pem");
+}
+
 export function loadConfig(dataDir = DEFAULT_CONFIG.data_dir): AppConfig {
   const env = loadEnvFile();
   const path = configPath(dataDir);
@@ -190,12 +203,22 @@ export async function initIssuer(options: InitOptions): Promise<AppConfig> {
   const publicPath = jwksPath(dataDir);
   const secretPath = privateJwkPath(dataDir);
   const certificatePath = issuerCertificatePath(dataDir);
+  const verifierSecretPath = verifierPrivateJwkPath(dataDir);
+  const verifierPublicPath = verifierJwksPath(dataDir);
+  const verifierCertPath = verifierCertificatePath(dataDir);
 
   if (!force && existsSync(cfgPath) && existsSync(publicPath) && existsSync(secretPath)) {
     if (!existsSync(certificatePath)) {
       await writeIssuerCertificate(certificatePath, loadConfig(dataDir));
     }
     writeIssuerJwksCertificate(publicPath, certificatePath);
+    await ensureVerifierMaterial({
+      config: loadConfig(dataDir),
+      force,
+      secretPath: verifierSecretPath,
+      publicPath: verifierPublicPath,
+      certificatePath: verifierCertPath,
+    });
     return loadConfig(dataDir);
   }
 
@@ -222,6 +245,13 @@ export async function initIssuer(options: InitOptions): Promise<AppConfig> {
     await writeIssuerCertificate(certificatePath, loadedConfig);
   }
   writeIssuerJwksCertificate(publicPath, certificatePath);
+  await ensureVerifierMaterial({
+    config: loadedConfig,
+    force,
+    secretPath: verifierSecretPath,
+    publicPath: verifierPublicPath,
+    certificatePath: verifierCertPath,
+  });
 
   return loadedConfig;
 }
@@ -242,17 +272,84 @@ export function loadIssuerCertificate(config: AppConfig): X509Certificate {
 }
 
 async function writeIssuerCertificate(path: string, config: AppConfig): Promise<void> {
-  const privateJwk = JSON.parse(
-    readFileSync(privateJwkPath(config.data_dir), "utf8"),
-  ) as JsonRecord;
+  await writeCertificate({
+    path,
+    privateJwkPath: privateJwkPath(config.data_dir),
+    keyId: ISSUER_KEY_ID,
+    organizationalUnit: "Credimi Fake Issuer",
+    config,
+  });
+}
+
+async function ensureVerifierMaterial({
+  config,
+  force,
+  secretPath,
+  publicPath,
+  certificatePath,
+}: {
+  config: AppConfig;
+  force: boolean;
+  secretPath: string;
+  publicPath: string;
+  certificatePath: string;
+}): Promise<void> {
+  if (force || !existsSync(secretPath)) {
+    await writeGeneratedJwkPair(secretPath, publicPath, VERIFIER_KEY_ID);
+  }
+  if (force || !existsSync(certificatePath)) {
+    await writeCertificate({
+      path: certificatePath,
+      privateJwkPath: secretPath,
+      keyId: VERIFIER_KEY_ID,
+      organizationalUnit: "Credimi Fake Verifier",
+      config,
+    });
+  }
+  writePublicJwksFromPrivate(publicPath, secretPath, VERIFIER_KEY_ID);
+  writeIssuerJwksCertificate(publicPath, certificatePath);
+}
+
+async function writeGeneratedJwkPair(
+  secretPath: string,
+  publicPath: string,
+  keyId: string,
+): Promise<void> {
+  const { publicKey, privateKey } = await generateKeyPair("ES256", { extractable: true });
+  const publicJwk = await exportJWK(publicKey);
+  const privateJwk = await exportJWK(privateKey);
+  publicJwk.alg = "ES256";
+  publicJwk.use = "sig";
+  publicJwk.kid = keyId;
+  privateJwk.alg = "ES256";
+  privateJwk.use = "sig";
+  privateJwk.kid = keyId;
+  writeJson(publicPath, { keys: [publicJwk] });
+  writeJson(secretPath, privateJwk);
+}
+
+async function writeCertificate({
+  path,
+  privateJwkPath: keyPath,
+  keyId,
+  organizationalUnit,
+  config,
+}: {
+  path: string;
+  privateJwkPath: string;
+  keyId: string;
+  organizationalUnit: string;
+  config: AppConfig;
+}): Promise<void> {
+  const privateJwk = JSON.parse(readFileSync(keyPath, "utf8")) as JsonRecord;
   const publicJwk = Kms.PublicJwk.fromUnknown(toPublicJwk(privateJwk));
-  publicJwk.keyId = ISSUER_KEY_ID;
+  publicJwk.keyId = keyId;
   const certificate = await X509Certificate.create(
     {
       authorityKey: publicJwk,
       issuer: {
         commonName: new URL(config.issuer_base_url).hostname,
-        organizationalUnit: "Credimi Fake Issuer",
+        organizationalUnit,
       },
       validity: {
         notBefore: new Date("2024-01-01T00:00:00Z"),
@@ -271,9 +368,9 @@ async function writeIssuerCertificate(path: string, config: AppConfig): Promise<
         basicConstraints: { ca: false },
       },
     },
-    new CredoWebCrypto(createSigningContext(privateJwk) as never),
+    new CredoWebCrypto(createSigningContext(privateJwk, keyId) as never),
   );
-  certificate.keyId = ISSUER_KEY_ID;
+  certificate.keyId = keyId;
   writeFileSync(path, certificate.toString("pem"), { mode: 0o600 });
 }
 
@@ -282,11 +379,11 @@ function toPublicJwk(privateJwk: JsonRecord): JsonRecord {
   return publicJwk;
 }
 
-function createSigningContext(privateJwk: JsonRecord): object {
+function createSigningContext(privateJwk: JsonRecord, keyId: string): object {
   const kms = {
     randomBytes: ({ length }: { length: number }) => randomBytes(length),
-    sign: async ({ keyId, data }: { keyId: string; data: Uint8Array }) => {
-      if (keyId !== ISSUER_KEY_ID) throw new Error(`Unknown issuer key id '${keyId}'`);
+    sign: async ({ keyId: requestedKeyId, data }: { keyId: string; data: Uint8Array }) => {
+      if (requestedKeyId !== keyId) throw new Error(`Unknown key id '${requestedKeyId}'`);
       const { createPrivateKey, sign } = await import("node:crypto");
       return {
         signature: sign("sha256", data, {
@@ -302,6 +399,15 @@ function createSigningContext(privateJwk: JsonRecord): object {
   };
 
   return { resolve, dependencyManager: { resolve } };
+}
+
+function writePublicJwksFromPrivate(publicPath: string, secretPath: string, keyId: string): void {
+  const privateJwk = JSON.parse(readFileSync(secretPath, "utf8")) as JsonRecord;
+  const publicJwk = toPublicJwk(privateJwk);
+  publicJwk.alg = "ES256";
+  publicJwk.use = "sig";
+  publicJwk.kid = keyId;
+  writeJson(publicPath, { keys: [publicJwk] });
 }
 
 function writeIssuerJwksCertificate(jwksFilePath: string, certificatePath: string): void {

@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { type JWK, SignJWT, importJWK } from "jose";
-import { ISSUER_KEY_ID, issuerCertificatePath, privateJwkPath } from "./config.js";
+import { VERIFIER_KEY_ID, verifierCertificatePath, verifierPrivateJwkPath } from "./config.js";
 import { PID_MDOC_DOCTYPE, supportedCredentials } from "./metadata.js";
 import type { AppConfig, JsonRecord } from "./types.js";
 
@@ -44,14 +44,16 @@ export async function signPresentationAuthorizationRequest(
   config: AppConfig,
   request: JsonRecord,
 ): Promise<string> {
-  const privateJwk = JSON.parse(readFileSync(privateJwkPath(config.data_dir), "utf8")) as JWK;
+  const privateJwk = JSON.parse(
+    readFileSync(verifierPrivateJwkPath(config.data_dir), "utf8"),
+  ) as JWK;
   const key = await importJWK(privateJwk, "ES256");
   const certificate = verifierCertificateBase64Der(config);
   return new SignJWT(request)
     .setProtectedHeader({
       alg: "ES256",
       typ: "oauth-authz-req+jwt",
-      kid: ISSUER_KEY_ID,
+      kid: VERIFIER_KEY_ID,
       x5c: [certificate],
     })
     .sign(key);
@@ -74,7 +76,7 @@ export function verifierClientId(config: AppConfig): string {
 }
 
 export function verifierCertificateBase64Der(config: AppConfig): string {
-  return readFileSync(issuerCertificatePath(config.data_dir), "utf8")
+  return readFileSync(verifierCertificatePath(config.data_dir), "utf8")
     .replace(/-----BEGIN CERTIFICATE-----/g, "")
     .replace(/-----END CERTIFICATE-----/g, "")
     .replace(/\s+/g, "");

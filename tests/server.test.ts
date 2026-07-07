@@ -223,21 +223,26 @@ describe("capture issuer server", () => {
     );
     expect(requestObject.status).toBe(200);
     expect(requestObject.type).toBe("application/oauth-authz-req+jwt");
-    const jwks = await getJson<JwksResponse>(app, "/jwks.json");
-    const issuerJwk = jwks.keys[0] as unknown as JWK & { x5c: string[] };
     const requestObjectHeader = decodeProtectedHeader(requestObject.text);
+    const verifierCertificate = X509Certificate.fromEncodedCertificate(
+      (requestObjectHeader.x5c as string[])[0],
+    );
     expect(requestObjectHeader).toMatchObject({
       alg: "ES256",
       typ: "oauth-authz-req+jwt",
-      x5c: [issuerJwk.x5c[0]],
+      kid: "credimi-fake-verifier-key",
+      x5c: [expect.any(String)],
     });
-    const verified = await compactVerify(requestObject.text, await importJWK(issuerJwk, "ES256"));
+    const verified = await compactVerify(
+      requestObject.text,
+      await importJWK(verifierCertificate.publicJwk.toJson() as JWK, "ES256"),
+    );
     expect(verified.protectedHeader.typ).toBe("oauth-authz-req+jwt");
     const requestObjectClaims = decodeJwt(requestObject.text) as JsonRecord;
     expect(requestObjectClaims.state).toBe(session.session_id);
     expect(requestObjectClaims.client_id).toBe(
       `x509_hash:${createHash("sha256")
-        .update(Buffer.from(issuerJwk.x5c[0], "base64"))
+        .update(Buffer.from((requestObjectHeader.x5c as string[])[0], "base64"))
         .digest("base64url")}`,
     );
 
