@@ -1,4 +1,7 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { type JWK, SignJWT, importJWK } from "jose";
+import { ISSUER_KEY_ID, issuerCertificatePath, privateJwkPath } from "./config.js";
 import { PID_MDOC_DOCTYPE, supportedCredentials } from "./metadata.js";
 import type { AppConfig, JsonRecord } from "./types.js";
 
@@ -27,25 +30,31 @@ export function buildPresentationAuthorizationRequest(
   request: JsonRecord,
 ): JsonRecord {
   const responseUri = vpResponseUri(config, sessionId);
+  const clientId = verifierClientId(config);
   return {
-    client_id: responseUri,
-    client_id_scheme: "redirect_uri",
+    client_id: clientId,
     response_uri: responseUri,
     state: sessionId,
+    client_metadata: verifierClientMetadata(),
     ...request,
   };
 }
 
-export function presentationRequestDeeplink(request: JsonRecord): string {
-  const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(request)) {
-    if (typeof value === "string") {
-      params.set(key, value);
-      continue;
-    }
-    params.set(key, JSON.stringify(value));
-  }
-  return `openid4vp://?${params.toString()}`;
+export async function signPresentationAuthorizationRequest(
+  config: AppConfig,
+  request: JsonRecord,
+): Promise<string> {
+  const privateJwk = JSON.parse(readFileSync(privateJwkPath(config.data_dir), "utf8")) as JWK;
+  const key = await importJWK(privateJwk, "ES256");
+  const certificate = verifierCertificateBase64Der(config);
+  return new SignJWT(request)
+    .setProtectedHeader({
+      alg: "ES256",
+      typ: "oauth-authz-req+jwt",
+      kid: ISSUER_KEY_ID,
+      x5c: [certificate],
+    })
+    .sign(key);
 }
 
 export function presentationRequestByReferenceDeeplink(
@@ -53,13 +62,28 @@ export function presentationRequestByReferenceDeeplink(
   sessionId: string,
 ): string {
   const requestUri = vpRequestUri(config, sessionId);
-  const responseUri = vpResponseUri(config, sessionId);
   const params = new URLSearchParams({
-    client_id: responseUri,
-    client_id_scheme: "redirect_uri",
+    client_id: verifierClientId(config),
     request_uri: requestUri,
   });
   return `openid4vp://?${params.toString()}`;
+}
+
+export function verifierClientId(config: AppConfig): string {
+  return `x509_hash:${verifierCertificateSha256(config)}`;
+}
+
+export function verifierCertificateBase64Der(config: AppConfig): string {
+  return readFileSync(issuerCertificatePath(config.data_dir), "utf8")
+    .replace(/-----BEGIN CERTIFICATE-----/g, "")
+    .replace(/-----END CERTIFICATE-----/g, "")
+    .replace(/\s+/g, "");
+}
+
+export function verifierCertificateSha256(config: AppConfig): string {
+  return createHash("sha256")
+    .update(Buffer.from(verifierCertificateBase64Der(config), "base64"))
+    .digest("base64url");
 }
 
 export function vpRequestUri(config: AppConfig, sessionId: string): string {
@@ -111,6 +135,18 @@ function defaultDcqlQuery(config: AppConfig): JsonRecord {
         path: credential.format === "mso_mdoc" ? ["eu.europa.ec.eudi.pid.1", claim] : [claim],
       })),
     })),
+  };
+}
+
+function verifierClientMetadata(): JsonRecord {
+  return {
+    vp_formats_supported: {
+      "dc+sd-jwt": {
+        "sd-jwt_alg_values": ["ES256"],
+        "kb-jwt_alg_values": ["ES256"],
+      },
+      mso_mdoc: {},
+    },
   };
 }
 

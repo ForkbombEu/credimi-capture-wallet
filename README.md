@@ -226,6 +226,7 @@ A successful response returns HTTP 201 and includes:
   "response_uri": "http://localhost:8080/openid4vp/sessions/.../response",
   "deeplink": "openid4vp://...",
   "authorization_request": {
+    "client_id": "x509_hash:...",
     "response_type": "vp_token",
     "response_mode": "direct_post",
     "state": "..."
@@ -233,6 +234,8 @@ A successful response returns HTTP 201 and includes:
   "status": "created"
 }
 ```
+
+The QR deeplink contains only `client_id=x509_hash:...` and `request_uri=...`. The request URI returns a signed `application/oauth-authz-req+jwt` request object with the verifier certificate in the JWS `x5c` header.
 
 Create a presentation session with an API-supplied request override:
 
@@ -259,7 +262,16 @@ curl -X POST http://localhost:8080/openid4vp/sessions \
 Retrieve the request object referenced by the QR:
 
 ```sh
-curl http://localhost:8080/openid4vp/sessions/{sessionId}/request
+curl -H 'Accept: application/oauth-authz-req+jwt' \
+  http://localhost:8080/openid4vp/sessions/{sessionId}/request
+```
+
+Wallets that use request URI method `post` can provide `wallet_nonce`:
+
+```sh
+curl -X POST http://localhost:8080/openid4vp/sessions/{sessionId}/request \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -d 'wallet_nonce=wallet-generated-nonce'
 ```
 
 Retrieve the capture object:

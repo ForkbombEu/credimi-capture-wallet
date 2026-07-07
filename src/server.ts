@@ -19,6 +19,7 @@ import {
   buildPresentationAuthorizationRequest,
   defaultPresentationRequest,
   presentationRequestByReferenceDeeplink,
+  signPresentationAuthorizationRequest,
 } from "./openid4vp.js";
 import { verifyPkce } from "./pkce.js";
 import { captureProofHeaders, decodeDpopHeader, firstWalletJwks } from "./proofs.js";
@@ -239,12 +240,43 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     return res.json(session);
   });
 
-  app.get("/openid4vp/sessions/:sessionId/request", (req, res) => {
-    const session = store.getVpSession(req.params.sessionId);
-    if (!session) return res.status(404).json({ error: "vp_session_not_found" });
-    session.status = "request_retrieved";
-    store.addEvent(session, "vp_request_retrieved", {});
-    return res.json(session.authorization_request);
+  app.get("/openid4vp/sessions/:sessionId/request", async (req, res, next) => {
+    try {
+      const session = store.getVpSession(req.params.sessionId);
+      if (!session) return res.status(404).json({ error: "vp_session_not_found" });
+      session.status = "request_retrieved";
+      store.addEvent(session, "vp_request_retrieved", {});
+      const requestObject = await signPresentationAuthorizationRequest(
+        config,
+        session.authorization_request,
+      );
+      return res.type("application/oauth-authz-req+jwt").send(requestObject);
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  app.post("/openid4vp/sessions/:sessionId/request", async (req, res, next) => {
+    try {
+      const session = store.getVpSession(req.params.sessionId);
+      if (!session) return res.status(404).json({ error: "vp_session_not_found" });
+      const walletNonce = asStringOrNull(requestParams(req).wallet_nonce);
+      session.status = "request_retrieved";
+      store.addEvent(session, "vp_request_retrieved", {
+        request_uri_method: "post",
+        wallet_nonce_present: Boolean(walletNonce),
+      });
+      const authorizationRequest = walletNonce
+        ? { ...session.authorization_request, wallet_nonce: walletNonce }
+        : session.authorization_request;
+      const requestObject = await signPresentationAuthorizationRequest(
+        config,
+        authorizationRequest,
+      );
+      return res.type("application/oauth-authz-req+jwt").send(requestObject);
+    } catch (error) {
+      return next(error);
+    }
   });
 
   app.get("/openid4vp/sessions/:sessionId/deeplink", (req, res) => {

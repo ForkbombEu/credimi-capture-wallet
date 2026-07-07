@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { parseIssuerSigned } from "@animo-id/mdoc";
 import { Kms, X509Certificate } from "@credo-ts/core";
 import type { Express } from "express";
-import { compactVerify, importJWK } from "jose";
+import { type JWK, compactVerify, decodeJwt, decodeProtectedHeader, importJWK } from "jose";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { DEFAULT_CONFIG, initIssuer } from "../src/config.js";
@@ -165,8 +165,25 @@ describe("capture issuer server", () => {
     );
     expect(session.deeplink).toContain("openid4vp://");
     expect(session.deeplink).toContain(encodeURIComponent(session.request_uri));
+    const deeplink = new URL(session.deeplink);
+    expect(deeplink.searchParams.get("client_id")).toMatch(/^x509_hash:/);
+    expect(deeplink.searchParams.get("request_uri")).toBe(session.request_uri);
+    expect(deeplink.searchParams.has("response_uri")).toBe(false);
+    expect(deeplink.searchParams.has("client_id_scheme")).toBe(false);
+    expect(deeplink.searchParams.has("response_type")).toBe(false);
     expect(session.authorization_request.response_type).toBe("vp_token");
     expect(session.authorization_request.response_mode).toBe("direct_post");
+    expect(session.authorization_request.client_id).toMatch(/^x509_hash:/);
+    expect(session.authorization_request.client_id_scheme).toBeUndefined();
+    expect(session.authorization_request.client_metadata).toMatchObject({
+      vp_formats_supported: {
+        "dc+sd-jwt": {
+          "sd-jwt_alg_values": ["ES256"],
+          "kb-jwt_alg_values": ["ES256"],
+        },
+        mso_mdoc: {},
+      },
+    });
     expect(session.authorization_request.presentation_definition).toEqual(expect.any(Object));
     expect(session.authorization_request.dcql_query).toEqual(expect.any(Object));
   });
@@ -201,11 +218,28 @@ describe("capture issuer server", () => {
     const app = createApp(config);
     const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {});
 
-    const requestObject = await getJson<JsonRecord>(
-      app,
+    const requestObject = await request(app).get(
       `/openid4vp/sessions/${session.session_id}/request`,
     );
-    expect(requestObject.state).toBe(session.session_id);
+    expect(requestObject.status).toBe(200);
+    expect(requestObject.type).toBe("application/oauth-authz-req+jwt");
+    const jwks = await getJson<JwksResponse>(app, "/jwks.json");
+    const issuerJwk = jwks.keys[0] as unknown as JWK & { x5c: string[] };
+    const requestObjectHeader = decodeProtectedHeader(requestObject.text);
+    expect(requestObjectHeader).toMatchObject({
+      alg: "ES256",
+      typ: "oauth-authz-req+jwt",
+      x5c: [issuerJwk.x5c[0]],
+    });
+    const verified = await compactVerify(requestObject.text, await importJWK(issuerJwk, "ES256"));
+    expect(verified.protectedHeader.typ).toBe("oauth-authz-req+jwt");
+    const requestObjectClaims = decodeJwt(requestObject.text) as JsonRecord;
+    expect(requestObjectClaims.state).toBe(session.session_id);
+    expect(requestObjectClaims.client_id).toBe(
+      `x509_hash:${createHash("sha256")
+        .update(Buffer.from(issuerJwk.x5c[0], "base64"))
+        .digest("base64url")}`,
+    );
 
     const retrieved = await getJson<VpSessionResponse>(
       app,
@@ -236,6 +270,21 @@ describe("capture issuer server", () => {
       id: "submission-1",
     });
     expect(capture.raw?.presentation_response?.state).toBe(session.session_id);
+  });
+
+  it("includes wallet_nonce in OpenID4VP request_uri POST signed request objects", async () => {
+    const app = createApp(config);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {});
+
+    const requestObject = await request(app)
+      .post(`/openid4vp/sessions/${session.session_id}/request`)
+      .type("form")
+      .send({ wallet_nonce: "wallet-nonce-123" });
+
+    expect(requestObject.status).toBe(200);
+    expect(requestObject.type).toBe("application/oauth-authz-req+jwt");
+    const claims = decodeJwt(requestObject.text) as JsonRecord;
+    expect(claims.wallet_nonce).toBe("wallet-nonce-123");
   });
 
   it("marks GUI QR sessions consumed when the wallet retrieves the offer", async () => {
