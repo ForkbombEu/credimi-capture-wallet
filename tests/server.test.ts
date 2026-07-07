@@ -128,6 +128,8 @@ describe("capture issuer server", () => {
     expect(page.text).toContain("metadata-state-waiting");
     expect(page.text).toContain("metadata-state-receiving");
     expect(page.text).toContain("credentialRequestArrived");
+    expect(page.text).toContain("window.clearInterval(pollTimer)");
+    expect(page.text).toContain("pollTimer = setInterval");
     expect(page.text).toContain(
       '<span class="status-chip status-issuer" id="status-label">waiting</span><a class="btn btn-outline btn-md" href="https://github.com/ForkbombEu/fake-issuer/blob/master/README.md"',
     );
@@ -157,6 +159,8 @@ describe("capture issuer server", () => {
     expect(page.text.indexOf("wallet_response")).toBeLessThan(
       page.text.indexOf("presentation_submission"),
     );
+    expect(page.text).toContain("window.clearInterval(pollTimer)");
+    expect(page.text).toContain("pollTimer = setInterval");
     expect(page.text).toContain("__FAKE_ISSUER_VP_SESSION_ID__");
   });
 
