@@ -41,6 +41,12 @@ describe("capture issuer server", () => {
     const response = await request(app).get("/");
 
     expect(response.status).toBe(200);
+    expect(response.text).toContain(
+      "Step 1) Start a one-time fake issuance flow, scan the offer, and inspect the wallet identifiers, callbacks, and proof keys observed by the issuer.",
+    );
+    expect(response.text).toContain(
+      "Step 2) After receiving the credential, start a Presentation session, and inspect the Wallet response as well as the DCQL",
+    );
     expect(response.text).toContain("New fake-issuance session");
     expect(response.text).toContain("session-actions");
     expect(response.text).toContain('formaction="/ui/openid4vp/sessions"');
