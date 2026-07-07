@@ -229,12 +229,23 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
 
   app.post("/openid4vp/sessions", (req, res) => {
     const body = requestParams(req);
-    const requestOverride = objectOrNull(body.presentation_request) ?? body;
-    const session = createVpSession(config, store, requestOverride);
+    const requestUriMethod = requestUriMethodOrNull(body.request_uri_method);
+    if (body.request_uri_method !== undefined && !requestUriMethod) {
+      return res.status(400).json({ error: "unsupported_request_uri_method" });
+    }
+    const requestOverride = objectOrNull(body.presentation_request) ?? vpRequestBody(body);
+    const session = createVpSession(
+      config,
+      store,
+      requestOverride,
+      undefined,
+      requestUriMethod ?? "get",
+    );
     store.addEvent(session, "vp_deeplink_generated", {});
     res.status(201).json({
       session_id: session.session_id,
       request_uri: session.request_uri,
+      request_uri_method: session.request_uri_method,
       response_uri: session.response_uri,
       deeplink: session.deeplink,
       authorization_request: session.authorization_request,
@@ -603,6 +614,7 @@ function createVpSession(
   store: CaptureStore,
   requestOverride: JsonRecord,
   credentialConfigurationIds?: string[],
+  requestUriMethod: "get" | "post" = "get",
 ): VpSessionCapture {
   const sessionId = randomUUID();
   const request = {
@@ -610,8 +622,8 @@ function createVpSession(
     ...requestOverride,
   };
   const authorizationRequest = buildPresentationAuthorizationRequest(config, sessionId, request);
-  const session = store.createVpSession(sessionId, authorizationRequest);
-  session.deeplink = presentationRequestByReferenceDeeplink(config, sessionId);
+  const session = store.createVpSession(sessionId, authorizationRequest, requestUriMethod);
+  session.deeplink = presentationRequestByReferenceDeeplink(config, sessionId, requestUriMethod);
   return session;
 }
 
@@ -647,4 +659,15 @@ function captureVpResponse(
 function objectOrNull(value: unknown): JsonRecord | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   return value as JsonRecord;
+}
+
+function requestUriMethodOrNull(value: unknown): "get" | "post" | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.toLowerCase();
+  return normalized === "get" || normalized === "post" ? normalized : null;
+}
+
+function vpRequestBody(body: JsonRecord): JsonRecord {
+  const { request_uri_method: _requestUriMethod, ...request } = body;
+  return request;
 }

@@ -69,12 +69,17 @@ export class CaptureStore {
     return this.sessions.get(sessionId);
   }
 
-  createVpSession(sessionId: string, authorizationRequest: JsonRecord): VpSessionCapture {
+  createVpSession(
+    sessionId: string,
+    authorizationRequest: JsonRecord,
+    requestUriMethod: "get" | "post",
+  ): VpSessionCapture {
     const requestUri = `${this.config.issuer_base_url}/openid4vp/sessions/${sessionId}/request`;
     const responseUri = `${this.config.issuer_base_url}/openid4vp/sessions/${sessionId}/response`;
     const session: VpSessionCapture = {
       session_id: sessionId,
       status: "created",
+      request_uri_method: requestUriMethod,
       authorization_request: authorizationRequest,
       request_uri: requestUri,
       response_uri: responseUri,

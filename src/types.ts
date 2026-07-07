@@ -112,6 +112,7 @@ export interface SessionCapture {
 export interface VpSessionCapture {
   session_id: string;
   status: string;
+  request_uri_method: "get" | "post";
   authorization_request: JsonRecord;
   request_uri: string;
   deeplink: string;

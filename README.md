@@ -223,6 +223,7 @@ A successful response returns HTTP 201 and includes:
 {
   "session_id": "...",
   "request_uri": "http://localhost:8080/openid4vp/sessions/.../request",
+  "request_uri_method": "get",
   "response_uri": "http://localhost:8080/openid4vp/sessions/.../response",
   "deeplink": "openid4vp://...",
   "authorization_request": {
@@ -235,7 +236,17 @@ A successful response returns HTTP 201 and includes:
 }
 ```
 
-The QR deeplink contains only `client_id=x509_hash:...` and `request_uri=...`. The request URI returns a signed `application/oauth-authz-req+jwt` request object with the verifier certificate in the JWS `x5c` header.
+The QR deeplink contains `client_id=x509_hash:...` and `request_uri=...`. The request URI returns a signed `application/oauth-authz-req+jwt` request object with the verifier certificate in the JWS `x5c` header.
+
+Set the request URI method explicitly when creating the session:
+
+```sh
+curl -X POST http://localhost:8080/openid4vp/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"request_uri_method":"post"}'
+```
+
+When `request_uri_method` is `post`, the QR deeplink also includes `request_uri_method=post`. The default is `get`.
 
 Create a presentation session with an API-supplied request override:
 
