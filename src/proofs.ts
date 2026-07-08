@@ -1,4 +1,4 @@
-import { type JWK, calculateJwkThumbprint } from "jose";
+import { type JWK, calculateJwkThumbprint, importJWK, jwtVerify } from "jose";
 import type { JsonRecord, ProofHeaderCapture } from "./types.js";
 
 export function decodeJwtHeader(jwt: string): JsonRecord {
@@ -79,6 +79,67 @@ export async function decodeDpopHeader(dpop: string | undefined): Promise<{
     thumbprint = null;
   }
   return { jwk, thumbprint };
+}
+
+export async function verifyDpopProof(input: {
+  dpop: string | undefined;
+  method: string;
+  url: string;
+  now?: number;
+}): Promise<{
+  jwk: JsonRecord;
+  thumbprint: string;
+  jti: string;
+}> {
+  if (!input.dpop) throw new Error("DPoP proof is required");
+  const header = decodeJwtHeader(input.dpop);
+  const jwk = asRecord(header.jwk);
+  if (!jwk) throw new Error("DPoP proof must contain header.jwk");
+  const alg = asString(header.alg) ?? "ES256";
+  const verified = await jwtVerify(input.dpop, await importJWK(jwk as unknown as JWK, alg));
+  const payload = verified.payload as JsonRecord;
+  if (asString(payload.htm) !== input.method.toUpperCase()) {
+    throw new Error("DPoP proof htm does not match request method");
+  }
+  if (asString(payload.htu) !== input.url) {
+    throw new Error("DPoP proof htu does not match request URL");
+  }
+  const jti = asString(payload.jti);
+  if (!jti) throw new Error("DPoP proof must contain jti");
+  const iat = typeof payload.iat === "number" ? payload.iat : null;
+  const now = input.now ?? Math.floor(Date.now() / 1000);
+  if (!iat || Math.abs(now - iat) > 300) throw new Error("DPoP proof iat is outside tolerance");
+  const thumbprint = await calculateJwkThumbprint(jwk as unknown as JWK);
+  return { jwk, thumbprint, jti };
+}
+
+export async function verifyCredentialProof(input: {
+  body: JsonRecord;
+  expectedNonce: string;
+  expectedAudience: string;
+}): Promise<{ holderJwk: JsonRecord; source: string }> {
+  const proofs = extractProofJwts(input.body);
+  if (proofs.length === 0) throw new Error("Credential proof JWT is required");
+  const errors: string[] = [];
+  for (const proof of proofs) {
+    try {
+      const header = decodeJwtHeader(proof.jwt);
+      const jwk = asRecord(header.jwk);
+      if (!jwk) throw new Error("Credential proof JWT must contain header.jwk");
+      const alg = asString(header.alg) ?? "ES256";
+      const verified = await jwtVerify(proof.jwt, await importJWK(jwk as unknown as JWK, alg), {
+        audience: input.expectedAudience,
+      });
+      const payload = verified.payload as JsonRecord;
+      if (payload.nonce !== input.expectedNonce) {
+        throw new Error("Credential proof JWT nonce does not match issued c_nonce");
+      }
+      return { holderJwk: jwk, source: proof.source };
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : "proof verification failed");
+    }
+  }
+  throw new Error(errors[0] ?? "Credential proof JWT verification failed");
 }
 
 function asString(value: unknown): string | undefined {

@@ -113,17 +113,26 @@ export function supportedCredentialById(
   );
 }
 
+export function supportedCredentialByScope(
+  config: AppConfig,
+  scope: string,
+): SupportedCredential | null {
+  return supportedCredentials(config).find((credential) => credential.scope === scope) ?? null;
+}
+
 export function credentialOffer(
   config: AppConfig,
   sessionId: string,
   credentialConfigurationId = supportedCredentialConfigurationIds(config)[0],
 ): unknown {
+  const credential = supportedCredentialById(config, credentialConfigurationId);
   return {
     credential_issuer: config.issuer_base_url,
     credential_configuration_ids: [credentialConfigurationId],
     grants: {
       authorization_code: {
         issuer_state: sessionId,
+        scope: credential?.scope,
       },
     },
   };

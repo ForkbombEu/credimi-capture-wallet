@@ -12,6 +12,7 @@ import {
   credentialOfferDeeplink,
   jwtVcIssuerMetadata,
   supportedCredentialById,
+  supportedCredentialByScope,
   supportedCredentialConfigurationIds,
   supportedCredentials,
 } from "./metadata.js";
@@ -23,9 +24,20 @@ import {
   signPresentationAuthorizationRequest,
 } from "./openid4vp.js";
 import { verifyPkce } from "./pkce.js";
-import { captureProofHeaders, decodeDpopHeader, firstWalletJwks } from "./proofs.js";
+import {
+  captureProofHeaders,
+  firstWalletJwks,
+  verifyCredentialProof,
+  verifyDpopProof,
+} from "./proofs.js";
 import { CaptureStore, asStringOrNull, updateObservedValue } from "./state.js";
-import type { AppConfig, JsonRecord, SessionCapture, VpSessionCapture } from "./types.js";
+import type {
+  AppConfig,
+  ClientAuthenticationCapture,
+  JsonRecord,
+  SessionCapture,
+  VpSessionCapture,
+} from "./types.js";
 import { errorPage, helpPage, indexPage, sessionPage, vpSessionPage } from "./ui.js";
 
 export function createApp(config: AppConfig, store = new CaptureStore(config)): express.Express {
@@ -382,8 +394,9 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
 
   app.post("/par", (req, res) => {
     const params = requestParams(req);
-    const par = store.storePar(params);
     const session = store.ensureSession(asStringOrNull(params.issuer_state));
+    const scope = asStringOrNull(params.scope);
+    const requestedCredential = scope ? supportedCredentialByScope(config, scope) : null;
     session.status = "par_received";
     session.raw ??= {};
     session.raw.par_request = params;
@@ -393,6 +406,33 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     session.checks.issuer_state_present = typeof params.issuer_state === "string";
     session.checks.pkce_present =
       typeof params.code_challenge === "string" && typeof params.code_challenge_method === "string";
+    const clientAuthentication = captureClientAuthentication({
+      params,
+      oauthClientAttestation: req.header("OAuth-Client-Attestation"),
+      oauthClientAttestationPop: req.header("OAuth-Client-Attestation-PoP"),
+      issuerBaseUrl: config.issuer_base_url,
+      endpointUrl: endpointUrl(config, "/par"),
+    });
+    session.observed.client_authentication = clientAuthentication;
+    session.checks.private_key_jwt_present = clientAuthentication.private_key_jwt.present;
+    session.checks.private_key_jwt_client_id_matches =
+      clientAuthentication.private_key_jwt.client_id_matches;
+    session.checks.wallet_attestation_present = clientAuthentication.wallet_attestation.present;
+    session.checks.wallet_attestation_pop_present =
+      clientAuthentication.wallet_attestation_pop.present;
+    session.checks.wallet_attestation_client_id_matches =
+      clientAuthentication.wallet_attestation.client_id_matches;
+    session.checks.wallet_attestation_pop_audience_matches =
+      clientAuthentication.wallet_attestation_pop.audience_matches;
+
+    const parError = parValidationError(params, requestedCredential, clientAuthentication);
+    if (parError) {
+      store.addEvent(session, "par_request_rejected", parError);
+      return res.status(400).json(parError);
+    }
+    if (!requestedCredential) return res.status(400).json({ error: "invalid_scope" });
+    session.credential_configuration_id = requestedCredential.id;
+    const par = store.storePar(params);
     store.addEvent(session, "par_request_received", { request_uri: par.request_uri, params });
     logIssuerFlow("par.stored", {
       request_uri: par.request_uri,
@@ -448,6 +488,19 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     session.checks.pkce_present =
       typeof merged.code_challenge === "string" && typeof merged.code_challenge_method === "string";
     store.addEvent(session, "authorize_request_received", { params: merged });
+
+    if (!par) {
+      store.addEvent(session, "authorize_request_rejected", { error: "invalid_request_uri" });
+      return res.status(400).json({ error: "invalid_request_uri" });
+    }
+
+    const scope = asStringOrNull(merged.scope);
+    const requestedCredential = scope ? supportedCredentialByScope(config, scope) : null;
+    if (!requestedCredential) {
+      store.addEvent(session, "authorize_request_rejected", { error: "invalid_scope" });
+      return res.status(400).json({ error: "invalid_scope" });
+    }
+    session.credential_configuration_id = requestedCredential.id;
 
     const redirectUri = asStringOrNull(merged.redirect_uri);
     if (!redirectUri) {
@@ -509,6 +562,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         oauthClientAttestation: req.header("OAuth-Client-Attestation"),
         oauthClientAttestationPop: req.header("OAuth-Client-Attestation-PoP"),
         issuerBaseUrl: config.issuer_base_url,
+        endpointUrl: endpointUrl(config, "/token"),
       });
       session.observed.client_authentication = clientAuthentication;
       session.checks.private_key_jwt_present = clientAuthentication.private_key_jwt.present;
@@ -540,8 +594,34 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         wallet_attestation_pop_present: clientAuthentication.wallet_attestation_pop.present,
       });
 
-      const dpop = req.header("DPoP");
-      const dpopCapture = await decodeDpopHeader(dpop);
+      if (!code) {
+        return res.status(400).json({ error: "invalid_grant" });
+      }
+      if (!session.checks.pkce_valid) {
+        return res.status(400).json({ error: "invalid_grant", error_description: "PKCE failed" });
+      }
+      const clientAuthError = clientAuthenticationError(clientAuthentication);
+      if (clientAuthError) {
+        return res.status(401).json(clientAuthError);
+      }
+
+      let dpopCapture: Awaited<ReturnType<typeof verifyDpopProof>>;
+      try {
+        dpopCapture = await verifyDpopProof({
+          dpop: req.header("DPoP"),
+          method: req.method,
+          url: endpointUrl(config, "/token"),
+        });
+      } catch (error) {
+        return res.status(401).json({
+          error: "invalid_dpop_proof",
+          error_description: errorMessage(error),
+        });
+      }
+      if (store.dpopJtis.has(dpopCapture.jti)) {
+        return res.status(401).json({ error: "use_dpop_nonce" });
+      }
+      store.dpopJtis.add(dpopCapture.jti);
       if (dpopCapture.jwk) {
         session.observed.dpop_jwk = {
           observed: true,
@@ -554,13 +634,13 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         store.addEvent(session, "dpop_not_observed", {});
       }
 
-      const token = store.issueAccessToken(session.session_id);
       const nonce = randomUUID();
+      const token = store.issueAccessToken(session.session_id, dpopCapture.thumbprint, nonce);
       session.status = "token_issued";
       store.addEvent(session, "nonce_issued", { source: "token_response" });
       res.json({
         access_token: token.token,
-        token_type: dpopCapture.jwk ? "DPoP" : "Bearer",
+        token_type: "DPoP",
         expires_in: config.access_token_ttl_seconds,
         c_nonce: nonce,
         c_nonce_expires_in: config.nonce_ttl_seconds,
@@ -580,6 +660,9 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     try {
       const body = requestParams(req);
       const accessToken = store.resolveAccessToken(req.header("Authorization"));
+      if (!accessToken) {
+        return res.status(401).json({ error: "invalid_token" });
+      }
       const session = accessToken
         ? store.ensureSession(accessToken.session_id)
         : store.ensureSession();
@@ -597,11 +680,25 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       session.raw.proof_headers = headers;
       session.checks.proof_jwt_present = headers.length > 0;
       session.checks.proof_jwt_header_jwk_present = headers.some((header) => header.jwk);
-      session.checks.nonce_verified =
-        typeof body.proof === "object" || typeof body.proofs === "object";
+      session.checks.nonce_verified = false;
       for (const header of headers) {
         store.addEvent(session, "proof_jwt_observed", { header });
       }
+      let verifiedProof: Awaited<ReturnType<typeof verifyCredentialProof>>;
+      try {
+        verifiedProof = await verifyCredentialProof({
+          body,
+          expectedNonce: accessToken.c_nonce,
+          expectedAudience: config.issuer_base_url,
+        });
+        session.checks.nonce_verified = true;
+      } catch (error) {
+        return res.status(400).json({
+          error: "invalid_proof",
+          error_description: errorMessage(error),
+        });
+      }
+
       const wallet = firstWalletJwks(headers);
       session.observed.wallet_jwks = {
         observed: Boolean(wallet.jwks),
@@ -613,7 +710,28 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         observed_proof_header_fields: wallet.observedFields,
       });
 
-      const dpopCapture = await decodeDpopHeader(req.header("DPoP"));
+      let dpopCapture: Awaited<ReturnType<typeof verifyDpopProof>>;
+      try {
+        dpopCapture = await verifyDpopProof({
+          dpop: req.header("DPoP"),
+          method: req.method,
+          url: endpointUrl(config, "/credential"),
+        });
+      } catch (error) {
+        return res.status(401).json({
+          error: "invalid_dpop_proof",
+          error_description: errorMessage(error),
+        });
+      }
+      if (store.dpopJtis.has(dpopCapture.jti)) {
+        return res.status(401).json({ error: "use_dpop_nonce" });
+      }
+      store.dpopJtis.add(dpopCapture.jti);
+      if (dpopCapture.thumbprint !== accessToken.dpop_jkt) {
+        return res
+          .status(401)
+          .json({ error: "invalid_token", error_description: "DPoP key mismatch" });
+      }
       if (dpopCapture.jwk) {
         session.observed.dpop_jwk = {
           observed: true,
@@ -623,7 +741,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         };
       }
 
-      const holderJwk = wallet.jwks?.keys[0];
+      const holderJwk = verifiedProof.holderJwk;
       if (!holderJwk) {
         return res.status(400).json({
           error: "invalid_proof",
@@ -686,6 +804,46 @@ export function initSummary(config: AppConfig): JsonRecord {
     jwks_url: `${config.issuer_base_url}/jwks.json`,
     health_url: `${config.issuer_base_url}/healthz`,
   };
+}
+
+function endpointUrl(config: AppConfig, path: string): string {
+  return `${config.issuer_base_url}${path}`;
+}
+
+function parValidationError(
+  params: JsonRecord,
+  requestedCredential: { id: string } | null,
+  clientAuthentication: ClientAuthenticationCapture,
+): JsonRecord | null {
+  if (!requestedCredential) return { error: "invalid_scope" };
+  if (typeof params.issuer_state !== "string") return { error: "invalid_request" };
+  if (typeof params.redirect_uri !== "string") return { error: "invalid_request" };
+  if (typeof params.client_id !== "string") return { error: "invalid_request" };
+  if (params.code_challenge_method !== "S256" || typeof params.code_challenge !== "string") {
+    return { error: "invalid_request", error_description: "PKCE S256 is required" };
+  }
+  return clientAuthenticationError(clientAuthentication);
+}
+
+function clientAuthenticationError(
+  clientAuthentication: ClientAuthenticationCapture,
+): JsonRecord | null {
+  const privateKeyJwtValid =
+    clientAuthentication.private_key_jwt.present &&
+    clientAuthentication.private_key_jwt.assertion_type_valid &&
+    clientAuthentication.private_key_jwt.client_id_matches === true &&
+    clientAuthentication.private_key_jwt.audience_matches === true;
+  const walletAttestationValid =
+    clientAuthentication.wallet_attestation.present &&
+    clientAuthentication.wallet_attestation_pop.present &&
+    clientAuthentication.wallet_attestation.client_id_matches === true &&
+    clientAuthentication.wallet_attestation_pop.audience_matches === true;
+  if (privateKeyJwtValid || walletAttestationValid) return null;
+  return { error: "invalid_client", error_description: "Client authentication is required" };
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function requestParams(req: Request): JsonRecord {

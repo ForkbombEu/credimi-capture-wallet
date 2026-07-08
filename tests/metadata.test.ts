@@ -138,7 +138,7 @@ describe("metadata", () => {
     });
   });
 
-  it("does not put scope inside authorization_code credential offers", () => {
+  it("puts scope inside authorization_code credential offers", () => {
     const offer = credentialOffer(
       DEFAULT_CONFIG,
       "session-id",
@@ -150,6 +150,9 @@ describe("metadata", () => {
     expect(offer.credential_configuration_ids).toEqual([
       mdocCredentialConfigurationId(DEFAULT_CONFIG),
     ]);
-    expect(authorizationCode).toEqual({ issuer_state: "session-id" });
+    expect(authorizationCode).toEqual({
+      issuer_state: "session-id",
+      scope: `${DEFAULT_CONFIG.credential_scope}.mdoc.jwt`,
+    });
   });
 });

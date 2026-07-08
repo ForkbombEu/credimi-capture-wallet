@@ -17,6 +17,7 @@ export class CaptureStore {
   readonly authorizationCodes = new Map<string, AuthorizationCode>();
   readonly accessTokens = new Map<string, AccessToken>();
   readonly vpSessions = new Map<string, VpSessionCapture>();
+  readonly dpopJtis = new Set<string>();
 
   constructor(private readonly config: AppConfig) {}
 
@@ -174,11 +175,13 @@ export class CaptureStore {
     return record;
   }
 
-  issueAccessToken(sessionId: string): AccessToken {
+  issueAccessToken(sessionId: string, dpopJkt: string, cNonce: string): AccessToken {
     const token = randomUUID();
     const record = {
       token,
       session_id: sessionId,
+      c_nonce: cNonce,
+      dpop_jkt: dpopJkt,
       expires_at: nowSeconds() + this.config.access_token_ttl_seconds,
     };
     this.accessTokens.set(token, record);

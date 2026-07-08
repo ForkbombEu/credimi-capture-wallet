@@ -8,6 +8,7 @@ export interface ClientAuthenticationInput {
   oauthClientAttestation: string | undefined;
   oauthClientAttestationPop: string | undefined;
   issuerBaseUrl: string;
+  endpointUrl: string;
 }
 
 export function captureClientAuthentication(
@@ -48,7 +49,7 @@ function capturePrivateKeyJwt(
     assertion_type: assertionType,
     assertion_type_valid: assertionType === PRIVATE_KEY_JWT_ASSERTION_TYPE,
     client_id_matches: clientId && subject ? clientId === subject : null,
-    audience_matches: audienceMatches(decoded.claims?.aud, `${input.issuerBaseUrl}/token`),
+    audience_matches: audienceMatches(decoded.claims?.aud, input.endpointUrl),
   };
 }
 
@@ -80,7 +81,7 @@ function captureWalletAttestationPop(
 
   return {
     ...decoded,
-    audience_matches: audienceMatches(decoded.claims?.aud, input.issuerBaseUrl),
+    audience_matches: audienceMatches(decoded.claims?.aud, input.endpointUrl),
     challenge: asString(decoded.claims?.challenge) ?? null,
   };
 }

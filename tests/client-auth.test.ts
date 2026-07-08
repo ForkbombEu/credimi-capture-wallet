@@ -3,17 +3,19 @@ import { PRIVATE_KEY_JWT_ASSERTION_TYPE, captureClientAuthentication } from "../
 import { unsignedJwt } from "./helpers.js";
 
 const issuerBaseUrl = "https://issuer.example.test";
+const tokenEndpointUrl = `${issuerBaseUrl}/token`;
 const clientId = "wallet-client";
 
 describe("client authentication capture", () => {
   it("captures private_key_jwt client assertions from token request parameters", () => {
     const assertion = unsignedJwt(
       { alg: "ES256", typ: "JWT", kid: "wallet-signing-key" },
-      { sub: clientId, aud: `${issuerBaseUrl}/token` },
+      { sub: clientId, aud: tokenEndpointUrl },
     );
 
     const capture = captureClientAuthentication({
       issuerBaseUrl,
+      endpointUrl: tokenEndpointUrl,
       params: {
         client_id: clientId,
         client_assertion_type: PRIVATE_KEY_JWT_ASSERTION_TYPE,
@@ -43,11 +45,12 @@ describe("client authentication capture", () => {
     );
     const pop = unsignedJwt(
       { alg: "ES256", typ: "oauth-client-attestation-pop+jwt", kid: "instance-key" },
-      { iss: clientId, aud: issuerBaseUrl, challenge: "token-nonce" },
+      { iss: clientId, aud: tokenEndpointUrl, challenge: "token-nonce" },
     );
 
     const capture = captureClientAuthentication({
       issuerBaseUrl,
+      endpointUrl: tokenEndpointUrl,
       params: { client_id: clientId },
       oauthClientAttestation: attestation,
       oauthClientAttestationPop: pop,

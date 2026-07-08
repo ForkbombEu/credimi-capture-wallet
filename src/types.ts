@@ -158,5 +158,7 @@ export interface AuthorizationCode {
 export interface AccessToken {
   token: string;
   session_id: string;
+  c_nonce: string;
+  dpop_jkt: string;
   expires_at: number;
 }
