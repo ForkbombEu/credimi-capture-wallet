@@ -56,6 +56,7 @@ export function authorizationServerMetadata(config: AppConfig): unknown {
     response_types_supported: ["code"],
     grant_types_supported: ["authorization_code"],
     code_challenge_methods_supported: ["S256"],
+    authorization_response_iss_parameter_supported: true,
     token_endpoint_auth_methods_supported: ["none", "private_key_jwt", "attest_jwt_client_auth"],
     token_endpoint_auth_signing_alg_values_supported: ["ES256"],
     client_attestation_signing_alg_values_supported: ["ES256"],

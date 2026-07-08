@@ -497,6 +497,7 @@ describe("capture issuer server", () => {
     expect(location.protocol).toBe("eudi-wallet:");
     expect(location.searchParams.get("state")).toBe("wallet-state");
     expect(location.searchParams.get("code")).toBeTruthy();
+    expect(location.searchParams.get("iss")).toBe(config.issuer_base_url);
 
     const capture = await getJson<SessionCapture>(app, `/sessions/${session.session_id}`);
     expect(capture.observed.client_id.value).toBe("wallet-client");
@@ -529,11 +530,19 @@ describe("capture issuer server", () => {
 
     const entries = logs.map((line) => JSON.parse(line) as JsonRecord);
     expect(entries.map((entry) => entry.event)).toEqual([
+      "http.request",
       "par.stored",
+      "http.request",
       "authorize.received",
       "authorize.redirect",
     ]);
     expect(entries[0]).toMatchObject({
+      component: "fake-issuer",
+      event: "http.request",
+      method: "POST",
+      path: "/par",
+    });
+    expect(entries[1]).toMatchObject({
       component: "fake-issuer",
       request_uri: par.request_uri,
       session_id: session.session_id,
@@ -542,13 +551,19 @@ describe("capture issuer server", () => {
       has_client_assertion: true,
       has_pkce: true,
     });
-    expect(entries[1]).toMatchObject({
+    expect(entries[2]).toMatchObject({
+      component: "fake-issuer",
+      event: "http.request",
+      method: "GET",
+      path: "/authorize",
+    });
+    expect(entries[3]).toMatchObject({
       request_uri: par.request_uri,
       par_resolution: "resolved",
       session_id: session.session_id,
       has_redirect_uri: true,
     });
-    expect(entries[2]).toMatchObject({
+    expect(entries[4]).toMatchObject({
       request_uri: par.request_uri,
       par_resolution: "resolved",
       session_id: session.session_id,

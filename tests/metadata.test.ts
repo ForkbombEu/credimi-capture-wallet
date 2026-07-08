@@ -116,6 +116,7 @@ describe("metadata", () => {
     expect(metadata.token_endpoint_auth_signing_alg_values_supported).toEqual(["ES256"]);
     expect(metadata.client_attestation_signing_alg_values_supported).toEqual(["ES256"]);
     expect(metadata.client_attestation_pop_signing_alg_values_supported).toEqual(["ES256"]);
+    expect(metadata.authorization_response_iss_parameter_supported).toBe(true);
   });
 
   it("advertises JWT VC issuer metadata for the HTTPS issuer identifier", () => {

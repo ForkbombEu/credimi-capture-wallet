@@ -30,6 +30,20 @@ import { errorPage, helpPage, indexPage, sessionPage, vpSessionPage } from "./ui
 export function createApp(config: AppConfig, store = new CaptureStore(config)): express.Express {
   const app = express();
 
+  app.use((req, _res, next) => {
+    if (req.path === "/par" || req.path === "/authorize") {
+      logIssuerFlow("http.request", {
+        method: req.method,
+        path: req.path,
+        original_url: req.originalUrl,
+        content_type: req.header("content-type") ?? null,
+        accept: req.header("accept") ?? null,
+        user_agent: req.header("user-agent") ?? null,
+      });
+    }
+    next();
+  });
+
   app.use(
     express.json({
       type: ["application/json", "application/*+json"],
@@ -423,6 +437,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     const location = new URL(redirectUri);
     location.searchParams.set("code", code.code);
     if (code.state) location.searchParams.set("state", code.state);
+    location.searchParams.set("iss", config.issuer_base_url);
     session.status = "authorization_code_issued";
     store.addEvent(session, "redirect_sent", { redirect_uri: redirectUri });
     logIssuerFlow("authorize.redirect", {
