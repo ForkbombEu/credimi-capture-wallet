@@ -200,13 +200,10 @@ describe("capture issuer server", () => {
     expect(created.status).toBe(303);
     const requestObject = await request(app).get(`/openid4vp/sessions/${sessionId}/request`);
     const requestObjectClaims = decodeJwt(requestObject.text) as JsonRecord;
-    const presentationDefinition = requestObjectClaims.presentation_definition as JsonRecord;
-    const inputDescriptors = presentationDefinition.input_descriptors as JsonRecord[];
     const dcqlQuery = requestObjectClaims.dcql_query as JsonRecord;
     const dcqlCredentials = dcqlQuery.credentials as JsonRecord[];
 
-    expect(inputDescriptors).toHaveLength(1);
-    expect(inputDescriptors[0]?.id).toBe(selectedCredentialConfigurationId);
+    expect(requestObjectClaims.presentation_definition).toBeUndefined();
     expect(dcqlCredentials).toHaveLength(1);
     expect(dcqlCredentials[0]?.format).toBe("mso_mdoc");
   });
@@ -234,6 +231,7 @@ describe("capture issuer server", () => {
     expect(deeplink.searchParams.has("response_type")).toBe(false);
     expect(session.authorization_request.response_type).toBe("vp_token");
     expect(session.authorization_request.response_mode).toBe("direct_post");
+    expect(session.authorization_request.aud).toBe("https://self-issued.me/v2");
     expect(session.authorization_request.request_uri_method).toBeUndefined();
     expect(session.authorization_request.client_id).toMatch(/^x509_hash:/);
     expect(session.authorization_request.client_id_scheme).toBeUndefined();
@@ -246,7 +244,7 @@ describe("capture issuer server", () => {
         mso_mdoc: {},
       },
     });
-    expect(session.authorization_request.presentation_definition).toEqual(expect.any(Object));
+    expect(session.authorization_request.presentation_definition).toBeUndefined();
     expect(session.authorization_request.dcql_query).toEqual(expect.any(Object));
   });
 
@@ -324,6 +322,8 @@ describe("capture issuer server", () => {
     expect(verified.protectedHeader.typ).toBe("oauth-authz-req+jwt");
     const requestObjectClaims = decodeJwt(requestObject.text) as JsonRecord;
     expect(requestObjectClaims.state).toBe(session.session_id);
+    expect(requestObjectClaims.aud).toBe("https://self-issued.me/v2");
+    expect(requestObjectClaims.presentation_definition).toBeUndefined();
     expect(requestObjectClaims.client_id).toBe(
       `x509_hash:${createHash("sha256")
         .update(Buffer.from((requestObjectHeader.x5c as string[])[0], "base64"))
@@ -343,7 +343,7 @@ describe("capture issuer server", () => {
         vp_token: "presentation-token",
       });
     expect(presentation.status).toBe(200);
-    expect(presentation.body).toEqual({ status: "ok" });
+    expect(presentation.body).toEqual({});
 
     const capture = await getJson<VpSessionResponse>(
       app,

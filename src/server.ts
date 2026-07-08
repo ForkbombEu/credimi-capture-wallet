@@ -334,7 +334,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     if (!session) return res.status(404).json({ error: "vp_session_not_found" });
     const body = requestParams(req);
     captureVpResponse(store, session, body, (req as Request & { rawBody?: string }).rawBody);
-    return res.json({ status: "ok" });
+    return res.json({});
   });
 
   app.post("/openid4vp/response", (req, res) => {
@@ -342,7 +342,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     const session = store.getVpSession(asStringOrNull(body.state) ?? "");
     if (!session) return res.status(404).json({ error: "vp_session_not_found" });
     captureVpResponse(store, session, body, (req as Request & { rawBody?: string }).rawBody);
-    return res.json({ status: "ok" });
+    return res.json({});
   });
 
   app.get("/openid4vp/sessions/:sessionId/events", (req, res) => {

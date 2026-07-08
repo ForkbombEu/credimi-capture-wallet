@@ -10,6 +10,7 @@ import {
 } from "./metadata.js";
 import type { AppConfig, JsonRecord } from "./types.js";
 
+const REQUEST_OBJECT_AUDIENCE = "https://self-issued.me/v2";
 const DEFAULT_CLAIMS = [
   "family_name",
   "given_name",
@@ -28,7 +29,6 @@ export function defaultPresentationRequest(
     response_type: "vp_token",
     response_mode: "direct_post",
     nonce: randomUUID(),
-    presentation_definition: defaultPresentationDefinition(credentials),
     dcql_query: defaultDcqlQuery(credentials),
   };
 }
@@ -42,6 +42,7 @@ export function buildPresentationAuthorizationRequest(
   const clientId = verifierClientId(config);
   return {
     client_id: clientId,
+    aud: REQUEST_OBJECT_AUDIENCE,
     response_uri: responseUri,
     state: sessionId,
     client_metadata: verifierClientMetadata(),
@@ -105,34 +106,6 @@ export function vpRequestUri(config: AppConfig, sessionId: string): string {
 
 export function vpResponseUri(config: AppConfig, sessionId: string): string {
   return `${config.issuer_base_url}/openid4vp/sessions/${sessionId}/response`;
-}
-
-function defaultPresentationDefinition(credentials: SupportedCredential[]): JsonRecord {
-  return {
-    id: "credimi-issued-credentials",
-    name: "Credimi issued credentials",
-    purpose: "Request credentials issued by this fake issuer.",
-    input_descriptors: credentials.map((credential) => ({
-      id: credential.id,
-      name: credential.displayName,
-      format: {
-        [credential.format]: {
-          alg: credential.format === "mso_mdoc" ? [-7, -9] : ["ES256"],
-        },
-      },
-      constraints: {
-        fields: [
-          {
-            path: credential.format === "mso_mdoc" ? ["$['doctype']"] : ["$.vct", "$['vct']"],
-            filter: {
-              type: "string",
-              const: credential.format === "mso_mdoc" ? PID_MDOC_DOCTYPE : credential.id,
-            },
-          },
-        ],
-      },
-    })),
-  };
 }
 
 function defaultDcqlQuery(credentials: SupportedCredential[]): JsonRecord {
