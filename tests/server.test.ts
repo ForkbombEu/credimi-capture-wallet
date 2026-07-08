@@ -50,6 +50,15 @@ describe("capture issuer server", () => {
     expect(response.text).toContain("New fake-issuance session");
     expect(response.text).toContain("session-actions");
     expect(response.text).toContain('formaction="/ui/openid4vp/sessions"');
+    expect(response.text).toContain("<h2>Captured values</h2>");
+    expect(response.text).toContain('<span class="count-chip">7</span>');
+    expect(response.text).toContain("<h3>OpenID4VCI</h3>");
+    expect(response.text).toContain("<h3>OpenID4VP</h3>");
+    expect(response.text).toContain("<dt>wallet_jwks</dt>");
+    expect(response.text).toContain("<dt>authorization_request</dt>");
+    expect(response.text).toContain("<dt>request_uri_payload</dt>");
+    expect(response.text).toContain("<dt>wallet_response</dt>");
+    expect(response.text).not.toContain("<dt>presentation_submission</dt>");
     expect(response.text).toContain('<select name="credential_configuration_id">');
     expect(response.text).toContain("Credimi Demo PID (SD-JWT VC, proof JWT)");
     expect(response.text).toContain("Credimi Demo PID (MDOC, proof JWT)");
