@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CONFIG } from "../src/config.js";
-import { CREDIMI_LOGO_URL } from "../src/credential.js";
 import {
+  PID_MDOC_CLAIMS,
   PID_MDOC_DOCTYPE,
   PID_MDOC_NAMESPACE,
+  PID_SD_JWT_CLAIMS,
+  PID_SD_JWT_VCT,
+} from "../src/credential-definitions.js";
+import { CREDIMI_LOGO_URL } from "../src/credential.js";
+import {
   authorizationServerMetadata,
   credentialIssuerMetadata,
   credentialOffer,
@@ -35,7 +40,7 @@ describe("metadata", () => {
     ] as JsonRecord;
     const credentialMetadata = configuration.credential_metadata as JsonRecord;
 
-    expect(configuration.vct).toBe(`${DEFAULT_CONFIG.credential_configuration_id}.jwt`);
+    expect(configuration.vct).toBe(PID_SD_JWT_VCT);
     expect(configuration.display).toBeUndefined();
     expect(credentialMetadata.display).toEqual([
       {
@@ -49,6 +54,9 @@ describe("metadata", () => {
       mandatory: true,
       display: [{ name: "Given Name", locale: "en-US" }],
     });
+    expect((credentialMetadata.claims as JsonRecord[]).map((claim) => claim.path)).toEqual(
+      PID_SD_JWT_CLAIMS.map((claim) => claim.split(".")),
+    );
   });
 
   it("advertises the supported JWT proof credential configurations", () => {
@@ -102,7 +110,9 @@ describe("metadata", () => {
       mandatory: true,
       display: [{ name: "Given Name", locale: "en-US" }],
     });
-    expect(claims.map((claim) => claim.path)).toContainEqual([PID_MDOC_NAMESPACE, "birth_date"]);
+    expect(claims.map((claim) => claim.path)).toEqual(
+      PID_MDOC_CLAIMS.map((claim) => [PID_MDOC_NAMESPACE, claim]),
+    );
   });
 
   it("advertises client attestation support in authorization server metadata", () => {

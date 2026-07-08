@@ -13,6 +13,7 @@ import {
   CREDIMI_WEBSITE,
   PID_MDOC_DOCTYPE,
   PID_MDOC_NAMESPACE,
+  PID_SD_JWT_VCT,
 } from "./credential-definitions.js";
 import type { AppConfig, JsonRecord } from "./types.js";
 
@@ -36,27 +37,31 @@ export async function issueSdJwtCredential(options: {
     holder: { method: "jwk", jwk: Kms.PublicJwk.fromUnknown(options.holderJwk) },
     headerType: "dc+sd-jwt",
     payload: {
-      vct: options.credentialConfigurationId,
+      vct: PID_SD_JWT_VCT,
       exp: Math.floor(now.getTime() / 1000) + 365 * 24 * 60 * 60,
-      family_name: "Doe",
-      given_name: "Jane",
-      birth_date: "1990-01-01",
-      issuing_country: "EU",
-      issuing_authority: "Credimi Fake Issuer",
-      document_number: "CREDIMI-DEMO-001",
-      website: CREDIMI_WEBSITE,
-      logo_uri: CREDIMI_LOGO_URL,
+      ...sdJwtPidClaims(),
     },
     disclosureFrame: {
       _sd: [
+        "address",
+        "birth_family_name",
+        "birth_given_name",
+        "birthdate",
+        "date_of_expiry",
+        "date_of_issuance",
+        "document_number",
+        "email",
         "family_name",
         "given_name",
-        "birth_date",
-        "issuing_country",
         "issuing_authority",
-        "document_number",
-        "website",
-        "logo_uri",
+        "issuing_country",
+        "issuing_jurisdiction",
+        "nationalities",
+        "personal_administrative_number",
+        "phone_number",
+        "picture",
+        "place_of_birth",
+        "sex",
       ],
     },
   });
@@ -76,16 +81,7 @@ export async function issueMdocCredential(options: {
   const context = createMdocContext(privateJwk);
 
   const document = await new Document(PID_MDOC_DOCTYPE, { crypto: context.crypto })
-    .addIssuerNameSpace(PID_MDOC_NAMESPACE, {
-      family_name: "Doe",
-      given_name: "Jane",
-      birth_date: "1990-01-01",
-      issuing_country: "EU",
-      issuing_authority: "Credimi Fake Issuer",
-      document_number: "CREDIMI-DEMO-001",
-      website: CREDIMI_WEBSITE,
-      logo_uri: CREDIMI_LOGO_URL,
-    })
+    .addIssuerNameSpace(PID_MDOC_NAMESPACE, mdocPidClaims())
     .useDigestAlgorithm("SHA-256")
     .addValidityInfo({ signed: now, validFrom: now, validUntil })
     .addDeviceKeyInfo({ deviceKey: options.holderJwk as never })
@@ -103,6 +99,68 @@ export async function issueMdocCredential(options: {
   if (!issuerSigned) throw new Error("MDOC issuer-signed structure was not generated");
 
   return Buffer.from(cborEncode(issuerSigned)).toString("base64url");
+}
+
+function sdJwtPidClaims(): JsonRecord {
+  return {
+    address: {
+      country: "EU",
+      formatted: "Via Europa 1, 00100 Roma, EU",
+      house_number: "1",
+      locality: "Roma",
+      postal_code: "00100",
+      region: "Lazio",
+      street_address: "Via Europa",
+    },
+    birth_family_name: "Doe",
+    birth_given_name: "Jane",
+    birthdate: "1990-01-01",
+    date_of_expiry: "2031-01-01",
+    date_of_issuance: "2026-01-01",
+    document_number: "CREDIMI-DEMO-001",
+    email: "jane.doe@example.test",
+    family_name: "Doe",
+    given_name: "Jane",
+    issuing_authority: "Credimi Fake Issuer",
+    issuing_country: "EU",
+    issuing_jurisdiction: "EU",
+    nationalities: ["EU"],
+    personal_administrative_number: "PID-DEMO-001",
+    phone_number: "+390600000000",
+    picture: CREDIMI_LOGO_URL,
+    place_of_birth: "Roma",
+    sex: "2",
+  };
+}
+
+function mdocPidClaims(): JsonRecord {
+  return {
+    birth_date: "1990-01-01",
+    document_number: "CREDIMI-DEMO-001",
+    email_address: "jane.doe@example.test",
+    expiry_date: "2031-01-01",
+    family_name: "Doe",
+    family_name_birth: "Doe",
+    given_name: "Jane",
+    given_name_birth: "Jane",
+    issuance_date: "2026-01-01",
+    issuing_authority: "Credimi Fake Issuer",
+    issuing_country: "EU",
+    issuing_jurisdiction: "EU",
+    mobile_phone_number: "+390600000000",
+    nationality: "EU",
+    personal_administrative_number: "PID-DEMO-001",
+    place_of_birth: "Roma",
+    portrait: CREDIMI_LOGO_URL,
+    resident_address: "Via Europa 1, 00100 Roma, EU",
+    resident_city: "Roma",
+    resident_country: "EU",
+    resident_house_number: "1",
+    resident_postal_code: "00100",
+    resident_state: "Lazio",
+    resident_street: "Via Europa",
+    sex: "2",
+  };
 }
 
 function loadPrivateJwk(config: AppConfig): JsonRecord {

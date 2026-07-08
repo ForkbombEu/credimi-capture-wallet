@@ -1,7 +1,10 @@
 import {
   CREDIMI_LOGO_URL,
+  PID_MDOC_CLAIMS,
   PID_MDOC_DOCTYPE,
   PID_MDOC_NAMESPACE,
+  PID_SD_JWT_CLAIMS,
+  PID_SD_JWT_VCT,
 } from "./credential-definitions.js";
 import type { AppConfig } from "./types.js";
 
@@ -16,18 +19,7 @@ export interface SupportedCredential {
   displayName: string;
 }
 
-export { PID_MDOC_DOCTYPE, PID_MDOC_NAMESPACE };
-
-const PID_CLAIMS = [
-  ["family_name", "Family Name"],
-  ["given_name", "Given Name"],
-  ["birth_date", "Birth Date"],
-  ["issuing_country", "Issuing Country"],
-  ["issuing_authority", "Issuing Authority"],
-  ["document_number", "Document Number"],
-  ["website", "Website"],
-  ["logo_uri", "Logo URI"],
-] as const;
+export { PID_MDOC_DOCTYPE, PID_MDOC_NAMESPACE, PID_SD_JWT_VCT };
 
 export function credentialIssuerMetadata(config: AppConfig): unknown {
   const credentials = supportedCredentials(config);
@@ -201,34 +193,53 @@ function credentialConfiguration(
       doctype: PID_MDOC_DOCTYPE,
       credential_metadata: {
         ...common.credential_metadata,
-        claims: pidClaimDescriptions((claim) => [PID_MDOC_NAMESPACE, claim]),
+        claims: pidClaimDescriptions(PID_MDOC_CLAIMS, (claim) => [PID_MDOC_NAMESPACE, claim]),
       },
     };
   }
 
   return {
     ...common,
-    vct: credential.id,
+    vct: PID_SD_JWT_VCT,
     credential_metadata: {
       ...common.credential_metadata,
-      claims: pidClaimDescriptions((claim) => [claim]),
+      claims: pidClaimDescriptions(PID_SD_JWT_CLAIMS, sdJwtClaimPath),
     },
   };
 }
 
-function pidClaimDescriptions(pathForClaim: (claim: string) => string[]): Array<{
+function pidClaimDescriptions(
+  claims: readonly string[],
+  pathForClaim: (claim: string) => string[],
+): Array<{
   path: string[];
   mandatory: boolean;
   display: Array<{ name: string; locale: string }>;
 }> {
-  return PID_CLAIMS.map(([claim, name]) => ({
+  return claims.map((claim) => ({
     path: pathForClaim(claim),
     mandatory: true,
     display: [
       {
-        name,
+        name: claimDisplayName(claim),
         locale: "en-US",
       },
     ],
   }));
+}
+
+function sdJwtClaimPath(claim: string): string[] {
+  return claim.split(".");
+}
+
+function claimDisplayName(claim: string): string {
+  return (
+    claim
+      .split(".")
+      .at(-1)
+      ?.split("_")
+      .filter(Boolean)
+      .map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`)
+      .join(" ") ?? claim
+  );
 }

@@ -18,8 +18,15 @@ import {
 import request from "supertest";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { DEFAULT_CONFIG, initIssuer } from "../src/config.js";
-import { CREDIMI_LOGO_URL, CREDIMI_WEBSITE, issueSdJwtCredential } from "../src/credential.js";
-import { PID_MDOC_DOCTYPE, mdocCredentialConfigurationId } from "../src/metadata.js";
+import {
+  PID_MDOC_CLAIMS,
+  PID_MDOC_DOCTYPE,
+  PID_MDOC_NAMESPACE,
+  PID_SD_JWT_CLAIMS,
+  PID_SD_JWT_VCT,
+} from "../src/credential-definitions.js";
+import { CREDIMI_LOGO_URL, issueSdJwtCredential } from "../src/credential.js";
+import { mdocCredentialConfigurationId } from "../src/metadata.js";
 import { createApp } from "../src/server.js";
 import type { JsonRecord, SessionCapture } from "../src/types.js";
 import { unsignedJwt } from "./helpers.js";
@@ -216,6 +223,10 @@ describe("capture issuer server", () => {
     expect(requestObjectClaims.presentation_definition).toBeUndefined();
     expect(dcqlCredentials).toHaveLength(1);
     expect(dcqlCredentials[0]?.format).toBe("mso_mdoc");
+    expect(dcqlCredentials[0]?.meta).toEqual({ doctype_value: PID_MDOC_DOCTYPE });
+    expect((dcqlCredentials[0]?.claims as JsonRecord[]).map((claim) => claim.path)).toEqual(
+      PID_MDOC_CLAIMS.map((claim) => [PID_MDOC_NAMESPACE, claim]),
+    );
   });
 
   it("creates OpenID4VP sessions with a default presentation request", async () => {
@@ -256,6 +267,18 @@ describe("capture issuer server", () => {
     });
     expect(session.authorization_request.presentation_definition).toBeUndefined();
     expect(session.authorization_request.dcql_query).toEqual(expect.any(Object));
+    const dcqlQuery = session.authorization_request.dcql_query as JsonRecord;
+    const dcqlCredentials = dcqlQuery.credentials as JsonRecord[];
+    const sdJwtCredential = dcqlCredentials.find((credential) => credential.format === "dc+sd-jwt");
+    const mdocCredential = dcqlCredentials.find((credential) => credential.format === "mso_mdoc");
+    expect(sdJwtCredential?.meta).toEqual({ vct_values: [PID_SD_JWT_VCT] });
+    expect((sdJwtCredential?.claims as JsonRecord[]).map((claim) => claim.path)).toEqual(
+      PID_SD_JWT_CLAIMS.map((claim) => claim.split(".")),
+    );
+    expect(mdocCredential?.meta).toEqual({ doctype_value: PID_MDOC_DOCTYPE });
+    expect((mdocCredential?.claims as JsonRecord[]).map((claim) => claim.path)).toEqual(
+      PID_MDOC_CLAIMS.map((claim) => [PID_MDOC_NAMESPACE, claim]),
+    );
   });
 
   it("creates OpenID4VP sessions that advertise request_uri_method post", async () => {
@@ -553,7 +576,10 @@ describe("capture issuer server", () => {
 
     expect(session.credential_configuration_id).toBe(mdocCredentialConfigurationId(config));
     expect(decoded.docType).toBe(PID_MDOC_DOCTYPE);
-    expect(decoded.getIssuerNameSpace("eu.europa.ec.eudi.pid.1")?.get("given_name")).toBe("Jane");
+    const namespace = decoded.getIssuerNameSpace(PID_MDOC_NAMESPACE);
+    expect(namespace?.get("given_name")).toBe("Jane");
+    expect(namespace?.get("resident_country")).toBe("EU");
+    expect(namespace?.get("portrait")).toBe(CREDIMI_LOGO_URL);
     const capture = await getJson<SessionCapture>(app, `/sessions/${session.session_id}`);
     expect(capture.status).toBe("credential_issued");
   });
@@ -743,11 +769,34 @@ describe("capture issuer server", () => {
       compactSdJwt,
     );
     expect(decoded.prettyClaims).toMatchObject({
-      vct: session.credential_configuration_id,
+      vct: PID_SD_JWT_VCT,
+      address: {
+        country: "EU",
+        formatted: "Via Europa 1, 00100 Roma, EU",
+        house_number: "1",
+        locality: "Roma",
+        postal_code: "00100",
+        region: "Lazio",
+        street_address: "Via Europa",
+      },
+      birth_family_name: "Doe",
+      birth_given_name: "Jane",
+      birthdate: "1990-01-01",
+      date_of_expiry: "2031-01-01",
+      date_of_issuance: "2026-01-01",
+      document_number: "CREDIMI-DEMO-001",
+      email: "jane.doe@example.test",
       given_name: "Jane",
       family_name: "Doe",
-      website: CREDIMI_WEBSITE,
-      logo_uri: CREDIMI_LOGO_URL,
+      issuing_authority: "Credimi Fake Issuer",
+      issuing_country: "EU",
+      issuing_jurisdiction: "EU",
+      nationalities: ["EU"],
+      personal_administrative_number: "PID-DEMO-001",
+      phone_number: "+390600000000",
+      picture: CREDIMI_LOGO_URL,
+      place_of_birth: "Roma",
+      sex: "2",
       cnf: { jwk },
     });
     expect(decoded.holder?.method).toBe("jwk");
@@ -867,7 +916,7 @@ function dcqlForClaims(claims: string[]): JsonRecord {
         id: "query_0",
         format: "dc+sd-jwt",
         meta: {
-          vct_values: [config.credential_configuration_id],
+          vct_values: [PID_SD_JWT_VCT],
         },
         claims: claims.map((claim) => ({ path: [claim] })),
       },

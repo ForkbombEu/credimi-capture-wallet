@@ -3,6 +3,12 @@ import { readFileSync } from "node:fs";
 import { type JWK, SignJWT, importJWK } from "jose";
 import { VERIFIER_KEY_ID, verifierCertificatePath, verifierPrivateJwkPath } from "./config.js";
 import {
+  PID_MDOC_CLAIMS,
+  PID_MDOC_NAMESPACE,
+  PID_SD_JWT_CLAIMS,
+  PID_SD_JWT_VCT,
+} from "./credential-definitions.js";
+import {
   PID_MDOC_DOCTYPE,
   type SupportedCredential,
   supportedCredentialById,
@@ -11,14 +17,6 @@ import {
 import type { AppConfig, JsonRecord } from "./types.js";
 
 const REQUEST_OBJECT_AUDIENCE = "https://self-issued.me/v2";
-const DEFAULT_CLAIMS = [
-  "family_name",
-  "given_name",
-  "birth_date",
-  "issuing_country",
-  "issuing_authority",
-  "document_number",
-];
 
 export function defaultPresentationRequest(
   config: AppConfig,
@@ -116,12 +114,17 @@ function defaultDcqlQuery(credentials: SupportedCredential[]): JsonRecord {
       meta:
         credential.format === "mso_mdoc"
           ? { doctype_value: PID_MDOC_DOCTYPE }
-          : { vct_values: [credential.id] },
-      claims: DEFAULT_CLAIMS.map((claim) => ({
-        path: credential.format === "mso_mdoc" ? ["eu.europa.ec.eudi.pid.1", claim] : [claim],
-      })),
+          : { vct_values: [PID_SD_JWT_VCT] },
+      claims: defaultClaimPaths(credential),
     })),
   };
+}
+
+function defaultClaimPaths(credential: SupportedCredential): Array<{ path: string[] }> {
+  if (credential.format === "mso_mdoc") {
+    return PID_MDOC_CLAIMS.map((claim) => ({ path: [PID_MDOC_NAMESPACE, claim] }));
+  }
+  return PID_SD_JWT_CLAIMS.map((claim) => ({ path: claim.split(".") }));
 }
 
 function selectedSupportedCredentials(
