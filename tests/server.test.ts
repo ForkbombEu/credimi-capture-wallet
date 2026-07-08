@@ -159,6 +159,9 @@ describe("capture issuer server", () => {
     expect(page.text).toContain("authorization_request");
     expect(page.text).toContain("wallet_response");
     expect(page.text).toContain("presentation_submission");
+    expect(page.text).toContain("formatJsonValue(session.authorization_request)");
+    expect(page.text).toContain("JSON.stringify(parsed, null, 4)");
+    expect(page.text).toContain("white-space: pre-wrap");
     expect(page.text.indexOf("authorization_request")).toBeLessThan(
       page.text.indexOf("wallet_response"),
     );
