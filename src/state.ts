@@ -88,6 +88,14 @@ export class CaptureStore {
         request_uri_payload: { value: null, source: null, also_seen_in: [] },
         wallet_response: { value: null, source: null, also_seen_in: [] },
       },
+      checks: {
+        presentation_valid: null,
+        vp_token_format_valid: false,
+        nonce_verified: false,
+        holder_binding_verified: false,
+        dcql_query_matched: false,
+        errors: [],
+      },
       events: [],
       raw: {
         authorization_request: authorizationRequest,

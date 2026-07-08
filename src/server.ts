@@ -15,6 +15,7 @@ import {
   supportedCredentialConfigurationIds,
   supportedCredentials,
 } from "./metadata.js";
+import { validateVpPresentationResponse } from "./openid4vp-validation.js";
 import {
   buildPresentationAuthorizationRequest,
   defaultPresentationRequest,
@@ -329,20 +330,48 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     });
   });
 
-  app.post("/openid4vp/sessions/:sessionId/response", (req, res) => {
-    const session = store.getVpSession(req.params.sessionId);
-    if (!session) return res.status(404).json({ error: "vp_session_not_found" });
-    const body = requestParams(req);
-    captureVpResponse(store, session, body, (req as Request & { rawBody?: string }).rawBody);
-    return res.json({});
+  app.post("/openid4vp/sessions/:sessionId/response", async (req, res, next) => {
+    try {
+      const session = store.getVpSession(req.params.sessionId);
+      if (!session) return res.status(404).json({ error: "vp_session_not_found" });
+      const body = requestParams(req);
+      const validation = await validateVpPresentationResponse(config, session, body);
+      captureVpResponse(
+        store,
+        session,
+        body,
+        (req as Request & { rawBody?: string }).rawBody,
+        validation,
+      );
+      if (!validation.valid) {
+        return res.status(400).json({ error: "invalid_presentation", errors: validation.errors });
+      }
+      return res.json({});
+    } catch (error) {
+      return next(error);
+    }
   });
 
-  app.post("/openid4vp/response", (req, res) => {
-    const body = requestParams(req);
-    const session = store.getVpSession(asStringOrNull(body.state) ?? "");
-    if (!session) return res.status(404).json({ error: "vp_session_not_found" });
-    captureVpResponse(store, session, body, (req as Request & { rawBody?: string }).rawBody);
-    return res.json({});
+  app.post("/openid4vp/response", async (req, res, next) => {
+    try {
+      const body = requestParams(req);
+      const session = store.getVpSession(asStringOrNull(body.state) ?? "");
+      if (!session) return res.status(404).json({ error: "vp_session_not_found" });
+      const validation = await validateVpPresentationResponse(config, session, body);
+      captureVpResponse(
+        store,
+        session,
+        body,
+        (req as Request & { rawBody?: string }).rawBody,
+        validation,
+      );
+      if (!validation.valid) {
+        return res.status(400).json({ error: "invalid_presentation", errors: validation.errors });
+      }
+      return res.json({});
+    } catch (error) {
+      return next(error);
+    }
   });
 
   app.get("/openid4vp/sessions/:sessionId/events", (req, res) => {
@@ -723,8 +752,24 @@ function captureVpResponse(
   session: VpSessionCapture,
   body: JsonRecord,
   rawBody: string | undefined,
+  validation: {
+    valid: boolean;
+    vp_token_format_valid: boolean;
+    nonce_verified: boolean;
+    holder_binding_verified: boolean;
+    dcql_query_matched: boolean;
+    errors: string[];
+  },
 ): void {
-  session.status = "presentation_received";
+  session.status = validation.valid ? "presentation_validated" : "presentation_invalid";
+  session.checks = {
+    presentation_valid: validation.valid,
+    vp_token_format_valid: validation.vp_token_format_valid,
+    nonce_verified: validation.nonce_verified,
+    holder_binding_verified: validation.holder_binding_verified,
+    dcql_query_matched: validation.dcql_query_matched,
+    errors: validation.errors,
+  };
   session.raw ??= {};
   session.raw.presentation_response = body;
   session.raw.presentation_response_raw = rawBody ?? JSON.stringify(body);
@@ -735,6 +780,8 @@ function captureVpResponse(
   };
   store.addEvent(session, "vp_presentation_response_received", {
     vp_token_observed: body.vp_token !== undefined,
+    presentation_valid: validation.valid,
+    errors: validation.errors,
   });
 }
 

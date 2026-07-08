@@ -5,11 +5,20 @@ import { join } from "node:path";
 import { parseIssuerSigned } from "@animo-id/mdoc";
 import { Kms, X509Certificate } from "@credo-ts/core";
 import type { Express } from "express";
-import { type JWK, compactVerify, decodeJwt, decodeProtectedHeader, importJWK } from "jose";
+import {
+  type JWK,
+  SignJWT,
+  compactVerify,
+  decodeJwt,
+  decodeProtectedHeader,
+  exportJWK,
+  generateKeyPair,
+  importJWK,
+} from "jose";
 import request from "supertest";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { DEFAULT_CONFIG, initIssuer } from "../src/config.js";
-import { CREDIMI_LOGO_URL, CREDIMI_WEBSITE } from "../src/credential.js";
+import { CREDIMI_LOGO_URL, CREDIMI_WEBSITE, issueSdJwtCredential } from "../src/credential.js";
 import { PID_MDOC_DOCTYPE, mdocCredentialConfigurationId } from "../src/metadata.js";
 import { createApp } from "../src/server.js";
 import type { JsonRecord, SessionCapture } from "../src/types.js";
@@ -55,13 +64,14 @@ describe("capture issuer server", () => {
     expect(response.text).toContain("session-actions");
     expect(response.text).toContain('formaction="/ui/openid4vp/sessions"');
     expect(response.text).toContain("<h2>Captured values</h2>");
-    expect(response.text).toContain('<span class="count-chip">7</span>');
+    expect(response.text).toContain('<span class="count-chip">8</span>');
     expect(response.text).toContain("<h3>OpenID4VCI</h3>");
     expect(response.text).toContain("<h3>OpenID4VP</h3>");
     expect(response.text).toContain("<dt>wallet_jwks</dt>");
     expect(response.text).toContain("<dt>authorization_request</dt>");
     expect(response.text).toContain("<dt>request_uri_payload</dt>");
     expect(response.text).toContain("<dt>wallet_response</dt>");
+    expect(response.text).toContain("<dt>presentation_validation</dt>");
     expect(response.text).not.toContain("<dt>presentation_submission</dt>");
     expect(response.text).toContain('<select name="credential_configuration_id">');
     expect(response.text).toContain("Credimi Demo PID (SD-JWT VC, proof JWT)");
@@ -296,7 +306,7 @@ describe("capture issuer server", () => {
     expect(session.authorization_request.response_uri).toBe(session.response_uri);
   });
 
-  it("serves OpenID4VP request_uri objects and captures wallet presentation responses", async () => {
+  it("serves OpenID4VP request_uri objects and captures invalid wallet presentation responses", async () => {
     const app = createApp(config);
     const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {});
 
@@ -342,18 +352,93 @@ describe("capture issuer server", () => {
         state: session.session_id,
         vp_token: "presentation-token",
       });
-    expect(presentation.status).toBe(200);
-    expect(presentation.body).toEqual({});
+    expect(presentation.status).toBe(400);
+    expect(presentation.body).toMatchObject({ error: "invalid_presentation" });
 
     const capture = await getJson<VpSessionResponse>(
       app,
       `/openid4vp/sessions/${session.session_id}`,
     );
-    expect(capture.status).toBe("presentation_received");
+    expect(capture.status).toBe("presentation_invalid");
     expect(capture.observed.vp_token).toBeUndefined();
     expect(capture.observed.wallet_response.value?.vp_token).toBe("presentation-token");
     expect(capture.observed.presentation_submission).toBeUndefined();
+    expect(capture.checks.presentation_valid).toBe(false);
+    expect(capture.checks.errors.length).toBeGreaterThan(0);
     expect(capture.raw?.presentation_response?.state).toBe(session.session_id);
+  });
+
+  it("rejects SD-JWT VC presentations that do not disclose all requested DCQL claims", async () => {
+    const app = createApp(config);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      presentation_request: {
+        dcql_query: dcqlForClaims(["family_name", "given_name"]),
+      },
+    });
+    const credential = await sdJwtCredential();
+    const presentation = await sdJwtPresentation({
+      credential,
+      authorizationRequest: session.authorization_request,
+      disclosedClaims: ["family_name"],
+    });
+
+    const response = await request(app)
+      .post(`/openid4vp/sessions/${session.session_id}/response`)
+      .send({
+        state: session.session_id,
+        vp_token: JSON.stringify({ query_0: [presentation] }),
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({ error: "invalid_presentation" });
+    expect(JSON.stringify(response.body.errors)).toContain("given_name");
+
+    const capture = await getJson<VpSessionResponse>(
+      app,
+      `/openid4vp/sessions/${session.session_id}`,
+    );
+    expect(capture.status).toBe("presentation_invalid");
+    expect(capture.checks.nonce_verified).toBe(true);
+    expect(capture.checks.holder_binding_verified).toBe(true);
+    expect(capture.checks.dcql_query_matched).toBe(false);
+  });
+
+  it("accepts SD-JWT VC presentations that satisfy holder binding, nonce, and DCQL", async () => {
+    const app = createApp(config);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      presentation_request: {
+        dcql_query: dcqlForClaims(["family_name", "given_name"]),
+      },
+    });
+    const credential = await sdJwtCredential();
+    const presentation = await sdJwtPresentation({
+      credential,
+      authorizationRequest: session.authorization_request,
+      disclosedClaims: ["family_name", "given_name"],
+    });
+
+    const response = await request(app)
+      .post(`/openid4vp/sessions/${session.session_id}/response`)
+      .send({
+        state: session.session_id,
+        vp_token: JSON.stringify({ query_0: [presentation] }),
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({});
+
+    const capture = await getJson<VpSessionResponse>(
+      app,
+      `/openid4vp/sessions/${session.session_id}`,
+    );
+    expect(capture.status).toBe("presentation_validated");
+    expect(capture.checks).toMatchObject({
+      presentation_valid: true,
+      nonce_verified: true,
+      holder_binding_verified: true,
+      dcql_query_matched: true,
+      errors: [],
+    });
   });
 
   it("captures OpenID4VP request_uri POST payloads", async () => {
@@ -775,6 +860,63 @@ async function getJson<T>(app: Express, path: string): Promise<T> {
   return response.body as T;
 }
 
+function dcqlForClaims(claims: string[]): JsonRecord {
+  return {
+    credentials: [
+      {
+        id: "query_0",
+        format: "dc+sd-jwt",
+        meta: {
+          vct_values: [config.credential_configuration_id],
+        },
+        claims: claims.map((claim) => ({ path: [claim] })),
+      },
+    ],
+  };
+}
+
+async function sdJwtCredential(): Promise<{
+  compact: string;
+  privateKey: Parameters<SignJWT["sign"]>[0];
+}> {
+  const { publicKey, privateKey } = await generateKeyPair("ES256", { extractable: true });
+  const holderJwk = (await exportJWK(publicKey)) as unknown as JsonRecord;
+  return {
+    compact: await issueSdJwtCredential({
+      config,
+      credentialConfigurationId: config.credential_configuration_id,
+      holderJwk,
+    }),
+    privateKey,
+  };
+}
+
+async function sdJwtPresentation(options: {
+  credential: { compact: string; privateKey: Parameters<SignJWT["sign"]>[0] };
+  authorizationRequest: JsonRecord;
+  disclosedClaims: string[];
+}): Promise<string> {
+  const [issuerJwt, ...tail] = options.credential.compact.split("~");
+  const selected = tail
+    .filter((part) => part.length > 0)
+    .filter((disclosure) => options.disclosedClaims.includes(disclosureClaimName(disclosure)));
+  const withoutKeyBinding = `${issuerJwt}~${selected.join("~")}~`;
+  const keyBindingJwt = await new SignJWT({
+    iat: Math.floor(Date.now() / 1000),
+    aud: String(options.authorizationRequest.client_id),
+    nonce: String(options.authorizationRequest.nonce),
+    sd_hash: createHash("sha256").update(withoutKeyBinding).digest("base64url"),
+  })
+    .setProtectedHeader({ alg: "ES256", typ: "kb+jwt" })
+    .sign(options.credential.privateKey);
+  return `${withoutKeyBinding}${keyBindingJwt}`;
+}
+
+function disclosureClaimName(disclosure: string): string {
+  const decoded = JSON.parse(Buffer.from(disclosure, "base64url").toString("utf8")) as unknown[];
+  return typeof decoded[1] === "string" ? decoded[1] : "";
+}
+
 interface SessionCreateResponse extends JsonRecord {
   session_id: string;
   credential_configuration_id: string;
@@ -816,6 +958,13 @@ interface VpSessionResponse extends JsonRecord {
   session_id: string;
   status: string;
   authorization_request: JsonRecord;
+  checks: {
+    presentation_valid: boolean | null;
+    nonce_verified: boolean;
+    holder_binding_verified: boolean;
+    dcql_query_matched: boolean;
+    errors: string[];
+  };
   observed: {
     vp_token?: { value: unknown };
     request_uri_payload: { value: JsonRecord | null; source: string | null };

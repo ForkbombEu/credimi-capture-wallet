@@ -121,6 +121,14 @@ export interface VpSessionCapture {
     request_uri_payload: ObservedValue<JsonRecord>;
     wallet_response: ObservedValue<JsonRecord>;
   };
+  checks: {
+    presentation_valid: boolean | null;
+    vp_token_format_valid: boolean;
+    nonce_verified: boolean;
+    holder_binding_verified: boolean;
+    dcql_query_matched: boolean;
+    errors: string[];
+  };
   events: CaptureEvent[];
   raw?: {
     authorization_request?: JsonRecord;
