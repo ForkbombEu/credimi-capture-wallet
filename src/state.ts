@@ -85,7 +85,7 @@ export class CaptureStore {
       response_uri: responseUri,
       deeplink: "",
       observed: {
-        presentation_submission: { value: null, source: null, also_seen_in: [] },
+        request_uri_payload: { value: null, source: null, also_seen_in: [] },
         wallet_response: { value: null, source: null, also_seen_in: [] },
       },
       events: [],

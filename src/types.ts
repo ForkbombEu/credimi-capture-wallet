@@ -118,7 +118,7 @@ export interface VpSessionCapture {
   deeplink: string;
   response_uri: string;
   observed: {
-    presentation_submission: ObservedValue<unknown>;
+    request_uri_payload: ObservedValue<JsonRecord>;
     wallet_response: ObservedValue<JsonRecord>;
   };
   events: CaptureEvent[];

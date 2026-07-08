@@ -157,16 +157,17 @@ describe("capture issuer server", () => {
     expect(page.text).toContain("Scan the presentation request");
     expect(page.text).toContain("Presentation response");
     expect(page.text).toContain("authorization_request");
+    expect(page.text).toContain("request_uri_payload");
     expect(page.text).toContain("wallet_response");
-    expect(page.text).toContain("presentation_submission");
+    expect(page.text).not.toContain("presentation_submission");
     expect(page.text).toContain("formatJsonValue(session.authorization_request)");
     expect(page.text).toContain("JSON.stringify(parsed, null, 4)");
     expect(page.text).toContain("white-space: pre-wrap");
     expect(page.text.indexOf("authorization_request")).toBeLessThan(
-      page.text.indexOf("wallet_response"),
+      page.text.indexOf("request_uri_payload"),
     );
-    expect(page.text.indexOf("wallet_response")).toBeLessThan(
-      page.text.indexOf("presentation_submission"),
+    expect(page.text.indexOf("request_uri_payload")).toBeLessThan(
+      page.text.indexOf("wallet_response"),
     );
     expect(page.text).toContain("window.clearInterval(pollTimer)");
     expect(page.text).toContain("pollTimer = setInterval");
@@ -327,10 +328,6 @@ describe("capture issuer server", () => {
       .send({
         state: session.session_id,
         vp_token: "presentation-token",
-        presentation_submission: {
-          id: "submission-1",
-          definition_id: "credimi-issued-credentials",
-        },
       });
     expect(presentation.status).toBe(200);
     expect(presentation.body).toEqual({ status: "ok" });
@@ -342,25 +339,35 @@ describe("capture issuer server", () => {
     expect(capture.status).toBe("presentation_received");
     expect(capture.observed.vp_token).toBeUndefined();
     expect(capture.observed.wallet_response.value?.vp_token).toBe("presentation-token");
-    expect(capture.observed.presentation_submission.value).toMatchObject({
-      id: "submission-1",
-    });
+    expect(capture.observed.presentation_submission).toBeUndefined();
     expect(capture.raw?.presentation_response?.state).toBe(session.session_id);
   });
 
-  it("includes wallet_nonce in OpenID4VP request_uri POST signed request objects", async () => {
+  it("captures OpenID4VP request_uri POST payloads", async () => {
     const app = createApp(config);
-    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {});
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      request_uri_method: "post",
+    });
 
     const requestObject = await request(app)
       .post(`/openid4vp/sessions/${session.session_id}/request`)
       .type("form")
-      .send({ wallet_nonce: "wallet-nonce-123" });
+      .send({ wallet_nonce: "wallet-nonce-123", wallet_metadata: "present" });
 
     expect(requestObject.status).toBe(200);
     expect(requestObject.type).toBe("application/oauth-authz-req+jwt");
     const claims = decodeJwt(requestObject.text) as JsonRecord;
     expect(claims.wallet_nonce).toBe("wallet-nonce-123");
+
+    const capture = await getJson<VpSessionResponse>(
+      app,
+      `/openid4vp/sessions/${session.session_id}`,
+    );
+    expect(capture.observed.request_uri_payload.value).toMatchObject({
+      wallet_nonce: "wallet-nonce-123",
+      wallet_metadata: "present",
+    });
+    expect(capture.observed.request_uri_payload.source).toBe("request_uri.post");
   });
 
   it("marks GUI QR sessions consumed when the wallet retrieves the offer", async () => {
@@ -717,8 +724,9 @@ interface VpSessionResponse extends JsonRecord {
   authorization_request: JsonRecord;
   observed: {
     vp_token?: { value: unknown };
+    request_uri_payload: { value: JsonRecord | null; source: string | null };
     wallet_response: { value: JsonRecord | null };
-    presentation_submission: { value: unknown };
+    presentation_submission?: { value: unknown };
   };
   raw?: {
     presentation_response?: JsonRecord;

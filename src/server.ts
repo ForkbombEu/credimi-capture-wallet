@@ -279,11 +279,18 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     try {
       const session = store.getVpSession(req.params.sessionId);
       if (!session) return res.status(404).json({ error: "vp_session_not_found" });
-      const walletNonce = asStringOrNull(requestParams(req).wallet_nonce);
+      const body = requestParams(req);
+      const walletNonce = asStringOrNull(body.wallet_nonce);
       session.status = "request_retrieved";
+      session.observed.request_uri_payload = {
+        value: body,
+        source: "request_uri.post",
+        also_seen_in: [],
+      };
       store.addEvent(session, "vp_request_retrieved", {
         request_uri_method: "post",
         wallet_nonce_present: Boolean(walletNonce),
+        payload: body,
       });
       const authorizationRequest = walletNonce
         ? { ...session.authorization_request, wallet_nonce: walletNonce }
@@ -642,17 +649,8 @@ function captureVpResponse(
     source: "presentation_response",
     also_seen_in: [],
   };
-  session.observed.presentation_submission = {
-    value: body.presentation_submission ?? null,
-    source:
-      body.presentation_submission === undefined
-        ? null
-        : "presentation_response.presentation_submission",
-    also_seen_in: [],
-  };
   store.addEvent(session, "vp_presentation_response_received", {
     vp_token_observed: body.vp_token !== undefined,
-    presentation_submission_observed: body.presentation_submission !== undefined,
   });
 }
 
