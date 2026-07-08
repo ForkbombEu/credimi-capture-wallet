@@ -4,7 +4,7 @@ import type { SupportedCredential } from "./metadata.js";
 
 export function indexPage(credentials: SupportedCredential[]): string {
   return htmlPage({
-    title: "Fake Issuer",
+    title: "Wallet metadata capture",
     body: [
       '<header class="topbar">',
       '<div class="topbar-inner">',
@@ -226,7 +226,7 @@ export function sessionPage(sessionId: string, deeplink: string, qrSvg: string):
 
 export function errorPage(message: string): string {
   return htmlPage({
-    title: "Fake Issuer Error",
+    title: "Wallet metadata capture Error",
     body: [
       '<main class="page-content">',
       '<section class="card danger-panel container">',
@@ -243,7 +243,7 @@ export function errorPage(message: string): string {
 
 export function helpPage(readmeMarkdown: string): string {
   return htmlPage({
-    title: "Fake Issuer Help",
+    title: "Wallet metadata capture Help",
     body: [
       '<header class="topbar">',
       '<div class="topbar-inner">',
@@ -281,7 +281,7 @@ function htmlPage({ title, body }: { title: string; body: string }): string {
     "<body>",
     body,
     footerHtml(),
-    '<script>console.log("%cFake Issuer%c Credimi capture UI", "background:#312060;color:#fff;padding:5px 9px;font-weight:800;border-radius:6px 0 0 6px;", "background:#f1e9f7;color:#22172f;padding:5px 9px;font-weight:700;border-radius:0 6px 6px 0;");</script>',
+    '<script>console.log("%cWallet metadata capture%c Credimi capture UI", "background:#312060;color:#fff;padding:5px 9px;font-weight:800;border-radius:6px 0 0 6px;", "background:#f1e9f7;color:#22172f;padding:5px 9px;font-weight:700;border-radius:0 6px 6px 0;");</script>',
     "</body>",
     "</html>",
   ].join("");
@@ -294,7 +294,7 @@ function footerHtml(): string {
     '<div class="footer-content">',
     '<div class="footer-brand">',
     '<img class="footer-logo" src="/assets/credimi_logo_negative.svg" alt="" aria-hidden="true">',
-    "<p>Fake issuer for EUDI wallet metadata capture and conformance testing.</p>",
+    "<p>Issuer and verifier for EUDI wallet metadata capture and conformance testing.</p>",
     "</div>",
     '<nav class="footer-links" aria-label="Project links">',
     '<a class="footer-link" href="https://forkbomb.eu" target="_blank" rel="noreferrer">Developed by Forkbomb BV</a>',
