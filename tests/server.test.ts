@@ -573,6 +573,18 @@ describe("capture issuer server", () => {
     expect(logs.join("\n")).not.toContain("sensitive.jwt.assertion");
   });
 
+  it("makes credential nonce responses uncacheable", async () => {
+    const app = createApp(config);
+    const response = await request(app).post("/nonce");
+
+    expect(response.status).toBe(200);
+    expect(response.headers["cache-control"]).toBe("no-store");
+    expect(response.body).toMatchObject({
+      c_nonce: expect.any(String),
+      c_nonce_expires_in: config.nonce_ttl_seconds,
+    });
+  });
+
   it("verifies PKCE and captures credential proof JWKS", async () => {
     const app = createApp(config);
     const session = await postJson<SessionCreateResponse>(app, "/sessions", {});

@@ -542,7 +542,9 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
   });
 
   app.post("/nonce", (_req, res) => {
-    res.json({ c_nonce: randomUUID(), c_nonce_expires_in: config.nonce_ttl_seconds });
+    res
+      .set("Cache-Control", "no-store")
+      .json({ c_nonce: randomUUID(), c_nonce_expires_in: config.nonce_ttl_seconds });
   });
 
   app.post("/credential", async (req, res, next) => {
