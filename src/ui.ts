@@ -14,6 +14,7 @@ export function indexPage(credentials: SupportedCredential[]): string {
       "</div>",
       '<div class="topbar-actions">',
       '<span class="status-chip status-issuer">ISSUER READY</span>',
+      '<span class="status-chip status-wallet">VERIFIER READY</span>',
       '<a class="btn btn-outline btn-md" href="',
       HELP_README_URL,
       '" target="_blank" rel="noreferrer">Help</a>',

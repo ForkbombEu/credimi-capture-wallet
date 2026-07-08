@@ -66,10 +66,10 @@ describe("capture issuer server", () => {
       '<img class="brand-logo" src="/assets/credimi_logo.svg" alt="" aria-hidden="true"><span class="brand-name">Wallet metadata capture</span>',
     );
     expect(response.text).toContain(
-      '<span class="status-chip status-issuer">ISSUER READY</span><a class="btn btn-outline btn-md" href="https://github.com/ForkbombEu/fake-issuer/blob/master/README.md"',
+      '<span class="status-chip status-issuer">ISSUER READY</span><span class="status-chip status-wallet">VERIFIER READY</span><a class="btn btn-outline btn-md" href="https://github.com/ForkbombEu/fake-issuer/blob/master/README.md"',
     );
     expect(response.text).toContain('target="_blank"');
-    expect(response.text).toContain("Fake Issuer%c Credimi capture UI");
+    expect(response.text).toContain("Wallet metadata capture%c Credimi capture UI");
     expect(response.text).toContain('href="https://credimi.io/logos/credimi_logo.svg"');
     expect(response.text).toContain('href="https://forkbomb.eu"');
     expect(response.text).toContain("Developed by Forkbomb BV");
@@ -103,7 +103,7 @@ describe("capture issuer server", () => {
     const response = await request(app).get("/ui/help");
 
     expect(response.status).toBe(200);
-    expect(response.text).toContain("Fake Issuer Help");
+    expect(response.text).toContain("Wallet metadata capture Help");
     expect(response.text).toContain(
       '<img class="brand-logo" src="/assets/credimi_logo.svg" alt="" aria-hidden="true"><span class="brand-name">Wallet metadata capture</span>',
     );
