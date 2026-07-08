@@ -7,7 +7,7 @@ import { Kms, X509Certificate } from "@credo-ts/core";
 import type { Express } from "express";
 import { type JWK, compactVerify, decodeJwt, decodeProtectedHeader, importJWK } from "jose";
 import request from "supertest";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { DEFAULT_CONFIG, initIssuer } from "../src/config.js";
 import { CREDIMI_LOGO_URL, CREDIMI_WEBSITE } from "../src/credential.js";
 import { PID_MDOC_DOCTYPE, mdocCredentialConfigurationId } from "../src/metadata.js";
@@ -33,6 +33,10 @@ beforeAll(async () => {
 
 afterAll(() => {
   rmSync(dataDir, { recursive: true, force: true });
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe("capture issuer server", () => {
@@ -498,6 +502,60 @@ describe("capture issuer server", () => {
     expect(capture.observed.client_id.value).toBe("wallet-client");
     expect(capture.observed.redirect_uri.value).toBe("eudi-wallet://callback");
     expect(capture.raw?.authorization_request?.client_id).toBe("wallet-client");
+  });
+
+  it("logs PAR and authorization resolution without sensitive assertions", async () => {
+    const logs: string[] = [];
+    vi.spyOn(console, "log").mockImplementation((line: string) => {
+      logs.push(line);
+    });
+    const app = createApp(config);
+    const session = await postJson<SessionCreateResponse>(app, "/sessions", {});
+    const par = await postForm<ParResponse>(app, "/par", {
+      client_id: "wallet-client",
+      redirect_uri: "eudi-wallet://callback",
+      response_type: "code",
+      state: "wallet-state",
+      issuer_state: session.session_id,
+      code_challenge: "challenge",
+      code_challenge_method: "S256",
+      client_assertion: "sensitive.jwt.assertion",
+      client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+    });
+
+    await request(app)
+      .get(`/authorize?request_uri=${encodeURIComponent(par.request_uri)}`)
+      .redirects(0);
+
+    const entries = logs.map((line) => JSON.parse(line) as JsonRecord);
+    expect(entries.map((entry) => entry.event)).toEqual([
+      "par.stored",
+      "authorize.received",
+      "authorize.redirect",
+    ]);
+    expect(entries[0]).toMatchObject({
+      component: "fake-issuer",
+      request_uri: par.request_uri,
+      session_id: session.session_id,
+      client_id: "wallet-client",
+      has_redirect_uri: true,
+      has_client_assertion: true,
+      has_pkce: true,
+    });
+    expect(entries[1]).toMatchObject({
+      request_uri: par.request_uri,
+      par_resolution: "resolved",
+      session_id: session.session_id,
+      has_redirect_uri: true,
+    });
+    expect(entries[2]).toMatchObject({
+      request_uri: par.request_uri,
+      par_resolution: "resolved",
+      session_id: session.session_id,
+      redirect_uri: "eudi-wallet://callback",
+      state_present: true,
+    });
+    expect(logs.join("\n")).not.toContain("sensitive.jwt.assertion");
   });
 
   it("verifies PKCE and captures credential proof JWKS", async () => {

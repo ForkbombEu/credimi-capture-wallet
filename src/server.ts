@@ -351,6 +351,20 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     session.checks.pkce_present =
       typeof params.code_challenge === "string" && typeof params.code_challenge_method === "string";
     store.addEvent(session, "par_request_received", { request_uri: par.request_uri, params });
+    logIssuerFlow("par.stored", {
+      request_uri: par.request_uri,
+      expires_in: config.par_request_uri_ttl_seconds,
+      session_id: session.session_id,
+      content_type: req.header("content-type") ?? null,
+      body_keys: Object.keys(params).sort(),
+      client_id: asStringOrNull(params.client_id),
+      issuer_state: asStringOrNull(params.issuer_state),
+      has_redirect_uri: typeof params.redirect_uri === "string",
+      has_client_assertion: typeof params.client_assertion === "string",
+      has_pkce:
+        typeof params.code_challenge === "string" &&
+        typeof params.code_challenge_method === "string",
+    });
     res
       .status(201)
       .json({ request_uri: par.request_uri, expires_in: config.par_request_uri_ttl_seconds });
@@ -358,11 +372,24 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
 
   app.get("/authorize", (req, res) => {
     const directParams = queryToRecord(req.query);
-    const par = store.resolvePar(asStringOrNull(directParams.request_uri) ?? undefined);
+    const requestedRequestUri = asStringOrNull(directParams.request_uri);
+    const par = store.resolvePar(requestedRequestUri ?? undefined);
+    const parResolution = par ? "resolved" : parResolutionFailure(store, requestedRequestUri);
     const merged = { ...(par?.params ?? {}), ...directParams };
     const session = store.ensureSession(
       asStringOrNull(merged.issuer_state) ?? asStringOrNull(par?.params.issuer_state),
     );
+    logIssuerFlow("authorize.received", {
+      request_uri: requestedRequestUri,
+      par_resolution: parResolution,
+      session_id: session.session_id,
+      direct_query_keys: Object.keys(directParams).sort(),
+      merged_keys: Object.keys(merged).sort(),
+      client_id: asStringOrNull(merged.client_id),
+      issuer_state: asStringOrNull(merged.issuer_state),
+      has_redirect_uri: typeof merged.redirect_uri === "string",
+      has_state: typeof merged.state === "string",
+    });
     session.status = "authorization_requested";
     session.raw ??= {};
     session.raw.authorization_request = merged;
@@ -382,6 +409,13 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     const redirectUri = asStringOrNull(merged.redirect_uri);
     if (!redirectUri) {
       store.addEvent(session, "authorize_redirect_missing", {});
+      logIssuerFlow("authorize.rejected", {
+        request_uri: requestedRequestUri,
+        par_resolution: parResolution,
+        session_id: session.session_id,
+        client_id: asStringOrNull(merged.client_id),
+        error: "redirect_uri_missing",
+      });
       return res.status(400).json({ error: "redirect_uri_missing" });
     }
 
@@ -391,6 +425,14 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     if (code.state) location.searchParams.set("state", code.state);
     session.status = "authorization_code_issued";
     store.addEvent(session, "redirect_sent", { redirect_uri: redirectUri });
+    logIssuerFlow("authorize.redirect", {
+      request_uri: requestedRequestUri,
+      par_resolution: parResolution,
+      session_id: session.session_id,
+      client_id: code.client_id,
+      redirect_uri: redirectUri,
+      state_present: Boolean(code.state),
+    });
     return res.redirect(302, location.toString());
   });
 
@@ -614,6 +656,31 @@ function queryToRecord(query: Request["query"]): JsonRecord {
 
 function rawBodyCapture(req: Request, _res: express.Response, buffer: Buffer): void {
   (req as Request & { rawBody?: string }).rawBody = buffer.toString("utf8");
+}
+
+let issuerFlowLogSequence = 0;
+
+function logIssuerFlow(event: string, detail: JsonRecord): void {
+  issuerFlowLogSequence += 1;
+  console.log(
+    JSON.stringify({
+      at: new Date().toISOString(),
+      seq: issuerFlowLogSequence,
+      component: "fake-issuer",
+      event,
+      ...detail,
+    }),
+  );
+}
+
+function parResolutionFailure(
+  store: CaptureStore,
+  requestUri: string | null,
+): "missing" | "not_found" | "expired" {
+  if (!requestUri) return "missing";
+  const record = store.parRequests.get(requestUri);
+  if (!record) return "not_found";
+  return record.expires_at < Math.floor(Date.now() / 1000) ? "expired" : "not_found";
 }
 
 function createVpSession(
