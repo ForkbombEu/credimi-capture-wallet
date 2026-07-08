@@ -4,7 +4,7 @@ import type { SupportedCredential } from "./metadata.js";
 
 export function indexPage(credentials: SupportedCredential[]): string {
   return htmlPage({
-    title: "Wallet metadata capture",
+    title: "Wallet Metadata Capture",
     body: [
       '<header class="topbar">',
       '<div class="topbar-inner">',
@@ -157,7 +157,7 @@ function credentialOptionHtml(credential: SupportedCredential): string {
 export function sessionPage(sessionId: string, deeplink: string, qrSvg: string): string {
   const escapedDeeplink = escapeHtml(deeplink);
   return htmlPage({
-    title: "Fake Issuance Session",
+    title: "OpenID4VCI Session",
     body: [
       '<header class="topbar">',
       '<div class="topbar-inner">',
@@ -176,8 +176,8 @@ export function sessionPage(sessionId: string, deeplink: string, qrSvg: string):
       '<main class="page-content session-page">',
       '<section class="session-header container">',
       "<div>",
-      '<p class="eyebrow">Fake issuance session</p>',
-      "<h1>Scan with an EUDI Wallet</h1>",
+      '<p class="eyebrow">OpenID4VCI session</p>',
+      "<h1>Scan the credential offer</h1>",
       '<p class="session-intro">Scan the offer, accept the issuance in the wallet, then complete the final wallet interaction.</p>',
       "</div>",
       "</section>",
@@ -227,7 +227,7 @@ export function sessionPage(sessionId: string, deeplink: string, qrSvg: string):
 
 export function errorPage(message: string): string {
   return htmlPage({
-    title: "Wallet metadata capture Error",
+    title: "Wallet Metadata Capture Error",
     body: [
       '<main class="page-content">',
       '<section class="card danger-panel container">',
@@ -244,7 +244,7 @@ export function errorPage(message: string): string {
 
 export function helpPage(readmeMarkdown: string): string {
   return htmlPage({
-    title: "Wallet metadata capture Help",
+    title: "Wallet Metadata Capture Help",
     body: [
       '<header class="topbar">',
       '<div class="topbar-inner">',
