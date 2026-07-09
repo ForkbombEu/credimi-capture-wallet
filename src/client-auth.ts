@@ -81,7 +81,7 @@ function captureWalletAttestationPop(
 
   return {
     ...decoded,
-    audience_matches: audienceMatches(decoded.claims?.aud, input.endpointUrl),
+    audience_matches: audienceMatches(decoded.claims?.aud, input.issuerBaseUrl),
     challenge: asString(decoded.claims?.challenge) ?? null,
   };
 }

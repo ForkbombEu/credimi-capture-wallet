@@ -739,7 +739,7 @@ describe("capture issuer server", () => {
     const code = new URL(authorize.headers.location ?? "").searchParams.get("code");
     const response = await request(app)
       .post("/token")
-      .set(walletClientAuthenticationHeaders("wallet-client", endpointUrl("/token")))
+      .set(walletClientAuthenticationHeaders("wallet-client", config.issuer_base_url))
       .type("form")
       .send({
         grant_type: "authorization_code",
@@ -905,7 +905,7 @@ describe("capture issuer server", () => {
     );
     const pop = unsignedJwt(
       { alg: "ES256", typ: "oauth-client-attestation-pop+jwt", kid: "instance-key" },
-      { iss: "wallet-client", aud: endpointUrl("/token"), challenge: "token-nonce" },
+      { iss: "wallet-client", aud: config.issuer_base_url, challenge: "token-nonce" },
     );
 
     const dpop = await dpopKey();
@@ -968,7 +968,7 @@ async function postForm<T>(app: Express, path: string, body: Record<string, stri
 async function postPar(app: Express, body: Record<string, string>): Promise<ParResponse> {
   const response = await request(app)
     .post("/par")
-    .set(walletClientAuthenticationHeaders(body.client_id, endpointUrl("/par")))
+    .set(walletClientAuthenticationHeaders(body.client_id, config.issuer_base_url))
     .type("form")
     .send({ ...body, scope: body.scope ?? config.credential_scope });
   expect(response.status, JSON.stringify(response.body)).toBe(201);
@@ -982,7 +982,7 @@ async function postToken(
 ): Promise<TokenResponse> {
   const response = await request(app)
     .post("/token")
-    .set(walletClientAuthenticationHeaders(body.client_id, endpointUrl("/token")))
+    .set(walletClientAuthenticationHeaders(body.client_id, config.issuer_base_url))
     .set("DPoP", await dpopProof(dpopKey, "POST", "/token"))
     .type("form")
     .send(body);

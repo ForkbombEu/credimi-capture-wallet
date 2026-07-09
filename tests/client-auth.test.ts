@@ -45,7 +45,7 @@ describe("client authentication capture", () => {
     );
     const pop = unsignedJwt(
       { alg: "ES256", typ: "oauth-client-attestation-pop+jwt", kid: "instance-key" },
-      { iss: clientId, aud: tokenEndpointUrl, challenge: "token-nonce" },
+      { iss: clientId, aud: issuerBaseUrl, challenge: "token-nonce" },
     );
 
     const capture = captureClientAuthentication({
