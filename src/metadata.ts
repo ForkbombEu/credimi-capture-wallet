@@ -29,6 +29,16 @@ export function credentialIssuerMetadata(config: AppConfig): unknown {
     authorization_servers: [config.issuer_base_url],
     credential_endpoint: `${config.issuer_base_url}/credential`,
     nonce_endpoint: `${config.issuer_base_url}/nonce`,
+    display: [
+      {
+        locale: "en-US",
+        logo: {
+          alt_text: "Credimi Capture Issuer Logo",
+          uri: CREDIMI_LOGO_URL,
+        },
+        name: "Credimi Capture Issuer",
+      },
+    ],
     credential_configurations_supported: Object.fromEntries(
       credentials.map((credential) => [
         credential.id,
