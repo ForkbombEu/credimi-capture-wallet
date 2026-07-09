@@ -119,7 +119,6 @@ describe("metadata", () => {
     const metadata = authorizationServerMetadata(DEFAULT_CONFIG) as JsonRecord;
 
     expect(metadata.token_endpoint_auth_methods_supported).toEqual([
-      "none",
       "private_key_jwt",
       "attest_jwt_client_auth",
     ]);
