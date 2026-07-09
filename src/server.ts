@@ -634,8 +634,8 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         store.addEvent(session, "dpop_not_observed", {});
       }
 
-      const nonce = randomUUID();
-      const token = store.issueAccessToken(session.session_id, dpopCapture.thumbprint, nonce);
+      const nonce = store.issueCredentialNonce();
+      const token = store.issueAccessToken(session.session_id, dpopCapture.thumbprint);
       session.status = "token_issued";
       store.addEvent(session, "nonce_issued", { source: "token_response" });
       res.json({
@@ -651,9 +651,10 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
   });
 
   app.post("/nonce", (_req, res) => {
-    res
-      .set("Cache-Control", "no-store")
-      .json({ c_nonce: randomUUID(), c_nonce_expires_in: config.nonce_ttl_seconds });
+    res.set("Cache-Control", "no-store").json({
+      c_nonce: store.issueCredentialNonce(),
+      c_nonce_expires_in: config.nonce_ttl_seconds,
+    });
   });
 
   app.post("/credential", async (req, res, next) => {
@@ -688,7 +689,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       try {
         verifiedProof = await verifyCredentialProof({
           body,
-          expectedNonce: accessToken.c_nonce,
+          expectedNonce: (nonce) => store.consumeCredentialNonce(nonce),
           expectedAudience: config.issuer_base_url,
         });
         session.checks.nonce_verified = true;

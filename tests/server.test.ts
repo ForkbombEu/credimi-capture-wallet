@@ -565,7 +565,9 @@ describe("capture issuer server", () => {
       dpop,
     );
     const walletKey = await dpopKey();
-    const proof = await credentialProofJwt(walletKey, token.c_nonce);
+    const refreshedNonce = await request(app).post("/nonce");
+    expect(refreshedNonce.status).toBe(200);
+    const proof = await credentialProofJwt(walletKey, String(refreshedNonce.body.c_nonce));
 
     const credential = await request(app)
       .post("/credential")

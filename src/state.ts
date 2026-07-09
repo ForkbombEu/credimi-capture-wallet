@@ -16,6 +16,7 @@ export class CaptureStore {
   readonly parRequests = new Map<string, ParRecord>();
   readonly authorizationCodes = new Map<string, AuthorizationCode>();
   readonly accessTokens = new Map<string, AccessToken>();
+  readonly credentialNonces = new Map<string, number>();
   readonly vpSessions = new Map<string, VpSessionCapture>();
   readonly dpopJtis = new Set<string>();
 
@@ -175,17 +176,28 @@ export class CaptureStore {
     return record;
   }
 
-  issueAccessToken(sessionId: string, dpopJkt: string, cNonce: string): AccessToken {
+  issueAccessToken(sessionId: string, dpopJkt: string): AccessToken {
     const token = randomUUID();
     const record = {
       token,
       session_id: sessionId,
-      c_nonce: cNonce,
       dpop_jkt: dpopJkt,
       expires_at: nowSeconds() + this.config.access_token_ttl_seconds,
     };
     this.accessTokens.set(token, record);
     return record;
+  }
+
+  issueCredentialNonce(): string {
+    const nonce = randomUUID();
+    this.credentialNonces.set(nonce, nowSeconds() + this.config.nonce_ttl_seconds);
+    return nonce;
+  }
+
+  consumeCredentialNonce(nonce: string): boolean {
+    const expiresAt = this.credentialNonces.get(nonce);
+    this.credentialNonces.delete(nonce);
+    return expiresAt !== undefined && expiresAt >= nowSeconds();
   }
 
   resolveAccessToken(header: string | undefined): AccessToken | null {

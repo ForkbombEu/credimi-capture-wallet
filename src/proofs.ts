@@ -115,9 +115,9 @@ export async function verifyDpopProof(input: {
 
 export async function verifyCredentialProof(input: {
   body: JsonRecord;
-  expectedNonce: string;
+  expectedNonce: string | ((nonce: string) => boolean);
   expectedAudience: string;
-}): Promise<{ holderJwk: JsonRecord; source: string }> {
+}): Promise<{ holderJwk: JsonRecord; source: string; nonce: string }> {
   const proofs = extractProofJwts(input.body);
   if (proofs.length === 0) throw new Error("Credential proof JWT is required");
   const errors: string[] = [];
@@ -131,10 +131,16 @@ export async function verifyCredentialProof(input: {
         audience: input.expectedAudience,
       });
       const payload = verified.payload as JsonRecord;
-      if (payload.nonce !== input.expectedNonce) {
+      const nonce = asString(payload.nonce);
+      const nonceMatches =
+        nonce !== undefined &&
+        (typeof input.expectedNonce === "string"
+          ? nonce === input.expectedNonce
+          : input.expectedNonce(nonce));
+      if (!nonceMatches) {
         throw new Error("Credential proof JWT nonce does not match issued c_nonce");
       }
-      return { holderJwk: jwk, source: proof.source };
+      return { holderJwk: jwk, source: proof.source, nonce };
     } catch (error) {
       errors.push(error instanceof Error ? error.message : "proof verification failed");
     }
