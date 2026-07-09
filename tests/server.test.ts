@@ -2,8 +2,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseIssuerSigned } from "@animo-id/mdoc";
 import { Kms, X509Certificate } from "@credo-ts/core";
+import { IssuerSigned } from "@owf/mdoc";
 import type { Express } from "express";
 import {
   type JWK,
@@ -575,14 +575,14 @@ describe("capture issuer server", () => {
 
     expect(credential.status, JSON.stringify(credential.body)).toBe(200);
     const encodedMdoc = (credential.body as CredentialResponse).credentials[0].credential;
-    const decoded = parseIssuerSigned(Buffer.from(encodedMdoc, "base64url"), PID_MDOC_DOCTYPE);
+    const decoded = IssuerSigned.fromEncodedForOid4Vci(encodedMdoc);
 
     expect(session.credential_configuration_id).toBe(mdocCredentialConfigurationId(config));
-    expect(decoded.docType).toBe(PID_MDOC_DOCTYPE);
-    const namespace = decoded.getIssuerNameSpace(PID_MDOC_NAMESPACE);
-    expect(namespace?.get("given_name")).toBe("Jane");
-    expect(namespace?.get("resident_country")).toBe("EU");
-    expect(namespace?.get("portrait")).toBe(CREDIMI_LOGO_URL);
+    expect(decoded.issuerAuth.mobileSecurityObject.docType).toBe(PID_MDOC_DOCTYPE);
+    const namespace = decoded.getPrettyClaims(PID_MDOC_NAMESPACE) as JsonRecord | undefined;
+    expect(namespace?.given_name).toBe("Jane");
+    expect(namespace?.resident_country).toBe("EU");
+    expect(namespace?.portrait).toBe(CREDIMI_LOGO_URL);
     const capture = await getJson<SessionCapture>(app, `/sessions/${session.session_id}`);
     expect(capture.status).toBe("credential_issued");
   });

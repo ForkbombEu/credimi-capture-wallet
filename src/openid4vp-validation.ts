@@ -6,13 +6,13 @@ import {
   verify as verifySignature,
 } from "node:crypto";
 import {
-  DataItem,
+  CoseKey,
+  DeviceResponse,
+  type IssuerSigned,
   type MdocContext,
+  SessionTranscript,
   Verifier,
-  type X509Context,
-  cborEncode,
-  parseDeviceResponse,
-} from "@animo-id/mdoc";
+} from "@owf/mdoc";
 import {
   type JWK,
   compactVerify,
@@ -196,16 +196,26 @@ async function validateMdocPresentation(
   }
 
   const errors: string[] = [];
-  const encodedDeviceResponse = Buffer.from(presentation, "base64url");
+  let deviceResponse: DeviceResponse;
+  try {
+    deviceResponse = DeviceResponse.fromEncodedForOid4Vp(presentation);
+  } catch (error) {
+    return {
+      nonceVerified: false,
+      holderBindingVerified: false,
+      dcqlQueryMatched: false,
+      errors: [`mdoc DeviceResponse parsing failed: ${errorMessage(error)}`],
+    };
+  }
   const context = mdocVerificationContext();
-  const sessionTranscript = mdocSessionTranscript(session.authorization_request);
+  const sessionTranscript = await mdocSessionTranscript(session.authorization_request, context);
   let verified = false;
 
   try {
-    await new Verifier().verifyDeviceResponse(
+    await Verifier.verifyDeviceResponse(
       {
-        encodedDeviceResponse,
-        encodedSessionTranscript: sessionTranscript,
+        deviceResponse,
+        sessionTranscript,
         disableCertificateChainValidation: true,
         trustedCertificates: [],
       },
@@ -218,12 +228,8 @@ async function validateMdocPresentation(
 
   let dcqlQueryMatched = false;
   try {
-    const parsed = await parseDeviceResponse(encodedDeviceResponse);
-    const matches = parsed.documents.map((document) =>
-      matchCredentialQuery(
-        candidate.query,
-        mdocClaims(document.docType, document.allIssuerSignedNamespaces),
-      ),
+    const matches = (deviceResponse.documents ?? []).map((document) =>
+      matchCredentialQuery(candidate.query, mdocClaims(document.docType, document.issuerSigned)),
     );
     const match = matches.find((entry) => entry.matched);
     dcqlQueryMatched = Boolean(match);
@@ -463,36 +469,30 @@ function pathExists(value: unknown, path: unknown[]): boolean {
   return pathExists(value[head], tail);
 }
 
-export function mdocSessionTranscript(authorizationRequest: JsonRecord): Uint8Array {
+export function mdocSessionTranscript(
+  authorizationRequest: JsonRecord,
+  context: Pick<MdocContext, "crypto"> = mdocVerificationContext(),
+): Promise<SessionTranscript> {
   const clientId = asString(authorizationRequest.client_id) ?? "";
   const nonce = asString(authorizationRequest.nonce) ?? "";
   const responseUri = asString(authorizationRequest.response_uri) ?? "";
-  const handoverInfo = cborEncode(DataItem.fromData([clientId, nonce, null, responseUri]));
-  const handover = DataItem.fromData([
-    null,
-    null,
-    ["OpenID4VPHandover", createHash("sha256").update(handoverInfo).digest()],
-  ]);
-  return cborEncode(handover);
+  return SessionTranscript.forOid4Vp({ clientId, nonce, responseUri }, context);
 }
 
-function mdocClaims(doctype: string, namespaces: Map<string, Map<string, unknown>>): JsonRecord {
+function mdocClaims(doctype: string, issuerSigned: IssuerSigned): JsonRecord {
+  const namespaces = issuerSigned.issuerNamespaces.issuerNamespaces;
   return {
     doctype,
     ...Object.fromEntries(
-      [...namespaces.entries()].map(([namespace, values]) => [
+      [...namespaces.keys()].map((namespace) => [
         namespace,
-        Object.fromEntries(values),
+        issuerSigned.getPrettyClaims(namespace) ?? {},
       ]),
     ),
   };
 }
 
-function mdocVerificationContext(): {
-  crypto: MdocContext["crypto"];
-  cose: MdocContext["cose"];
-  x509: X509Context;
-} {
+function mdocVerificationContext(): MdocContext {
   return {
     crypto: {
       random: (length) => Buffer.alloc(length),
@@ -502,7 +502,7 @@ function mdocVerificationContext(): {
         }
         return createHash("sha256").update(bytes).digest();
       },
-      calculateEphemeralMacKeyJwk: () => {
+      calculateEphemeralMacKey: () => {
         throw new Error("mdoc DeviceMac holder binding is not supported");
       },
     },
@@ -511,18 +511,19 @@ function mdocVerificationContext(): {
         sign: () => {
           throw new Error("mdoc signing is not supported by the verifier");
         },
-        verify: ({ jwk, sign1, options }) => {
-          const verification = sign1.getRawVerificationData(options);
-          return verifySignature(
-            "sha256",
-            verification.data,
+        verify: async ({ key, sign1 }) =>
+          verifySignature(
+            sign1.signatureAlgorithmName === "EdDSA" ? null : "sha256",
+            sign1.toBeSigned,
             {
-              key: createPublicKey({ key: jwk as unknown as NodeJsonWebKey, format: "jwk" }),
+              key: createPublicKey({
+                key: key.jwk as unknown as NodeJsonWebKey,
+                format: "jwk",
+              }),
               dsaEncoding: "ieee-p1363",
             },
-            verification.signature,
-          );
-        },
+            sign1.signature,
+          ),
       },
       mac0: {
         sign: () => {
@@ -539,9 +540,13 @@ function mdocVerificationContext(): {
         const source = field === "issuer" ? cert.issuer : cert.subject;
         return source.split("\n");
       },
-      getPublicKey: ({ certificate }) =>
-        new X509Certificate(certificate).publicKey.export({ format: "jwk" }) as JWK,
-      validateCertificateChain: () => undefined,
+      getPublicKey: async ({ certificate }) =>
+        CoseKey.fromJwk(
+          new X509Certificate(certificate).publicKey.export({
+            format: "jwk",
+          }) as unknown as Record<string, unknown>,
+        ),
+      verifyCertificateChain: () => undefined,
       getCertificateData: ({ certificate }) => {
         const cert = new X509Certificate(certificate);
         return {

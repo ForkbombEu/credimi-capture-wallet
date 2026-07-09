@@ -1,7 +1,7 @@
 import { createHash, createPrivateKey, randomBytes, sign } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { Document, type MdocContext, cborEncode } from "@animo-id/mdoc";
 import { Kms, SdJwtVcService } from "@credo-ts/core";
+import { CoseKey, DeviceKey, Issuer, type MdocContext, SignatureAlgorithm } from "@owf/mdoc";
 import {
   ISSUER_KEY_ID,
   issuerCertificatePath,
@@ -75,30 +75,29 @@ export async function issueMdocCredential(options: {
   now?: Date;
 }): Promise<string> {
   const privateJwk = loadPrivateJwk(options.config);
-  const issuerCertificatePem = readFileSync(issuerCertificatePath(options.config.data_dir), "utf8");
+  const issuerCertificate = Buffer.from(
+    readFileSync(issuerCertificatePath(options.config.data_dir), "utf8")
+      .replace(/-----BEGIN CERTIFICATE-----/g, "")
+      .replace(/-----END CERTIFICATE-----/g, "")
+      .replace(/\s+/g, ""),
+    "base64",
+  );
   const now = options.now ?? new Date();
   const validUntil = new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000);
   const context = createMdocContext(privateJwk);
 
-  const document = await new Document(PID_MDOC_DOCTYPE, { crypto: context.crypto })
-    .addIssuerNameSpace(PID_MDOC_NAMESPACE, mdocPidClaims())
-    .useDigestAlgorithm("SHA-256")
-    .addValidityInfo({ signed: now, validFrom: now, validUntil })
-    .addDeviceKeyInfo({ deviceKey: options.holderJwk as never })
-    .sign(
-      {
-        issuerPrivateKey: privateJwk as never,
-        issuerCertificate: issuerCertificatePem,
-        alg: "ES256",
-        kid: ISSUER_KEY_ID,
-      },
-      context,
-    );
+  const issuerSigned = await new Issuer(PID_MDOC_DOCTYPE, context)
+    .addIssuerNamespace(PID_MDOC_NAMESPACE, mdocPidClaims())
+    .sign({
+      signingKey: CoseKey.fromJwk(privateJwk),
+      algorithm: SignatureAlgorithm.ES256,
+      digestAlgorithm: "SHA-256",
+      validityInfo: { signed: now, validFrom: now, validUntil },
+      deviceKeyInfo: { deviceKey: DeviceKey.fromJwk(options.holderJwk) as DeviceKey },
+      certificates: [issuerCertificate],
+    });
 
-  const issuerSigned = document.prepare().get("issuerSigned");
-  if (!issuerSigned) throw new Error("MDOC issuer-signed structure was not generated");
-
-  return Buffer.from(cborEncode(issuerSigned)).toString("base64url");
+  return issuerSigned.encodedForOid4Vci;
 }
 
 function sdJwtPidClaims(): JsonRecord {
@@ -208,14 +207,14 @@ function createMdocContext(privateJwk: JsonRecord): {
         }
         return createHash("sha256").update(bytes).digest();
       },
-      calculateEphemeralMacKeyJwk: () => {
+      calculateEphemeralMacKey: () => {
         throw new Error("MDOC MAC authentication is not supported by this issuer");
       },
     },
     cose: {
       sign1: {
-        sign: ({ sign1 }) =>
-          sign("sha256", sign1.getRawSigningData().data, {
+        sign: async ({ toBeSigned }) =>
+          sign("sha256", toBeSigned, {
             key: createPrivateKey({ key: privateJwk as never, format: "jwk" }),
             dsaEncoding: "ieee-p1363",
           }),
