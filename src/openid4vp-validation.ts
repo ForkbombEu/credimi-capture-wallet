@@ -7,7 +7,6 @@ import {
 } from "node:crypto";
 import {
   DataItem,
-  DeviceResponse,
   type MdocContext,
   Verifier,
   type X509Context,
@@ -63,7 +62,7 @@ export async function validateVpPresentationResponse(
     }
 
     const validations = await Promise.all(
-      candidates.map((candidate) => validatePresentation(config, session, body, candidate)),
+      candidates.map((candidate) => validatePresentation(config, session, candidate)),
     );
     result.nonce_verified = validations.every((validation) => validation.nonceVerified);
     result.holder_binding_verified = validations.every(
@@ -87,7 +86,6 @@ export async function validateVpPresentationResponse(
 async function validatePresentation(
   config: AppConfig,
   session: VpSessionCapture,
-  body: JsonRecord,
   candidate: PresentationCandidate,
 ): Promise<{
   nonceVerified: boolean;
@@ -100,7 +98,7 @@ async function validatePresentation(
     return validateSdJwtPresentation(config, session, candidate);
   }
   if (format === "mso_mdoc") {
-    return validateMdocPresentation(session, body, candidate);
+    return validateMdocPresentation(session, candidate);
   }
   return {
     nonceVerified: false,
@@ -180,7 +178,6 @@ async function validateSdJwtPresentation(
 
 async function validateMdocPresentation(
   session: VpSessionCapture,
-  body: JsonRecord,
   candidate: PresentationCandidate,
 ): Promise<{
   nonceVerified: boolean;
@@ -201,25 +198,22 @@ async function validateMdocPresentation(
   const errors: string[] = [];
   const encodedDeviceResponse = Buffer.from(presentation, "base64url");
   const context = mdocVerificationContext();
-  const sessionTranscripts = await mdocSessionTranscripts(session, body, context);
+  const sessionTranscript = mdocSessionTranscript(session.authorization_request);
   let verified = false;
 
-  for (const sessionTranscript of sessionTranscripts) {
-    try {
-      await new Verifier().verifyDeviceResponse(
-        {
-          encodedDeviceResponse,
-          encodedSessionTranscript: sessionTranscript,
-          disableCertificateChainValidation: true,
-          trustedCertificates: [],
-        },
-        context,
-      );
-      verified = true;
-      break;
-    } catch (error) {
-      errors.push(`mdoc DeviceResponse verification failed: ${errorMessage(error)}`);
-    }
+  try {
+    await new Verifier().verifyDeviceResponse(
+      {
+        encodedDeviceResponse,
+        encodedSessionTranscript: sessionTranscript,
+        disableCertificateChainValidation: true,
+        trustedCertificates: [],
+      },
+      context,
+    );
+    verified = true;
+  } catch (error) {
+    errors.push(`mdoc DeviceResponse verification failed: ${errorMessage(error)}`);
   }
 
   let dcqlQueryMatched = false;
@@ -469,34 +463,17 @@ function pathExists(value: unknown, path: unknown[]): boolean {
   return pathExists(value[head], tail);
 }
 
-async function mdocSessionTranscripts(
-  session: VpSessionCapture,
-  body: JsonRecord,
-  context: ReturnType<typeof mdocVerificationContext>,
-): Promise<Uint8Array[]> {
-  const clientId = asString(session.authorization_request.client_id) ?? "";
-  const nonce = asString(session.authorization_request.nonce) ?? "";
-  const responseUri = asString(session.authorization_request.response_uri) ?? "";
+export function mdocSessionTranscript(authorizationRequest: JsonRecord): Uint8Array {
+  const clientId = asString(authorizationRequest.client_id) ?? "";
+  const nonce = asString(authorizationRequest.nonce) ?? "";
+  const responseUri = asString(authorizationRequest.response_uri) ?? "";
   const handoverInfo = cborEncode(DataItem.fromData([clientId, nonce, null, responseUri]));
   const handover = DataItem.fromData([
     null,
     null,
     ["OpenID4VPHandover", createHash("sha256").update(handoverInfo).digest()],
   ]);
-  const transcripts = [cborEncode(handover)];
-  const mdocGeneratedNonce = asString(body.mdoc_generated_nonce) ?? asString(body.mdoc_nonce);
-  if (mdocGeneratedNonce) {
-    transcripts.push(
-      await DeviceResponse.calculateSessionTranscriptBytesForOID4VP({
-        context,
-        mdocGeneratedNonce,
-        clientId,
-        responseUri,
-        verifierGeneratedNonce: nonce,
-      }),
-    );
-  }
-  return transcripts;
+  return cborEncode(handover);
 }
 
 function mdocClaims(doctype: string, namespaces: Map<string, Map<string, unknown>>): JsonRecord {
