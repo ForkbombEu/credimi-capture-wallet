@@ -584,7 +584,11 @@ describe("capture issuer server", () => {
     const namespace = decoded.getPrettyClaims(PID_MDOC_NAMESPACE) as JsonRecord | undefined;
     expect(namespace?.given_name).toBe("Jane");
     expect(namespace?.resident_country).toBe("EU");
-    expect(namespace?.portrait).toBe(CREDIMI_LOGO_URL);
+    const portrait = namespace?.portrait;
+    expect(portrait).toBeInstanceOf(Uint8Array);
+    expect(Buffer.from(portrait as Uint8Array).subarray(0, 3)).toEqual(
+      Buffer.from([0xff, 0xd8, 0xff]),
+    );
     const capture = await getJson<SessionCapture>(app, `/sessions/${session.session_id}`);
     expect(capture.status).toBe("credential_issued");
   });
@@ -855,7 +859,7 @@ describe("capture issuer server", () => {
       nationalities: ["EU"],
       personal_administrative_number: "PID-DEMO-001",
       phone_number: "+390600000000",
-      picture: CREDIMI_LOGO_URL,
+      picture: expect.stringMatching(/^data:image\/jpeg;base64,\/9j\//),
       place_of_birth: "Roma",
       sex: "2",
       cnf: { jwk: walletKey.publicJwk },

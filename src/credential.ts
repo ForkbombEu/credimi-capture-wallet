@@ -19,6 +19,9 @@ import type { AppConfig, JsonRecord } from "./types.js";
 
 export { CREDIMI_LOGO_URL, CREDIMI_WEBSITE };
 
+const PID_PORTRAIT_JPEG = readFileSync(new URL("./pid_portrait.jpg", import.meta.url));
+const PID_PICTURE_DATA_URL = `data:image/jpeg;base64,${PID_PORTRAIT_JPEG.toString("base64")}`;
+
 export async function issueSdJwtCredential(options: {
   config: AppConfig;
   credentialConfigurationId: string;
@@ -126,7 +129,7 @@ function sdJwtPidClaims(): JsonRecord {
     nationalities: ["EU"],
     personal_administrative_number: "PID-DEMO-001",
     phone_number: "+390600000000",
-    picture: CREDIMI_LOGO_URL,
+    picture: PID_PICTURE_DATA_URL,
     place_of_birth: "Roma",
     sex: "2",
   };
@@ -150,7 +153,7 @@ function mdocPidClaims(): JsonRecord {
     nationality: "EU",
     personal_administrative_number: "PID-DEMO-001",
     place_of_birth: "Roma",
-    portrait: CREDIMI_LOGO_URL,
+    portrait: new Uint8Array(PID_PORTRAIT_JPEG),
     resident_address: "Via Europa 1, 00100 Roma, EU",
     resident_city: "Roma",
     resident_country: "EU",
