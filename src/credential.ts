@@ -217,8 +217,8 @@ function createMdocContext(privateJwk: JsonRecord): {
         }
         return createHash("sha256").update(bytes).digest();
       },
-      calculateEphemeralMacKey: () => {
-        throw new Error("MDOC MAC authentication is not supported by this issuer");
+      hdkf: () => {
+        throw new Error("MDOC HKDF is not supported by this issuer");
       },
     },
     cose: {
@@ -233,7 +233,7 @@ function createMdocContext(privateJwk: JsonRecord): {
         },
       },
       mac0: {
-        sign: () => {
+        authenticate: () => {
           throw new Error("MDOC MAC authentication is not supported by this issuer");
         },
         verify: () => {
