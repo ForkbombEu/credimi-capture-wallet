@@ -371,6 +371,7 @@ async function writeCertificate({
     {
       authorityKey: publicJwk,
       issuer: {
+        countryName: "IT",
         commonName: new URL(config.issuer_base_url).hostname,
         organizationalUnit,
       },
