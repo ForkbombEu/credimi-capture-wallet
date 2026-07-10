@@ -31,6 +31,8 @@ import {
   X509Module,
 } from "@credo-ts/core";
 import { OpenId4VcModule } from "@credo-ts/openid4vc";
+import { DataItem } from "@owf/cose";
+import { cborDecode, cborEncode } from "@owf/mdoc";
 import express from "express";
 import { type JWK, compactDecrypt, exportJWK, generateKeyPair, importJWK } from "jose";
 import { VERIFIER_KEY_ID, verifierCertificatePath, verifierPrivateJwkPath } from "./config.js";
@@ -166,7 +168,7 @@ export class CredoOpenId4VpVerifier {
     try {
       const verified = await this.verifierApi().verifyAuthorizationResponse({
         verificationSessionId,
-        authorizationResponse: body,
+        authorizationResponse: repairAuthorizationResponseForCredo(body),
       });
       return {
         valid: true,
@@ -450,7 +452,7 @@ class NodeKmsBackend implements Kms.KeyManagementService {
       Buffer.from(decryption.tag).toString("base64url"),
     ].join(".");
     const { plaintext } = await compactDecrypt(compact, await importJWK(privateJwk, "ECDH-ES"));
-    return { data: plaintext };
+    return { data: repairAuthorizationResponsePlaintextForCredo(plaintext) };
   }
 
   randomBytes(_agentContext: AgentContext, options: Kms.KmsRandomBytesOptions): Uint8Array {
@@ -545,4 +547,113 @@ function nodeAgentDependencies(config: AppConfig): AgentDependencies {
     fetch: globalThis.fetch,
     WebSocketClass: class WebSocketPlaceholder {} as unknown as AgentDependencies["WebSocketClass"],
   };
+}
+
+function repairAuthorizationResponsePlaintextForCredo(plaintext: Uint8Array): Uint8Array {
+  try {
+    const response = JSON.parse(Buffer.from(plaintext).toString("utf8")) as JsonRecord;
+    const repaired = repairAuthorizationResponseForCredo(response);
+    return repaired === response ? plaintext : Buffer.from(JSON.stringify(repaired), "utf8");
+  } catch {
+    return plaintext;
+  }
+}
+
+function repairAuthorizationResponseForCredo(response: JsonRecord): JsonRecord {
+  const vpToken = response.vp_token;
+  if (!vpToken || typeof vpToken !== "object" || Array.isArray(vpToken)) return response;
+
+  let changed = false;
+  const repairedVpToken = Object.fromEntries(
+    Object.entries(vpToken as JsonRecord).map(([queryId, presentations]) => {
+      if (!Array.isArray(presentations)) {
+        const repaired = repairMdocDeviceResponseForCredo(presentations);
+        changed ||= repaired !== presentations;
+        return [queryId, repaired];
+      }
+
+      const repairedPresentations = presentations.map((presentation) => {
+        const repaired = repairMdocDeviceResponseForCredo(presentation);
+        changed ||= repaired !== presentation;
+        return repaired;
+      });
+      return [queryId, repairedPresentations];
+    }),
+  );
+
+  return changed ? { ...response, vp_token: repairedVpToken } : response;
+}
+
+export function repairMdocDeviceResponseForCredo(presentation: unknown): unknown {
+  if (typeof presentation !== "string") return presentation;
+  try {
+    const decoded = cborDecode(Buffer.from(presentation, "base64url"), {
+      unwrapTopLevelDataItem: false,
+    });
+    const changed = repairIssuerSignedNamespaceDataItems(decoded);
+    return changed ? Buffer.from(cborEncode(decoded)).toString("base64url") : presentation;
+  } catch {
+    return presentation;
+  }
+}
+
+function repairIssuerSignedNamespaceDataItems(value: unknown): boolean {
+  let changed = false;
+
+  if (value instanceof Map) {
+    const nameSpaces = value.get("nameSpaces");
+    if (value.has("issuerAuth") && nameSpaces instanceof Map) {
+      changed = repairIssuerNamespaces(nameSpaces) || changed;
+    }
+
+    for (const nested of value.values()) {
+      changed = repairIssuerSignedNamespaceDataItems(nested) || changed;
+    }
+    return changed;
+  }
+
+  if (Array.isArray(value)) {
+    for (const nested of value) {
+      changed = repairIssuerSignedNamespaceDataItems(nested) || changed;
+    }
+  }
+
+  return changed;
+}
+
+function repairIssuerNamespaces(nameSpaces: Map<unknown, unknown>): boolean {
+  let changed = false;
+
+  for (const [namespace, issuerSignedItems] of nameSpaces.entries()) {
+    if (!Array.isArray(issuerSignedItems)) continue;
+
+    const repairedItems = issuerSignedItems.map((item) => {
+      if (item instanceof DataItem || !isIssuerSignedItemShape(item)) return item;
+      changed = true;
+      return DataItem.fromData(item);
+    });
+
+    if (changed) nameSpaces.set(namespace, repairedItems);
+  }
+
+  return changed;
+}
+
+function isIssuerSignedItemShape(value: unknown): boolean {
+  if (value instanceof Map) {
+    return (
+      value.has("digestID") &&
+      value.has("random") &&
+      value.has("elementIdentifier") &&
+      value.has("elementValue")
+    );
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as JsonRecord;
+  return (
+    "digestID" in record &&
+    "random" in record &&
+    "elementIdentifier" in record &&
+    "elementValue" in record
+  );
 }

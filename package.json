@@ -20,6 +20,7 @@
   "dependencies": {
     "@credo-ts/core": "latest",
     "@credo-ts/openid4vc": "latest",
+    "@owf/cose": "0.3.1",
     "@owf/mdoc": "0.7.0",
     "@types/qrcode": "1.5.5",
     "dcql": "3.0.0",

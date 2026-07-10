@@ -14,6 +14,9 @@ importers:
       '@credo-ts/openid4vc':
         specifier: latest
         version: 0.7.0(typescript@5.9.3)
+      '@owf/cose':
+        specifier: 0.3.1
+        version: 0.3.1
       '@owf/mdoc':
         specifier: 0.7.0
         version: 0.7.0
