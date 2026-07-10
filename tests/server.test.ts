@@ -230,9 +230,13 @@ describe("capture issuer server", () => {
     );
   });
 
-  it("creates OpenID4VP sessions with a default presentation request", async () => {
+  it("creates OpenID4VP sessions with a valid presentation request", async () => {
     const app = createApp(config);
-    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {});
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      presentation_request: {
+        dcql_query: dcqlForClaims(["family_name", "given_name"]),
+      },
+    });
 
     expect(session.status).toBe("created");
     expect(session.request_uri_method).toBe("get");
@@ -271,21 +275,18 @@ describe("capture issuer server", () => {
     const dcqlQuery = session.authorization_request.dcql_query as JsonRecord;
     const dcqlCredentials = dcqlQuery.credentials as JsonRecord[];
     const sdJwtCredential = dcqlCredentials.find((credential) => credential.format === "dc+sd-jwt");
-    const mdocCredential = dcqlCredentials.find((credential) => credential.format === "mso_mdoc");
     expect(sdJwtCredential?.meta).toEqual({ vct_values: [PID_SD_JWT_VCT] });
-    expect((sdJwtCredential?.claims as JsonRecord[]).map((claim) => claim.path)).toEqual(
-      PID_SD_JWT_CLAIMS.map((claim) => claim.split(".")),
-    );
-    expect(mdocCredential?.meta).toEqual({ doctype_value: PID_MDOC_DOCTYPE });
-    expect((mdocCredential?.claims as JsonRecord[]).map((claim) => claim.path)).toEqual(
-      PID_MDOC_CLAIMS.map((claim) => [PID_MDOC_NAMESPACE, claim]),
-    );
+    expect((sdJwtCredential?.claims as JsonRecord[]).map((claim) => claim.path)).toEqual([
+      ["family_name"],
+      ["given_name"],
+    ]);
   });
 
   it("creates OpenID4VP sessions that advertise request_uri_method post", async () => {
     const app = createApp(config);
     const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
       request_uri_method: "post",
+      dcql_query: dcqlForClaims(["family_name"]),
     });
 
     const deeplink = new URL(session.deeplink);
@@ -302,6 +303,28 @@ describe("capture issuer server", () => {
 
     expect(response.status).toBe(400);
     expect(response.body).toMatchObject({ error: "unsupported_request_uri_method" });
+  });
+
+  it("rejects OpenID4VP sessions without a DCQL query", async () => {
+    const app = createApp(config);
+    const response = await request(app).post("/openid4vp/sessions").send({});
+
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({
+      error: "invalid_dcql_query",
+      error_description: "dcql_query is required",
+    });
+  });
+
+  it("rejects OpenID4VP sessions with an invalid DCQL query", async () => {
+    const app = createApp(config);
+    const response = await request(app)
+      .post("/openid4vp/sessions")
+      .send({ dcql_query: { credentials: [] } });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({ error: "invalid_dcql_query" });
+    expect(response.body.error_description).toContain("Array must be non-empty");
   });
 
   it("allows API callers to override the OpenID4VP presentation request", async () => {
@@ -332,7 +355,11 @@ describe("capture issuer server", () => {
 
   it("serves OpenID4VP request_uri objects and captures invalid wallet presentation responses", async () => {
     const app = createApp(config);
-    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {});
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      presentation_request: {
+        dcql_query: dcqlForClaims(["family_name"]),
+      },
+    });
 
     const requestObject = await request(app).get(
       `/openid4vp/sessions/${session.session_id}/request`,
@@ -465,10 +492,61 @@ describe("capture issuer server", () => {
     });
   });
 
+  it("accepts SD-JWT VC presentations that satisfy a required DCQL credential_set option", async () => {
+    const app = createApp(config);
+    const dcqlQuery = {
+      credentials: [
+        {
+          id: "pid_sd",
+          format: "dc+sd-jwt",
+          meta: { vct_values: [PID_SD_JWT_VCT] },
+          claims: [{ path: ["family_name"] }],
+        },
+        {
+          id: "pid_alt",
+          format: "dc+sd-jwt",
+          meta: { vct_values: [PID_SD_JWT_VCT] },
+          claims: [{ path: ["given_name"] }],
+        },
+      ],
+      credential_sets: [
+        {
+          options: [["pid_sd"], ["pid_alt"]],
+        },
+      ],
+    };
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      presentation_request: {
+        dcql_query: dcqlQuery,
+      },
+    });
+    const credential = await sdJwtCredential();
+    const presentation = await sdJwtPresentation({
+      credential,
+      authorizationRequest: session.authorization_request,
+      disclosedClaims: ["family_name"],
+    });
+
+    const response = await request(app)
+      .post(`/openid4vp/sessions/${session.session_id}/response`)
+      .send({
+        state: session.session_id,
+        vp_token: JSON.stringify({ pid_sd: [presentation] }),
+      });
+
+    expect(response.status).toBe(200);
+    const capture = await getJson<VpSessionResponse>(
+      app,
+      `/openid4vp/sessions/${session.session_id}`,
+    );
+    expect(capture.checks.dcql_query_matched).toBe(true);
+  });
+
   it("captures OpenID4VP request_uri POST payloads", async () => {
     const app = createApp(config);
     const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
       request_uri_method: "post",
+      dcql_query: dcqlForClaims(["family_name"]),
     });
 
     const requestObject = await request(app)

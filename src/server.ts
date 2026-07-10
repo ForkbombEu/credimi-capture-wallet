@@ -16,7 +16,7 @@ import {
   supportedCredentialConfigurationIds,
   supportedCredentials,
 } from "./metadata.js";
-import { validateVpPresentationResponse } from "./openid4vp-validation.js";
+import { parseDcqlQuery, validateVpPresentationResponse } from "./openid4vp-validation.js";
 import {
   buildPresentationAuthorizationRequest,
   defaultPresentationRequest,
@@ -261,6 +261,8 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       return res.status(400).json({ error: "unsupported_request_uri_method" });
     }
     const requestOverride = objectOrNull(body.presentation_request) ?? vpRequestBody(body);
+    const dcqlQueryError = dcqlQueryValidationError(requestOverride.dcql_query);
+    if (dcqlQueryError) return res.status(400).json(dcqlQueryError);
     const session = createVpSession(
       config,
       store,
@@ -841,6 +843,21 @@ function clientAuthenticationError(
     clientAuthentication.wallet_attestation_pop.audience_matches === true;
   if (privateKeyJwtValid || walletAttestationValid) return null;
   return { error: "invalid_client", error_description: "Client authentication is required" };
+}
+
+function dcqlQueryValidationError(value: unknown): JsonRecord | null {
+  if (value === undefined) {
+    return { error: "invalid_dcql_query", error_description: "dcql_query is required" };
+  }
+  try {
+    parseDcqlQuery(value);
+    return null;
+  } catch (error) {
+    return {
+      error: "invalid_dcql_query",
+      error_description: errorMessage(error),
+    };
+  }
 }
 
 function errorMessage(error: unknown): string {

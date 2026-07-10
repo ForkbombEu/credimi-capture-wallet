@@ -14,6 +14,12 @@ import {
   Verifier,
 } from "@owf/mdoc";
 import {
+  type DcqlCredentialPresentation,
+  DcqlPresentationResult,
+  DcqlQuery,
+  type DcqlQuery as ParsedDcqlQuery,
+} from "dcql";
+import {
   type JWK,
   compactVerify,
   decodeJwt,
@@ -33,9 +39,12 @@ interface VpPresentationValidation {
 }
 
 interface PresentationCandidate {
+  queryId: string;
   query: JsonRecord;
   presentation: unknown;
 }
+
+type DcqlPresentationRecord = Record<string, DcqlCredentialPresentation[]>;
 
 export async function validateVpPresentationResponse(
   config: AppConfig,
@@ -52,8 +61,9 @@ export async function validateVpPresentationResponse(
   };
 
   try {
+    const dcqlQuery = parseDcqlQuery(session.authorization_request.dcql_query);
     const vpToken = parseVpToken(body.vp_token);
-    const candidates = presentationCandidates(session.authorization_request, vpToken);
+    const candidates = presentationCandidates(dcqlQuery, vpToken);
     result.vp_token_format_valid = true;
 
     if (candidates.length === 0) {
@@ -68,8 +78,13 @@ export async function validateVpPresentationResponse(
     result.holder_binding_verified = validations.every(
       (validation) => validation.holderBindingVerified,
     );
-    result.dcql_query_matched = validations.every((validation) => validation.dcqlQueryMatched);
+    const dcqlValidation = validateDcqlPresentation(
+      dcqlQuery,
+      dcqlPresentationRecord(candidates, validations),
+    );
+    result.dcql_query_matched = dcqlValidation.matched;
     result.errors.push(...validations.flatMap((validation) => validation.errors));
+    if (!dcqlValidation.matched) result.errors.push(...dcqlValidation.errors);
     result.valid =
       result.vp_token_format_valid &&
       result.nonce_verified &&
@@ -90,7 +105,7 @@ async function validatePresentation(
 ): Promise<{
   nonceVerified: boolean;
   holderBindingVerified: boolean;
-  dcqlQueryMatched: boolean;
+  dcqlPresentations: DcqlCredentialPresentation[];
   errors: string[];
 }> {
   const format = asString(candidate.query.format);
@@ -103,7 +118,7 @@ async function validatePresentation(
   return {
     nonceVerified: false,
     holderBindingVerified: false,
-    dcqlQueryMatched: false,
+    dcqlPresentations: [],
     errors: [`unsupported DCQL credential format '${format ?? "unknown"}'`],
   };
 }
@@ -115,7 +130,7 @@ async function validateSdJwtPresentation(
 ): Promise<{
   nonceVerified: boolean;
   holderBindingVerified: boolean;
-  dcqlQueryMatched: boolean;
+  dcqlPresentations: DcqlCredentialPresentation[];
   errors: string[];
 }> {
   const errors: string[] = [];
@@ -124,7 +139,7 @@ async function validateSdJwtPresentation(
     return {
       nonceVerified: false,
       holderBindingVerified: false,
-      dcqlQueryMatched: false,
+      dcqlPresentations: [],
       errors: ["SD-JWT VC presentation must be a compact string"],
     };
   }
@@ -167,13 +182,20 @@ async function validateSdJwtPresentation(
     }
   }
 
-  const dcqlQueryMatched = claims ? matchCredentialQuery(candidate.query, claims).matched : false;
-  if (claims) {
-    const match = matchCredentialQuery(candidate.query, claims);
-    if (!match.matched) errors.push(...match.errors);
-  }
+  const vct = claims ? asString(claims.vct) : null;
+  const dcqlPresentations =
+    claims && vct
+      ? [
+          {
+            credential_format: "dc+sd-jwt",
+            vct,
+            claims: claims as never,
+            cryptographic_holder_binding: holderBindingVerified,
+          } satisfies DcqlCredentialPresentation,
+        ]
+      : [];
 
-  return { nonceVerified, holderBindingVerified, dcqlQueryMatched, errors };
+  return { nonceVerified, holderBindingVerified, dcqlPresentations, errors };
 }
 
 async function validateMdocPresentation(
@@ -182,7 +204,7 @@ async function validateMdocPresentation(
 ): Promise<{
   nonceVerified: boolean;
   holderBindingVerified: boolean;
-  dcqlQueryMatched: boolean;
+  dcqlPresentations: DcqlCredentialPresentation[];
   errors: string[];
 }> {
   const presentation = asString(candidate.presentation);
@@ -190,7 +212,7 @@ async function validateMdocPresentation(
     return {
       nonceVerified: false,
       holderBindingVerified: false,
-      dcqlQueryMatched: false,
+      dcqlPresentations: [],
       errors: ["mdoc presentation must be a base64url-encoded DeviceResponse string"],
     };
   }
@@ -203,7 +225,7 @@ async function validateMdocPresentation(
     return {
       nonceVerified: false,
       holderBindingVerified: false,
-      dcqlQueryMatched: false,
+      dcqlPresentations: [],
       errors: [`mdoc DeviceResponse parsing failed: ${errorMessage(error)}`],
     };
   }
@@ -226,16 +248,17 @@ async function validateMdocPresentation(
     errors.push(`mdoc DeviceResponse verification failed: ${errorMessage(error)}`);
   }
 
-  let dcqlQueryMatched = false;
+  let dcqlPresentations: DcqlCredentialPresentation[] = [];
   try {
-    const matches = (deviceResponse.documents ?? []).map((document) =>
-      matchCredentialQuery(candidate.query, mdocClaims(document.docType, document.issuerSigned)),
+    dcqlPresentations = (deviceResponse.documents ?? []).map(
+      (document) =>
+        ({
+          credential_format: "mso_mdoc",
+          doctype: document.docType,
+          namespaces: mdocNamespaces(document.issuerSigned),
+          cryptographic_holder_binding: verified,
+        }) satisfies DcqlCredentialPresentation,
     );
-    const match = matches.find((entry) => entry.matched);
-    dcqlQueryMatched = Boolean(match);
-    if (!dcqlQueryMatched) {
-      errors.push(...(matches[0]?.errors ?? ["mdoc presentation does not match DCQL query"]));
-    }
   } catch (error) {
     errors.push(`mdoc claim extraction failed: ${errorMessage(error)}`);
   }
@@ -243,9 +266,15 @@ async function validateMdocPresentation(
   return {
     nonceVerified: verified,
     holderBindingVerified: verified,
-    dcqlQueryMatched,
+    dcqlPresentations,
     errors: verified ? errors.filter((error) => !error.startsWith("mdoc DeviceResponse")) : errors,
   };
+}
+
+export function parseDcqlQuery(value: unknown): ParsedDcqlQuery {
+  const query = (DcqlQuery.parse as (input: unknown) => ParsedDcqlQuery)(value);
+  DcqlQuery.validate(query);
+  return query;
 }
 
 function parseVpToken(value: unknown): JsonRecord {
@@ -258,16 +287,20 @@ function parseVpToken(value: unknown): JsonRecord {
 }
 
 function presentationCandidates(
-  authorizationRequest: JsonRecord,
+  dcqlQuery: ParsedDcqlQuery,
   vpToken: JsonRecord,
 ): PresentationCandidate[] {
-  const dcqlQuery = asRecord(authorizationRequest.dcql_query);
-  const queries = asArray(dcqlQuery?.credentials).filter(isRecord);
+  const queries = dcqlQuery.credentials as JsonRecord[];
+  const queryById = new Map(
+    queries
+      .map((query) => [asString(query.id), query] as const)
+      .filter((entry): entry is readonly [string, JsonRecord] => Boolean(entry[0])),
+  );
   const candidates: PresentationCandidate[] = [];
 
-  for (const query of queries) {
-    const queryId = asString(query.id);
-    if (!queryId) continue;
+  for (const queryId of Object.keys(vpToken)) {
+    const query = queryById.get(queryId);
+    if (!query) throw new Error(`vp_token contains unknown DCQL credential '${queryId}'`);
     const entries = asArray(vpToken[queryId]);
     if (entries.length === 0) {
       throw new Error(`vp_token is missing presentation array for DCQL credential '${queryId}'`);
@@ -275,7 +308,7 @@ function presentationCandidates(
     if (query.multiple !== true && entries.length !== 1) {
       throw new Error(`DCQL credential '${queryId}' expects exactly one presentation`);
     }
-    candidates.push(...entries.map((presentation) => ({ query, presentation })));
+    candidates.push(...entries.map((presentation) => ({ queryId, query, presentation })));
   }
 
   return candidates;
@@ -399,76 +432,6 @@ function audienceMatches(
   return false;
 }
 
-function matchCredentialQuery(
-  query: JsonRecord,
-  claims: JsonRecord,
-): { matched: boolean; errors: string[] } {
-  const errors: string[] = [];
-  const format = asString(query.format);
-  const meta = asRecord(query.meta);
-  if (format === "dc+sd-jwt") {
-    const vctValues = asArray(meta?.vct_values).filter(
-      (value): value is string => typeof value === "string",
-    );
-    if (vctValues.length > 0 && !vctValues.includes(asString(claims.vct) ?? "")) {
-      errors.push("SD-JWT VC vct does not match DCQL meta.vct_values");
-    }
-  }
-  if (format === "mso_mdoc") {
-    const doctype = asString(meta?.doctype_value);
-    if (doctype && claims.doctype !== doctype)
-      errors.push("mdoc doctype does not match DCQL meta.doctype_value");
-  }
-
-  errors.push(...matchClaimQueries(query, claims));
-
-  return { matched: errors.length === 0, errors };
-}
-
-function matchClaimQueries(query: JsonRecord, claims: JsonRecord): string[] {
-  const claimQueries = asArray(query.claims).filter(isRecord);
-  const claimSets = asArray(query.claim_sets).filter(Array.isArray);
-  if (claimSets.length === 0) return missingClaimPathErrors(claimQueries, claims);
-
-  const claimById = new Map(
-    claimQueries
-      .map((claim) => [asString(claim.id), claim] as const)
-      .filter((entry): entry is readonly [string, JsonRecord] => Boolean(entry[0])),
-  );
-  const candidateErrors = claimSets.map((claimSet) => {
-    const selectedClaims = claimSet
-      .map((claimId) => (typeof claimId === "string" ? claimById.get(claimId) : undefined))
-      .filter((claim): claim is JsonRecord => Boolean(claim));
-    if (selectedClaims.length !== claimSet.length) {
-      return ["DCQL claim_set references an unknown claim id"];
-    }
-    return missingClaimPathErrors(selectedClaims, claims);
-  });
-  return candidateErrors.some((entry) => entry.length === 0)
-    ? []
-    : (candidateErrors[0] ?? ["DCQL claim_sets did not match"]);
-}
-
-function missingClaimPathErrors(claimQueries: JsonRecord[], claims: JsonRecord): string[] {
-  return claimQueries.flatMap((claim) => {
-    const path = asArray(claim.path);
-    return pathExists(claims, path) ? [] : [`missing DCQL claim path ${JSON.stringify(path)}`];
-  });
-}
-
-function pathExists(value: unknown, path: unknown[]): boolean {
-  if (path.length === 0) return value !== undefined;
-  const [head, ...tail] = path;
-  if (head === null) {
-    return (
-      Array.isArray(value) && value.length > 0 && value.every((entry) => pathExists(entry, tail))
-    );
-  }
-  if (typeof head !== "string") return false;
-  if (!isRecord(value) || !(head in value)) return false;
-  return pathExists(value[head], tail);
-}
-
 export function mdocSessionTranscript(
   authorizationRequest: JsonRecord,
   context: Pick<MdocContext, "crypto"> = mdocVerificationContext(),
@@ -479,17 +442,86 @@ export function mdocSessionTranscript(
   return SessionTranscript.forOid4Vp({ clientId, nonce, responseUri }, context);
 }
 
-function mdocClaims(doctype: string, issuerSigned: IssuerSigned): JsonRecord {
+function mdocNamespaces(issuerSigned: IssuerSigned): Record<string, Record<string, unknown>> {
   const namespaces = issuerSigned.issuerNamespaces.issuerNamespaces;
-  return {
-    doctype,
-    ...Object.fromEntries(
-      [...namespaces.keys()].map((namespace) => [
-        namespace,
-        issuerSigned.getPrettyClaims(namespace) ?? {},
-      ]),
-    ),
-  };
+  return Object.fromEntries(
+    [...namespaces.keys()].map((namespace) => [
+      namespace,
+      issuerSigned.getPrettyClaims(namespace) ?? {},
+    ]),
+  );
+}
+
+function dcqlPresentationRecord(
+  candidates: PresentationCandidate[],
+  validations: Array<{ dcqlPresentations: DcqlCredentialPresentation[] }>,
+): DcqlPresentationRecord {
+  const presentations: DcqlPresentationRecord = {};
+  for (const [index, candidate] of candidates.entries()) {
+    const validatedPresentations = validations[index]?.dcqlPresentations ?? [];
+    presentations[candidate.queryId] ??= [];
+    presentations[candidate.queryId]?.push(...validatedPresentations);
+  }
+  return presentations;
+}
+
+function validateDcqlPresentation(
+  dcqlQuery: ParsedDcqlQuery,
+  presentations: DcqlPresentationRecord,
+): { matched: boolean; errors: string[] } {
+  try {
+    const result = DcqlPresentationResult.fromDcqlPresentation(presentations, { dcqlQuery });
+    if (result.can_be_satisfied) return { matched: true, errors: [] };
+    return {
+      matched: false,
+      errors: dcqlPresentationErrors(result),
+    };
+  } catch (error) {
+    return {
+      matched: false,
+      errors: [`DCQL presentation validation failed: ${errorMessage(error)}`],
+    };
+  }
+}
+
+function dcqlPresentationErrors(result: unknown): string[] {
+  const credentialMatches = asRecord(asRecord(result)?.credential_matches);
+  const errors: string[] = [];
+  for (const [queryId, match] of Object.entries(credentialMatches ?? {})) {
+    const matchRecord = asRecord(match);
+    if (matchRecord?.success === true) continue;
+    const failedCredentials = asArray(matchRecord?.failed_credentials).filter(isRecord);
+    if (failedCredentials.length === 0) {
+      errors.push(`DCQL credential '${queryId}' was not satisfied`);
+      continue;
+    }
+    for (const failedCredential of failedCredentials) {
+      errors.push(...dcqlFailedCredentialErrors(queryId, failedCredential));
+    }
+  }
+  return errors.length > 0 ? errors : ["DCQL presentation does not satisfy the query"];
+}
+
+function dcqlFailedCredentialErrors(queryId: string, failedCredential: JsonRecord): string[] {
+  const errors: string[] = [];
+  const meta = asRecord(failedCredential.meta);
+  if (meta?.success === false) {
+    errors.push(`DCQL credential '${queryId}' meta did not match: ${JSON.stringify(meta.issues)}`);
+  }
+  const claims = asRecord(failedCredential.claims);
+  for (const failedClaim of asArray(claims?.failed_claims).filter(isRecord)) {
+    errors.push(
+      `DCQL credential '${queryId}' claim did not match: ${JSON.stringify(failedClaim.issues)}`,
+    );
+  }
+  for (const failedClaimSet of asArray(claims?.failed_claim_sets).filter(isRecord)) {
+    errors.push(
+      `DCQL credential '${queryId}' claim set did not match: ${JSON.stringify(
+        failedClaimSet.issues,
+      )}`,
+    );
+  }
+  return errors.length > 0 ? errors : [`DCQL credential '${queryId}' was not satisfied`];
 }
 
 function mdocVerificationContext(): MdocContext {
