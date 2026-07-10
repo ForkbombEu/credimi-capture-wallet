@@ -6,6 +6,7 @@ import { Kms, X509Certificate } from "@credo-ts/core";
 import { IssuerSigned } from "@owf/mdoc";
 import type { Express } from "express";
 import {
+  CompactEncrypt,
   type JWK,
   type KeyLike,
   SignJWT,
@@ -256,12 +257,14 @@ describe("capture issuer server", () => {
     expect(deeplink.searchParams.has("client_id_scheme")).toBe(false);
     expect(deeplink.searchParams.has("response_type")).toBe(false);
     expect(session.authorization_request.response_type).toBe("vp_token");
-    expect(session.authorization_request.response_mode).toBe("direct_post");
+    expect(session.authorization_request.response_mode).toBe("direct_post.jwt");
     expect(session.authorization_request.aud).toBe("https://self-issued.me/v2");
     expect(session.authorization_request.request_uri_method).toBeUndefined();
     expect(session.authorization_request.client_id).toMatch(/^x509_hash:/);
     expect(session.authorization_request.client_id_scheme).toBeUndefined();
     expect(session.authorization_request.client_metadata).toMatchObject({
+      jwks: { keys: [expect.objectContaining({ use: "enc", alg: "ECDH-ES" })] },
+      encrypted_response_enc_values_supported: ["A128GCM", "A256GCM", "A128CBC-HS256"],
       vp_formats_supported: {
         "dc+sd-jwt": {
           "sd-jwt_alg_values": ["ES256"],
@@ -422,6 +425,7 @@ describe("capture issuer server", () => {
   it("rejects SD-JWT VC presentations that do not disclose all requested DCQL claims", async () => {
     const app = createApp(config);
     const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      response_mode: "direct_post",
       presentation_request: {
         dcql_query: dcqlForClaims(["family_name", "given_name"]),
       },
@@ -471,8 +475,10 @@ describe("capture issuer server", () => {
     const response = await request(app)
       .post(`/openid4vp/sessions/${session.session_id}/response`)
       .send({
-        state: session.session_id,
-        vp_token: JSON.stringify({ query_0: [presentation] }),
+        response: await encryptedAuthorizationResponse(session.authorization_request, {
+          state: session.session_id,
+          vp_token: { query_0: [presentation] },
+        }),
       });
 
     expect(response.status).toBe(200);
@@ -489,6 +495,11 @@ describe("capture issuer server", () => {
       holder_binding_verified: true,
       dcql_query_matched: true,
       errors: [],
+    });
+    expect(capture.raw?.presentation_response).toEqual({ response: expect.any(String) });
+    expect(capture.raw?.presentation_response_decrypted).toMatchObject({
+      state: session.session_id,
+      vp_token: { query_0: [presentation] },
     });
   });
 
@@ -516,6 +527,7 @@ describe("capture issuer server", () => {
       ],
     };
     const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      response_mode: "direct_post",
       presentation_request: {
         dcql_query: dcqlQuery,
       },
@@ -1196,6 +1208,22 @@ async function sdJwtPresentation(options: {
   return `${withoutKeyBinding}${keyBindingJwt}`;
 }
 
+async function encryptedAuthorizationResponse(
+  authorizationRequest: JsonRecord,
+  payload: JsonRecord,
+): Promise<string> {
+  const clientMetadata = authorizationRequest.client_metadata as JsonRecord;
+  const jwks = clientMetadata.jwks as { keys: JsonRecord[] };
+  const publicJwk = jwks.keys[0] as unknown as JWK;
+  return new CompactEncrypt(Buffer.from(JSON.stringify(payload), "utf8"))
+    .setProtectedHeader({
+      alg: "ECDH-ES",
+      enc: "A256GCM",
+      kid: publicJwk.kid,
+    })
+    .encrypt(await importJWK(publicJwk, "ECDH-ES"));
+}
+
 function disclosureClaimName(disclosure: string): string {
   const decoded = JSON.parse(Buffer.from(disclosure, "base64url").toString("utf8")) as unknown[];
   return typeof decoded[1] === "string" ? decoded[1] : "";
@@ -1258,5 +1286,6 @@ interface VpSessionResponse extends JsonRecord {
   };
   raw?: {
     presentation_response?: JsonRecord;
+    presentation_response_decrypted?: JsonRecord;
   };
 }

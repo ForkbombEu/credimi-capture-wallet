@@ -18,7 +18,9 @@ import {
 } from "./metadata.js";
 import { parseDcqlQuery, validateVpPresentationResponse } from "./openid4vp-validation.js";
 import {
+  type OpenId4VpResponseMode,
   buildPresentationAuthorizationRequest,
+  createJarmEncryptionJwk,
   defaultPresentationRequest,
   presentationRequestByReferenceDeeplink,
   signPresentationAuthorizationRequest,
@@ -98,18 +100,28 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       return res.redirect(303, `/ui/sessions/${encodeURIComponent(session.session_id)}`);
     });
 
-    app.post("/ui/openid4vp/sessions", (req, res) => {
-      const body = requestParams(req);
-      const credentialConfigurationId =
-        asStringOrNull(body.credential_configuration_id) ??
-        supportedCredentialConfigurationIds(config)[0];
-      if (!supportedCredentialConfigurationIds(config).includes(credentialConfigurationId)) {
-        return res.status(400).type("html").send(errorPage("Unsupported credential configuration"));
-      }
+    app.post("/ui/openid4vp/sessions", async (req, res, next) => {
+      try {
+        const body = requestParams(req);
+        const credentialConfigurationId =
+          asStringOrNull(body.credential_configuration_id) ??
+          supportedCredentialConfigurationIds(config)[0];
+        if (!supportedCredentialConfigurationIds(config).includes(credentialConfigurationId)) {
+          return res
+            .status(400)
+            .type("html")
+            .send(errorPage("Unsupported credential configuration"));
+        }
 
-      const session = createVpSession(config, store, {}, [credentialConfigurationId]);
-      store.addEvent(session, "vp_deeplink_generated", {});
-      return res.redirect(303, `/ui/openid4vp/sessions/${encodeURIComponent(session.session_id)}`);
+        const session = await createVpSession(config, store, {}, [credentialConfigurationId]);
+        store.addEvent(session, "vp_deeplink_generated", {});
+        return res.redirect(
+          303,
+          `/ui/openid4vp/sessions/${encodeURIComponent(session.session_id)}`,
+        );
+      } catch (error) {
+        return next(error);
+      }
     });
 
     app.get("/ui/sessions/:sessionId", async (req, res, next) => {
@@ -254,32 +266,42 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     return res.json(session.events);
   });
 
-  app.post("/openid4vp/sessions", (req, res) => {
-    const body = requestParams(req);
-    const requestUriMethod = requestUriMethodOrNull(body.request_uri_method);
-    if (body.request_uri_method !== undefined && !requestUriMethod) {
-      return res.status(400).json({ error: "unsupported_request_uri_method" });
+  app.post("/openid4vp/sessions", async (req, res, next) => {
+    try {
+      const body = requestParams(req);
+      const requestUriMethod = requestUriMethodOrNull(body.request_uri_method);
+      if (body.request_uri_method !== undefined && !requestUriMethod) {
+        return res.status(400).json({ error: "unsupported_request_uri_method" });
+      }
+      const responseMode = responseModeOrNull(body.response_mode);
+      if (body.response_mode !== undefined && !responseMode) {
+        return res.status(400).json({ error: "unsupported_response_mode" });
+      }
+      const requestOverride = objectOrNull(body.presentation_request) ?? vpRequestBody(body);
+      const dcqlQueryError = dcqlQueryValidationError(requestOverride.dcql_query);
+      if (dcqlQueryError) return res.status(400).json(dcqlQueryError);
+      const session = await createVpSession(
+        config,
+        store,
+        requestOverride,
+        undefined,
+        requestUriMethod ?? "get",
+        responseMode ?? "direct_post.jwt",
+      );
+      store.addEvent(session, "vp_deeplink_generated", {});
+      return res.status(201).json({
+        session_id: session.session_id,
+        request_uri: session.request_uri,
+        request_uri_method: session.request_uri_method,
+        response_mode: session.response_mode,
+        response_uri: session.response_uri,
+        deeplink: session.deeplink,
+        authorization_request: session.authorization_request,
+        status: session.status,
+      });
+    } catch (error) {
+      return next(error);
     }
-    const requestOverride = objectOrNull(body.presentation_request) ?? vpRequestBody(body);
-    const dcqlQueryError = dcqlQueryValidationError(requestOverride.dcql_query);
-    if (dcqlQueryError) return res.status(400).json(dcqlQueryError);
-    const session = createVpSession(
-      config,
-      store,
-      requestOverride,
-      undefined,
-      requestUriMethod ?? "get",
-    );
-    store.addEvent(session, "vp_deeplink_generated", {});
-    res.status(201).json({
-      session_id: session.session_id,
-      request_uri: session.request_uri,
-      request_uri_method: session.request_uri_method,
-      response_uri: session.response_uri,
-      deeplink: session.deeplink,
-      authorization_request: session.authorization_request,
-      status: session.status,
-    });
   });
 
   app.get("/openid4vp/sessions/:sessionId", (req, res) => {
@@ -349,7 +371,12 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       const session = store.getVpSession(req.params.sessionId);
       if (!session) return res.status(404).json({ error: "vp_session_not_found" });
       const body = requestParams(req);
-      const validation = await validateVpPresentationResponse(config, session, body);
+      const validation = await validateVpPresentationResponse(
+        config,
+        session,
+        body,
+        store.vpJarmPrivateJwks.get(session.session_id),
+      );
       captureVpResponse(
         store,
         session,
@@ -371,7 +398,12 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       const body = requestParams(req);
       const session = store.getVpSession(asStringOrNull(body.state) ?? "");
       if (!session) return res.status(404).json({ error: "vp_session_not_found" });
-      const validation = await validateVpPresentationResponse(config, session, body);
+      const validation = await validateVpPresentationResponse(
+        config,
+        session,
+        body,
+        store.vpJarmPrivateJwks.get(session.session_id),
+      );
       captureVpResponse(
         store,
         session,
@@ -905,20 +937,34 @@ function parResolutionFailure(
   return record.expires_at < Math.floor(Date.now() / 1000) ? "expired" : "not_found";
 }
 
-function createVpSession(
+async function createVpSession(
   config: AppConfig,
   store: CaptureStore,
   requestOverride: JsonRecord,
   credentialConfigurationIds?: string[],
   requestUriMethod: "get" | "post" = "get",
-): VpSessionCapture {
+  responseMode: OpenId4VpResponseMode = "direct_post.jwt",
+): Promise<VpSessionCapture> {
   const sessionId = randomUUID();
+  const jarm = responseMode === "direct_post.jwt" ? await createJarmEncryptionJwk() : null;
   const request = {
-    ...defaultPresentationRequest(config, credentialConfigurationIds),
+    ...defaultPresentationRequest(config, credentialConfigurationIds, responseMode),
     ...requestOverride,
+    response_mode: responseMode,
   };
-  const authorizationRequest = buildPresentationAuthorizationRequest(config, sessionId, request);
-  const session = store.createVpSession(sessionId, authorizationRequest, requestUriMethod);
+  const authorizationRequest = buildPresentationAuthorizationRequest(
+    config,
+    sessionId,
+    request,
+    jarm?.publicJwk,
+  );
+  const session = store.createVpSession(
+    sessionId,
+    authorizationRequest,
+    requestUriMethod,
+    responseMode,
+  );
+  if (jarm) store.vpJarmPrivateJwks.set(sessionId, jarm.privateJwk);
   session.deeplink = presentationRequestByReferenceDeeplink(config, sessionId, requestUriMethod);
   return session;
 }
@@ -934,6 +980,7 @@ function captureVpResponse(
     nonce_verified: boolean;
     holder_binding_verified: boolean;
     dcql_query_matched: boolean;
+    authorization_response?: JsonRecord;
     errors: string[];
   },
 ): void {
@@ -948,6 +995,9 @@ function captureVpResponse(
   };
   session.raw ??= {};
   session.raw.presentation_response = body;
+  if (validation.authorization_response) {
+    session.raw.presentation_response_decrypted = validation.authorization_response;
+  }
   session.raw.presentation_response_raw = rawBody ?? JSON.stringify(body);
   session.observed.wallet_response = {
     value: body,
@@ -972,7 +1022,13 @@ function requestUriMethodOrNull(value: unknown): "get" | "post" | null {
   return normalized === "get" || normalized === "post" ? normalized : null;
 }
 
+function responseModeOrNull(value: unknown): OpenId4VpResponseMode | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.toLowerCase();
+  return normalized === "direct_post" || normalized === "direct_post.jwt" ? normalized : null;
+}
+
 function vpRequestBody(body: JsonRecord): JsonRecord {
-  const { request_uri_method: _requestUriMethod, ...request } = body;
+  const { request_uri_method: _requestUriMethod, response_mode: _responseMode, ...request } = body;
   return request;
 }

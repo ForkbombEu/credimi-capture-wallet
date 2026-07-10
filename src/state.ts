@@ -18,6 +18,7 @@ export class CaptureStore {
   readonly accessTokens = new Map<string, AccessToken>();
   readonly credentialNonces = new Map<string, number>();
   readonly vpSessions = new Map<string, VpSessionCapture>();
+  readonly vpJarmPrivateJwks = new Map<string, JsonRecord>();
   readonly dpopJtis = new Set<string>();
 
   constructor(private readonly config: AppConfig) {}
@@ -75,6 +76,7 @@ export class CaptureStore {
     sessionId: string,
     authorizationRequest: JsonRecord,
     requestUriMethod: "get" | "post",
+    responseMode: "direct_post" | "direct_post.jwt",
   ): VpSessionCapture {
     const requestUri = `${this.config.issuer_base_url}/openid4vp/sessions/${sessionId}/request`;
     const responseUri = `${this.config.issuer_base_url}/openid4vp/sessions/${sessionId}/response`;
@@ -82,6 +84,7 @@ export class CaptureStore {
       session_id: sessionId,
       status: "created",
       request_uri_method: requestUriMethod,
+      response_mode: responseMode,
       authorization_request: authorizationRequest,
       request_uri: requestUri,
       response_uri: responseUri,
