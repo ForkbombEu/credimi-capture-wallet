@@ -590,53 +590,84 @@ export function repairMdocDeviceResponseForCredo(presentation: unknown): unknown
     const decoded = cborDecode(Buffer.from(presentation, "base64url"), {
       unwrapTopLevelDataItem: false,
     });
-    const changed = repairIssuerSignedNamespaceDataItems(decoded);
-    return changed ? Buffer.from(cborEncode(decoded)).toString("base64url") : presentation;
+    const repaired = repairIssuerSignedNamespaceDataItems(decoded);
+    return repaired.changed
+      ? Buffer.from(cborEncode(repaired.value)).toString("base64url")
+      : presentation;
   } catch {
     return presentation;
   }
 }
 
-function repairIssuerSignedNamespaceDataItems(value: unknown): boolean {
-  let changed = false;
+interface RepairResult {
+  value: unknown;
+  changed: boolean;
+}
+
+function repairIssuerSignedNamespaceDataItems(value: unknown): RepairResult {
+  if (value instanceof DataItem) {
+    const repaired = repairIssuerSignedNamespaceDataItems(value.data);
+    return repaired.changed
+      ? { value: DataItem.fromData(repaired.value), changed: true }
+      : { value, changed: false };
+  }
 
   if (value instanceof Map) {
+    let changed = false;
+    const repairedMap = new Map(value);
     const nameSpaces = value.get("nameSpaces");
     if (value.has("issuerAuth") && nameSpaces instanceof Map) {
-      changed = repairIssuerNamespaces(nameSpaces) || changed;
+      const repairedNameSpaces = repairIssuerNamespaces(nameSpaces);
+      if (repairedNameSpaces.changed) {
+        repairedMap.set("nameSpaces", repairedNameSpaces.value);
+        changed = true;
+      }
     }
 
-    for (const nested of value.values()) {
-      changed = repairIssuerSignedNamespaceDataItems(nested) || changed;
+    for (const [key, nested] of repairedMap.entries()) {
+      const repaired = repairIssuerSignedNamespaceDataItems(nested);
+      if (repaired.changed) {
+        repairedMap.set(key, repaired.value);
+        changed = true;
+      }
     }
-    return changed;
+    return { value: changed ? repairedMap : value, changed };
   }
 
   if (Array.isArray(value)) {
-    for (const nested of value) {
-      changed = repairIssuerSignedNamespaceDataItems(nested) || changed;
-    }
+    let changed = false;
+    const repairedArray = value.map((nested) => {
+      const repaired = repairIssuerSignedNamespaceDataItems(nested);
+      changed ||= repaired.changed;
+      return repaired.value;
+    });
+    return { value: changed ? repairedArray : value, changed };
   }
 
-  return changed;
+  return { value, changed: false };
 }
 
-function repairIssuerNamespaces(nameSpaces: Map<unknown, unknown>): boolean {
+function repairIssuerNamespaces(nameSpaces: Map<unknown, unknown>): RepairResult {
   let changed = false;
+  const repairedNameSpaces = new Map(nameSpaces);
 
-  for (const [namespace, issuerSignedItems] of nameSpaces.entries()) {
+  for (const [namespace, issuerSignedItems] of repairedNameSpaces.entries()) {
     if (!Array.isArray(issuerSignedItems)) continue;
 
+    let namespaceChanged = false;
     const repairedItems = issuerSignedItems.map((item) => {
       if (item instanceof DataItem || !isIssuerSignedItemShape(item)) return item;
-      changed = true;
+      namespaceChanged = true;
       return DataItem.fromData(item);
     });
 
-    if (changed) nameSpaces.set(namespace, repairedItems);
+    if (namespaceChanged) {
+      repairedNameSpaces.set(namespace, repairedItems);
+      changed = true;
+    }
   }
 
-  return changed;
+  return { value: changed ? repairedNameSpaces : nameSpaces, changed };
 }
 
 function isIssuerSignedItemShape(value: unknown): boolean {

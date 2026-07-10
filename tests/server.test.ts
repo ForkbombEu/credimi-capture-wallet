@@ -625,6 +625,46 @@ describe("capture issuer server", () => {
     expect(items[0]).toBeInstanceOf(DataItem);
   });
 
+  it("repairs decoded mdoc issuer namespace items inside DataItems", () => {
+    const issuerSignedItem = new Map<string, unknown>([
+      ["digestID", 1],
+      ["random", new Uint8Array([1, 2, 3])],
+      ["elementIdentifier", "given_name"],
+      ["elementValue", "Jane"],
+    ]);
+    const deviceResponse = new Map<string, unknown>([
+      [
+        "documents",
+        [
+          new Map<string, unknown>([
+            [
+              "issuerSigned",
+              DataItem.fromData(
+                new Map<string, unknown>([
+                  ["nameSpaces", new Map([[PID_MDOC_NAMESPACE, [issuerSignedItem]]])],
+                  ["issuerAuth", new Map()],
+                ]),
+              ),
+            ],
+          ]),
+        ],
+      ],
+    ]);
+    const repaired = repairMdocDeviceResponseForCredo(
+      Buffer.from(cborEncode(deviceResponse)).toString("base64url"),
+    );
+    const decoded = cborDecode(Buffer.from(String(repaired), "base64url"), {
+      unwrapTopLevelDataItem: false,
+    }) as Map<string, unknown>;
+    const document = (decoded.get("documents") as Array<Map<string, unknown>>)[0];
+    const issuerSigned = document?.get("issuerSigned") as DataItem<Map<string, unknown>>;
+    const nameSpaces = issuerSigned.data.get("nameSpaces") as Map<string, unknown>;
+    const items = nameSpaces.get(PID_MDOC_NAMESPACE) as unknown[];
+
+    expect(issuerSigned).toBeInstanceOf(DataItem);
+    expect(items[0]).toBeInstanceOf(DataItem);
+  });
+
   it("marks GUI QR sessions consumed when the wallet retrieves the offer", async () => {
     const app = createApp(config);
     const created = await request(app).post("/ui/sessions").redirects(0);
