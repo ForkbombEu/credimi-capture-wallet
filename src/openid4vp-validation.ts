@@ -21,7 +21,7 @@ import {
   DcqlQuery,
   type DcqlQuery as ParsedDcqlQuery,
 } from "dcql";
-import { type JWK, compactDecrypt, decodeJwt, importJWK } from "jose";
+import { type JWK, calculateJwkThumbprint, compactDecrypt, decodeJwt, importJWK } from "jose";
 import type { AppConfig, JsonRecord, VpSessionCapture } from "./types.js";
 
 interface VpPresentationValidation {
@@ -394,14 +394,34 @@ function presentationCandidates(
   return candidates;
 }
 
-export function mdocSessionTranscript(
+export async function mdocSessionTranscript(
   authorizationRequest: JsonRecord,
   context: Pick<MdocContext, "crypto"> = mdocVerificationContext(),
 ): Promise<SessionTranscript> {
   const clientId = asString(authorizationRequest.client_id) ?? "";
   const nonce = asString(authorizationRequest.nonce) ?? "";
   const responseUri = asString(authorizationRequest.response_uri) ?? "";
-  return SessionTranscript.forOid4Vp({ clientId, nonce, responseUri }, context);
+  const jwkThumbprint = await oid4vpJwkThumbprint(authorizationRequest);
+  return SessionTranscript.forOid4Vp(
+    {
+      clientId,
+      nonce,
+      responseUri,
+      ...(jwkThumbprint ? { jwkThumbprint } : {}),
+    },
+    context,
+  );
+}
+
+async function oid4vpJwkThumbprint(authorizationRequest: JsonRecord): Promise<Uint8Array | null> {
+  if (authorizationRequest.response_mode !== "direct_post.jwt") return null;
+  const jwks = asRecord(asRecord(authorizationRequest.client_metadata)?.jwks);
+  const encryptionJwk = asArray(jwks?.keys)
+    .filter(isRecord)
+    .find((key) => key.use === "enc");
+  if (!encryptionJwk) return null;
+  const thumbprint = await calculateJwkThumbprint(encryptionJwk as unknown as JWK, "sha256");
+  return Buffer.from(thumbprint, "base64url");
 }
 
 function mdocNamespaces(issuerSigned: IssuerSigned): Record<string, Record<string, unknown>> {
