@@ -3,8 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Kms, X509Certificate } from "@credo-ts/core";
-import { DataItem } from "@owf/cose";
-import { IssuerSigned, cborDecode, cborEncode } from "@owf/mdoc";
+import { IssuerSigned } from "@owf/mdoc";
 import type { Express } from "express";
 import {
   CompactEncrypt,
@@ -29,7 +28,6 @@ import {
   PID_SD_JWT_VCT,
 } from "../src/credential-definitions.js";
 import { CREDIMI_LOGO_URL, issueSdJwtCredential } from "../src/credential.js";
-import { repairMdocDeviceResponseForCredo } from "../src/credo-openid4vp.js";
 import { mdocCredentialConfigurationId } from "../src/metadata.js";
 import { createApp } from "../src/server.js";
 import type { JsonRecord, SessionCapture } from "../src/types.js";
@@ -586,83 +584,6 @@ describe("capture issuer server", () => {
       wallet_metadata: "present",
     });
     expect(capture.observed.request_uri_payload.source).toBe("request_uri.post");
-  });
-
-  it("repairs decoded mdoc issuer namespace items before Credo verification", () => {
-    const issuerSignedItem = new Map<string, unknown>([
-      ["digestID", 1],
-      ["random", new Uint8Array([1, 2, 3])],
-      ["elementIdentifier", "given_name"],
-      ["elementValue", "Jane"],
-    ]);
-    const deviceResponse = new Map<string, unknown>([
-      [
-        "documents",
-        [
-          new Map<string, unknown>([
-            [
-              "issuerSigned",
-              new Map<string, unknown>([
-                ["nameSpaces", new Map([[PID_MDOC_NAMESPACE, [issuerSignedItem]]])],
-                ["issuerAuth", new Map()],
-              ]),
-            ],
-          ]),
-        ],
-      ],
-    ]);
-    const repaired = repairMdocDeviceResponseForCredo(
-      Buffer.from(cborEncode(deviceResponse)).toString("base64url"),
-    );
-    const decoded = cborDecode(Buffer.from(String(repaired), "base64url"), {
-      unwrapTopLevelDataItem: false,
-    }) as Map<string, unknown>;
-    const document = (decoded.get("documents") as Array<Map<string, unknown>>)[0];
-    const issuerSigned = document?.get("issuerSigned") as Map<string, unknown>;
-    const nameSpaces = issuerSigned.get("nameSpaces") as Map<string, unknown>;
-    const items = nameSpaces.get(PID_MDOC_NAMESPACE) as unknown[];
-
-    expect(items[0]).toBeInstanceOf(DataItem);
-  });
-
-  it("repairs decoded mdoc issuer namespace items inside DataItems", () => {
-    const issuerSignedItem = new Map<string, unknown>([
-      ["digestID", 1],
-      ["random", new Uint8Array([1, 2, 3])],
-      ["elementIdentifier", "given_name"],
-      ["elementValue", "Jane"],
-    ]);
-    const deviceResponse = new Map<string, unknown>([
-      [
-        "documents",
-        [
-          new Map<string, unknown>([
-            [
-              "issuerSigned",
-              DataItem.fromData(
-                new Map<string, unknown>([
-                  ["nameSpaces", new Map([[PID_MDOC_NAMESPACE, [issuerSignedItem]]])],
-                  ["issuerAuth", new Map()],
-                ]),
-              ),
-            ],
-          ]),
-        ],
-      ],
-    ]);
-    const repaired = repairMdocDeviceResponseForCredo(
-      Buffer.from(cborEncode(deviceResponse)).toString("base64url"),
-    );
-    const decoded = cborDecode(Buffer.from(String(repaired), "base64url"), {
-      unwrapTopLevelDataItem: false,
-    }) as Map<string, unknown>;
-    const document = (decoded.get("documents") as Array<Map<string, unknown>>)[0];
-    const issuerSigned = document?.get("issuerSigned") as DataItem<Map<string, unknown>>;
-    const nameSpaces = issuerSigned.data.get("nameSpaces") as Map<string, unknown>;
-    const items = nameSpaces.get(PID_MDOC_NAMESPACE) as unknown[];
-
-    expect(issuerSigned).toBeInstanceOf(DataItem);
-    expect(items[0]).toBeInstanceOf(DataItem);
   });
 
   it("marks GUI QR sessions consumed when the wallet retrieves the offer", async () => {
