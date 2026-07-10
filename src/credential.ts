@@ -1,7 +1,14 @@
 import { createHash, createPrivateKey, randomBytes, sign } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { Kms, SdJwtVcService } from "@credo-ts/core";
-import { CoseKey, DeviceKey, Issuer, type MdocContext, SignatureAlgorithm } from "@owf/mdoc";
+import {
+  CoseKey,
+  DateOnly,
+  DeviceKey,
+  Issuer,
+  type MdocContext,
+  SignatureAlgorithm,
+} from "@owf/mdoc";
 import {
   ISSUER_KEY_ID,
   issuerCertificatePath,
@@ -107,7 +114,7 @@ function sdJwtPidClaims(): JsonRecord {
   return {
     address: {
       country: "IT",
-      formatted: "Via Europa 1, 00100 Roma, EU",
+      formatted: "Via Europa 1, 00100 Roma, IT",
       house_number: "1",
       locality: "Roma",
       postal_code: "00100",
@@ -137,15 +144,15 @@ function sdJwtPidClaims(): JsonRecord {
 
 function mdocPidClaims(): JsonRecord {
   return {
-    birth_date: "1990-01-01",
+    birth_date: new DateOnly("1990-01-01"),
     document_number: "CREDIMI-DEMO-001",
     email_address: "jane.doe@example.test",
-    expiry_date: "2031-01-01",
+    expiry_date: new DateOnly("2031-01-01"),
     family_name: "Doe",
     family_name_birth: "Doe",
     given_name: "Jane",
     given_name_birth: "Jane",
-    issuance_date: "2026-01-01",
+    issuance_date: new DateOnly("2026-01-01"),
     issuing_authority: "Credimi Fake Issuer",
     issuing_country: "IT",
     issuing_jurisdiction: "IT",

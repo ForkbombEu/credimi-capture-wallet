@@ -583,7 +583,7 @@ describe("capture issuer server", () => {
     expect(decoded.issuerAuth.mobileSecurityObject.docType).toBe(PID_MDOC_DOCTYPE);
     const namespace = decoded.getPrettyClaims(PID_MDOC_NAMESPACE) as JsonRecord | undefined;
     expect(namespace?.given_name).toBe("Jane");
-    expect(namespace?.resident_country).toBe("EU");
+    expect(namespace?.resident_country).toBe("IT");
     const portrait = namespace?.portrait;
     expect(portrait).toBeInstanceOf(Uint8Array);
     expect(Buffer.from(portrait as Uint8Array).subarray(0, 3)).toEqual(
@@ -836,8 +836,8 @@ describe("capture issuer server", () => {
     expect(decoded.prettyClaims).toMatchObject({
       vct: PID_SD_JWT_VCT,
       address: {
-        country: "EU",
-        formatted: "Via Europa 1, 00100 Roma, EU",
+        country: "IT",
+        formatted: "Via Europa 1, 00100 Roma, IT",
         house_number: "1",
         locality: "Roma",
         postal_code: "00100",
@@ -854,14 +854,14 @@ describe("capture issuer server", () => {
       given_name: "Jane",
       family_name: "Doe",
       issuing_authority: "Credimi Fake Issuer",
-      issuing_country: "EU",
-      issuing_jurisdiction: "EU",
-      nationalities: ["EU"],
+      issuing_country: "IT",
+      issuing_jurisdiction: "IT",
+      nationalities: ["IT"],
       personal_administrative_number: "PID-DEMO-001",
       phone_number: "+390600000000",
       picture: expect.stringMatching(/^data:image\/jpeg;base64,\/9j\//),
       place_of_birth: "Roma",
-      sex: "2",
+      sex: 2,
       cnf: { jwk: walletKey.publicJwk },
     });
     expect(decoded.holder?.method).toBe("jwk");
