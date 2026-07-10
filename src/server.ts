@@ -970,6 +970,7 @@ function captureVpResponse(
     holder_binding_verified: boolean;
     dcql_query_matched: boolean;
     authorization_response?: JsonRecord;
+    decoded_presentations?: JsonRecord;
     errors: string[];
   },
 ): void {
@@ -986,6 +987,10 @@ function captureVpResponse(
   session.raw.presentation_response = body;
   if (validation.authorization_response) {
     session.raw.presentation_response_decrypted = validation.authorization_response;
+  }
+  if (validation.decoded_presentations) {
+    session.decoded_presentations = validation.decoded_presentations;
+    session.raw.decoded_presentations = validation.decoded_presentations;
   }
   session.raw.presentation_response_raw = rawBody ?? JSON.stringify(body);
   session.observed.wallet_response = {

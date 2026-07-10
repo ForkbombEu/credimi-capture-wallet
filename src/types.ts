@@ -115,6 +115,7 @@ export interface VpSessionCapture {
   request_uri_method: "get" | "post";
   response_mode: "direct_post" | "direct_post.jwt";
   authorization_request: JsonRecord;
+  decoded_presentations?: JsonRecord;
   request_uri: string;
   deeplink: string;
   response_uri: string;
@@ -135,6 +136,7 @@ export interface VpSessionCapture {
     authorization_request?: JsonRecord;
     presentation_response?: JsonRecord;
     presentation_response_decrypted?: JsonRecord;
+    decoded_presentations?: JsonRecord;
     presentation_response_raw?: string;
   };
 }

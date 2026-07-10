@@ -73,13 +73,14 @@ describe("capture issuer server", () => {
     expect(response.text).toContain("session-actions");
     expect(response.text).toContain('formaction="/ui/openid4vp/sessions"');
     expect(response.text).toContain("<h2>Captured values</h2>");
-    expect(response.text).toContain('<span class="count-chip">8</span>');
+    expect(response.text).toContain('<span class="count-chip">9</span>');
     expect(response.text).toContain("<h3>OpenID4VCI</h3>");
     expect(response.text).toContain("<h3>OpenID4VP</h3>");
     expect(response.text).toContain("<dt>wallet_jwks</dt>");
     expect(response.text).toContain("<dt>authorization_request</dt>");
     expect(response.text).toContain("<dt>request_uri_payload</dt>");
     expect(response.text).toContain("<dt>wallet_response</dt>");
+    expect(response.text).toContain("<dt>decoded_presentations</dt>");
     expect(response.text).toContain("<dt>presentation_validation</dt>");
     expect(response.text).not.toContain("<dt>presentation_submission</dt>");
     expect(response.text).toContain('<select name="credential_configuration_id">');
@@ -505,6 +506,20 @@ describe("capture issuer server", () => {
       state: session.authorization_request.state,
       vp_token: { query_0: [presentation] },
     });
+    expect(capture.decoded_presentations).toMatchObject({
+      query_0: [
+        {
+          format: "dc+sd-jwt",
+          claims: {
+            vct: PID_SD_JWT_VCT,
+            family_name: "Doe",
+            given_name: "Jane",
+          },
+        },
+      ],
+    });
+    expect(capture.raw?.decoded_presentations).toEqual(capture.decoded_presentations);
+    expect(JSON.stringify(capture.decoded_presentations)).not.toContain(presentation);
   });
 
   it("accepts SD-JWT VC presentations that satisfy a required DCQL credential_set option", async () => {
@@ -1279,6 +1294,7 @@ interface VpSessionResponse extends JsonRecord {
   session_id: string;
   status: string;
   authorization_request: JsonRecord;
+  decoded_presentations?: JsonRecord;
   checks: {
     presentation_valid: boolean | null;
     nonce_verified: boolean;
@@ -1295,5 +1311,6 @@ interface VpSessionResponse extends JsonRecord {
   raw?: {
     presentation_response?: JsonRecord;
     presentation_response_decrypted?: JsonRecord;
+    decoded_presentations?: JsonRecord;
   };
 }
