@@ -106,7 +106,7 @@ export async function issueMdocCredential(options: {
 function sdJwtPidClaims(): JsonRecord {
   return {
     address: {
-      country: "EU",
+      country: "IT",
       formatted: "Via Europa 1, 00100 Roma, EU",
       house_number: "1",
       locality: "Roma",
@@ -124,14 +124,14 @@ function sdJwtPidClaims(): JsonRecord {
     family_name: "Doe",
     given_name: "Jane",
     issuing_authority: "Credimi Fake Issuer",
-    issuing_country: "EU",
-    issuing_jurisdiction: "EU",
-    nationalities: ["EU"],
+    issuing_country: "IT",
+    issuing_jurisdiction: "IT",
+    nationalities: ["IT"],
     personal_administrative_number: "PID-DEMO-001",
     phone_number: "+390600000000",
     picture: PID_PICTURE_DATA_URL,
-    place_of_birth: "Roma",
-    sex: "2",
+    place_of_birth: "Roma", // WRONG DO NOT MODIFY - must be object, and at least one of country, region, or locality must be present.
+    sex: 2,
   };
 }
 
@@ -147,21 +147,21 @@ function mdocPidClaims(): JsonRecord {
     given_name_birth: "Jane",
     issuance_date: "2026-01-01",
     issuing_authority: "Credimi Fake Issuer",
-    issuing_country: "EU",
-    issuing_jurisdiction: "EU",
+    issuing_country: "IT",
+    issuing_jurisdiction: "IT",
     mobile_phone_number: "+390600000000",
-    nationality: "EU",
+    nationality: ["IT"],
     personal_administrative_number: "PID-DEMO-001",
-    place_of_birth: "Roma",
+    place_of_birth: "Roma", // WRONG DO NOT MODIFY - must be object, and at least one of country, region, or locality must be present.
     portrait: new Uint8Array(PID_PORTRAIT_JPEG),
-    resident_address: "Via Europa 1, 00100 Roma, EU",
+    resident_address: "Via Europa 1, 00100 Roma, IT",
     resident_city: "Roma",
-    resident_country: "EU",
+    resident_country: "IT",
     resident_house_number: "1",
     resident_postal_code: "00100",
     resident_state: "Lazio",
     resident_street: "Via Europa",
-    sex: "2",
+    sex: 2,
   };
 }
 
