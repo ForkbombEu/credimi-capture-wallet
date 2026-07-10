@@ -5,6 +5,7 @@ import QRCode from "qrcode";
 import { captureClientAuthentication } from "./client-auth.js";
 import { type InitOptions, initIssuer, loadIssuerJwks } from "./config.js";
 import { issueMdocCredential, issueSdJwtCredential } from "./credential.js";
+import { credoOpenId4VpVerifier } from "./credo-openid4vp.js";
 import {
   authorizationServerMetadata,
   credentialIssuerMetadata,
@@ -16,15 +17,8 @@ import {
   supportedCredentialConfigurationIds,
   supportedCredentials,
 } from "./metadata.js";
-import { parseDcqlQuery, validateVpPresentationResponse } from "./openid4vp-validation.js";
-import {
-  type OpenId4VpResponseMode,
-  buildPresentationAuthorizationRequest,
-  createJarmEncryptionJwk,
-  defaultPresentationRequest,
-  presentationRequestByReferenceDeeplink,
-  signPresentationAuthorizationRequest,
-} from "./openid4vp.js";
+import { parseDcqlQuery } from "./openid4vp-validation.js";
+import { type OpenId4VpResponseMode, defaultPresentationRequest } from "./openid4vp.js";
 import { verifyPkce } from "./pkce.js";
 import {
   captureProofHeaders,
@@ -316,10 +310,8 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       if (!session) return res.status(404).json({ error: "vp_session_not_found" });
       session.status = "request_retrieved";
       store.addEvent(session, "vp_request_retrieved", {});
-      const requestObject = await signPresentationAuthorizationRequest(
-        config,
-        session.authorization_request,
-      );
+      const requestObject = store.vpCredoAuthorizationRequestJwts.get(session.session_id);
+      if (!requestObject) return res.status(404).json({ error: "vp_request_not_found" });
       return res.type("application/oauth-authz-req+jwt").send(requestObject);
     } catch (error) {
       return next(error);
@@ -343,13 +335,8 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         wallet_nonce_present: Boolean(walletNonce),
         payload: body,
       });
-      const authorizationRequest = walletNonce
-        ? { ...session.authorization_request, wallet_nonce: walletNonce }
-        : session.authorization_request;
-      const requestObject = await signPresentationAuthorizationRequest(
-        config,
-        authorizationRequest,
-      );
+      const requestObject = store.vpCredoAuthorizationRequestJwts.get(session.session_id);
+      if (!requestObject) return res.status(404).json({ error: "vp_request_not_found" });
       return res.type("application/oauth-authz-req+jwt").send(requestObject);
     } catch (error) {
       return next(error);
@@ -371,11 +358,12 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       const session = store.getVpSession(req.params.sessionId);
       if (!session) return res.status(404).json({ error: "vp_session_not_found" });
       const body = requestParams(req);
-      const validation = await validateVpPresentationResponse(
-        config,
+      const verificationSessionId = store.vpCredoVerificationSessionIds.get(session.session_id);
+      if (!verificationSessionId) return res.status(404).json({ error: "vp_request_not_found" });
+      const validation = await (await credoOpenId4VpVerifier(config)).verifyResponse(
         session,
         body,
-        store.vpJarmPrivateJwks.get(session.session_id),
+        verificationSessionId,
       );
       captureVpResponse(
         store,
@@ -398,11 +386,12 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       const body = requestParams(req);
       const session = store.getVpSession(asStringOrNull(body.state) ?? "");
       if (!session) return res.status(404).json({ error: "vp_session_not_found" });
-      const validation = await validateVpPresentationResponse(
-        config,
+      const verificationSessionId = store.vpCredoVerificationSessionIds.get(session.session_id);
+      if (!verificationSessionId) return res.status(404).json({ error: "vp_request_not_found" });
+      const validation = await (await credoOpenId4VpVerifier(config)).verifyResponse(
         session,
         body,
-        store.vpJarmPrivateJwks.get(session.session_id),
+        verificationSessionId,
       );
       captureVpResponse(
         store,
@@ -946,26 +935,26 @@ async function createVpSession(
   responseMode: OpenId4VpResponseMode = "direct_post.jwt",
 ): Promise<VpSessionCapture> {
   const sessionId = randomUUID();
-  const jarm = responseMode === "direct_post.jwt" ? await createJarmEncryptionJwk() : null;
   const request = {
     ...defaultPresentationRequest(config, credentialConfigurationIds, responseMode),
     ...requestOverride,
     response_mode: responseMode,
   };
-  const authorizationRequest = buildPresentationAuthorizationRequest(
-    config,
-    sessionId,
-    request,
-    jarm?.publicJwk,
-  );
+  const credoVerifier = await credoOpenId4VpVerifier(config);
+  const credoSession = await credoVerifier.createSession(sessionId, request, requestUriMethod);
   const session = store.createVpSession(
     sessionId,
-    authorizationRequest,
+    credoSession.authorizationRequest,
     requestUriMethod,
     responseMode,
+    {
+      requestUri: credoSession.requestUri,
+      responseUri: credoSession.responseUri,
+    },
   );
-  if (jarm) store.vpJarmPrivateJwks.set(sessionId, jarm.privateJwk);
-  session.deeplink = presentationRequestByReferenceDeeplink(config, sessionId, requestUriMethod);
+  store.vpCredoVerificationSessionIds.set(sessionId, credoSession.verificationSessionId);
+  store.vpCredoAuthorizationRequestJwts.set(sessionId, credoSession.authorizationRequestJwt);
+  session.deeplink = credoSession.deeplink;
   return session;
 }
 
