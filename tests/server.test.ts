@@ -174,6 +174,10 @@ describe("capture issuer server", () => {
     );
     expect(page.text).not.toContain("updated-label");
     expect(page.text).toContain("Wallet metadata");
+    expect(page.text.match(/<details class="metadata-row"><summary>/g)).toHaveLength(4);
+    expect(page.text).toContain("<summary>client_id</summary><code>pending</code>");
+    expect(page.text).toContain('querySelectorAll(".metadata-row[open]")');
+    expect(page.text).toContain("openFields.has(row[0])");
   });
 
   it("creates GUI OpenID4VP sessions and renders a presentation QR page", async () => {
@@ -206,6 +210,11 @@ describe("capture issuer server", () => {
     expect(page.text).toContain("window.clearInterval(pollTimer)");
     expect(page.text).toContain("pollTimer = setInterval");
     expect(page.text).toContain("__FAKE_ISSUER_VP_SESSION_ID__");
+    expect(page.text.match(/<details class="metadata-row"><summary>/g)).toHaveLength(5);
+    expect(page.text).toContain("<summary>decoded_presentations</summary><code>pending</code>");
+    expect(page.text).toContain("<summary>presentation_validation</summary><code>pending</code>");
+    expect(page.text).toContain('querySelectorAll(".metadata-row[open]")');
+    expect(page.text).toContain("openFields.has(row[0])");
   });
 
   it("creates GUI OpenID4VP sessions for the selected credential", async () => {
