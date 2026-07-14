@@ -195,7 +195,7 @@ async function normalizeAuthorizationResponse(
   body: JsonRecord,
   jarmPrivateJwk: JsonRecord | undefined,
 ): Promise<JsonRecord> {
-  if (session.response_mode !== "direct_post.jwt") return body;
+  if (session.response_mode !== "direct_post.jwt") return normalizeVpToken(body);
   const response = asString(body.response);
   if (!response) throw new Error("direct_post.jwt response must contain a response JWE");
   if (!jarmPrivateJwk) throw new Error("missing verifier JARM decryption key for session");
@@ -211,6 +211,16 @@ async function normalizeAuthorizationResponse(
   if (!isRecord(parsed))
     throw new Error("direct_post.jwt response did not decrypt to a JSON object");
   return parsed;
+}
+
+function normalizeVpToken(response: JsonRecord): JsonRecord {
+  if (typeof response.vp_token !== "string") return response;
+  try {
+    const parsed = JSON.parse(response.vp_token) as unknown;
+    return isRecord(parsed) ? { ...response, vp_token: parsed } : response;
+  } catch {
+    return response;
+  }
 }
 
 function credoVerificationContext(): object {

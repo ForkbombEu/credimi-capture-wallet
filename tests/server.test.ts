@@ -585,6 +585,9 @@ describe("capture issuer server", () => {
       `/openid4vp/sessions/${session.session_id}`,
     );
     expect(capture.checks.dcql_query_matched).toBe(true);
+    expect(capture.raw?.presentation_response_decrypted?.vp_token).toEqual({
+      pid_sd: [presentation],
+    });
   });
 
   it("captures OpenID4VP request_uri POST payloads", async () => {

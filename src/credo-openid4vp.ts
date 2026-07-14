@@ -189,9 +189,9 @@ export class CredoOpenId4VpVerifier {
         nonce_verified: true,
         holder_binding_verified: true,
         dcql_query_matched: Boolean(verified.dcql),
-        authorization_response: verified.verificationSession.authorizationResponsePayload as
-          | JsonRecord
-          | undefined,
+        authorization_response: normalizeAuthorizationResponse(
+          verified.verificationSession.authorizationResponsePayload as JsonRecord | undefined,
+        ),
         decoded_presentations: verified.dcql
           ? decodedPresentationsFromDcql(verified.dcql.presentations)
           : undefined,
@@ -209,7 +209,7 @@ export class CredoOpenId4VpVerifier {
         nonce_verified: false,
         holder_binding_verified: false,
         dcql_query_matched: false,
-        authorization_response: authorizationResponse,
+        authorization_response: normalizeAuthorizationResponse(authorizationResponse),
         errors: [credoErrorMessage(error, verificationSession.errorMessage)],
       };
     }
@@ -245,6 +245,17 @@ export class CredoOpenId4VpVerifier {
     );
     certificate.keyId = VERIFIER_KEY_ID;
     return certificate;
+  }
+}
+
+function normalizeAuthorizationResponse(response: JsonRecord | undefined): JsonRecord | undefined {
+  if (!response || typeof response.vp_token !== "string") return response;
+  try {
+    const vpToken = JSON.parse(response.vp_token) as unknown;
+    if (!vpToken || typeof vpToken !== "object" || Array.isArray(vpToken)) return response;
+    return { ...response, vp_token: vpToken as JsonRecord };
+  } catch {
+    return response;
   }
 }
 
