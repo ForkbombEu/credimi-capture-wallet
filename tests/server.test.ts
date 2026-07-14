@@ -174,6 +174,8 @@ describe("capture issuer server", () => {
     );
     expect(page.text).not.toContain("updated-label");
     expect(page.text).toContain("Wallet metadata");
+    expect(page.text).toContain(".metadata-row summary::after { content: '\\02C5'");
+    expect(page.text).toContain(".metadata-row[open] summary::after { content: '\\02C4'");
     expect(page.text.match(/<details class="metadata-row"><summary>/g)).toHaveLength(4);
     expect(page.text).toContain("<summary>client_id</summary><code>pending</code>");
     expect(page.text).toContain('querySelectorAll(".metadata-row[open]")');
@@ -200,6 +202,8 @@ describe("capture issuer server", () => {
     expect(page.text).toContain("formatJsonValue(session.authorization_request)");
     expect(page.text).toContain("formatJsonValue(session.raw.decoded_presentations)");
     expect(page.text).toContain("JSON.stringify(parsed, null, 4)");
+    expect(page.text).toContain(".metadata-row summary::after { content: '\\02C5'");
+    expect(page.text).toContain(".metadata-row[open] summary::after { content: '\\02C4'");
     expect(page.text).toContain("white-space: pre-wrap");
     expect(page.text.indexOf("authorization_request")).toBeLessThan(
       page.text.indexOf("request_uri_payload"),
