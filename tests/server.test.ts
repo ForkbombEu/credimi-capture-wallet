@@ -602,7 +602,7 @@ describe("capture issuer server", () => {
     expect(requestObject.status).toBe(200);
     expect(requestObject.type).toBe("application/oauth-authz-req+jwt");
     const claims = decodeJwt(requestObject.text) as JsonRecord;
-    expect(claims.wallet_nonce).toBeUndefined();
+    expect(claims.wallet_nonce).toBe("wallet-nonce-123");
 
     const capture = await getJson<VpSessionResponse>(
       app,
@@ -613,6 +613,7 @@ describe("capture issuer server", () => {
       wallet_metadata: "present",
     });
     expect(capture.observed.request_uri_payload.source).toBe("request_uri.post");
+    expect(capture.authorization_request.wallet_nonce).toBe("wallet-nonce-123");
   });
 
   it("marks GUI QR sessions consumed when the wallet retrieves the offer", async () => {

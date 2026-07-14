@@ -18,7 +18,11 @@ import {
   supportedCredentials,
 } from "./metadata.js";
 import { parseDcqlQuery } from "./openid4vp-validation.js";
-import { type OpenId4VpResponseMode, defaultPresentationRequest } from "./openid4vp.js";
+import {
+  type OpenId4VpResponseMode,
+  defaultPresentationRequest,
+  signPresentationAuthorizationRequest,
+} from "./openid4vp.js";
 import { verifyPkce } from "./pkce.js";
 import {
   captureProofHeaders,
@@ -335,6 +339,18 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         wallet_nonce_present: Boolean(walletNonce),
         payload: body,
       });
+      if (walletNonce) {
+        session.authorization_request = {
+          ...session.authorization_request,
+          wallet_nonce: walletNonce,
+        };
+        session.raw ??= {};
+        session.raw.authorization_request = session.authorization_request;
+        store.vpCredoAuthorizationRequestJwts.set(
+          session.session_id,
+          await signPresentationAuthorizationRequest(config, session.authorization_request),
+        );
+      }
       const requestObject = store.vpCredoAuthorizationRequestJwts.get(session.session_id);
       if (!requestObject) return res.status(404).json({ error: "vp_request_not_found" });
       return res.type("application/oauth-authz-req+jwt").send(requestObject);
