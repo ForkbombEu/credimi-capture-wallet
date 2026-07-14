@@ -73,13 +73,14 @@ describe("capture issuer server", () => {
     expect(response.text).toContain("session-actions");
     expect(response.text).toContain('formaction="/ui/openid4vp/sessions"');
     expect(response.text).toContain("<h2>Captured values</h2>");
-    expect(response.text).toContain('<span class="count-chip">9</span>');
+    expect(response.text).toContain('<span class="count-chip">10</span>');
     expect(response.text).toContain("<h3>OpenID4VCI</h3>");
     expect(response.text).toContain("<h3>OpenID4VP</h3>");
     expect(response.text).toContain("<dt>wallet_jwks</dt>");
     expect(response.text).toContain("<dt>authorization_request</dt>");
     expect(response.text).toContain("<dt>request_uri_payload</dt>");
     expect(response.text).toContain("<dt>wallet_response</dt>");
+    expect(response.text).toContain("<dt>presentation_response_decrypted</dt>");
     expect(response.text).toContain("<dt>decoded_presentations</dt>");
     expect(response.text).toContain("<dt>presentation_validation</dt>");
     expect(response.text).not.toContain("<dt>presentation_submission</dt>");
@@ -198,8 +199,10 @@ describe("capture issuer server", () => {
     expect(page.text).toContain("authorization_request");
     expect(page.text).toContain("request_uri_payload");
     expect(page.text).toContain("wallet_response");
+    expect(page.text).toContain("presentation_response_decrypted");
     expect(page.text).not.toContain("presentation_submission");
     expect(page.text).toContain("formatJsonValue(session.authorization_request)");
+    expect(page.text).toContain("formatJsonValue(session.raw.presentation_response_decrypted)");
     expect(page.text).toContain("formatJsonValue(session.raw.decoded_presentations)");
     expect(page.text).toContain("JSON.stringify(parsed, null, 4)");
     expect(page.text).toContain(".metadata-row summary::after { content: '\\02C5'");
@@ -214,7 +217,10 @@ describe("capture issuer server", () => {
     expect(page.text).toContain("window.clearInterval(pollTimer)");
     expect(page.text).toContain("pollTimer = setInterval");
     expect(page.text).toContain("__FAKE_ISSUER_VP_SESSION_ID__");
-    expect(page.text.match(/<details class="metadata-row"><summary>/g)).toHaveLength(5);
+    expect(page.text.match(/<details class="metadata-row"><summary>/g)).toHaveLength(6);
+    expect(page.text).toContain(
+      "<summary>presentation_response_decrypted</summary><code>pending</code>",
+    );
     expect(page.text).toContain("<summary>decoded_presentations</summary><code>pending</code>");
     expect(page.text).toContain("<summary>presentation_validation</summary><code>pending</code>");
     expect(page.text).toContain('querySelectorAll(".metadata-row[open]")');

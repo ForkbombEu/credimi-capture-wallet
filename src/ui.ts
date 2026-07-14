@@ -45,7 +45,7 @@ export function indexPage(credentials: SupportedCredential[]): string {
       '<aside class="summary-panel" aria-label="Captured values">',
       '<div class="section-header compact">',
       "<h2>Captured values</h2>",
-      '<span class="count-chip">9</span>',
+      '<span class="count-chip">10</span>',
       "</div>",
       '<div class="capture-groups">',
       '<section class="capture-group" aria-label="OpenID4VCI captured values">',
@@ -63,6 +63,7 @@ export function indexPage(credentials: SupportedCredential[]): string {
       "<div><dt>authorization_request</dt><dd>Verifier request object sent to the wallet</dd></div>",
       "<div><dt>request_uri_payload</dt><dd>Wallet payload when request_uri_method is post</dd></div>",
       "<div><dt>wallet_response</dt><dd>Wallet presentation response including vp_token</dd></div>",
+      "<div><dt>presentation_response_decrypted</dt><dd>Decrypted wallet presentation response</dd></div>",
       "<div><dt>decoded_presentations</dt><dd>Credo-decoded claims from verified presentations</dd></div>",
       "<div><dt>presentation_validation</dt><dd>Verifier checks for nonce, holder binding, and DCQL matching</dd></div>",
       "</dl>",
@@ -131,6 +132,7 @@ export function vpSessionPage(sessionId: string, deeplink: string, qrSvg: string
       '<details class="metadata-row"><summary>authorization_request</summary><code>pending</code></details>',
       '<details class="metadata-row"><summary>request_uri_payload</summary><code>pending</code></details>',
       '<details class="metadata-row"><summary>wallet_response</summary><code>pending</code></details>',
+      '<details class="metadata-row"><summary>presentation_response_decrypted</summary><code>pending</code></details>',
       '<details class="metadata-row"><summary>decoded_presentations</summary><code>pending</code></details>',
       '<details class="metadata-row"><summary>presentation_validation</summary><code>pending</code></details>',
       "</div>",
@@ -514,7 +516,135 @@ function clientScript(): string {
 }
 
 function vpClientScript(): string {
-  return '(function () {\n  const sessionId = window.__FAKE_ISSUER_VP_SESSION_ID__;\n  const qrCode = document.getElementById("qr-code");\n  const qrEmpty = document.getElementById("qr-empty");\n  const scanText = document.getElementById("scan-text");\n  const qrGuidance = document.getElementById("qr-guidance");\n  const statusLabel = document.getElementById("status-label");\n  const metadataPanel = document.getElementById("metadata-panel");\n  const metadataStateLabel = document.getElementById("metadata-state-label");\n  const metadataGrid = document.getElementById("metadata-grid");\n  const metadataJson = document.getElementById("metadata-json");\n  let lastMetadataState = "waiting";\n  let flashTimer = null;\n  let pollTimer = null;\n\n  function setQrConsumed(consumed) {\n    qrCode.hidden = consumed;\n    qrEmpty.hidden = !consumed;\n    scanText.textContent = consumed ? "Request retrieved by wallet" : "Scan the presentation request with the wallet";\n    qrGuidance.textContent = consumed\n      ? "The wallet has retrieved the request. Select a matching credential and submit the presentation."\n      : "The QR points to a request_uri hosted by this service. The wallet response is captured when it posts the presentation.";\n  }\n\n  function metadataRows(session) {\n    return [\n      ["authorization_request", session.authorization_request ? formatJsonValue(session.authorization_request) : "pending"],\n      ["request_uri_payload", session.observed.request_uri_payload.value ? JSON.stringify(session.observed.request_uri_payload.value) : "pending"],\n      ["wallet_response", session.observed.wallet_response.value ? JSON.stringify(session.observed.wallet_response.value) : "pending"],\n      ["decoded_presentations", session.raw && session.raw.decoded_presentations ? formatJsonValue(session.raw.decoded_presentations) : "pending"],\n      ["presentation_validation", session.checks ? JSON.stringify(session.checks) : "pending"],\n    ];\n  }\n\n  function formatJsonValue(value) {\n    const parsed = typeof value === "string" ? JSON.parse(value) : value;\n    return JSON.stringify(parsed, null, 4);\n  }\n\n  function metadataState(session) {\n    if (session.status === "presentation_validated" || session.status === "presentation_invalid") return "done";\n    if (session.status === "request_retrieved") return "receiving";\n    return "waiting";\n  }\n\n  function setMetadataState(state) {\n    const done = state === "done";\n    metadataPanel.classList.toggle("metadata-pending", state === "waiting");\n    metadataPanel.classList.toggle("metadata-ready", done);\n    metadataStateLabel.textContent = state;\n    metadataStateLabel.classList.toggle("metadata-state-waiting", state === "waiting");\n    metadataStateLabel.classList.toggle("metadata-state-receiving", state === "receiving");\n    metadataStateLabel.classList.toggle("metadata-state-done", done);\n  }\n\n  function flashMetadataPanel() {\n    metadataPanel.classList.remove("metadata-flash");\n    void metadataPanel.offsetWidth;\n    metadataPanel.classList.add("metadata-flash");\n    if (flashTimer) window.clearTimeout(flashTimer);\n    flashTimer = window.setTimeout(function () {\n      metadataPanel.classList.remove("metadata-flash");\n    }, 1400);\n  }\n\n  function render(session) {\n    setQrConsumed(session.status !== "created");\n    statusLabel.textContent = session.status.replaceAll("_", " ");\n    const state = metadataState(session);\n    setMetadataState(state);\n    if (state !== lastMetadataState) flashMetadataPanel();\n    lastMetadataState = state;\n    if (state === "done" && pollTimer) {\n      window.clearInterval(pollTimer);\n      pollTimer = null;\n    }\n    const openFields = new Set(\n      Array.from(metadataGrid.querySelectorAll(".metadata-row[open]"), function (row) {\n        return row.dataset.field;\n      }),\n    );\n    metadataGrid.innerHTML = metadataRows(session)\n      .map(function (row) {\n        return \'<details class="metadata-row" data-field="\' + escapeHtml(row[0]) + \'"\' + (openFields.has(row[0]) ? " open" : "") + \'><summary>\' + escapeHtml(row[0]) + \'</summary><code>\' + escapeHtml(row[1]) + \'</code></details>\';\n      })\n      .join("");\n    metadataJson.textContent = JSON.stringify(\n      {\n        session_id: session.session_id,\n        status: session.status,\n        authorization_request: session.authorization_request,\n        request_uri_payload: session.observed.request_uri_payload,\n        wallet_response: session.observed.wallet_response,\n        decoded_presentations: session.raw ? session.raw.decoded_presentations : undefined,\n        checks: session.checks,\n        events: session.events,\n      },\n      null,\n      2,\n    );\n  }\n\n  function escapeHtml(value) {\n    return String(value).replace(/[&<>"\']/g, function (char) {\n      return {\n        "&": "&amp;",\n        "<": "&lt;",\n        ">": "&gt;",\n        \'"\': "&quot;",\n        "\'": "&#39;",\n      }[char];\n    });\n  }\n\n  async function poll() {\n    const response = await fetch("/openid4vp/sessions/" + encodeURIComponent(sessionId), {\n      headers: { accept: "application/json" },\n    });\n    if (!response.ok) throw new Error("vp session fetch failed");\n    render(await response.json());\n  }\n\n  poll().catch(console.error);\n  pollTimer = setInterval(function () {\n    poll().catch(console.error);\n  }, 1500);\n})();';
+  return `(function () {
+  const sessionId = window.__FAKE_ISSUER_VP_SESSION_ID__;
+  const qrCode = document.getElementById("qr-code");
+  const qrEmpty = document.getElementById("qr-empty");
+  const scanText = document.getElementById("scan-text");
+  const qrGuidance = document.getElementById("qr-guidance");
+  const statusLabel = document.getElementById("status-label");
+  const metadataPanel = document.getElementById("metadata-panel");
+  const metadataStateLabel = document.getElementById("metadata-state-label");
+  const metadataGrid = document.getElementById("metadata-grid");
+  const metadataJson = document.getElementById("metadata-json");
+  let lastMetadataState = "waiting";
+  let flashTimer = null;
+  let pollTimer = null;
+
+  function setQrConsumed(consumed) {
+    qrCode.hidden = consumed;
+    qrEmpty.hidden = !consumed;
+    scanText.textContent = consumed ? "Request retrieved by wallet" : "Scan the presentation request with the wallet";
+    qrGuidance.textContent = consumed
+      ? "The wallet has retrieved the request. Select a matching credential and submit the presentation."
+      : "The QR points to a request_uri hosted by this service. The wallet response is captured when it posts the presentation.";
+  }
+
+  function metadataRows(session) {
+    return [
+      ["authorization_request", session.authorization_request ? formatJsonValue(session.authorization_request) : "pending"],
+      ["request_uri_payload", session.observed.request_uri_payload.value ? JSON.stringify(session.observed.request_uri_payload.value) : "pending"],
+      ["wallet_response", session.observed.wallet_response.value ? JSON.stringify(session.observed.wallet_response.value) : "pending"],
+      ["presentation_response_decrypted", session.raw && session.raw.presentation_response_decrypted ? formatJsonValue(session.raw.presentation_response_decrypted) : "pending"],
+      ["decoded_presentations", session.raw && session.raw.decoded_presentations ? formatJsonValue(session.raw.decoded_presentations) : "pending"],
+      ["presentation_validation", session.checks ? JSON.stringify(session.checks) : "pending"],
+    ];
+  }
+
+  function formatJsonValue(value) {
+    const parsed = typeof value === "string" ? JSON.parse(value) : value;
+    return JSON.stringify(parsed, null, 4);
+  }
+
+  function metadataState(session) {
+    if (session.status === "presentation_validated" || session.status === "presentation_invalid") return "done";
+    if (session.status === "request_retrieved") return "receiving";
+    return "waiting";
+  }
+
+  function setMetadataState(state) {
+    const done = state === "done";
+    metadataPanel.classList.toggle("metadata-pending", state === "waiting");
+    metadataPanel.classList.toggle("metadata-ready", done);
+    metadataStateLabel.textContent = state;
+    metadataStateLabel.classList.toggle("metadata-state-waiting", state === "waiting");
+    metadataStateLabel.classList.toggle("metadata-state-receiving", state === "receiving");
+    metadataStateLabel.classList.toggle("metadata-state-done", done);
+  }
+
+  function flashMetadataPanel() {
+    metadataPanel.classList.remove("metadata-flash");
+    void metadataPanel.offsetWidth;
+    metadataPanel.classList.add("metadata-flash");
+    if (flashTimer) window.clearTimeout(flashTimer);
+    flashTimer = window.setTimeout(function () {
+      metadataPanel.classList.remove("metadata-flash");
+    }, 1400);
+  }
+
+  function render(session) {
+    setQrConsumed(session.status !== "created");
+    statusLabel.textContent = session.status.replaceAll("_", " ");
+    const state = metadataState(session);
+    setMetadataState(state);
+    if (state !== lastMetadataState) flashMetadataPanel();
+    lastMetadataState = state;
+    if (state === "done" && pollTimer) {
+      window.clearInterval(pollTimer);
+      pollTimer = null;
+    }
+    const openFields = new Set(
+      Array.from(metadataGrid.querySelectorAll(".metadata-row[open]"), function (row) {
+        return row.dataset.field;
+      }),
+    );
+    metadataGrid.innerHTML = metadataRows(session)
+      .map(function (row) {
+        return '<details class="metadata-row" data-field="' + escapeHtml(row[0]) + '"' + (openFields.has(row[0]) ? " open" : "") + '><summary>' + escapeHtml(row[0]) + "</summary><code>" + escapeHtml(row[1]) + "</code></details>";
+      })
+      .join("");
+    metadataJson.textContent = JSON.stringify(
+      {
+        session_id: session.session_id,
+        status: session.status,
+        authorization_request: session.authorization_request,
+        request_uri_payload: session.observed.request_uri_payload,
+        wallet_response: session.observed.wallet_response,
+        presentation_response_decrypted: session.raw ? session.raw.presentation_response_decrypted : undefined,
+        decoded_presentations: session.raw ? session.raw.decoded_presentations : undefined,
+        checks: session.checks,
+        events: session.events,
+      },
+      null,
+      2,
+    );
+  }
+
+  function escapeHtml(value) {
+    return String(value).replace(/[&<>"']/g, function (char) {
+      return {
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      }[char];
+    });
+  }
+
+  async function poll() {
+    const response = await fetch("/openid4vp/sessions/" + encodeURIComponent(sessionId), {
+      headers: { accept: "application/json" },
+    });
+    if (!response.ok) throw new Error("vp session fetch failed");
+    render(await response.json());
+  }
+
+  poll().catch(console.error);
+  pollTimer = setInterval(function () {
+    poll().catch(console.error);
+  }, 1500);
+})();`;
 }
 
 function escapeHtml(value: string): string {
