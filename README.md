@@ -224,19 +224,20 @@ A successful response returns HTTP 201 and includes:
   "session_id": "...",
   "request_uri": "http://localhost:8080/openid4vp/sessions/.../request",
   "request_uri_method": "get",
+  "response_mode": "direct_post.jwt",
   "response_uri": "http://localhost:8080/openid4vp/sessions/.../response",
   "deeplink": "openid4vp://...",
   "authorization_request": {
     "client_id": "x509_hash:...",
     "response_type": "vp_token",
-    "response_mode": "direct_post",
+    "response_mode": "direct_post.jwt",
     "state": "..."
   },
   "status": "created"
 }
 ```
 
-The QR deeplink contains `client_id=x509_hash:...` and `request_uri=...`. The request URI returns a signed `application/oauth-authz-req+jwt` request object with the verifier certificate in the JWS `x5c` header.
+The QR deeplink contains `client_id=x509_hash:...` and `request_uri=...`. The request URI returns a signed `application/oauth-authz-req+jwt` request object with the verifier certificate in the JWS `x5c` header. By default the verifier uses `direct_post.jwt`, advertises an ephemeral JARM encryption key in `client_metadata.jwks`, captures the posted encrypted response, and stores the decrypted response in the session raw data after validation. Pass `"response_mode":"direct_post"` when creating a session if you need plaintext capture.
 
 Set the request URI method explicitly when creating the session:
 

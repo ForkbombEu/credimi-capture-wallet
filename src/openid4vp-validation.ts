@@ -3,8 +3,10 @@ import {
   X509Certificate,
   createHash,
   createPublicKey,
+  randomBytes,
   verify as verifySignature,
 } from "node:crypto";
+import { Kms, SdJwtVcService, X509ModuleConfig } from "@credo-ts/core";
 import {
   CoseKey,
   DeviceResponse,
@@ -19,14 +21,7 @@ import {
   DcqlQuery,
   type DcqlQuery as ParsedDcqlQuery,
 } from "dcql";
-import {
-  type JWK,
-  compactVerify,
-  decodeJwt,
-  decodeProtectedHeader,
-  importJWK,
-  jwtVerify,
-} from "jose";
+import { type JWK, calculateJwkThumbprint, compactDecrypt, decodeJwt, importJWK } from "jose";
 import type { AppConfig, JsonRecord, VpSessionCapture } from "./types.js";
 
 interface VpPresentationValidation {
@@ -35,6 +30,7 @@ interface VpPresentationValidation {
   nonce_verified: boolean;
   holder_binding_verified: boolean;
   dcql_query_matched: boolean;
+  authorization_response?: JsonRecord;
   errors: string[];
 }
 
@@ -50,6 +46,7 @@ export async function validateVpPresentationResponse(
   config: AppConfig,
   session: VpSessionCapture,
   body: JsonRecord,
+  jarmPrivateJwk?: JsonRecord,
 ): Promise<VpPresentationValidation> {
   const result: VpPresentationValidation = {
     valid: false,
@@ -62,7 +59,13 @@ export async function validateVpPresentationResponse(
 
   try {
     const dcqlQuery = parseDcqlQuery(session.authorization_request.dcql_query);
-    const vpToken = parseVpToken(body.vp_token);
+    const authorizationResponse = await normalizeAuthorizationResponse(
+      session,
+      body,
+      jarmPrivateJwk,
+    );
+    result.authorization_response = authorizationResponse;
+    const vpToken = parseVpToken(authorizationResponse.vp_token);
     const candidates = presentationCandidates(dcqlQuery, vpToken);
     result.vp_token_format_valid = true;
 
@@ -144,42 +147,31 @@ async function validateSdJwtPresentation(
     };
   }
 
-  const { issuerJwt, disclosures, kbJwt, withoutKeyBinding } = splitSdJwt(presentation);
-  if (!kbJwt) errors.push("SD-JWT VC presentation is missing key-binding JWT");
-
-  try {
-    await verifyIssuerJwt(issuerJwt);
-  } catch (error) {
-    errors.push(`SD-JWT VC issuer signature verification failed: ${errorMessage(error)}`);
-  }
-
   let claims: JsonRecord | null = null;
-  try {
-    const issuerPayload = decodeJwt(issuerJwt) as JsonRecord;
-    claims = unpackSdJwtClaims(issuerPayload, disclosures);
-  } catch (error) {
-    errors.push(`SD-JWT VC disclosure verification failed: ${errorMessage(error)}`);
-  }
-
   let nonceVerified = false;
   let holderBindingVerified = false;
-  if (kbJwt && claims) {
-    try {
-      const kbPayload = await verifyKeyBindingJwt(
-        kbJwt,
-        claims,
-        withoutKeyBinding,
-        session.authorization_request,
-      );
-      nonceVerified = kbPayload.nonce === session.authorization_request.nonce;
+
+  try {
+    const verified = await new SdJwtVcService({} as never).verify(
+      credoVerificationContext() as never,
+      {
+        compactSdJwtVc: presentation,
+        keyBinding: {
+          audience: String(session.authorization_request.client_id),
+          nonce: String(session.authorization_request.nonce),
+        },
+      },
+    );
+    if (verified.isValid) {
+      claims = verified.sdJwtVc.prettyClaims as JsonRecord;
+      nonceVerified = verified.sdJwtVc.kbJwt?.payload.nonce === session.authorization_request.nonce;
       holderBindingVerified = true;
-      if (!audienceMatches(kbPayload.aud, config.issuer_base_url, session.authorization_request)) {
-        errors.push("SD-JWT VC key-binding JWT audience does not match this verifier");
-      }
-      if (!nonceVerified) errors.push("SD-JWT VC key-binding JWT nonce does not match the request");
-    } catch (error) {
-      errors.push(`SD-JWT VC holder binding verification failed: ${errorMessage(error)}`);
+    } else {
+      claims = (verified.sdJwtVc?.prettyClaims as JsonRecord | undefined) ?? null;
+      errors.push(`SD-JWT VC verification failed: ${errorMessage(verified.error)}`);
     }
+  } catch (error) {
+    errors.push(`SD-JWT VC verification failed: ${errorMessage(error)}`);
   }
 
   const vct = claims ? asString(claims.vct) : null;
@@ -196,6 +188,94 @@ async function validateSdJwtPresentation(
       : [];
 
   return { nonceVerified, holderBindingVerified, dcqlPresentations, errors };
+}
+
+async function normalizeAuthorizationResponse(
+  session: VpSessionCapture,
+  body: JsonRecord,
+  jarmPrivateJwk: JsonRecord | undefined,
+): Promise<JsonRecord> {
+  if (session.response_mode !== "direct_post.jwt") return body;
+  const response = asString(body.response);
+  if (!response) throw new Error("direct_post.jwt response must contain a response JWE");
+  if (!jarmPrivateJwk) throw new Error("missing verifier JARM decryption key for session");
+  const { plaintext } = await compactDecrypt(
+    response,
+    await importJWK(jarmPrivateJwk as unknown as JWK, "ECDH-ES"),
+  );
+  const decoded = Buffer.from(plaintext).toString("utf8");
+  if (decoded.includes(".") && decoded.split(".").length === 3) {
+    return decodeJwt(decoded) as JsonRecord;
+  }
+  const parsed = JSON.parse(decoded) as unknown;
+  if (!isRecord(parsed))
+    throw new Error("direct_post.jwt response did not decrypt to a JSON object");
+  return parsed;
+}
+
+function credoVerificationContext(): object {
+  const kms = {
+    randomBytes: ({ length }: { length: number }) => randomBytes(length),
+    supportedBackendsForOperation: () => ["fake-issuer-verifier"],
+    verify: async ({
+      key,
+      algorithm,
+      data,
+      signature,
+    }: {
+      key: { publicJwk?: JsonRecord };
+      algorithm: string;
+      data: Uint8Array;
+      signature: Uint8Array;
+    }) => {
+      const publicJwk = key.publicJwk;
+      if (!publicJwk) return { verified: false };
+      const verified = verifySignature(
+        algorithm === "EdDSA" || algorithm === "Ed25519" ? null : "sha256",
+        data,
+        {
+          key: createPublicKey({
+            key: publicJwk as unknown as NodeJsonWebKey,
+            format: "jwk",
+          }),
+          dsaEncoding: "ieee-p1363",
+        },
+        signature,
+      );
+      return verified ? { verified, publicJwk } : { verified };
+    },
+  };
+  const x509Config = {
+    trustedCertificates: [],
+    getTrustedCertificatesForVerification: async (
+      _agentContext: unknown,
+      options: { certificateChain?: unknown[] },
+    ) =>
+      (options.certificateChain ?? [])
+        .map((certificate) =>
+          certificate &&
+          typeof certificate === "object" &&
+          "toString" in certificate &&
+          typeof certificate.toString === "function"
+            ? (certificate.toString as (format: string) => string)("base64")
+            : null,
+        )
+        .filter((certificate): certificate is string => typeof certificate === "string"),
+  };
+  const resolve = (token: unknown) => {
+    if (token === Kms.KeyManagementApi) return kms;
+    if (token === X509ModuleConfig) return x509Config;
+    throw new Error("Unsupported Credo dependency requested while verifying SD-JWT VC");
+  };
+  return {
+    resolve,
+    dependencyManager: { resolve },
+    config: {
+      allowInsecureHttpUrls: true,
+      validitySkewSeconds: 300,
+      agentDependencies: { fetch: globalThis.fetch },
+    },
+  };
 }
 
 async function validateMdocPresentation(
@@ -314,132 +394,34 @@ function presentationCandidates(
   return candidates;
 }
 
-function splitSdJwt(sdJwt: string): {
-  issuerJwt: string;
-  disclosures: string[];
-  kbJwt: string | null;
-  withoutKeyBinding: string;
-} {
-  const parts = sdJwt.split("~");
-  const issuerJwt = parts[0];
-  if (!issuerJwt) throw new Error("SD-JWT VC presentation is missing issuer JWT");
-  const nonEmptyTail = parts.slice(1).filter((part) => part.length > 0);
-  const maybeKbJwt = nonEmptyTail.at(-1);
-  const hasKbJwt = Boolean(maybeKbJwt?.includes("."));
-  const disclosures = hasKbJwt ? nonEmptyTail.slice(0, -1) : nonEmptyTail;
-  return {
-    issuerJwt,
-    disclosures,
-    kbJwt: hasKbJwt ? (maybeKbJwt ?? null) : null,
-    withoutKeyBinding: `${issuerJwt}~${disclosures.join("~")}~`,
-  };
-}
-
-async function verifyIssuerJwt(issuerJwt: string): Promise<void> {
-  const header = decodeProtectedHeader(issuerJwt) as JsonRecord;
-  const key = await verificationKeyFromHeader(header);
-  await compactVerify(issuerJwt, key);
-}
-
-async function verificationKeyFromHeader(header: JsonRecord) {
-  const jwk = asRecord(header.jwk);
-  if (jwk) return importJWK(jwk as unknown as JWK, asString(header.alg) ?? "ES256");
-  const x5c = asArray(header.x5c);
-  const leaf = asString(x5c[0]);
-  if (leaf) return new X509Certificate(Buffer.from(leaf, "base64")).publicKey;
-  throw new Error("JOSE header does not contain jwk or x5c key material");
-}
-
-function unpackSdJwtClaims(payload: JsonRecord, encodedDisclosures: string[]): JsonRecord {
-  const alg = asString(payload._sd_alg) ?? "sha-256";
-  if (alg !== "sha-256") throw new Error(`unsupported SD-JWT hash algorithm '${alg}'`);
-  const disclosureByDigest = new Map(
-    encodedDisclosures.map((encoded) => {
-      const decoded = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) as unknown;
-      if (!Array.isArray(decoded) || decoded.length < 2) {
-        throw new Error("invalid SD-JWT disclosure encoding");
-      }
-      return [sha256Base64Url(encoded), { encoded, decoded }] as const;
-    }),
-  );
-  return unpackSdValue(payload, disclosureByDigest) as JsonRecord;
-}
-
-function unpackSdValue(
-  value: unknown,
-  disclosureByDigest: Map<string, { encoded: string; decoded: unknown[] }>,
-): unknown {
-  if (Array.isArray(value)) {
-    return value.flatMap((entry) => {
-      if (isRecord(entry) && typeof entry["..."] === "string") {
-        const disclosure = disclosureByDigest.get(entry["..."]);
-        if (!disclosure) return [];
-        return [unpackSdValue(disclosure.decoded[1], disclosureByDigest)];
-      }
-      return [unpackSdValue(entry, disclosureByDigest)];
-    });
-  }
-  if (!isRecord(value)) return value;
-
-  const output: JsonRecord = {};
-  for (const [key, nested] of Object.entries(value)) {
-    if (key === "_sd" || key === "_sd_alg") continue;
-    output[key] = unpackSdValue(nested, disclosureByDigest);
-  }
-  const sd = asArray(value._sd);
-  for (const digest of sd) {
-    if (typeof digest !== "string") continue;
-    const disclosure = disclosureByDigest.get(digest);
-    if (!disclosure) continue;
-    const key = asString(disclosure.decoded[1]);
-    if (!key) throw new Error("object disclosure does not contain a claim name");
-    output[key] = unpackSdValue(disclosure.decoded[2], disclosureByDigest);
-  }
-  return output;
-}
-
-async function verifyKeyBindingJwt(
-  kbJwt: string,
-  claims: JsonRecord,
-  sdJwtWithoutKeyBinding: string,
-  authorizationRequest: JsonRecord,
-): Promise<JsonRecord> {
-  const cnf = asRecord(claims.cnf);
-  const jwk = asRecord(cnf?.jwk);
-  if (!jwk) throw new Error("credential does not contain cnf.jwk holder key");
-  const header = decodeProtectedHeader(kbJwt);
-  const verified = await jwtVerify(kbJwt, await importJWK(jwk as unknown as JWK, header.alg));
-  const payload = verified.payload as JsonRecord;
-  if (payload.nonce !== authorizationRequest.nonce) throw new Error("nonce mismatch");
-  const sdHash = asString(payload.sd_hash) ?? asString(payload._sd_hash);
-  if (sdHash !== sha256Base64Url(sdJwtWithoutKeyBinding)) throw new Error("sd_hash mismatch");
-  return payload;
-}
-
-function audienceMatches(
-  aud: unknown,
-  issuerBaseUrl: string,
-  authorizationRequest: JsonRecord,
-): boolean {
-  const allowed = new Set(
-    [authorizationRequest.client_id, authorizationRequest.response_uri, issuerBaseUrl].filter(
-      (value): value is string => typeof value === "string",
-    ),
-  );
-  if (typeof aud === "string") return allowed.has(aud);
-  if (Array.isArray(aud))
-    return aud.some((entry) => typeof entry === "string" && allowed.has(entry));
-  return false;
-}
-
-export function mdocSessionTranscript(
+export async function mdocSessionTranscript(
   authorizationRequest: JsonRecord,
   context: Pick<MdocContext, "crypto"> = mdocVerificationContext(),
 ): Promise<SessionTranscript> {
   const clientId = asString(authorizationRequest.client_id) ?? "";
   const nonce = asString(authorizationRequest.nonce) ?? "";
   const responseUri = asString(authorizationRequest.response_uri) ?? "";
-  return SessionTranscript.forOid4Vp({ clientId, nonce, responseUri }, context);
+  const jwkThumbprint = await oid4vpJwkThumbprint(authorizationRequest);
+  return SessionTranscript.forOid4Vp(
+    {
+      clientId,
+      nonce,
+      responseUri,
+      ...(jwkThumbprint ? { jwkThumbprint } : {}),
+    },
+    context,
+  );
+}
+
+async function oid4vpJwkThumbprint(authorizationRequest: JsonRecord): Promise<Uint8Array | null> {
+  if (authorizationRequest.response_mode !== "direct_post.jwt") return null;
+  const jwks = asRecord(asRecord(authorizationRequest.client_metadata)?.jwks);
+  const encryptionJwk = asArray(jwks?.keys)
+    .filter(isRecord)
+    .find((key) => key.use === "enc");
+  if (!encryptionJwk) return null;
+  const thumbprint = await calculateJwkThumbprint(encryptionJwk as unknown as JWK, "sha256");
+  return Buffer.from(thumbprint, "base64url");
 }
 
 function mdocNamespaces(issuerSigned: IssuerSigned): Record<string, Record<string, unknown>> {
@@ -535,7 +517,7 @@ function mdocVerificationContext(): MdocContext {
         return createHash("sha256").update(bytes).digest();
       },
       calculateEphemeralMacKey: () => {
-        throw new Error("mdoc DeviceMac holder binding is not supported");
+        throw new Error("mdoc HKDF is not supported");
       },
     },
     cose: {
@@ -593,10 +575,6 @@ function mdocVerificationContext(): MdocContext {
       },
     },
   };
-}
-
-function sha256Base64Url(value: string | Uint8Array): string {
-  return createHash("sha256").update(value).digest("base64url");
 }
 
 function asString(value: unknown): string | null {

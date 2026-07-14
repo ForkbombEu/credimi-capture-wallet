@@ -51,7 +51,30 @@ export function parseArgs(argv: string[]): Record<string, string | boolean> {
 }
 
 export function normalizeBaseUrl(value: string): string {
-  return value.replace(/\/+$/, "");
+  const trimmed = value.trim().replace(/\/+$/, "");
+  const normalized = trimmed.includes("://")
+    ? trimmed
+    : `${defaultBaseUrlScheme(trimmed)}://${trimmed}`;
+  try {
+    new URL(normalized);
+  } catch {
+    throw new Error(`issuer_base_url must be an absolute URL or host, got '${value}'`);
+  }
+  return normalized;
+}
+
+function defaultBaseUrlScheme(value: string): "http" | "https" {
+  const host = value.split("/")[0]?.toLowerCase() ?? "";
+  if (
+    host === "localhost" ||
+    host.startsWith("localhost:") ||
+    host.startsWith("127.") ||
+    host.startsWith("0.0.0.0") ||
+    host.startsWith("[::1]")
+  ) {
+    return "http";
+  }
+  return "https";
 }
 
 export function parseListenAddr(addr: string): { host?: string; port: number } {
@@ -348,6 +371,7 @@ async function writeCertificate({
     {
       authorityKey: publicJwk,
       issuer: {
+        countryName: "IT",
         commonName: new URL(config.issuer_base_url).hostname,
         organizationalUnit,
       },

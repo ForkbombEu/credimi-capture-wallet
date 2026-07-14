@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { type JWK, SignJWT, importJWK } from "jose";
+import { type JWK, SignJWT, exportJWK, generateKeyPair, importJWK } from "jose";
 import { VERIFIER_KEY_ID, verifierCertificatePath, verifierPrivateJwkPath } from "./config.js";
 import {
   PID_MDOC_CLAIMS,
@@ -17,24 +17,43 @@ import {
 import type { AppConfig, JsonRecord } from "./types.js";
 
 const REQUEST_OBJECT_AUDIENCE = "https://self-issued.me/v2";
+export type OpenId4VpResponseMode = "direct_post" | "direct_post.jwt";
 
 export function defaultPresentationRequest(
   config: AppConfig,
   credentialConfigurationIds?: string[],
+  responseMode: OpenId4VpResponseMode = "direct_post.jwt",
 ): JsonRecord {
   const credentials = selectedSupportedCredentials(config, credentialConfigurationIds);
   return {
     response_type: "vp_token",
-    response_mode: "direct_post",
+    response_mode: responseMode,
     nonce: randomUUID(),
     dcql_query: defaultDcqlQuery(credentials),
   };
+}
+
+export async function createJarmEncryptionJwk(): Promise<{
+  publicJwk: JsonRecord;
+  privateJwk: JsonRecord;
+}> {
+  const { publicKey, privateKey } = await generateKeyPair("ECDH-ES", { extractable: true });
+  const publicJwk = (await exportJWK(publicKey)) as unknown as JsonRecord;
+  const privateJwk = (await exportJWK(privateKey)) as unknown as JsonRecord;
+  publicJwk.use = "enc";
+  publicJwk.alg = "ECDH-ES";
+  publicJwk.kid = randomUUID();
+  privateJwk.use = "enc";
+  privateJwk.alg = "ECDH-ES";
+  privateJwk.kid = publicJwk.kid;
+  return { publicJwk, privateJwk };
 }
 
 export function buildPresentationAuthorizationRequest(
   config: AppConfig,
   sessionId: string,
   request: JsonRecord,
+  jarmEncryptionJwk?: JsonRecord,
 ): JsonRecord {
   const responseUri = vpResponseUri(config, sessionId);
   const clientId = verifierClientId(config);
@@ -43,7 +62,7 @@ export function buildPresentationAuthorizationRequest(
     aud: REQUEST_OBJECT_AUDIENCE,
     response_uri: responseUri,
     state: sessionId,
-    client_metadata: verifierClientMetadata(),
+    client_metadata: verifierClientMetadata(jarmEncryptionJwk),
     ...request,
   };
 }
@@ -139,8 +158,14 @@ function selectedSupportedCredentials(
     .filter((credential): credential is SupportedCredential => credential !== null);
 }
 
-function verifierClientMetadata(): JsonRecord {
+function verifierClientMetadata(jarmEncryptionJwk?: JsonRecord): JsonRecord {
   return {
+    ...(jarmEncryptionJwk
+      ? {
+          jwks: { keys: [jarmEncryptionJwk] },
+          encrypted_response_enc_values_supported: ["A128GCM", "A256GCM", "A128CBC-HS256"],
+        }
+      : {}),
     vp_formats_supported: {
       "dc+sd-jwt": {
         "sd-jwt_alg_values": ["ES256"],

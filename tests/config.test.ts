@@ -7,6 +7,7 @@ import {
   DEFAULT_CONFIG,
   initIssuer,
   loadIssuerJwks,
+  normalizeBaseUrl,
   parseEnvText,
   privateJwkPath,
   resolveGuiEnabled,
@@ -16,6 +17,14 @@ import {
 } from "../src/config.js";
 
 describe("configuration", () => {
+  it("normalizes issuer base URLs from hosts and absolute URLs", () => {
+    expect(normalizeBaseUrl("beta-capture-wallet.credimi.io")).toBe(
+      "https://beta-capture-wallet.credimi.io",
+    );
+    expect(normalizeBaseUrl("localhost:8080")).toBe("http://localhost:8080");
+    expect(normalizeBaseUrl("https://issuer.example.test/")).toBe("https://issuer.example.test");
+  });
+
   it("uses listen_addr when PORT is not set", () => {
     expect(resolveListenAddr({ ...DEFAULT_CONFIG, listen_addr: "127.0.0.1:8181" }, {})).toEqual({
       host: "127.0.0.1",
