@@ -984,7 +984,7 @@ describe("capture issuer server", () => {
       family_name: "Doe",
       issuing_authority: "Credimi Fake Issuer",
       issuing_country: "IT",
-      issuing_jurisdiction: "IT",
+      issuing_jurisdiction: "IT-RM",
       nationalities: ["IT"],
       personal_administrative_number: "PID-DEMO-001",
       phone_number: "+390600000000",
