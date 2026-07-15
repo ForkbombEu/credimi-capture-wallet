@@ -340,6 +340,16 @@ describe("capture issuer server", () => {
     },
   );
 
+  it("lets the endpoint response_type override a presentation_request default", async () => {
+    const app = createApp(config);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      response_type: "code",
+      presentation_request: { response_type: "vp_token" },
+    });
+
+    expect(session.authorization_request.response_type).toBe("code");
+  });
+
   it("rejects unsupported OpenID4VP request_uri_method values", async () => {
     const app = createApp(config);
     const response = await request(app)

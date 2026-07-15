@@ -274,7 +274,10 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       if (body.response_mode !== undefined && !responseMode) {
         return res.status(400).json({ error: "unsupported_response_mode" });
       }
-      const requestOverride = objectOrNull(body.presentation_request) ?? vpRequestBody(body);
+      const requestOverride = {
+        ...(objectOrNull(body.presentation_request) ?? vpRequestBody(body)),
+        ...(body.response_type !== undefined ? { response_type: body.response_type } : {}),
+      };
       const session = await createVpSession(
         config,
         store,
