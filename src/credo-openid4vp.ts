@@ -35,6 +35,7 @@ import { OpenId4VcModule } from "@credo-ts/openid4vc";
 import express from "express";
 import { type JWK, compactDecrypt, exportJWK, generateKeyPair, importJWK } from "jose";
 import { VERIFIER_KEY_ID, verifierCertificatePath, verifierPrivateJwkPath } from "./config.js";
+import { signPresentationAuthorizationRequest } from "./openid4vp.js";
 import type { AppConfig, JsonRecord, VpSessionCapture } from "./types.js";
 
 const CREDO_VERIFIER_BASE_PATH = "/openid4vp/sessions";
@@ -135,25 +136,33 @@ export class CredoOpenId4VpVerifier {
   async createSession(
     sessionId: string,
     request: JsonRecord,
+    verifierDcqlQuery: JsonRecord,
     requestUriMethod: "get" | "post",
   ): Promise<CredoVpSession> {
     await this.ensureVerifier(sessionId);
     const responseMode = responseModeFromRequest(request);
+    const createAuthorizationRequest = (dcqlQuery: JsonRecord) =>
+      this.verifierApi().createAuthorizationRequest({
+        verifierId: sessionId,
+        requestSigner: {
+          method: "x5c",
+          clientIdPrefix: "x509_hash",
+          x5c: [this.verifierCertificate()],
+        },
+        responseMode,
+        version: "v1",
+        dcql: { query: dcqlQuery as never },
+      });
     const dcqlQuery = asRecord(request.dcql_query);
-    if (!dcqlQuery) throw new Error("dcql_query is required");
-
-    const created = await this.verifierApi().createAuthorizationRequest({
-      verifierId: sessionId,
-      requestSigner: {
-        method: "x5c",
-        clientIdPrefix: "x509_hash",
-        x5c: [this.verifierCertificate()],
-      },
-      responseMode,
-      version: "v1",
-      dcql: { query: dcqlQuery as never },
-    });
-    const authorizationRequest = created.verificationSession.requestPayload as JsonRecord;
+    const created = await (dcqlQuery
+      ? createAuthorizationRequest(dcqlQuery).catch(() =>
+          createAuthorizationRequest(verifierDcqlQuery),
+        )
+      : createAuthorizationRequest(verifierDcqlQuery));
+    const authorizationRequest: JsonRecord = {
+      ...(created.verificationSession.requestPayload as JsonRecord),
+      dcql_query: request.dcql_query,
+    };
     const requestUri = `${this.config.issuer_base_url}/openid4vp/sessions/${sessionId}/request`;
     const responseUri = String(authorizationRequest.response_uri);
     const deeplink = presentationRequestByReferenceDeeplink(
@@ -165,7 +174,10 @@ export class CredoOpenId4VpVerifier {
     return {
       sessionId,
       authorizationRequest,
-      authorizationRequestJwt: created.verificationSession.authorizationRequestJwt ?? "",
+      authorizationRequestJwt: await signPresentationAuthorizationRequest(
+        this.config,
+        authorizationRequest,
+      ),
       verificationSessionId: created.verificationSession.id,
       requestUri,
       responseUri,

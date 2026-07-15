@@ -334,26 +334,22 @@ describe("capture issuer server", () => {
     expect(response.body).toMatchObject({ error: "unsupported_request_uri_method" });
   });
 
-  it("rejects OpenID4VP sessions without a DCQL query", async () => {
+  it("passes arbitrary DCQL queries through to OpenID4VP wallets", async () => {
     const app = createApp(config);
-    const response = await request(app).post("/openid4vp/sessions").send({});
+    const dcqlQuery = {
+      credentials: [],
+      credential_sets: [{ options: ["missing_credential"], required: true }],
+      unknown_extension: { contradictory: true },
+    };
 
-    expect(response.status).toBe(400);
-    expect(response.body).toMatchObject({
-      error: "invalid_dcql_query",
-      error_description: "dcql_query is required",
-    });
-  });
+    const response = await request(app).post("/openid4vp/sessions").send({ dcql_query: dcqlQuery });
 
-  it("rejects OpenID4VP sessions with an invalid DCQL query", async () => {
-    const app = createApp(config);
-    const response = await request(app)
-      .post("/openid4vp/sessions")
-      .send({ dcql_query: { credentials: [] } });
-
-    expect(response.status).toBe(400);
-    expect(response.body).toMatchObject({ error: "invalid_dcql_query" });
-    expect(response.body.error_description).toContain("Array must be non-empty");
+    expect(response.status).toBe(201);
+    expect(response.body.authorization_request.dcql_query).toEqual(dcqlQuery);
+    const requestObject = await request(app).get(
+      `/openid4vp/sessions/${response.body.session_id}/request`,
+    );
+    expect(decodeJwt(requestObject.text).dcql_query).toEqual(dcqlQuery);
   });
 
   it("allows API callers to override the OpenID4VP presentation request", async () => {

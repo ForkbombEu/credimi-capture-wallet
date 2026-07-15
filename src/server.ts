@@ -17,7 +17,6 @@ import {
   supportedCredentialConfigurationIds,
   supportedCredentials,
 } from "./metadata.js";
-import { parseDcqlQuery } from "./openid4vp-validation.js";
 import {
   type OpenId4VpResponseMode,
   defaultPresentationRequest,
@@ -276,8 +275,6 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         return res.status(400).json({ error: "unsupported_response_mode" });
       }
       const requestOverride = objectOrNull(body.presentation_request) ?? vpRequestBody(body);
-      const dcqlQueryError = dcqlQueryValidationError(requestOverride.dcql_query);
-      if (dcqlQueryError) return res.status(400).json(dcqlQueryError);
       const session = await createVpSession(
         config,
         store,
@@ -882,21 +879,6 @@ function clientAuthenticationError(
   return { error: "invalid_client", error_description: "Client authentication is required" };
 }
 
-function dcqlQueryValidationError(value: unknown): JsonRecord | null {
-  if (value === undefined) {
-    return { error: "invalid_dcql_query", error_description: "dcql_query is required" };
-  }
-  try {
-    parseDcqlQuery(value);
-    return null;
-  } catch (error) {
-    return {
-      error: "invalid_dcql_query",
-      error_description: errorMessage(error),
-    };
-  }
-}
-
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -951,13 +933,23 @@ async function createVpSession(
   responseMode: OpenId4VpResponseMode = "direct_post.jwt",
 ): Promise<VpSessionCapture> {
   const sessionId = randomUUID();
+  const defaultRequest = defaultPresentationRequest(
+    config,
+    credentialConfigurationIds,
+    responseMode,
+  );
   const request = {
-    ...defaultPresentationRequest(config, credentialConfigurationIds, responseMode),
+    ...defaultRequest,
     ...requestOverride,
     response_mode: responseMode,
   };
   const credoVerifier = await credoOpenId4VpVerifier(config);
-  const credoSession = await credoVerifier.createSession(sessionId, request, requestUriMethod);
+  const credoSession = await credoVerifier.createSession(
+    sessionId,
+    request,
+    defaultRequest.dcql_query as JsonRecord,
+    requestUriMethod,
+  );
   const session = store.createVpSession(
     sessionId,
     credoSession.authorizationRequest,
