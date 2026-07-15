@@ -324,6 +324,22 @@ describe("capture issuer server", () => {
     expect(session.authorization_request.request_uri_method).toBeUndefined();
   });
 
+  it.each(["vp_token id_token", "code"])(
+    "passes the requested response_type %s through to the authorization request",
+    async (responseType) => {
+      const app = createApp(config);
+      const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+        response_type: responseType,
+      });
+
+      expect(session.authorization_request.response_type).toBe(responseType);
+      const requestObject = await request(app).get(
+        `/openid4vp/sessions/${session.session_id}/request`,
+      );
+      expect(decodeJwt(requestObject.text).response_type).toBe(responseType);
+    },
+  );
+
   it("rejects unsupported OpenID4VP request_uri_method values", async () => {
     const app = createApp(config);
     const response = await request(app)

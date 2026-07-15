@@ -295,6 +295,7 @@ function responseModeFromRequest(request: JsonRecord): "direct_post" | "direct_p
 
 function optionalAuthorizationRequestParameters(request: JsonRecord): JsonRecord {
   const parameters: JsonRecord = {};
+  if (request.response_type !== undefined) parameters.response_type = request.response_type;
   const scope = authorizationRequestScope(request);
   if (scope !== undefined) parameters.scope = scope;
   if (request.transaction_data !== undefined) {

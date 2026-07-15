@@ -249,6 +249,14 @@ curl -X POST http://localhost:8080/openid4vp/sessions \
 
 When `request_uri_method` is `post`, the QR deeplink also includes `request_uri_method=post`. The default is `get`.
 
+Set `response_type` explicitly when creating a session. The value is passed through to the signed authorization request, allowing wallets to be tested against response types they do not support:
+
+```sh
+curl -X POST http://localhost:8080/openid4vp/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"response_type":"vp_token id_token"}'
+```
+
 Create a presentation session with an API-supplied request override:
 
 ```sh
