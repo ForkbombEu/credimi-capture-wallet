@@ -1,125 +1,115 @@
-# Credimi Fake VCI Capture Issuer
+<div align="center">
 
-Credimi Fake VCI Capture Issuer is a local fake OpenID4VCI issuer for Credimi conformance work. It is not a production issuer.
+<img
+    src="https://raw.githubusercontent.com/ForkbombEu/credimi-capture-wallet/refs/heads/master/src/design/logo/credimi_logo.svg"
+    alt="credimi logo"
+    height="48"/>
 
-Its purpose is to drive an external Wallet through an authorization-code issuance flow and capture the Wallet protocol values needed by OpenID Foundation VCI Wallet tests.
+# Credimi Capture Wallet Metadata <!-- omit in toc -->
 
-## What It Captures
+### Use credimi test issuer and verifier to get a PID and verify it capturing metadata and calls during the process. <!-- omit in toc -->
 
-- Wallet OAuth `client_id`
-- Wallet `redirect_uri`
-- Wallet holder-binding public key as JWKS from credential proof JWT headers
-- DPoP public JWK when present
-- structured flow events for debugging and evidence
+</div>
 
-The implementation exposes compatibility endpoints directly and keeps the credential response minimal so the Wallet reaches `/credential`. At the end of the flow it uses Credo-TS to issue a holder-bound EEA SD-JWT VC with demo PID claims and Credimi branding.
+<br>
 
-## Quick Start
 
-Install dependencies:
+During the credential issue the service captures:
+- Wallet OAuth client identifier: `client_id`
+- Wallet authorization callback: `redirect_uri`
+- Holder-binding public key from proof headers: `wallet_jwks`
+- DPoP public key when present: `dpop_jwk`
+
+During the credential verification the service captures:
+- Verifier request object sent to the wallet: `authorization_request`
+- Wallet payload when request_uri_method is post: `request_uri_payload`
+- Wallet presentation response including vp_token: `wallet_response`
+- Decrypted wallet presentation response: `presentation_response_decrypted` (usefull when response_mode is set to `direct_post.jwt`)
+- Decoded claims from verified presentations: `decoded_presentations`
+- Verifier checks for nonce, holder binding, and DCQL matching: `presentation_validation`
+
+<br>
+
+---
+
+<div id="toc">
+
+### 🚩 Table of contents <!-- omit in toc -->
+
+- [🚀 Quick Start](#-quick-start)
+- [🏗️ Run your services](#️-run-your-services)
+- [📡 Hosted REST API](#-hosted-rest-api)
+  - [🪪 OpenID4VCI Issuance Flow](#-openid4vci-issuance-flow)
+  - [🛂 OpenID4VP Presentation Flow](#-openid4vp-presentation-flow)
+- [⚙️ Configuration](#️-configuration)
+- [💼 License](#-license)
+
+</div>
+
+---
+
+## 🚀 Quick Start
+
+Visit https://capture-wallet.credimi.io/ and start issuing and verifiying PID in dc+sd-jwt and mdoc format.
+
+Once you have choose what type of credential:
+* Click on `New fake-issuance session` to open an OpenID4VCI QR session. Scan the QR with an EUDI Wallet. The session page updates as Wallet metadata, proof keys, DPoP keys, checks, and flow events are observed.
+* Clicking `New presentation session` to open an OpenID4VP QR session. The QR contains a presentation request for the credentials supported by this issuer. The page updates when the Wallet retrieves the request and posts the presentation response.
+
+
+**[🔝 back to top](#toc)**
+
+---
+
+## 🏗️ Run your services
+
+To run your own issuer and verifier:
 
 ```sh
 pnpm install
-```
-
-Create local environment settings:
-
-```sh
 cp env.example .env
-```
 
-Initialize issuer state:
-
-```sh
-pnpm fake-issuer init \
-  --issuer-base-url https://issuer.example.test \
+# create services keys and metadata
+pnpm capture-services init \
+  --services-base-url https://issuer.example.test \
   --data-dir ./data \
   --credential-configuration-id urn:eu.europa.ec.eudi:pid:1
-```
 
-Start the issuer:
-
-```sh
+# start the issuer
 pnpm dev
 ```
 
-Default local issuer URL is `http://localhost:8080`.
-
-## GUI
-
-The browser GUI is enabled by default.
-
-Open:
-
-```text
-http://localhost:8080/
-```
-
-From the launcher, click `New fake-issuance session` to open a QR session in a new tab. Scan the QR with an EUDI Wallet. The session page updates as Wallet metadata, proof keys, DPoP keys, checks, and flow events are observed.
-
-Click `New presentation session` to open an OpenID4VP QR session. The QR contains a presentation request for the credentials supported by this issuer. The page updates when the Wallet retrieves the request and posts the presentation response.
-
-The GUI includes a `Help` button that opens the project README on GitHub in a new tab:
-
-```text
-https://github.com/ForkbombEu/fake-issuer/blob/master/README.md
-```
-
-Disable the GUI by setting `GUI_ENABLED=false` in `.env`:
+Default local issuer URL is `http://localhost:8080`. You can select your port using
 
 ```sh
-GUI_ENABLED=false
+PORT=22000 pnpm dev
 ```
 
-When disabled, `/`, `/ui/help`, and `/ui/sessions/*` are unavailable. API endpoints remain available.
+**[🔝 back to top](#toc)**
 
-## Hosted REST API
+---
 
-The deployed capture issuer is available at:
+## 📡 Hosted REST API
 
-```text
-https://capture-wallet.credimi.io
-```
+Common available REST API are:
+* Healt: `/healthz`
+* Credential Issuer well-known: `/.well-known/openid-credential-issuer`
+* Authorization server well-knwon: `/.well-known/oauth-authorization-server`
+* Credential Issuer jwks: `/jwks.json`
 
-Use the REST API to create a wallet capture session, hand the returned deeplink to a Wallet, and retrieve the values observed during the OpenID4VCI issuance flow. The service is intended for test and conformance workflows, not production credential issuance.
+### 🪪 OpenID4VCI Issuance Flow
 
-Set the base URL once for shell examples:
+> [!IMPORTANT]
+> BASE_URL is the `--services-base-url` you set during the setup, to use our hosted services use `https://capture-wallet.credimi.io`
 
-```sh
-BASE_URL=https://capture-wallet.credimi.io
-```
 
-Check service health:
-
-```sh
-curl "$BASE_URL/healthz"
-```
-
-Fetch issuer metadata:
-
-```sh
-curl "$BASE_URL/.well-known/openid-credential-issuer"
-curl "$BASE_URL/.well-known/oauth-authorization-server"
-curl "$BASE_URL/.well-known/jwt-vc-issuer"
-curl "$BASE_URL/jwks.json"
-```
-
-Create a capture session with the default credential configuration:
-
+Start by creating a capture session for a credential configuration (that is the `--credential-configuration-id` used during the setup + `.jwt` for dc+sd-sjwt or + `.mdoc.jwt` for mdoc):
 ```sh
 curl -X POST "$BASE_URL/sessions"
-```
-
-Create a capture session for a specific credential configuration:
-
-```sh
-curl -X POST "$BASE_URL/sessions" \
   -H 'Content-Type: application/json' \
   -d '{"credential_configuration_id":"urn:eu.europa.ec.eudi:pid:1.mdoc.jwt"}'
 ```
-
 A successful response returns HTTP 201 and includes:
-
 ```json
 {
   "session_id": "...",
@@ -132,90 +122,72 @@ A successful response returns HTTP 201 and includes:
 
 Open or transmit the returned `deeplink` to the Wallet under test. The Wallet will call the issuer metadata, PAR, authorization, token, nonce, and credential endpoints directly during the OpenID4VCI flow.
 
-Retrieve the deeplink again when needed:
+For each session you can get different information:
+* deeplink:
+    ```sh
+    curl "$BASE_URL/sessions/{sessionId}/deeplink"
+    ```
+* Normalized capture object:
+    ```sh
+    curl "$BASE_URL/sessions/{sessionId}"
+    ```
+* Event evidence for debugging or conformance records:
+    ```sh
+    curl "$BASE_URL/sessions/{sessionId}/events"
+    ```
+* Captured Wallet holder-binding JWKS after the Wallet has called `/credential` with a proof JWT containing `header.jwk`:
+    ```sh
+    curl "$BASE_URL/sessions/{sessionId}/jwks"
+    ```
+    If the JWKS is not ready, the service returns HTTP 409 with `wallet_jwks_not_observed`. In that case, inspect the session object and event evidence to confirm whether the Wallet sent only `kid`, `x5c`, or no proof JWT header key material.
 
+### 🛂 OpenID4VP Presentation Flow
+
+> [!IMPORTANT]
+> BASE_URL is the `--services-base-url` you set during the setup, to use our hosted services use `https://capture-wallet.credimi.io`
+
+Create a presentation session:
 ```sh
-curl "$BASE_URL/sessions/{sessionId}/deeplink"
+curl -X POST "$BASE_URL/openid4vp/sessions"\
+  -H 'Content-Type: application/json'\
+  -d '{
+    "request_uri_method":"post",
+    "request_delivery":"by_reference",
+    "response_type":"vp_token",
+    "response_mode":"direct_post.jwt",
+    "presentation_request": {
+      "nonce": "external-nonce",
+      "dcql_query": {
+        "credentials": [
+          {
+            "id": "credential",
+            "format": "mso_mdoc",
+            "meta": {
+              "doctype_value": [
+                eu.europa.ec.eudi.pid.1
+              ]
+            },
+            "claims": [
+              {
+                "path": [
+                  "eu.europa.ec.eudi.pid.1",
+                  "family_name"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  }'
 ```
+Where:
+* `request_uri_method` can be `get` or `post`, default is `get`
+* `request_delivery` can be `by_reference` or `by_value`, default is `by_reference`
+* `response_type` can be `vp_token` or `vp_token id_token` or `code`, but during presentation verification only `vp_token` is supported, default is `vp_token`
+* `response_mode` can be `direct_post` or `direct_post.jwt`, default is `direct_post.jwt`
 
-Retrieve the normalized capture object:
-
-```sh
-curl "$BASE_URL/sessions/{sessionId}"
-```
-
-Retrieve event evidence for debugging or conformance records:
-
-```sh
-curl "$BASE_URL/sessions/{sessionId}/events"
-```
-
-Retrieve the captured Wallet holder-binding JWKS after the Wallet has called `/credential` with a proof JWT containing `header.jwk`:
-
-```sh
-curl "$BASE_URL/sessions/{sessionId}/jwks"
-```
-
-If the JWKS is not ready, the service returns HTTP 409 with `wallet_jwks_not_observed`. In that case, inspect the session object and event evidence to confirm whether the Wallet sent only `kid`, `x5c`, or no proof JWT header key material.
-
-For OIDF VCI Wallet conformance tests, use these captured values:
-
-- JWKS: response from `GET /sessions/{sessionId}/jwks`
-- `client_id`: `observed.client_id.value` from `GET /sessions/{sessionId}`
-- `redirect_uri`: `observed.redirect_uri.value` from `GET /sessions/{sessionId}`
-
-## API Capture Flow
-
-Create a session:
-
-```sh
-curl -X POST http://localhost:8080/sessions
-```
-
-Choose a specific credential configuration for the offer:
-
-```sh
-curl -X POST http://localhost:8080/sessions \
-  -H 'Content-Type: application/json' \
-  -d '{"credential_configuration_id":"urn:eu.europa.ec.eudi:pid:1.mdoc.jwt"}'
-```
-
-The issuer metadata exposes matching proof-specific scopes:
-
-- `urn:eu.europa.ec.eudi:pid:1.jwt`
-- `urn:eu.europa.ec.eudi:pid:1.mdoc.jwt`
-
-Get a Wallet deeplink:
-
-```sh
-curl http://localhost:8080/sessions/{sessionId}/deeplink
-```
-
-Retrieve the captured Wallet JWKS:
-
-```sh
-curl http://localhost:8080/sessions/{sessionId}/jwks
-```
-
-Retrieve the full normalized capture object:
-
-```sh
-curl http://localhost:8080/sessions/{sessionId}
-```
-
-Retrieve event evidence:
-
-```sh
-curl http://localhost:8080/sessions/{sessionId}/events
-```
-
-## OpenID4VP Presentation Flow
-
-Create a presentation session with the default request for this issuer's supported credentials:
-
-```sh
-curl -X POST http://localhost:8080/openid4vp/sessions
-```
+Optional `scopes`, `transaction_data`, and `verifier_info` values can be supplied at the top level or within `presentation_request`. `scopes` accepts a string or an array of strings and is emitted as the standard space-delimited `scope` authorization-request parameter. The other two values are included unchanged in the signed request object.
 
 A successful response returns HTTP 201 and includes:
 
@@ -223,10 +195,10 @@ A successful response returns HTTP 201 and includes:
 {
   "session_id": "...",
   "request_delivery": "by_reference",
-  "request_uri": "http://localhost:8080/openid4vp/sessions/.../request",
-  "request_uri_method": "get",
+  "request_uri": "$BASE_URL/openid4vp/sessions/.../request",
+  "request_uri_method": "post",
   "response_mode": "direct_post.jwt",
-  "response_uri": "http://localhost:8080/openid4vp/sessions/.../response",
+  "response_uri": "$BASE_URL/openid4vp/sessions/.../response",
   "deeplink": "openid4vp://...",
   "authorization_request": {
     "client_id": "x509_hash:...",
@@ -240,100 +212,25 @@ A successful response returns HTTP 201 and includes:
 
 The QR deeplink contains `client_id=x509_hash:...` and `request_uri=...`. The request URI returns a signed `application/oauth-authz-req+jwt` request object with the verifier certificate in the JWS `x5c` header. By default the verifier uses `direct_post.jwt`, advertises an ephemeral JARM encryption key in `client_metadata.jwks`, captures the posted encrypted response, and stores the decrypted response in the session raw data after validation. Pass `"response_mode":"direct_post"` when creating a session if you need plaintext capture.
 
-Set the request URI method explicitly when creating the session:
+In this case for each session you can get:
+* Normalized capture object:
+  ```sh
+  curl "$BASE_URL/openid4vp/sessions/{sessionId}"
+  ```
+* Event evidence for debugging or conformance records:
+  ```sh
+  curl "$BASE_URL/openid4vp/sessions/{sessionId}/events"
+  ```
 
-```sh
-curl -X POST http://localhost:8080/openid4vp/sessions \
-  -H 'Content-Type: application/json' \
-  -d '{"request_uri_method":"post"}'
-```
+**[🔝 back to top](#toc)**
 
-When `request_uri_method` is `post`, the QR deeplink also includes `request_uri_method=post`. The default is `get`.
+---
 
-Deliver the signed request object directly in the QR deeplink instead of using `request_uri`:
+## ⚙️ Configuration
 
-```sh
-curl -X POST http://localhost:8080/openid4vp/sessions \
-  -H 'Content-Type: application/json' \
-  -d '{"request_delivery":"by_value"}'
-```
+Runtime configuration comes from generated services config and environment variables.
 
-This produces an `openid4vp://` deeplink with `client_id` and a signed `request` JWT, without `request_uri`. `request_delivery` defaults to `by_reference`, which preserves the existing `request_uri` flow. By-value links can exceed practical QR-code limits for larger presentation requests, so by-reference remains the default. `request_uri_method` is only valid with by-reference delivery.
-
-Set `response_type` explicitly when creating a session. The value is passed through to the signed authorization request, allowing wallets to be tested against response types they do not support:
-
-```sh
-curl -X POST http://localhost:8080/openid4vp/sessions \
-  -H 'Content-Type: application/json' \
-  -d '{"response_type":"vp_token id_token"}'
-```
-
-Create a presentation session with an API-supplied request override:
-
-```sh
-curl -X POST http://localhost:8080/openid4vp/sessions \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "presentation_request": {
-      "nonce": "external-nonce",
-      "dcql_query": {
-        "credentials": [
-          {
-            "id": "email_credential",
-            "format": "dc+sd-jwt",
-            "meta": { "vct_values": ["https://example.test/email"] },
-            "claims": [{ "path": ["email"] }]
-          }
-        ]
-      }
-    }
-  }'
-```
-
-Optional `scopes`, `transaction_data`, and `verifier_info` values can be supplied at the top level or within `presentation_request`. `scopes` accepts a string or an array of strings and is emitted as the standard space-delimited `scope` authorization-request parameter. The other two values are included unchanged in the signed request object.
-
-Retrieve the request object referenced by the QR:
-
-```sh
-curl -H 'Accept: application/oauth-authz-req+jwt' \
-  http://localhost:8080/openid4vp/sessions/{sessionId}/request
-```
-
-Wallets that use request URI method `post` can provide `wallet_nonce`:
-
-```sh
-curl -X POST http://localhost:8080/openid4vp/sessions/{sessionId}/request \
-  -H 'Content-Type: application/x-www-form-urlencoded' \
-  -d 'wallet_nonce=wallet-generated-nonce'
-```
-
-Retrieve the capture object:
-
-```sh
-curl http://localhost:8080/openid4vp/sessions/{sessionId}
-```
-
-Retrieve event evidence:
-
-```sh
-curl http://localhost:8080/openid4vp/sessions/{sessionId}/events
-```
-
-## Conformance Values
-
-Pass these captured values into the OIDF VCI Wallet conformance test:
-
-- JWKS: `GET /sessions/{sessionId}/jwks`
-- `client_id`: `observed.client_id.value` from `GET /sessions/{sessionId}`
-- `redirect_uri`: `observed.redirect_uri.value` from `GET /sessions/{sessionId}`
-
-## Configuration
-
-Runtime configuration comes from generated issuer config and environment variables.
-
-### Issuer Config
-
-`pnpm fake-issuer init` is idempotent and writes generated issuer, verifier, and config files below `./data`, which is ignored by Git. Use `--force` to replace existing generated state.
+`pnpm capture-services init` is idempotent and writes generated issuer, verifier, and config files below `./data`, which is ignored by Git. Use `--force` to replace existing generated state.
 
 Issuer material:
 
@@ -353,36 +250,14 @@ data/verifier-jwks.json
 
 To use a specific verifier key, replace `verifier-private-jwk.json` with an ES256 private JWK and replace `verifier-certificate.pem` with a certificate for the matching public key. Do not use `init --force` after replacing verifier material unless you want it regenerated. The verifier `x509_hash` client identifier is derived from `verifier-certificate.pem`, and signed request objects are signed with `verifier-private-jwk.json`.
 
-### Environment
-
-`.env` is loaded automatically when present and is ignored by Git. Use `env.example` as the template.
-
-Supported environment variables:
-
+From env file `.env`, that is loaded automatically when present, you can set:
 - `GUI_ENABLED`: enables or disables browser GUI routes. Defaults to `true`.
 - `PORT`: overrides the configured listen port.
 
-Example:
+**[🔝 back to top](#toc)**
 
-```sh
-PORT=3000 pnpm dev
-```
+---
 
-## Troubleshooting
-
-If `/sessions/{sessionId}/jwks` returns `wallet_jwks_not_observed`, the Wallet did not send a credential proof JWT with `header.jwk`.
-
-Inspect `/sessions/{sessionId}/events` and the session `raw.proof_headers` field to see whether only `kid` or `x5c` was present.
-
-## License
+## 💼 License
 
 Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE).
-
-## Validation
-
-```sh
-task format
-task lint
-task test
-task build
-```
