@@ -222,6 +222,7 @@ A successful response returns HTTP 201 and includes:
 ```json
 {
   "session_id": "...",
+  "request_delivery": "by_reference",
   "request_uri": "http://localhost:8080/openid4vp/sessions/.../request",
   "request_uri_method": "get",
   "response_mode": "direct_post.jwt",
@@ -248,6 +249,16 @@ curl -X POST http://localhost:8080/openid4vp/sessions \
 ```
 
 When `request_uri_method` is `post`, the QR deeplink also includes `request_uri_method=post`. The default is `get`.
+
+Deliver the signed request object directly in the QR deeplink instead of using `request_uri`:
+
+```sh
+curl -X POST http://localhost:8080/openid4vp/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"request_delivery":"by_value"}'
+```
+
+This produces an `openid4vp://` deeplink with `client_id` and a signed `request` JWT, without `request_uri`. `request_delivery` defaults to `by_reference`, which preserves the existing `request_uri` flow. By-value links can exceed practical QR-code limits for larger presentation requests, so by-reference remains the default. `request_uri_method` is only valid with by-reference delivery.
 
 Set `response_type` explicitly when creating a session. The value is passed through to the signed authorization request, allowing wallets to be tested against response types they do not support:
 

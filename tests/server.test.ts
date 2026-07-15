@@ -261,6 +261,7 @@ describe("capture issuer server", () => {
     });
 
     expect(session.status).toBe("created");
+    expect(session.request_delivery).toBe("by_reference");
     expect(session.request_uri_method).toBe("get");
     expect(session.request_uri).toBe(
       `${config.issuer_base_url}/openid4vp/sessions/${session.session_id}/request`,
@@ -324,6 +325,28 @@ describe("capture issuer server", () => {
     expect(session.authorization_request.request_uri_method).toBeUndefined();
   });
 
+  it("creates OpenID4VP sessions that deliver the signed request object by value", async () => {
+    const app = createApp(config);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      request_delivery: "by_value",
+      dcql_query: dcqlForClaims(["family_name"]),
+    });
+
+    const deeplink = new URL(session.deeplink);
+    const requestObject = deeplink.searchParams.get("request");
+    expect(session.request_delivery).toBe("by_value");
+    expect(deeplink.searchParams.get("client_id")).toBe(session.authorization_request.client_id);
+    expect(deeplink.searchParams.has("request_uri")).toBe(false);
+    expect(deeplink.searchParams.has("request_uri_method")).toBe(false);
+    expect(requestObject).toEqual(expect.any(String));
+    expect(decodeJwt(requestObject ?? "")).toMatchObject(session.authorization_request);
+    expect(decodeProtectedHeader(requestObject ?? "")).toMatchObject({
+      alg: "ES256",
+      typ: "oauth-authz-req+jwt",
+      x5c: [expect.any(String)],
+    });
+  });
+
   it.each(["vp_token id_token", "code"])(
     "passes the requested response_type %s through to the authorization request",
     async (responseType) => {
@@ -358,6 +381,29 @@ describe("capture issuer server", () => {
 
     expect(response.status).toBe(400);
     expect(response.body).toMatchObject({ error: "unsupported_request_uri_method" });
+  });
+
+  it("rejects request_uri_method for by-value OpenID4VP request delivery", async () => {
+    const app = createApp(config);
+    const response = await request(app).post("/openid4vp/sessions").send({
+      request_delivery: "by_value",
+      request_uri_method: "post",
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({
+      error: "request_uri_method_requires_by_reference_delivery",
+    });
+  });
+
+  it("rejects unsupported OpenID4VP request delivery values", async () => {
+    const app = createApp(config);
+    const response = await request(app)
+      .post("/openid4vp/sessions")
+      .send({ request_delivery: "direct" });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({ error: "unsupported_request_delivery" });
   });
 
   it("passes arbitrary DCQL queries through to OpenID4VP wallets", async () => {
@@ -1358,6 +1404,7 @@ interface CredentialResponse extends JsonRecord {
 
 interface VpSessionCreateResponse extends JsonRecord {
   session_id: string;
+  request_delivery: "by_reference" | "by_value";
   request_uri: string;
   request_uri_method: "get" | "post";
   response_uri: string;

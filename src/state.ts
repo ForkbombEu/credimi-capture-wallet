@@ -76,6 +76,7 @@ export class CaptureStore {
   createVpSession(
     sessionId: string,
     authorizationRequest: JsonRecord,
+    requestDelivery: "by_reference" | "by_value",
     requestUriMethod: "get" | "post",
     responseMode: "direct_post" | "direct_post.jwt",
     urls?: {
@@ -91,6 +92,7 @@ export class CaptureStore {
     const session: VpSessionCapture = {
       session_id: sessionId,
       status: "created",
+      request_delivery: requestDelivery,
       request_uri_method: requestUriMethod,
       response_mode: responseMode,
       authorization_request: authorizationRequest,

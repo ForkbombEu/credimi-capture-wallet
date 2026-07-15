@@ -270,6 +270,13 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       if (body.request_uri_method !== undefined && !requestUriMethod) {
         return res.status(400).json({ error: "unsupported_request_uri_method" });
       }
+      const requestDelivery = requestDeliveryOrNull(body.request_delivery);
+      if (body.request_delivery !== undefined && !requestDelivery) {
+        return res.status(400).json({ error: "unsupported_request_delivery" });
+      }
+      if (requestDelivery === "by_value" && requestUriMethod) {
+        return res.status(400).json({ error: "request_uri_method_requires_by_reference_delivery" });
+      }
       const responseMode = responseModeOrNull(body.response_mode);
       if (body.response_mode !== undefined && !responseMode) {
         return res.status(400).json({ error: "unsupported_response_mode" });
@@ -285,10 +292,12 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         undefined,
         requestUriMethod ?? "get",
         responseMode ?? "direct_post.jwt",
+        requestDelivery ?? "by_reference",
       );
       store.addEvent(session, "vp_deeplink_generated", {});
       return res.status(201).json({
         session_id: session.session_id,
+        request_delivery: session.request_delivery,
         request_uri: session.request_uri,
         request_uri_method: session.request_uri_method,
         response_mode: session.response_mode,
@@ -934,6 +943,7 @@ async function createVpSession(
   credentialConfigurationIds?: string[],
   requestUriMethod: "get" | "post" = "get",
   responseMode: OpenId4VpResponseMode = "direct_post.jwt",
+  requestDelivery: "by_reference" | "by_value" = "by_reference",
 ): Promise<VpSessionCapture> {
   const sessionId = randomUUID();
   const defaultRequest = defaultPresentationRequest(
@@ -952,10 +962,12 @@ async function createVpSession(
     request,
     defaultRequest.dcql_query as JsonRecord,
     requestUriMethod,
+    requestDelivery,
   );
   const session = store.createVpSession(
     sessionId,
     credoSession.authorizationRequest,
+    requestDelivery,
     requestUriMethod,
     responseMode,
     {
@@ -1033,7 +1045,18 @@ function responseModeOrNull(value: unknown): OpenId4VpResponseMode | null {
   return normalized === "direct_post" || normalized === "direct_post.jwt" ? normalized : null;
 }
 
+function requestDeliveryOrNull(value: unknown): "by_reference" | "by_value" | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.toLowerCase();
+  return normalized === "by_reference" || normalized === "by_value" ? normalized : null;
+}
+
 function vpRequestBody(body: JsonRecord): JsonRecord {
-  const { request_uri_method: _requestUriMethod, response_mode: _responseMode, ...request } = body;
+  const {
+    request_delivery: _requestDelivery,
+    request_uri_method: _requestUriMethod,
+    response_mode: _responseMode,
+    ...request
+  } = body;
   return request;
 }

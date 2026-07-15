@@ -112,6 +112,7 @@ export interface SessionCapture {
 export interface VpSessionCapture {
   session_id: string;
   status: string;
+  request_delivery: "by_reference" | "by_value";
   request_uri_method: "get" | "post";
   response_mode: "direct_post" | "direct_post.jwt";
   authorization_request: JsonRecord;

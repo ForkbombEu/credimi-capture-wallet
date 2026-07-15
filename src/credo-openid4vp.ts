@@ -138,6 +138,7 @@ export class CredoOpenId4VpVerifier {
     request: JsonRecord,
     verifierDcqlQuery: JsonRecord,
     requestUriMethod: "get" | "post",
+    requestDelivery: "by_reference" | "by_value",
   ): Promise<CredoVpSession> {
     await this.ensureVerifier(sessionId);
     const responseMode = responseModeFromRequest(request);
@@ -166,19 +167,23 @@ export class CredoOpenId4VpVerifier {
     };
     const requestUri = `${this.config.issuer_base_url}/openid4vp/sessions/${sessionId}/request`;
     const responseUri = String(authorizationRequest.response_uri);
-    const deeplink = presentationRequestByReferenceDeeplink(
+    const authorizationRequestJwt = await signPresentationAuthorizationRequest(
+      this.config,
       authorizationRequest,
-      requestUri,
-      requestUriMethod,
     );
+    const deeplink =
+      requestDelivery === "by_value"
+        ? presentationRequestByValueDeeplink(authorizationRequest, authorizationRequestJwt)
+        : presentationRequestByReferenceDeeplink(
+            authorizationRequest,
+            requestUri,
+            requestUriMethod,
+          );
 
     return {
       sessionId,
       authorizationRequest,
-      authorizationRequestJwt: await signPresentationAuthorizationRequest(
-        this.config,
-        authorizationRequest,
-      ),
+      authorizationRequestJwt,
       verificationSessionId: created.verificationSession.id,
       requestUri,
       responseUri,
@@ -282,6 +287,17 @@ function presentationRequestByReferenceDeeplink(
     request_uri: requestUri,
   });
   if (requestUriMethod === "post") params.set("request_uri_method", "post");
+  return `openid4vp://?${params.toString()}`;
+}
+
+function presentationRequestByValueDeeplink(
+  authorizationRequest: JsonRecord,
+  authorizationRequestJwt: string,
+): string {
+  const params = new URLSearchParams({
+    client_id: String(authorizationRequest.client_id),
+    request: authorizationRequestJwt,
+  });
   return `openid4vp://?${params.toString()}`;
 }
 
