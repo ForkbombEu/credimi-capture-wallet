@@ -36,4 +36,4 @@ tasks:
 
   init:
     cmds:
-      - pnpm fake-issuer init
+      - pnpm capture-services init

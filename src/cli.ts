@@ -18,7 +18,8 @@ async function main(): Promise<void> {
 
   if (command === "init") {
     const config = await initIssuer({
-      issuer_base_url: typeof args.issuer_base_url === "string" ? args.issuer_base_url : undefined,
+      issuer_base_url:
+        typeof args.services_base_url === "string" ? args.services_base_url : undefined,
       data_dir: typeof args.data_dir === "string" ? args.data_dir : undefined,
       credential_configuration_id:
         typeof args.credential_configuration_id === "string"
@@ -39,7 +40,7 @@ async function main(): Promise<void> {
     const server = createServer(app);
     server.listen(port, host, () => {
       console.log(ASCII_HEADER);
-      console.log(`fake issuer listening on ${host ?? "0.0.0.0"}:${port}`);
+      console.log(`capture services listening on ${host ?? "0.0.0.0"}:${port}`);
     });
     return;
   }

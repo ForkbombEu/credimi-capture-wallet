@@ -5,7 +5,7 @@
   "license": "Apache-2.0",
   "type": "module",
   "bin": {
-    "fake-issuer": "./src/cli.ts"
+    "capture-services": "./src/cli.ts"
   },
   "scripts": {
     "dev": "tsx watch src/cli.ts serve",
@@ -13,7 +13,7 @@
     "test": "vitest run",
     "lint": "biome check .",
     "format": "biome format --write .",
-    "fake-issuer": "tsx src/cli.ts",
+    "capture-services": "tsx src/cli.ts",
     "run": "tsx src/cli.ts serve",
     "init": "tsx src/cli.ts init"
   },
