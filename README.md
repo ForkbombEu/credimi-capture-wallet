@@ -271,6 +271,8 @@ curl -X POST http://localhost:8080/openid4vp/sessions \
   }'
 ```
 
+Optional `scopes`, `transaction_data`, and `verifier_info` values can be supplied at the top level or within `presentation_request`. `scopes` accepts a string or an array of strings and is emitted as the standard space-delimited `scope` authorization-request parameter. The other two values are included unchanged in the signed request object.
+
 Retrieve the request object referenced by the QR:
 
 ```sh

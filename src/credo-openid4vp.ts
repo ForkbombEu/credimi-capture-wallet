@@ -162,6 +162,7 @@ export class CredoOpenId4VpVerifier {
     const authorizationRequest: JsonRecord = {
       ...(created.verificationSession.requestPayload as JsonRecord),
       dcql_query: request.dcql_query,
+      ...optionalAuthorizationRequestParameters(request),
     };
     const requestUri = `${this.config.issuer_base_url}/openid4vp/sessions/${sessionId}/request`;
     const responseUri = String(authorizationRequest.response_uri);
@@ -290,6 +291,23 @@ function readCertificate(dataDir: string): string {
 
 function responseModeFromRequest(request: JsonRecord): "direct_post" | "direct_post.jwt" {
   return request.response_mode === "direct_post" ? "direct_post" : "direct_post.jwt";
+}
+
+function optionalAuthorizationRequestParameters(request: JsonRecord): JsonRecord {
+  const parameters: JsonRecord = {};
+  const scope = authorizationRequestScope(request);
+  if (scope !== undefined) parameters.scope = scope;
+  if (request.transaction_data !== undefined) {
+    parameters.transaction_data = request.transaction_data;
+  }
+  if (request.verifier_info !== undefined) parameters.verifier_info = request.verifier_info;
+  return parameters;
+}
+
+function authorizationRequestScope(request: JsonRecord): unknown {
+  if (request.scope !== undefined) return request.scope;
+  if (!Array.isArray(request.scopes)) return request.scopes;
+  return request.scopes.map(String).join(" ");
 }
 
 function credoErrorMessage(error: unknown, fallback?: string): string {

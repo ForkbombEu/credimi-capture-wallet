@@ -378,6 +378,36 @@ describe("capture issuer server", () => {
     expect(session.authorization_request.response_uri).toBe(session.response_uri);
   });
 
+  it("sets optional scope, transaction data, and verifier info in OpenID4VP requests", async () => {
+    const app = createApp(config);
+    const transactionData = ["eyJ0eXBlIjoiZXhhbXBsZSJ9"];
+    const verifierInfo = [
+      {
+        format: "jwt",
+        data: "example-verifier-attestation",
+        credential_ids: ["query_0"],
+      },
+    ];
+
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      scopes: ["org.example.pid", "org.example.age_over_18"],
+      transaction_data: transactionData,
+      verifier_info: verifierInfo,
+    });
+
+    expect(session.authorization_request.scope).toBe("org.example.pid org.example.age_over_18");
+    expect(session.authorization_request.transaction_data).toEqual(transactionData);
+    expect(session.authorization_request.verifier_info).toEqual(verifierInfo);
+
+    const requestObject = await request(app).get(
+      `/openid4vp/sessions/${session.session_id}/request`,
+    );
+    const requestObjectClaims = decodeJwt(requestObject.text) as JsonRecord;
+    expect(requestObjectClaims.scope).toBe("org.example.pid org.example.age_over_18");
+    expect(requestObjectClaims.transaction_data).toEqual(transactionData);
+    expect(requestObjectClaims.verifier_info).toEqual(verifierInfo);
+  });
+
   it("serves OpenID4VP request_uri objects and captures invalid wallet presentation responses", async () => {
     const app = createApp(config);
     const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
