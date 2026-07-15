@@ -23,8 +23,8 @@ During the credential issue the service captures:
 During the credential verification the service captures:
 - Verifier request object sent to the wallet: `authorization_request`
 - Wallet payload when request_uri_method is post: `request_uri_payload`
-- Wallet presentation response including vp_token: `wallet_response`
-- Decrypted wallet presentation response: `presentation_response_decrypted` (usefull when response_mode is set to `direct_post.jwt`)
+- Wallet presentation response: `wallet_response`
+- Decrypted wallet presentation response: `presentation_response_decrypted` (useful when response_mode is set to `direct_post.jwt`)
 - Decoded claims from verified presentations: `decoded_presentations`
 - Verifier checks for nonce, holder binding, and DCQL matching: `presentation_validation`
 
@@ -50,11 +50,11 @@ During the credential verification the service captures:
 
 ## 🚀 Quick Start
 
-Visit https://capture-wallet.credimi.io/ and start issuing and verifiying PID in dc+sd-jwt and mdoc format.
+Visit https://capture-wallet.credimi.io/ and start issuing and verifying PID in dc+sd-jwt and mdoc format.
 
-Once you have choose what type of credential:
+Once you have chosen what type of credential:
 * Click on `New fake-issuance session` to open an OpenID4VCI QR session. Scan the QR with an EUDI Wallet. The session page updates as Wallet metadata, proof keys, DPoP keys, checks, and flow events are observed.
-* Clicking `New presentation session` to open an OpenID4VP QR session. The QR contains a presentation request for the credentials supported by this issuer. The page updates when the Wallet retrieves the request and posts the presentation response.
+* Click on `New presentation session` to open an OpenID4VP QR session. The QR contains a presentation request for the credentials supported by this issuer. The page updates when the Wallet retrieves the request and posts the presentation response.
 
 
 **[🔝 back to top](#toc)**
@@ -75,7 +75,7 @@ pnpm capture-services init \
   --data-dir ./data \
   --credential-configuration-id urn:eu.europa.ec.eudi:pid:1
 
-# start the issuer
+# start the services
 pnpm dev
 ```
 
@@ -91,21 +91,21 @@ PORT=22000 pnpm dev
 
 ## 📡 Hosted REST API
 
-Common available REST API are:
-* Healt: `/healthz`
+Common REST API endpoints are:
+* Health: `/healthz`
 * Credential Issuer well-known: `/.well-known/openid-credential-issuer`
-* Authorization server well-knwon: `/.well-known/oauth-authorization-server`
+* Authorization server well-known: `/.well-known/oauth-authorization-server`
 * Credential Issuer jwks: `/jwks.json`
 
 ### 🪪 OpenID4VCI Issuance Flow
 
 > [!IMPORTANT]
-> BASE_URL is the `--services-base-url` you set during the setup, to use our hosted services use `https://capture-wallet.credimi.io`
+> BASE_URL must be the `--services-base-url` you set during the setup, to use our hosted services use `https://capture-wallet.credimi.io`
 
 
-Start by creating a capture session for a credential configuration (that is the `--credential-configuration-id` used during the setup + `.jwt` for dc+sd-sjwt or + `.mdoc.jwt` for mdoc):
+Start by creating a capture session for a credential configuration (that is the `--credential-configuration-id` used during the setup + `.jwt` for dc+sd-jwt or + `.mdoc.jwt` for mdoc):
 ```sh
-curl -X POST "$BASE_URL/sessions"
+curl -X POST "$BASE_URL/sessions" \
   -H 'Content-Type: application/json' \
   -d '{"credential_configuration_id":"urn:eu.europa.ec.eudi:pid:1.mdoc.jwt"}'
 ```
@@ -124,22 +124,22 @@ Open or transmit the returned `deeplink` to the Wallet under test. The Wallet wi
 
 For each session you can get different information:
 * deeplink:
-    ```sh
-    curl "$BASE_URL/sessions/{sessionId}/deeplink"
-    ```
+  ```sh
+  curl "$BASE_URL/sessions/{sessionId}/deeplink"
+  ```
 * Normalized capture object:
-    ```sh
-    curl "$BASE_URL/sessions/{sessionId}"
-    ```
+  ```sh
+  curl "$BASE_URL/sessions/{sessionId}"
+  ```
 * Event evidence for debugging or conformance records:
-    ```sh
-    curl "$BASE_URL/sessions/{sessionId}/events"
-    ```
+  ```sh
+  curl "$BASE_URL/sessions/{sessionId}/events"
+  ```
 * Captured Wallet holder-binding JWKS after the Wallet has called `/credential` with a proof JWT containing `header.jwk`:
-    ```sh
-    curl "$BASE_URL/sessions/{sessionId}/jwks"
-    ```
-    If the JWKS is not ready, the service returns HTTP 409 with `wallet_jwks_not_observed`. In that case, inspect the session object and event evidence to confirm whether the Wallet sent only `kid`, `x5c`, or no proof JWT header key material.
+  ```sh
+  curl "$BASE_URL/sessions/{sessionId}/jwks"
+  ```
+  If the JWKS is not ready, the service returns HTTP 409 with `wallet_jwks_not_observed`. In that case, inspect the session object and event evidence to confirm whether the Wallet sent only `kid`, `x5c`, or no proof JWT header key material.
 
 ### 🛂 OpenID4VP Presentation Flow
 
@@ -148,8 +148,8 @@ For each session you can get different information:
 
 Create a presentation session:
 ```sh
-curl -X POST "$BASE_URL/openid4vp/sessions"\
-  -H 'Content-Type: application/json'\
+curl -X POST "$BASE_URL/openid4vp/sessions" \
+  -H 'Content-Type: application/json' \
   -d '{
     "request_uri_method":"post",
     "request_delivery":"by_reference",
@@ -164,7 +164,7 @@ curl -X POST "$BASE_URL/openid4vp/sessions"\
             "format": "mso_mdoc",
             "meta": {
               "doctype_value": [
-                eu.europa.ec.eudi.pid.1
+                "eu.europa.ec.eudi.pid.1"
               ]
             },
             "claims": [
@@ -213,6 +213,10 @@ A successful response returns HTTP 201 and includes:
 The QR deeplink contains `client_id=x509_hash:...` and `request_uri=...`. The request URI returns a signed `application/oauth-authz-req+jwt` request object with the verifier certificate in the JWS `x5c` header. By default the verifier uses `direct_post.jwt`, advertises an ephemeral JARM encryption key in `client_metadata.jwks`, captures the posted encrypted response, and stores the decrypted response in the session raw data after validation. Pass `"response_mode":"direct_post"` when creating a session if you need plaintext capture.
 
 In this case for each session you can get:
+* deeplink:
+  ```sh
+  curl "$BASE_URL/sessions/{sessionId}/deeplink"
+  ```
 * Normalized capture object:
   ```sh
   curl "$BASE_URL/openid4vp/sessions/{sessionId}"
