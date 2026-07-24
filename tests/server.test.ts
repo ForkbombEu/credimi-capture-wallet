@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Kms, X509Certificate } from "@credo-ts/core";
@@ -58,6 +58,16 @@ afterEach(() => {
 });
 
 describe("capture issuer server", () => {
+  it("keeps runtime Credimi assets byte-identical to the HITL inputs", () => {
+    expect(readFileSync("src/design/style.css")).toEqual(readFileSync("HITL/style.css"));
+    expect(readFileSync("src/design/logo/credimi_logo.svg")).toEqual(
+      readFileSync("HITL/credimi_logo.svg"),
+    );
+    expect(readFileSync("src/design/logo/credimi_logo_negative.svg")).toEqual(
+      readFileSync("HITL/credimi_logo_negative.svg"),
+    );
+  });
+
   it("serves a Stoplight API documentation page and its OpenAPI contract", async () => {
     const app = createApp(config);
 
@@ -134,16 +144,14 @@ describe("capture issuer server", () => {
     expect(response.text).toContain(
       '<img class="brand-logo" src="/assets/credimi_logo.svg" alt="" aria-hidden="true"><span class="brand-name">Wallet metadata capture</span>',
     );
-    expect(response.text).toContain(
-      '<span class="status-chip status-issuer">ISSUER READY</span><span class="status-chip status-wallet">VERIFIER READY</span><a class="btn btn-outline btn-md" href="https://github.com/ForkbombEu/fake-issuer/blob/master/README.md"',
-    );
+    expect(response.text).toContain('href="https://github.com/ForkbombEu/credimi-capture-wallet"');
     expect(response.text).toContain('target="_blank"');
     expect(response.text).toContain("Wallet metadata capture%c Credimi capture UI");
-    expect(response.text).toContain('href="https://credimi.io/logos/credimi_logo.svg"');
+    expect(response.text).toContain('href="/favicon.svg"');
     expect(response.text).toContain('href="https://forkbomb.eu"');
     expect(response.text).toContain("Developed by Forkbomb BV");
-    expect(response.text).toContain('href="https://github.com/ForkbombEu/fake-issuer"');
-    expect(response.text).toContain("Fork me on GitHub");
+    expect(response.text).not.toContain("github.com/ForkbombEu/fake-issuer");
+    expect(response.text).toContain("Repository");
     expect(response.text).toContain(
       '<img class="footer-logo" src="/assets/credimi_logo_negative.svg" alt="" aria-hidden="true">',
     );
@@ -167,6 +175,18 @@ describe("capture issuer server", () => {
     expect(response.body.toString("utf8")).toContain("<svg");
   });
 
+  it("serves the shared stylesheet and same-origin favicon", async () => {
+    const app = createApp(config);
+    const [stylesheet, favicon] = await Promise.all([
+      request(app).get("/assets/style.css"),
+      request(app).get("/favicon.svg"),
+    ]);
+    expect(stylesheet.status).toBe(200);
+    expect(stylesheet.type).toBe("text/css");
+    expect(favicon.status).toBe(200);
+    expect(favicon.type).toBe("image/svg+xml");
+  });
+
   it("renders README help with the GUI stylesheet", async () => {
     const app = createApp(config);
     const response = await request(app).get("/ui/help");
@@ -176,7 +196,7 @@ describe("capture issuer server", () => {
     expect(response.text).toContain(
       '<img class="brand-logo" src="/assets/credimi_logo.svg" alt="" aria-hidden="true"><span class="brand-name">Wallet metadata capture</span>',
     );
-    expect(response.text).toContain("Credimi Fake VCI Capture Issuer");
+    expect(response.text).toContain("Credimi Capture Wallet Metadata");
     expect(response.text).toContain("readme-card");
   });
 
@@ -217,7 +237,7 @@ describe("capture issuer server", () => {
     expect(page.text).toContain("window.clearInterval(pollTimer)");
     expect(page.text).toContain("pollTimer = setInterval");
     expect(page.text).toContain(
-      '<span class="status-chip status-issuer" id="status-label">waiting</span><a class="btn btn-outline btn-md" href="https://github.com/ForkbombEu/fake-issuer/blob/master/README.md"',
+      '<span class="status-chip status-issuer" id="status-label">waiting</span><a class="btn btn-outline btn-md" href="https://github.com/ForkbombEu/credimi-capture-wallet"',
     );
     expect(page.text).not.toContain("updated-label");
     expect(page.text).toContain("Wallet metadata");

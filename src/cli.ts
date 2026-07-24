@@ -1,7 +1,5 @@
 #!/usr/bin/env node
 import { createServer } from "node:http";
-import { initIssuer, loadConfig, parseArgs, resolveListenAddr } from "./config.js";
-import { createApp } from "./server.js";
 import type { AppConfig, JsonRecord } from "./types.js";
 
 const ASCII_HEADER = `
@@ -28,6 +26,9 @@ const ASCII_HEADER = `
 `;
 
 async function main(): Promise<void> {
+  await import("./webcrypto-globals.js");
+  const [{ initIssuer, loadConfig, loadEnvFile, parseArgs, resolveListenAddr }, { createApp }] =
+    await Promise.all([import("./config.js"), import("./server.js")]);
   const [command = "serve", ...rest] = process.argv.slice(2);
   const args = parseArgs(rest);
 
@@ -51,8 +52,12 @@ async function main(): Promise<void> {
     const dataDir = typeof args.data_dir === "string" ? args.data_dir : undefined;
     const config = loadConfig(dataDir);
     const app = createApp(config);
-    const { host, port } = resolveListenAddr(config);
+    const { host, port } = resolveListenAddr(config, loadEnvFile());
     const server = createServer(app);
+    server.once("error", (error) => {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exitCode = 1;
+    });
     server.listen(port, host, () => {
       console.log(ASCII_HEADER);
       console.log(`capture services listening on ${host ?? "0.0.0.0"}:${port}`);

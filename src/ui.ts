@@ -1,4 +1,4 @@
-const HELP_README_URL = "https://github.com/ForkbombEu/fake-issuer/blob/master/README.md";
+const HELP_README_URL = "https://github.com/ForkbombEu/credimi-capture-wallet";
 
 import type { SupportedCredential } from "./metadata.js";
 
@@ -277,7 +277,8 @@ function htmlPage({ title, body }: { title: string; body: string }): string {
     "<head>",
     '<meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
-    '<link rel="icon" type="image/svg+xml" href="https://credimi.io/logos/credimi_logo.svg">',
+    '<link rel="icon" type="image/svg+xml" href="/favicon.svg">',
+    '<link rel="stylesheet" href="/assets/style.css">',
     "<title>",
     escapeHtml(title),
     "</title>",
@@ -305,7 +306,7 @@ function footerHtml(): string {
     "</div>",
     '<nav class="footer-links" aria-label="Project links">',
     '<a class="footer-link" href="https://forkbomb.eu" target="_blank" rel="noreferrer">Developed by Forkbomb BV</a>',
-    '<a class="footer-link fork-link" href="https://github.com/ForkbombEu/fake-issuer" target="_blank" rel="noreferrer">Fork me on GitHub</a>',
+    '<a class="footer-link fork-link" href="https://github.com/ForkbombEu/credimi-capture-wallet" target="_blank" rel="noreferrer">Repository</a>',
     "</nav>",
     "</div>",
     "</div>",

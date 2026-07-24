@@ -73,6 +73,14 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     res.type("html").send(apiDocsPage());
   });
 
+  app.get("/favicon.svg", (_req, res) => {
+    res.type("image/svg+xml").send(readFileSync("src/design/logo/credimi_logo.svg", "utf8"));
+  });
+
+  app.get("/assets/style.css", (_req, res) => {
+    res.type("text/css").send(readFileSync("src/design/style.css", "utf8"));
+  });
+
   if (config.gui_enabled) {
     app.get("/", (_req, res) => {
       res.type("html").send(indexPage(supportedCredentials(config)));

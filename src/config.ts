@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import "./webcrypto-globals.js";
 import { CredoWebCrypto, Kms, X509Certificate, X509KeyUsage } from "@credo-ts/core";
 import { exportJWK, generateKeyPair } from "jose";
 import type { AppConfig, JsonRecord } from "./types.js";
