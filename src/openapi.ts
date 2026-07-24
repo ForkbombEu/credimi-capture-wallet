@@ -48,8 +48,12 @@ export function openApiDocument(config: AppConfig): JsonRecord {
     tags: [
       { name: "Service", description: "Service discovery and initialization." },
       { name: "Issuance sessions", description: "Capture sessions and credential offers." },
-      { name: "Presentation sessions", description: "OpenID4VP request and response capture." },
+      {
+        name: "Presentation sessions",
+        description: "Create sessions and retrieve captured presentation evidence.",
+      },
       { name: "OpenID4VCI", description: "OpenID for Verifiable Credential Issuance endpoints." },
+      { name: "OpenID4VP", description: "OpenID for Verifiable Presentations wallet endpoints." },
     ],
     paths: {
       "/healthz": {
@@ -253,7 +257,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
       },
       "/openid4vp/sessions/{sessionId}/request": {
         get: {
-          tags: ["Presentation sessions"],
+          tags: ["OpenID4VP"],
           operationId: "getPresentationRequest",
           summary: "Retrieve signed presentation request",
           parameters: [sessionIdParameter],
@@ -266,7 +270,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           },
         },
         post: {
-          tags: ["Presentation sessions"],
+          tags: ["OpenID4VP"],
           operationId: "postPresentationRequest",
           summary: "Retrieve request using request_uri POST",
           description:
@@ -310,7 +314,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
       },
       "/openid4vp/sessions/{sessionId}/response": {
         post: {
-          tags: ["Presentation sessions"],
+          tags: ["OpenID4VP"],
           operationId: "submitPresentationResponse",
           summary: "Submit a presentation response for a session",
           parameters: [sessionIdParameter],
@@ -324,7 +328,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
       },
       "/openid4vp/response": {
         post: {
-          tags: ["Presentation sessions"],
+          tags: ["OpenID4VP"],
           operationId: "submitPresentationResponseByState",
           summary: "Submit a presentation response using state",
           description:

@@ -75,6 +75,19 @@ describe("capture issuer server", () => {
       openapi: "3.1.0",
       servers: [{ url: config.issuer_base_url }],
     });
+    expect(openApi.body.tags).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "OpenID4VP" })]),
+    );
+    expect(openApi.body.paths["/openid4vp/sessions/{sessionId}/request"].get.tags).toEqual([
+      "OpenID4VP",
+    ]);
+    expect(openApi.body.paths["/openid4vp/sessions/{sessionId}/request"].post.tags).toEqual([
+      "OpenID4VP",
+    ]);
+    expect(openApi.body.paths["/openid4vp/sessions/{sessionId}/response"].post.tags).toEqual([
+      "OpenID4VP",
+    ]);
+    expect(openApi.body.paths["/openid4vp/response"].post.tags).toEqual(["OpenID4VP"]);
     expect(Object.keys(openApi.body.paths)).toEqual(
       expect.arrayContaining([
         "/sessions",
