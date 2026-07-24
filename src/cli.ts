@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { createServer } from "node:http";
 import { initIssuer, loadConfig, parseArgs, resolveListenAddr } from "./config.js";
-import { createApp, initSummary } from "./server.js";
+import { createApp } from "./server.js";
+import type { AppConfig, JsonRecord } from "./types.js";
 
 const ASCII_HEADER = `
  ██████╗██████╗ ███████╗██████╗ ██╗███╗   ███╗██╗
@@ -66,3 +67,14 @@ main().catch((error: unknown) => {
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;
 });
+
+function initSummary(config: AppConfig): JsonRecord {
+  return {
+    issuer_base_url: config.issuer_base_url,
+    credential_issuer_metadata_url: `${config.issuer_base_url}/.well-known/openid-credential-issuer`,
+    authorization_server_metadata_url: `${config.issuer_base_url}/.well-known/oauth-authorization-server`,
+    jwt_vc_issuer_metadata_url: `${config.issuer_base_url}/.well-known/jwt-vc-issuer`,
+    jwks_url: `${config.issuer_base_url}/jwks.json`,
+    health_url: `${config.issuer_base_url}/healthz`,
+  };
+}

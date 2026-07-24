@@ -239,7 +239,7 @@ In this case for each session you can get:
 
 Runtime configuration comes from generated services config and environment variables.
 
-`pnpm capture-services init` is idempotent and writes generated issuer, verifier, and config files below `./data`, which is ignored by Git. Use `--force` to replace existing generated state.
+`pnpm capture-services init` is the only way to initialize service material; the running HTTP service has no initialization endpoint. The command is idempotent and writes generated issuer, verifier, and config files below `./data`, which is ignored by Git. Use `--force` to replace existing generated state.
 
 Issuer material:
 

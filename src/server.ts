@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import express, { type Request } from "express";
 import QRCode from "qrcode";
 import { captureClientAuthentication } from "./client-auth.js";
-import { type InitOptions, initIssuer, loadIssuerJwks } from "./config.js";
+import { loadIssuerJwks } from "./config.js";
 import { issueMdocCredential, issueSdJwtCredential } from "./credential.js";
 import { credoOpenId4VpVerifier } from "./credo-openid4vp.js";
 import {
@@ -186,22 +186,6 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
 
   app.get("/jwks.json", (_req, res) => {
     res.json(loadIssuerJwks(config));
-  });
-
-  app.post("/init", async (req, res, next) => {
-    try {
-      const body = req.body as JsonRecord;
-      const initialized = await initIssuer({
-        issuer_base_url: asStringOrNull(body.issuer_base_url) ?? undefined,
-        data_dir: asStringOrNull(body.data_dir) ?? config.data_dir,
-        credential_configuration_id:
-          asStringOrNull(body.credential_configuration_id) ?? config.credential_configuration_id,
-        force: body.force === true,
-      });
-      res.json(initSummary(initialized));
-    } catch (error) {
-      next(error);
-    }
   });
 
   app.post("/sessions", (req, res) => {
@@ -851,17 +835,6 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
   );
 
   return app;
-}
-
-export function initSummary(config: AppConfig): JsonRecord {
-  return {
-    issuer_base_url: config.issuer_base_url,
-    credential_issuer_metadata_url: `${config.issuer_base_url}/.well-known/openid-credential-issuer`,
-    authorization_server_metadata_url: `${config.issuer_base_url}/.well-known/oauth-authorization-server`,
-    jwt_vc_issuer_metadata_url: `${config.issuer_base_url}/.well-known/jwt-vc-issuer`,
-    jwks_url: `${config.issuer_base_url}/jwks.json`,
-    health_url: `${config.issuer_base_url}/healthz`,
-  };
 }
 
 function endpointUrl(config: AppConfig, path: string): string {

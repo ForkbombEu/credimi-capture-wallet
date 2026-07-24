@@ -98,6 +98,8 @@ describe("capture issuer server", () => {
         "/credential",
       ]),
     );
+    expect(openApi.body.paths).not.toHaveProperty("/init");
+    expect((await request(app).post("/init").send({ force: true })).status).toBe(404);
   });
 
   it("serves a launcher button that opens new GUI sessions in a new tab", async () => {

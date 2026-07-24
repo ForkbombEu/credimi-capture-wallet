@@ -115,20 +115,6 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           },
         },
       },
-      "/init": {
-        post: {
-          tags: ["Service"],
-          operationId: "initializeIssuer",
-          summary: "Initialize issuer and verifier material",
-          requestBody: { required: false, ...json({ $ref: "#/components/schemas/InitRequest" }) },
-          responses: {
-            "200": response("Generated service configuration summary.", {
-              type: "object",
-              additionalProperties: true,
-            }),
-          },
-        },
-      },
       "/sessions": {
         post: {
           tags: ["Issuance sessions"],
@@ -563,15 +549,6 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             at: { type: "string", format: "date-time" },
             type: { type: "string" },
             detail: { type: "object", additionalProperties: true },
-          },
-        },
-        InitRequest: {
-          type: "object",
-          properties: {
-            issuer_base_url: { type: "string", format: "uri" },
-            data_dir: { type: "string" },
-            credential_configuration_id: { type: "string" },
-            force: { type: "boolean" },
           },
         },
         IssuanceSessionRequest: {
