@@ -58,6 +58,35 @@ afterEach(() => {
 });
 
 describe("capture issuer server", () => {
+  it("serves a Stoplight API documentation page and its OpenAPI contract", async () => {
+    const app = createApp(config);
+
+    const [docs, openApi] = await Promise.all([
+      request(app).get("/docs"),
+      request(app).get("/openapi.json"),
+    ]);
+
+    expect(docs.status).toBe(200);
+    expect(docs.type).toBe("text/html");
+    expect(docs.text).toContain("@stoplight/elements@9.0.0");
+    expect(docs.text).toContain('apiDescriptionUrl="/openapi.json"');
+    expect(openApi.status).toBe(200);
+    expect(openApi.body).toMatchObject({
+      openapi: "3.1.0",
+      servers: [{ url: config.issuer_base_url }],
+    });
+    expect(Object.keys(openApi.body.paths)).toEqual(
+      expect.arrayContaining([
+        "/sessions",
+        "/openid4vp/sessions",
+        "/par",
+        "/authorize",
+        "/token",
+        "/credential",
+      ]),
+    );
+  });
+
   it("serves a launcher button that opens new GUI sessions in a new tab", async () => {
     const app = createApp(config);
     const response = await request(app).get("/");
@@ -142,6 +171,8 @@ describe("capture issuer server", () => {
     expect((await request(app).get("/")).status).toBe(404);
     expect((await request(app).get("/ui/help")).status).toBe(404);
     expect((await request(app).post("/ui/sessions")).status).toBe(404);
+    expect((await request(app).get("/docs")).status).toBe(200);
+    expect((await request(app).get("/openapi.json")).status).toBe(200);
 
     const apiSession = await request(app).post("/sessions").send({});
     expect(apiSession.status).toBe(201);

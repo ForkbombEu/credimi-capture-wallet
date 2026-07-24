@@ -39,6 +39,7 @@ During the credential verification the service captures:
 - [🚀 Quick Start](#-quick-start)
 - [🏗️ Run your services](#️-run-your-services)
 - [📡 Hosted REST API](#-hosted-rest-api)
+  - [📖 API documentation](#-api-documentation)
   - [🪪 OpenID4VCI Issuance Flow](#-openid4vci-issuance-flow)
   - [🛂 OpenID4VP Presentation Flow](#-openid4vp-presentation-flow)
 - [⚙️ Configuration](#️-configuration)
@@ -90,6 +91,10 @@ PORT=22000 pnpm dev
 ---
 
 ## 📡 Hosted REST API
+
+### 📖 API documentation
+
+The interactive API reference is available at `$BASE_URL/docs`. It uses Stoplight Elements and loads the live OpenAPI 3.1 document from `$BASE_URL/openapi.json`. The reference covers every public REST and OpenID4VCI/OpenID4VP protocol endpoint; the browser-only operator form routes under `/ui` are intentionally excluded.
 
 Common REST API endpoints are:
 * Health: `/healthz`

@@ -17,6 +17,7 @@ import {
   supportedCredentialConfigurationIds,
   supportedCredentials,
 } from "./metadata.js";
+import { apiDocsPage, openApiDocument } from "./openapi.js";
 import {
   type OpenId4VpResponseMode,
   defaultPresentationRequest,
@@ -63,6 +64,14 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     }),
   );
   app.use(express.urlencoded({ extended: false, type: "application/x-www-form-urlencoded" }));
+
+  app.get("/openapi.json", (_req, res) => {
+    res.json(openApiDocument(config));
+  });
+
+  app.get("/docs", (_req, res) => {
+    res.type("html").send(apiDocsPage());
+  });
 
   if (config.gui_enabled) {
     app.get("/", (_req, res) => {
