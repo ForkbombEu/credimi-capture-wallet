@@ -1,4 +1,5 @@
-const HELP_README_URL = "https://github.com/ForkbombEu/credimi-capture-wallet/blob/master/README.md";
+const HELP_README_URL =
+  "https://github.com/ForkbombEu/credimi-capture-wallet/blob/master/README.md";
 
 import type { SupportedCredential } from "./metadata.js";
 
@@ -332,7 +333,7 @@ function appCss(): string {
     ".brand-logo { display: block; width: 60px; height: 60px; object-fit: contain; flex: 0 0 auto; }",
     ".brand-mark { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: var(--radius-md); background: var(--brand-primary); color: white; font-size: 12px; font-weight: 800; }",
     ".brand-name { font-size: 14px; font-weight: 700; }",
-    ".page-shell { min-height: calc(100vh - var(--topbar-height)); }",
+    ".page-shell { display: block; min-height: calc(100vh - var(--topbar-height)); }",
     ".page-content { padding: 32px 0 64px; }",
     ".footer { background: var(--brand-primary); color: white; padding: 32px 0; }",
     ".footer-inner { max-width: var(--max-width); margin: 0 auto; padding: 0 24px; }",
