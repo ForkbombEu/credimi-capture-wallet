@@ -592,6 +592,12 @@ export function openApiDocument(config: AppConfig): JsonRecord {
         PresentationSessionRequest: {
           type: "object",
           properties: {
+            scheme: {
+              type: "string",
+              pattern: "^[A-Za-z][A-Za-z0-9+.-]*://$",
+              default: "openid4vp://",
+              description: "Custom URL-scheme prefix for the returned deeplink.",
+            },
             request_uri_method: { type: "string", enum: ["get", "post"], default: "get" },
             request_delivery: {
               type: "string",
@@ -624,6 +630,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             "request_uri",
             "request_uri_method",
             "response_mode",
+            "scheme",
             "response_uri",
             "deeplink",
             "authorization_request",
@@ -635,6 +642,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             request_uri: { type: "string", format: "uri" },
             request_uri_method: { type: "string" },
             response_mode: { type: "string" },
+            scheme: { type: "string" },
             response_uri: { type: "string", format: "uri" },
             deeplink: { type: "string" },
             authorization_request: { type: "object", additionalProperties: true },

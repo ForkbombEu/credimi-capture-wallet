@@ -79,6 +79,7 @@ export class CaptureStore {
     requestDelivery: "by_reference" | "by_value",
     requestUriMethod: "get" | "post",
     responseMode: "direct_post" | "direct_post.jwt",
+    deeplinkScheme: string,
     urls?: {
       requestUri?: string;
       responseUri?: string;
@@ -97,6 +98,7 @@ export class CaptureStore {
       response_mode: responseMode,
       authorization_request: authorizationRequest,
       request_uri: requestUri,
+      deeplink_scheme: deeplinkScheme,
       response_uri: responseUri,
       deeplink: "",
       observed: {

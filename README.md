@@ -191,6 +191,7 @@ Where:
 * `request_delivery` can be `by_reference` or `by_value`, default is `by_reference`
 * `response_type` can be `vp_token` or `vp_token id_token` or `code`, but during presentation verification only `vp_token` is supported, default is `vp_token`
 * `response_mode` can be `direct_post` or `direct_post.jwt`, default is `direct_post.jwt`
+* `scheme` is the complete custom URL-scheme prefix for the deeplink (for example, `eudi-wallet://`); it defaults to `openid4vp://`
 
 Optional `scopes`, `transaction_data`, and `verifier_info` values can be supplied at the top level or within `presentation_request`. `scopes` accepts a string or an array of strings and is emitted as the standard space-delimited `scope` authorization-request parameter. The other two values are included unchanged in the signed request object.
 
@@ -203,6 +204,7 @@ A successful response returns HTTP 201 and includes:
   "request_uri": "$BASE_URL/openid4vp/sessions/.../request",
   "request_uri_method": "post",
   "response_mode": "direct_post.jwt",
+  "scheme": "openid4vp://",
   "response_uri": "$BASE_URL/openid4vp/sessions/.../response",
   "deeplink": "openid4vp://...",
   "authorization_request": {

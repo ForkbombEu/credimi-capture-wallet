@@ -118,6 +118,7 @@ export interface VpSessionCapture {
   authorization_request: JsonRecord;
   decoded_presentations?: JsonRecord;
   request_uri: string;
+  deeplink_scheme: string;
   deeplink: string;
   response_uri: string;
   observed: {

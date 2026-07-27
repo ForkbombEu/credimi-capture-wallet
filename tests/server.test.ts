@@ -309,6 +309,7 @@ describe("capture issuer server", () => {
     expect(session.status).toBe("created");
     expect(session.request_delivery).toBe("by_reference");
     expect(session.request_uri_method).toBe("get");
+    expect(session.scheme).toBe("openid4vp://");
     expect(session.request_uri).toBe(
       `${config.issuer_base_url}/openid4vp/sessions/${session.session_id}/request`,
     );
@@ -336,6 +337,7 @@ describe("capture issuer server", () => {
     expect(session.authorization_request.request_uri_method).toBeUndefined();
     expect(session.authorization_request.client_id).toMatch(/^x509_hash:/);
     expect(session.authorization_request.client_id_scheme).toBeUndefined();
+    expect(session.authorization_request.scheme).toBeUndefined();
     expect(session.authorization_request.client_metadata).toMatchObject({
       jwks: { keys: [expect.objectContaining({ use: "enc", alg: "ECDH-ES" })] },
       encrypted_response_enc_values_supported: ["A128GCM", "A256GCM", "A128CBC-HS256"],
@@ -371,6 +373,17 @@ describe("capture issuer server", () => {
     expect(session.authorization_request.request_uri_method).toBeUndefined();
   });
 
+  it("uses the requested custom scheme for a by-reference OpenID4VP deeplink", async () => {
+    const app = createApp(config);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      scheme: "eudi-wallet://",
+    });
+
+    expect(session.scheme).toBe("eudi-wallet://");
+    expect(session.deeplink.startsWith("eudi-wallet://?")).toBe(true);
+    expect(session.authorization_request.scheme).toBeUndefined();
+  });
+
   it("creates OpenID4VP sessions that deliver the signed request object by value", async () => {
     const app = createApp(config);
     const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
@@ -391,6 +404,17 @@ describe("capture issuer server", () => {
       typ: "oauth-authz-req+jwt",
       x5c: [expect.any(String)],
     });
+  });
+
+  it("uses the requested custom scheme for a by-value OpenID4VP deeplink", async () => {
+    const app = createApp(config);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      request_delivery: "by_value",
+      scheme: "eudi-wallet://",
+    });
+
+    expect(session.scheme).toBe("eudi-wallet://");
+    expect(session.deeplink.startsWith("eudi-wallet://?")).toBe(true);
   });
 
   it.each(["vp_token id_token", "code"])(
@@ -427,6 +451,14 @@ describe("capture issuer server", () => {
 
     expect(response.status).toBe(400);
     expect(response.body).toMatchObject({ error: "unsupported_request_uri_method" });
+  });
+
+  it("rejects invalid OpenID4VP deeplink schemes", async () => {
+    const app = createApp(config);
+    const response = await request(app).post("/openid4vp/sessions").send({ scheme: "wallet" });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({ error: "invalid_deeplink_scheme" });
   });
 
   it("rejects request_uri_method for by-value OpenID4VP request delivery", async () => {
@@ -1453,6 +1485,7 @@ interface VpSessionCreateResponse extends JsonRecord {
   request_delivery: "by_reference" | "by_value";
   request_uri: string;
   request_uri_method: "get" | "post";
+  scheme: string;
   response_uri: string;
   deeplink: string;
   authorization_request: JsonRecord;

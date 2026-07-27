@@ -282,6 +282,10 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       if (body.response_mode !== undefined && !responseMode) {
         return res.status(400).json({ error: "unsupported_response_mode" });
       }
+      const deeplinkScheme = deeplinkSchemeOrNull(body.scheme);
+      if (body.scheme !== undefined && !deeplinkScheme) {
+        return res.status(400).json({ error: "invalid_deeplink_scheme" });
+      }
       const requestOverride = {
         ...(objectOrNull(body.presentation_request) ?? vpRequestBody(body)),
         ...(body.response_type !== undefined ? { response_type: body.response_type } : {}),
@@ -294,6 +298,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         requestUriMethod ?? "get",
         responseMode ?? "direct_post.jwt",
         requestDelivery ?? "by_reference",
+        deeplinkScheme ?? "openid4vp://",
       );
       store.addEvent(session, "vp_deeplink_generated", {});
       return res.status(201).json({
@@ -302,6 +307,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         request_uri: session.request_uri,
         request_uri_method: session.request_uri_method,
         response_mode: session.response_mode,
+        scheme: session.deeplink_scheme,
         response_uri: session.response_uri,
         deeplink: session.deeplink,
         authorization_request: session.authorization_request,
@@ -934,6 +940,7 @@ async function createVpSession(
   requestUriMethod: "get" | "post" = "get",
   responseMode: OpenId4VpResponseMode = "direct_post.jwt",
   requestDelivery: "by_reference" | "by_value" = "by_reference",
+  deeplinkScheme = "openid4vp://",
 ): Promise<VpSessionCapture> {
   const sessionId = randomUUID();
   const defaultRequest = defaultPresentationRequest(
@@ -953,6 +960,7 @@ async function createVpSession(
     defaultRequest.dcql_query as JsonRecord,
     requestUriMethod,
     requestDelivery,
+    deeplinkScheme,
   );
   const session = store.createVpSession(
     sessionId,
@@ -960,6 +968,7 @@ async function createVpSession(
     requestDelivery,
     requestUriMethod,
     responseMode,
+    deeplinkScheme,
     {
       requestUri: credoSession.requestUri,
       responseUri: credoSession.responseUri,
@@ -1041,11 +1050,17 @@ function requestDeliveryOrNull(value: unknown): "by_reference" | "by_value" | nu
   return normalized === "by_reference" || normalized === "by_value" ? normalized : null;
 }
 
+function deeplinkSchemeOrNull(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  return /^[a-z][a-z0-9+.-]*:\/\/$/i.test(value) ? value : null;
+}
+
 function vpRequestBody(body: JsonRecord): JsonRecord {
   const {
     request_delivery: _requestDelivery,
     request_uri_method: _requestUriMethod,
     response_mode: _responseMode,
+    scheme: _scheme,
     ...request
   } = body;
   return request;
