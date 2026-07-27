@@ -117,6 +117,7 @@ describe("capture issuer server", () => {
       "Step 2) After receiving the credential, start a Presentation session, and inspect the Wallet response as well as the DCQL",
     );
     expect(response.text).toContain("New fake-issuance session");
+    expect(response.text).toContain('<a class="btn btn-outline btn-md" href="/docs">API docs</a>');
     expect(response.text).toContain("session-actions");
     expect(response.text).toContain('formaction="/ui/openid4vp/sessions"');
     expect(response.text).toContain("<h2>Captured values</h2>");
@@ -138,7 +139,7 @@ describe("capture issuer server", () => {
       '<img class="brand-logo" src="/assets/credimi_logo.svg" alt="" aria-hidden="true"><span class="brand-name">Wallet metadata capture</span>',
     );
     expect(response.text).toContain(
-      '<span class="status-chip status-issuer">ISSUER READY</span><span class="status-chip status-wallet">VERIFIER READY</span><a class="btn btn-outline btn-md" href="https://github.com/ForkbombEu/credimi-capture-wallet/blob/master/README.md"',
+      '<span class="status-chip status-issuer">ISSUER READY</span><span class="status-chip status-wallet">VERIFIER READY</span><a class="btn btn-outline btn-md" href="/docs">API docs</a><a class="btn btn-outline btn-md" href="https://github.com/ForkbombEu/credimi-capture-wallet/blob/master/README.md"',
     );
     expect(response.text).toContain('target="_blank"');
     expect(response.text).toContain("Wallet metadata capture%c Credimi capture UI");
@@ -212,6 +213,7 @@ describe("capture issuer server", () => {
       '<img class="brand-logo" src="/assets/credimi_logo.svg" alt="" aria-hidden="true"><span class="brand-name">Wallet metadata capture</span>',
     );
     expect(page.text).toContain("Scan the offer and accept it in the wallet");
+    expect(page.text).toContain('<a class="btn btn-outline btn-md" href="/docs">API docs</a>');
     expect(page.text).toContain("Same content as the QR code");
     expect(page.text).toContain("metadata-pending");
     expect(page.text).toContain("metadata-state-waiting");
@@ -220,7 +222,7 @@ describe("capture issuer server", () => {
     expect(page.text).toContain("window.clearInterval(pollTimer)");
     expect(page.text).toContain("pollTimer = setInterval");
     expect(page.text).toContain(
-      '<span class="status-chip status-issuer" id="status-label">waiting</span><a class="btn btn-outline btn-md" href="https://github.com/ForkbombEu/credimi-capture-wallet/blob/master/README.md"',
+      '<span class="status-chip status-issuer" id="status-label">waiting</span><a class="btn btn-outline btn-md" href="/docs">API docs</a><a class="btn btn-outline btn-md" href="https://github.com/ForkbombEu/credimi-capture-wallet/blob/master/README.md"',
     );
     expect(page.text).not.toContain("updated-label");
     expect(page.text).toContain("Wallet metadata");

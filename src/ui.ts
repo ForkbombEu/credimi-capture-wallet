@@ -1,5 +1,6 @@
 const HELP_README_URL =
   "https://github.com/ForkbombEu/credimi-capture-wallet/blob/master/README.md";
+const API_DOCS_URL = "/docs";
 
 import type { SupportedCredential } from "./metadata.js";
 
@@ -16,6 +17,9 @@ export function indexPage(credentials: SupportedCredential[]): string {
       '<div class="topbar-actions">',
       '<span class="status-chip status-issuer">ISSUER READY</span>',
       '<span class="status-chip status-wallet">VERIFIER READY</span>',
+      '<a class="btn btn-outline btn-md" href="',
+      API_DOCS_URL,
+      '">API docs</a>',
       '<a class="btn btn-outline btn-md" href="',
       HELP_README_URL,
       '" target="_blank" rel="noreferrer">Help</a>',
@@ -91,6 +95,9 @@ export function vpSessionPage(sessionId: string, deeplink: string, qrSvg: string
       "</a>",
       '<div class="topbar-actions">',
       '<span class="status-chip status-wallet" id="status-label">waiting</span>',
+      '<a class="btn btn-outline btn-md" href="',
+      API_DOCS_URL,
+      '">API docs</a>',
       '<a class="btn btn-outline btn-md" href="',
       HELP_README_URL,
       '" target="_blank" rel="noreferrer">Help</a>',
@@ -174,6 +181,9 @@ export function sessionPage(sessionId: string, deeplink: string, qrSvg: string):
       "</a>",
       '<div class="topbar-actions">',
       '<span class="status-chip status-issuer" id="status-label">waiting</span>',
+      '<a class="btn btn-outline btn-md" href="',
+      API_DOCS_URL,
+      '">API docs</a>',
       '<a class="btn btn-outline btn-md" href="',
       HELP_README_URL,
       '" target="_blank" rel="noreferrer">Help</a>',
