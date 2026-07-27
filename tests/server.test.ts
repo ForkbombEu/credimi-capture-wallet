@@ -107,9 +107,7 @@ describe("capture issuer server", () => {
     const response = await request(app).get("/");
 
     expect(response.status).toBe(200);
-    expect(response.text).toContain(
-      ".page-shell { display: block; min-height: calc(100vh - var(--topbar-height)); }",
-    );
+    expect(response.text).toContain('<main><section class="hero-band">');
     expect(response.text).toContain(
       "Step 1) Start a one-time fake issuance flow, scan the offer, and inspect the wallet identifiers, callbacks, and proof keys observed by the issuer.",
     );
