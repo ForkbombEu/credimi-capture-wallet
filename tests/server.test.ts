@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Kms, X509Certificate } from "@credo-ts/core";
@@ -19,7 +19,7 @@ import {
 } from "jose";
 import request from "supertest";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { DEFAULT_CONFIG, initIssuer } from "../src/config.js";
+import { DEFAULT_CONFIG, initIssuer, jwksPath, verifierCertificatePath } from "../src/config.js";
 import {
   PID_MDOC_CLAIMS,
   PID_MDOC_DOCTYPE,
@@ -128,12 +128,12 @@ describe("capture issuer server", () => {
     expect(protectedHeader).toMatchObject({
       alg: "ES256",
       typ: "openidvci-issuer-metadata+jwt",
-      kid: "credimi-fake-issuer-key",
       x5c: [expect.any(String)],
     });
-    const certificate = X509Certificate.fromEncodedCertificate(
-      (protectedHeader.x5c as string[])[0],
-    );
+    expect(protectedHeader.kid).toBeUndefined();
+    const leafCertificate = Array.isArray(protectedHeader.x5c) ? protectedHeader.x5c[0] : undefined;
+    if (typeof leafCertificate !== "string") throw new Error("expected x5c leaf certificate");
+    const certificate = X509Certificate.fromEncodedCertificate(leafCertificate);
     const verified = await compactVerify(
       signedMetadata.text,
       await importJWK(certificate.publicJwk.toJson(), "ES256"),
@@ -146,6 +146,50 @@ describe("capture issuer server", () => {
     expect(sub).toBe(config.issuer_base_url);
     expect(iat).toEqual(expect.any(Number));
     expect(metadataClaims).toEqual(unsignedMetadata.body);
+  });
+
+  it("selects the signed metadata certificate chain by issuer public key", async () => {
+    const isolatedDataDir = mkdtempSync(join(tmpdir(), "signed-metadata-test-"));
+    try {
+      const isolatedConfig = await initIssuer({
+        issuer_base_url: config.issuer_base_url,
+        data_dir: isolatedDataDir,
+        force: true,
+      });
+      const jwks = JSON.parse(readFileSync(jwksPath(isolatedDataDir), "utf8")) as {
+        keys: JsonRecord[];
+      };
+      const { kid: _kid, ...issuerJwk } = jwks.keys[0] ?? {};
+      const additionalCertificate = readFileSync(verifierCertificatePath(isolatedDataDir), "utf8")
+        .replace(/-----BEGIN CERTIFICATE-----/g, "")
+        .replace(/-----END CERTIFICATE-----/g, "")
+        .replace(/\s+/g, "");
+      const issuerCertificateChain = Array.isArray(issuerJwk.x5c)
+        ? issuerJwk.x5c.filter(
+            (certificate): certificate is string => typeof certificate === "string",
+          )
+        : [];
+      expect(issuerCertificateChain).not.toHaveLength(0);
+      const certificateChain = [...issuerCertificateChain, additionalCertificate];
+      issuerJwk.x5c = certificateChain;
+
+      const { publicKey } = await generateKeyPair("ES256");
+      const unrelatedJwk = (await exportJWK(publicKey)) as unknown as JsonRecord;
+      unrelatedJwk.kid = "unrelated-key";
+      unrelatedJwk.x5c = [additionalCertificate];
+      writeFileSync(jwksPath(isolatedDataDir), JSON.stringify({ keys: [unrelatedJwk, issuerJwk] }));
+
+      const response = await request(createApp(isolatedConfig))
+        .get("/.well-known/openid-credential-issuer")
+        .set("Accept", "application/jwt");
+
+      expect(response.status).toBe(200);
+      const protectedHeader = decodeProtectedHeader(response.text);
+      expect(protectedHeader.kid).toBeUndefined();
+      expect(protectedHeader.x5c).toEqual(certificateChain);
+    } finally {
+      rmSync(isolatedDataDir, { recursive: true, force: true });
+    }
   });
 
   it("serves a launcher button that opens new GUI sessions in a new tab", async () => {

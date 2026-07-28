@@ -294,6 +294,13 @@ export function loadIssuerCertificate(config: AppConfig): X509Certificate {
   );
 }
 
+export function loadIssuerPublicJwk(config: AppConfig): JsonRecord {
+  const privateJwk = JSON.parse(
+    readFileSync(privateJwkPath(config.data_dir), "utf8"),
+  ) as JsonRecord;
+  return toPublicJwk(privateJwk);
+}
+
 export function createIssuerSigningContext(config: AppConfig): object {
   const privateJwk = JSON.parse(
     readFileSync(privateJwkPath(config.data_dir), "utf8"),

@@ -1,5 +1,10 @@
-import { JwsService, JwtPayload } from "@credo-ts/core";
-import { ISSUER_KEY_ID, createIssuerSigningContext, loadIssuerJwks } from "./config.js";
+import { JwsService, JwtPayload, Kms } from "@credo-ts/core";
+import {
+  ISSUER_KEY_ID,
+  createIssuerSigningContext,
+  loadIssuerJwks,
+  loadIssuerPublicJwk,
+} from "./config.js";
 import {
   CREDIMI_LOGO_URL,
   PID_MDOC_CLAIMS,
@@ -55,15 +60,7 @@ export async function signedCredentialIssuerMetadata(
   now = new Date(),
 ): Promise<string> {
   const metadata = credentialIssuerMetadata(config);
-  const certificateChain = loadIssuerJwks(config).keys.find(
-    (key) => key.kid === ISSUER_KEY_ID,
-  )?.x5c;
-  if (
-    !Array.isArray(certificateChain) ||
-    certificateChain.some((certificate) => typeof certificate !== "string")
-  ) {
-    throw new Error("Issuer certificate chain is unavailable for signed metadata");
-  }
+  const certificateChain = issuerCertificateChain(config);
 
   return new JwsService().createJwsCompact(createIssuerSigningContext(config) as never, {
     payload: new JwtPayload({
@@ -76,10 +73,31 @@ export async function signedCredentialIssuerMetadata(
     protectedHeaderOptions: {
       alg: "ES256",
       typ: "openidvci-issuer-metadata+jwt",
-      kid: ISSUER_KEY_ID,
       x5c: certificateChain,
     },
   });
+}
+
+function issuerCertificateChain(config: AppConfig): string[] {
+  const issuerPublicJwk = Kms.PublicJwk.fromUnknown(loadIssuerPublicJwk(config));
+  for (const jwk of loadIssuerJwks(config).keys) {
+    if (publicJwkMatches(jwk, issuerPublicJwk) && isStringArray(jwk.x5c)) {
+      return jwk.x5c;
+    }
+  }
+  throw new Error("Certificate chain for the issuer signing key is unavailable");
+}
+
+function publicJwkMatches(candidate: JsonRecord, expected: Kms.PublicJwk): boolean {
+  try {
+    return Kms.PublicJwk.fromUnknown(candidate).equals(expected);
+  } catch {
+    return false;
+  }
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string");
 }
 
 export function authorizationServerMetadata(config: AppConfig): unknown {
