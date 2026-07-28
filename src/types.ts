@@ -27,6 +27,21 @@ export interface CaptureEvent {
   detail: JsonRecord;
 }
 
+export interface Oid4vciHttpRequestCapture {
+  id: string;
+  at: string;
+  method: string;
+  path: string;
+  session_id: string | null;
+  headers: JsonRecord;
+  query: unknown;
+  body: unknown;
+  response: {
+    status: number | null;
+    content_type: string | null;
+  };
+}
+
 export interface ProofHeaderCapture {
   proof_type?: "jwt" | "attestation";
   typ?: string;
@@ -109,8 +124,9 @@ export interface SessionCapture {
     authorization_request?: JsonRecord;
     token_request?: JsonRecord;
     credential_request?: JsonRecord;
-    credential_request_raw?: string;
+    credential_request_raw?: unknown;
     proof_headers?: ProofHeaderCapture[];
+    oid4vci_requests?: Oid4vciHttpRequestCapture[];
   };
 }
 

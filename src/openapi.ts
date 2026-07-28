@@ -139,6 +139,21 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           },
         },
       },
+      "/oid4vci/requests": {
+        get: {
+          tags: ["OpenID4VCI"],
+          operationId: "getOid4vciRequests",
+          summary: "Get redacted OpenID4VCI HTTP evidence",
+          description:
+            "Returns the bounded chronological request ledger. Security-sensitive headers and fields are replaced with presence and length metadata.",
+          responses: {
+            "200": response("Redacted OpenID4VCI request evidence.", {
+              type: "array",
+              items: { $ref: "#/components/schemas/Oid4vciHttpRequestCapture" },
+            }),
+          },
+        },
+      },
       "/sessions": {
         post: {
           tags: ["Issuance sessions"],
@@ -615,6 +630,37 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             at: { type: "string", format: "date-time" },
             type: { type: "string" },
             detail: { type: "object", additionalProperties: true },
+          },
+        },
+        Oid4vciHttpRequestCapture: {
+          type: "object",
+          required: [
+            "id",
+            "at",
+            "method",
+            "path",
+            "session_id",
+            "headers",
+            "query",
+            "body",
+            "response",
+          ],
+          properties: {
+            id: { type: "string", format: "uuid" },
+            at: { type: "string", format: "date-time" },
+            method: { type: "string" },
+            path: { type: "string" },
+            session_id: { type: ["string", "null"] },
+            headers: { type: "object", additionalProperties: true },
+            query: {},
+            body: {},
+            response: {
+              type: "object",
+              properties: {
+                status: { type: ["integer", "null"] },
+                content_type: { type: ["string", "null"] },
+              },
+            },
           },
         },
         IssuanceSessionRequest: {

@@ -455,7 +455,7 @@ function toJsonSafeValue(value: unknown, seen: WeakSet<object>): unknown {
   return normalized;
 }
 
-class InMemoryStorageModule implements Module {
+export class InMemoryStorageModule implements Module {
   register(dependencyManager: DependencyManager): void {
     dependencyManager.registerInstance(
       InjectionSymbols.StorageService,
@@ -549,7 +549,7 @@ function recordMatchesQuery(record: BaseRecord, query: JsonRecord): boolean {
   });
 }
 
-class NodeKmsBackend implements Kms.KeyManagementService {
+export class NodeKmsBackend implements Kms.KeyManagementService {
   readonly backend = CREDO_KMS_BACKEND;
   private readonly keys = new Map<string, JWK>();
 
@@ -624,7 +624,7 @@ class NodeKmsBackend implements Kms.KeyManagementService {
   }
 
   async encrypt(): Promise<Kms.KmsEncryptReturn> {
-    throw new Error("KMS encryption is not used by the verifier");
+    throw new Error("KMS encryption is not supported by this backend");
   }
 
   async decrypt(
@@ -696,7 +696,7 @@ function asRecord(value: unknown): JsonRecord | null {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as JsonRecord) : null;
 }
 
-function nodeAgentDependencies(config: AppConfig): AgentDependencies {
+export function nodeAgentDependencies(config: AppConfig): AgentDependencies {
   return {
     FileSystem: class NodeFileSystem implements FileSystem {
       readonly dataPath = config.data_dir;

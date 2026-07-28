@@ -1126,6 +1126,38 @@ describe("capture issuer server", () => {
     expect(response.body).toMatchObject({ error: "invalid_client" });
   });
 
+  it("captures correlated OpenID4VCI requests with security-sensitive values redacted", async () => {
+    const app = createApp(config);
+    const session = await postJson<SessionCreateResponse>(app, "/sessions", {});
+    const clientAssertion = "header.client-assertion.signature";
+    const dpop = "header.dpop.signature";
+
+    await request(app).post("/par").set("DPoP", dpop).type("form").send({
+      issuer_state: session.session_id,
+      client_id: "wallet-client",
+      client_assertion: clientAssertion,
+    });
+
+    const ledger = await getJson<Array<JsonRecord>>(app, "/oid4vci/requests");
+    const capture = await getJson<SessionCapture>(app, `/sessions/${session.session_id}`);
+    const parCapture = ledger.find((entry) => entry.path === "/par");
+
+    expect(parCapture).toMatchObject({
+      method: "POST",
+      session_id: session.session_id,
+      headers: { dpop: { redacted: true, present: true } },
+      body: {
+        issuer_state: session.session_id,
+        client_id: "wallet-client",
+        client_assertion: { redacted: true, present: true },
+      },
+      response: { status: 400 },
+    });
+    expect(capture.raw?.oid4vci_requests).toHaveLength(1);
+    expect(JSON.stringify(ledger)).not.toContain(clientAssertion);
+    expect(JSON.stringify(ledger)).not.toContain(dpop);
+  });
+
   it("logs PAR and authorization resolution without sensitive assertions", async () => {
     const logs: string[] = [];
     vi.spyOn(console, "log").mockImplementation((line: string) => {
@@ -1164,7 +1196,7 @@ describe("capture issuer server", () => {
     });
     expect(entries[1]).toMatchObject({
       component: "fake-issuer",
-      request_uri: par.request_uri,
+      request_uri_present: true,
       session_id: session.session_id,
       client_id: "wallet-client",
       has_redirect_uri: true,
@@ -1178,19 +1210,20 @@ describe("capture issuer server", () => {
       path: "/authorize",
     });
     expect(entries[3]).toMatchObject({
-      request_uri: par.request_uri,
+      request_uri_present: true,
       par_resolution: "resolved",
       session_id: session.session_id,
       has_redirect_uri: true,
     });
     expect(entries[4]).toMatchObject({
-      request_uri: par.request_uri,
+      request_uri_present: true,
       par_resolution: "resolved",
       session_id: session.session_id,
       redirect_uri: "eudi-wallet://callback",
       state_present: true,
     });
     expect(logs.join("\n")).not.toContain("sensitive.jwt.assertion");
+    expect(logs.join("\n")).not.toContain(par.request_uri);
   });
 
   it("makes credential nonce responses uncacheable", async () => {
@@ -1476,8 +1509,18 @@ describe("capture issuer server", () => {
     expect(responsePayload.credentials).toEqual([{ credential: expect.any(String) }]);
 
     const capture = await getJson<SessionCapture>(app, `/sessions/${session.session_id}`);
-    expect(capture.raw?.credential_request_raw).toBe(encryptedRequest);
-    expect(capture.raw?.credential_request).toMatchObject(credentialRequest);
+    expect(capture.raw?.credential_request_raw).toMatchObject({
+      redacted: true,
+      present: true,
+      length: encryptedRequest.length,
+    });
+    expect(capture.raw?.credential_request).toMatchObject({
+      credential_configuration_id: session.credential_configuration_id,
+      proofs: {
+        jwt: { redacted: true, present: true },
+      },
+      credential_response_encryption: credentialRequest.credential_response_encryption,
+    });
     expect(capture.status).toBe("credential_issued");
   });
 

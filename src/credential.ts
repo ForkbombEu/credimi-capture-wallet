@@ -1,6 +1,6 @@
 import { createHash, createPrivateKey, randomBytes, sign } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { Kms, SdJwtVcService } from "@credo-ts/core";
+import { Kms, SdJwtVcService, type SdJwtVcSignOptions } from "@credo-ts/core";
 import {
   CoseKey,
   DateOnly,
@@ -23,6 +23,7 @@ import {
   PID_MDOC_NAMESPACE,
   PID_SD_JWT_VCT,
 } from "./credential-definitions.js";
+import type { CredoOpenId4VciIssuer } from "./credo-openid4vci.js";
 import type { AppConfig, JsonRecord } from "./types.js";
 
 export { CREDIMI_LOGO_URL, CREDIMI_WEBSITE };
@@ -36,6 +37,7 @@ export async function issueSdJwtCredential(options: {
   holderJwk: JsonRecord;
   broken?: boolean;
   now?: Date;
+  credoIssuer?: CredoOpenId4VciIssuer;
 }): Promise<string> {
   const issuerCertificate = loadIssuerCertificate(options.config);
   issuerCertificate.keyId = ISSUER_KEY_ID;
@@ -43,7 +45,7 @@ export async function issueSdJwtCredential(options: {
   const service = new SdJwtVcService({} as never);
   const now = options.now ?? new Date();
 
-  const credential = await service.sign(agentContext as never, {
+  const signOptions: SdJwtVcSignOptions = {
     issuer: { method: "x5c", issuer: options.config.issuer_base_url, x5c: [issuerCertificate] },
     holder: { method: "jwk", jwk: Kms.PublicJwk.fromUnknown(options.holderJwk) },
     headerType: "dc+sd-jwt",
@@ -75,7 +77,10 @@ export async function issueSdJwtCredential(options: {
         "sex",
       ],
     },
-  });
+  };
+  const credential = options.credoIssuer
+    ? await options.credoIssuer.sdJwtVc.sign(signOptions)
+    : await service.sign(agentContext as never, signOptions);
 
   return credential.compact;
 }
@@ -85,6 +90,7 @@ export async function issueMdocCredential(options: {
   holderJwk: JsonRecord;
   broken?: boolean;
   now?: Date;
+  credoIssuer?: CredoOpenId4VciIssuer;
 }): Promise<string> {
   const privateJwk = loadPrivateJwk(options.config);
   const issuerCertificate = Buffer.from(
@@ -97,6 +103,18 @@ export async function issueMdocCredential(options: {
   const now = options.now ?? new Date();
   const validUntil = new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000);
   const context = createMdocContext(privateJwk);
+  if (options.credoIssuer) {
+    const issuerCertificate = loadIssuerCertificate(options.config);
+    issuerCertificate.keyId = ISSUER_KEY_ID;
+    const credential = await options.credoIssuer.mdoc.sign({
+      docType: PID_MDOC_DOCTYPE,
+      validityInfo: { signed: now, validFrom: now, validUntil },
+      namespaces: { [PID_MDOC_NAMESPACE]: mdocPidClaims(options.broken ?? false) },
+      issuerCertificate,
+      holderKey: Kms.PublicJwk.fromUnknown(options.holderJwk),
+    });
+    return credential.base64Url;
+  }
 
   const issuerSigned = await new Issuer(PID_MDOC_DOCTYPE, context)
     .addIssuerNamespace(PID_MDOC_NAMESPACE, mdocPidClaims(options.broken ?? false))

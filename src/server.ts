@@ -11,6 +11,7 @@ import {
   encryptCredentialResponse,
 } from "./credential-encryption.js";
 import { issueMdocCredential, issueSdJwtCredential } from "./credential.js";
+import { credoOpenId4VciIssuer } from "./credo-openid4vci.js";
 import { credoOpenId4VpVerifier } from "./credo-openid4vp.js";
 import {
   authorizationServerMetadata,
@@ -24,6 +25,12 @@ import {
   supportedCredentialConfigurationIds,
   supportedCredentials,
 } from "./metadata.js";
+import {
+  completeOid4vciRequestCapture,
+  createOid4vciRequestCapture,
+  isOid4vciProtocolPath,
+  redactOid4vciValue,
+} from "./oid4vci-capture.js";
 import { apiDocsPage, openApiDocument } from "./openapi.js";
 import {
   type OpenId4VpResponseMode,
@@ -56,7 +63,6 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       logIssuerFlow("http.request", {
         method: req.method,
         path: req.path,
-        original_url: req.originalUrl,
         content_type: req.header("content-type") ?? null,
         accept: req.header("accept") ?? null,
         user_agent: req.header("user-agent") ?? null,
@@ -73,6 +79,13 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
   );
   app.use(express.urlencoded({ extended: false, type: "application/x-www-form-urlencoded" }));
   app.use(express.text({ type: "application/jwt" }));
+  app.use((req, res, next) => {
+    if (!isOid4vciProtocolPath(req.path)) return next();
+    const capture = createOid4vciRequestCapture(req, oid4vciRequestSessionId(store, req));
+    store.recordOid4vciRequest(capture);
+    res.once("finish", () => completeOid4vciRequestCapture(capture, res));
+    return next();
+  });
 
   app.get("/openapi.json", (_req, res) => {
     res.json(openApiDocument(config));
@@ -187,6 +200,10 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
   }
   app.get("/healthz", (_req, res) => {
     res.json({ status: "ok" });
+  });
+
+  app.get("/oid4vci/requests", (_req, res) => {
+    res.json(store.oid4vciRequests);
   });
 
   app.get("/.well-known/openid-credential-issuer", async (req, res, next) => {
@@ -482,7 +499,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     const requestedCredential = scope ? supportedCredentialByScope(config, scope) : null;
     session.status = "par_received";
     session.raw ??= {};
-    session.raw.par_request = params;
+    session.raw.par_request = redactOid4vciValue(params) as JsonRecord;
     updateObservedValue(session, "client_id", params.client_id, "par_request.client_id");
     updateObservedValue(session, "redirect_uri", params.redirect_uri, "par_request.redirect_uri");
     session.checks.state_present = typeof params.state === "string";
@@ -516,9 +533,12 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     if (!requestedCredential) return res.status(400).json({ error: "invalid_scope" });
     session.credential_configuration_id = requestedCredential.id;
     const par = store.storePar(params);
-    store.addEvent(session, "par_request_received", { request_uri: par.request_uri, params });
+    store.addEvent(session, "par_request_received", {
+      request_uri_present: true,
+      params: redactOid4vciValue(params) as JsonRecord,
+    });
     logIssuerFlow("par.stored", {
-      request_uri: par.request_uri,
+      request_uri_present: true,
       expires_in: config.par_request_uri_ttl_seconds,
       session_id: session.session_id,
       content_type: req.header("content-type") ?? null,
@@ -546,7 +566,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       asStringOrNull(merged.issuer_state) ?? asStringOrNull(par?.params.issuer_state),
     );
     logIssuerFlow("authorize.received", {
-      request_uri: requestedRequestUri,
+      request_uri_present: Boolean(requestedRequestUri),
       par_resolution: parResolution,
       session_id: session.session_id,
       direct_query_keys: Object.keys(directParams).sort(),
@@ -558,7 +578,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     });
     session.status = "authorization_requested";
     session.raw ??= {};
-    session.raw.authorization_request = merged;
+    session.raw.authorization_request = redactOid4vciValue(merged) as JsonRecord;
     updateObservedValue(session, "client_id", merged.client_id, "authorization_request.client_id");
     updateObservedValue(
       session,
@@ -570,7 +590,9 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     session.checks.issuer_state_present = typeof merged.issuer_state === "string";
     session.checks.pkce_present =
       typeof merged.code_challenge === "string" && typeof merged.code_challenge_method === "string";
-    store.addEvent(session, "authorize_request_received", { params: merged });
+    store.addEvent(session, "authorize_request_received", {
+      params: redactOid4vciValue(merged) as JsonRecord,
+    });
 
     if (!par) {
       store.addEvent(session, "authorize_request_rejected", { error: "invalid_request_uri" });
@@ -589,7 +611,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     if (!redirectUri) {
       store.addEvent(session, "authorize_redirect_missing", {});
       logIssuerFlow("authorize.rejected", {
-        request_uri: requestedRequestUri,
+        request_uri_present: Boolean(requestedRequestUri),
         par_resolution: parResolution,
         session_id: session.session_id,
         client_id: asStringOrNull(merged.client_id),
@@ -606,7 +628,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     session.status = "authorization_code_issued";
     store.addEvent(session, "redirect_sent", { redirect_uri: redirectUri });
     logIssuerFlow("authorize.redirect", {
-      request_uri: requestedRequestUri,
+      request_uri_present: Boolean(requestedRequestUri),
       par_resolution: parResolution,
       session_id: session.session_id,
       client_id: code.client_id,
@@ -623,7 +645,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       const session = code ? store.ensureSession(code.session_id) : store.ensureSession();
       session.status = "token_requested";
       session.raw ??= {};
-      session.raw.token_request = params;
+      session.raw.token_request = redactOid4vciValue(params) as JsonRecord;
       updateObservedValue(session, "client_id", params.client_id, "token_request.client_id");
       updateObservedValue(
         session,
@@ -638,7 +660,10 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
             code.code_challenge_method,
           )
         : false;
-      store.addEvent(session, "token_request_received", { params, code_valid: Boolean(code) });
+      store.addEvent(session, "token_request_received", {
+        params: redactOid4vciValue(params) as JsonRecord,
+        code_valid: Boolean(code),
+      });
 
       const clientAuthentication = captureClientAuthentication({
         params,
@@ -786,11 +811,10 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         : store.ensureSession();
       session.status = "credential_requested";
       session.raw ??= {};
-      session.raw.credential_request = body;
-      session.raw.credential_request_raw =
-        (encryptedRequest
-          ? (req.body as string)
-          : (req as Request & { rawBody?: string }).rawBody) ?? JSON.stringify(body);
+      session.raw.credential_request = redactOid4vciValue(body) as JsonRecord;
+      session.raw.credential_request_raw = encryptedRequest
+        ? redactOid4vciValue(req.body, "jwt")
+        : redactOid4vciValue(body);
       store.addEvent(session, "credential_request_received", {
         authorization_header_observed: Boolean(req.header("Authorization")),
         dpop_observed: Boolean(req.header("DPoP")),
@@ -824,6 +848,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
           { header },
         );
       }
+      const credoIssuer = await credoOpenId4VciIssuer(config);
       let verifiedProof: Awaited<ReturnType<typeof verifyCredentialProof>>;
       try {
         verifiedProof = await verifyCredentialProof({
@@ -831,6 +856,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
           expectedNonce: (nonce) => store.isCredentialNonceValid(nonce),
           expectedAudience: config.issuer_base_url,
           expectedClientId: session.observed.client_id.value ?? undefined,
+          agentContext: credoIssuer.context,
         });
         if (!store.consumeCredentialNonce(verifiedProof.nonce)) {
           throw new Error("Credential proof nonce does not match issued c_nonce");
@@ -910,18 +936,25 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
 
       const credential =
         selectedCredential.format === "mso_mdoc"
-          ? await issueMdocCredential({ config, holderJwk, broken: session.broken })
+          ? await issueMdocCredential({
+              config,
+              holderJwk,
+              broken: session.broken,
+              credoIssuer,
+            })
           : await issueSdJwtCredential({
               config,
               credentialConfigurationId: session.credential_configuration_id,
               holderJwk,
               broken: session.broken,
+              credoIssuer,
             });
       session.status = "credential_issued";
       store.addEvent(session, "credential_issued", {
         format: selectedCredential.format,
         credential_configuration_id: session.credential_configuration_id,
         broken: session.broken,
+        implementation: "credo-ts-agent",
       });
 
       const credentialResponse: JsonRecord = {
@@ -953,6 +986,27 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
 
 function endpointUrl(config: AppConfig, path: string): string {
   return `${config.issuer_base_url}${path}`;
+}
+
+function oid4vciRequestSessionId(store: CaptureStore, req: Request): string | null {
+  const sessionPath = /^\/sessions\/([^/]+)\/(?:offer|deeplink)$/.exec(req.path);
+  if (sessionPath?.[1]) return decodeURIComponent(sessionPath[1]);
+  const params = requestParams(req);
+  const issuerState = asStringOrNull(params.issuer_state);
+  if (issuerState && store.getSession(issuerState)) return issuerState;
+  if (req.path === "/authorize") {
+    const requestUri =
+      typeof req.query.request_uri === "string" ? req.query.request_uri : undefined;
+    return asStringOrNull(store.resolvePar(requestUri)?.params.issuer_state);
+  }
+  if (req.path === "/token") {
+    const code = asStringOrNull(params.code);
+    return code ? (store.authorizationCodes.get(code)?.session_id ?? null) : null;
+  }
+  if (req.path === "/credential") {
+    return store.resolveAccessToken(req.header("Authorization"))?.session_id ?? null;
+  }
+  return null;
 }
 
 function parValidationError(

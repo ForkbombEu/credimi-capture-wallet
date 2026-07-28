@@ -170,6 +170,12 @@ does not implement a production Wallet Provider trust list or the `kid` and
 `trust_chain` attestation trust mechanisms, and does not resolve optional attestation
 status information.
 
+The OpenID4VCI cryptographic path uses a dedicated Credo-TS issuer agent for
+credential-proof verification and SD-JWT VC or MDOC signing. The small HTTP route
+adapter remains responsible for the service's capture model and for encrypted
+Credential Requests and Responses, which the installed Credo-TS issuer router does
+not currently expose.
+
 For each session you can get different information:
 * deeplink:
   ```sh
@@ -183,6 +189,14 @@ For each session you can get different information:
   ```sh
   curl "$BASE_URL/sessions/{sessionId}/events"
   ```
+* Redacted HTTP evidence for every OpenID4VCI protocol request:
+  ```sh
+  curl "$BASE_URL/oid4vci/requests"
+  ```
+  Correlatable requests are also included under `raw.oid4vci_requests` in the
+  normalized session capture. Authorization, DPoP, client-attestation, JWT proof,
+  authorization-code, token, and secret values are replaced with presence and
+  length metadata. The issuer-wide ledger retains the latest 1,000 requests.
 * Captured Wallet holder-binding JWKS after the Wallet has called `/credential` with a
   proof JWT `header.jwk` or a direct attestation `attested_keys` entry:
   ```sh

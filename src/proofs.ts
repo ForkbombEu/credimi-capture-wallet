@@ -4,7 +4,7 @@ import {
   randomBytes,
   verify as verifySignature,
 } from "node:crypto";
-import { JwsService, Kms, X509ModuleConfig } from "@credo-ts/core";
+import { type AgentContext, JwsService, Kms, X509ModuleConfig } from "@credo-ts/core";
 import { type JWK, calculateJwkThumbprint, importJWK, jwtVerify } from "jose";
 import type { JsonRecord, ProofHeaderCapture } from "./types.js";
 
@@ -130,6 +130,7 @@ export async function verifyCredentialProof(input: {
   expectedNonce: string | ((nonce: string) => boolean);
   expectedAudience: string;
   expectedClientId?: string;
+  agentContext?: AgentContext;
 }): Promise<{
   holderJwk: JsonRecord;
   source: string;
@@ -147,6 +148,7 @@ export async function verifyCredentialProof(input: {
     const attestation = await verifyKeyAttestation(proof.jwt, {
       expectedNonce: input.expectedNonce,
       use: "attestation",
+      agentContext: input.agentContext,
     });
     return {
       holderJwk: attestation.attestedKeys[0],
@@ -169,11 +171,16 @@ export async function verifyCredentialProof(input: {
   const attestation = await verifyKeyAttestation(keyAttestation, {
     expectedNonce: input.expectedNonce,
     use: "jwt",
+    agentContext: input.agentContext,
   });
-  await verifyCompactJws(proof.jwt, {
-    method: "jwk",
-    jwk: Kms.PublicJwk.fromUnknown(holderJwk),
-  });
+  await verifyCompactJws(
+    proof.jwt,
+    {
+      method: "jwk",
+      jwk: Kms.PublicJwk.fromUnknown(holderJwk),
+    },
+    input.agentContext,
+  );
   validateJwtProofClaims(
     payload,
     input.expectedAudience,
@@ -240,6 +247,7 @@ async function verifyKeyAttestation(
   options: {
     expectedNonce: string | ((nonce: string) => boolean);
     use: "jwt" | "attestation";
+    agentContext?: AgentContext;
   },
 ): Promise<{ attestedKeys: JsonRecord[]; nonce: string }> {
   const { header, payload } = decodeCompactJwt(jwt, "Key attestation JWT");
@@ -259,11 +267,15 @@ async function verifyKeyAttestation(
     throw new Error("Key attestation JWT must use only header.x5c as its trust mechanism");
   }
   const x5c = header.x5c as string[];
-  await verifyCompactJws(jwt, {
-    method: "x5c",
-    x5c,
-    jwk: undefined,
-  });
+  await verifyCompactJws(
+    jwt,
+    {
+      method: "x5c",
+      x5c,
+      jwk: undefined,
+    },
+    options.agentContext,
+  );
 
   if (!Number.isInteger(payload.iat)) {
     throw new Error("Key attestation JWT iat must be an integer");
@@ -397,16 +409,18 @@ function publicJwk(value: unknown, label: string): JsonRecord {
 async function verifyCompactJws(
   jwt: string,
   signer: { method: "jwk"; jwk: Kms.PublicJwk } | { method: "x5c"; x5c: string[]; jwk: undefined },
+  agentContext?: AgentContext,
 ): Promise<void> {
   const jwsService = new JwsService();
+  const context = agentContext ?? (credentialProofVerificationContext() as never);
   const result =
     signer.method === "jwk"
-      ? await jwsService.verifyJws(credentialProofVerificationContext() as never, {
+      ? await jwsService.verifyJws(context, {
           jws: jwt,
           jwsSigner: signer,
           allowedJwsSignerMethods: ["jwk"],
         })
-      : await jwsService.verifyJws(credentialProofVerificationContext() as never, {
+      : await jwsService.verifyJws(context, {
           jws: jwt,
           allowedJwsSignerMethods: ["x5c"],
           trustedCertificates: [signer.x5c.at(-1) as string],

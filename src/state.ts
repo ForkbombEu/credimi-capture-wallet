@@ -6,12 +6,14 @@ import type {
   AuthorizationCode,
   CaptureEvent,
   JsonRecord,
+  Oid4vciHttpRequestCapture,
   ParRecord,
   SessionCapture,
   VpSessionCapture,
 } from "./types.js";
 
 export class CaptureStore {
+  readonly oid4vciRequests: Oid4vciHttpRequestCapture[] = [];
   readonly sessions = new Map<string, SessionCapture>();
   readonly parRequests = new Map<string, ParRecord>();
   readonly authorizationCodes = new Map<string, AuthorizationCode>();
@@ -76,6 +78,17 @@ export class CaptureStore {
 
   getSession(sessionId: string): SessionCapture | undefined {
     return this.sessions.get(sessionId);
+  }
+
+  recordOid4vciRequest(capture: Oid4vciHttpRequestCapture): void {
+    this.oid4vciRequests.push(capture);
+    if (this.oid4vciRequests.length > 1_000) this.oid4vciRequests.shift();
+    if (!capture.session_id) return;
+    const session = this.sessions.get(capture.session_id);
+    if (!session) return;
+    session.raw ??= {};
+    session.raw.oid4vci_requests ??= [];
+    session.raw.oid4vci_requests.push(capture);
   }
 
   createVpSession(
