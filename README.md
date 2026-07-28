@@ -110,6 +110,8 @@ curl "$BASE_URL/.well-known/openid-credential-issuer" \
 ```
 The response is a compact JWS with media type `application/jwt`, protected type
 `openidvci-issuer-metadata+jwt`, and the issuer certificate chain in `x5c`.
+Because the Credential Issuer also provides the Authorization Server, its metadata
+omits `authorization_servers` and uses the Credential Issuer identifier for discovery.
 
 ### 🪪 OpenID4VCI Issuance Flow
 

@@ -121,6 +121,7 @@ describe("capture issuer server", () => {
     expect(defaultMetadata.type).toBe("application/json");
     expect(defaultMetadata.headers.vary).toBe("Accept");
     expect(defaultMetadata.body).toEqual(unsignedMetadata.body);
+    expect(unsignedMetadata.body).not.toHaveProperty("authorization_servers");
     expect(signedMetadata.status).toBe(200);
     expect(signedMetadata.type).toBe("application/jwt");
 
@@ -146,6 +147,7 @@ describe("capture issuer server", () => {
     expect(sub).toBe(config.issuer_base_url);
     expect(iat).toEqual(expect.any(Number));
     expect(metadataClaims).toEqual(unsignedMetadata.body);
+    expect(metadataClaims.authorization_servers).toBeUndefined();
   });
 
   it("selects the signed metadata certificate chain by issuer public key", async () => {

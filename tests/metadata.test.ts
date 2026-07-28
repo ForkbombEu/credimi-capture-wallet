@@ -18,6 +18,14 @@ import {
 import type { JsonRecord } from "../src/types.js";
 
 describe("metadata", () => {
+  it("uses the credential issuer identifier for authorization server discovery", () => {
+    const issuerMetadata = credentialIssuerMetadata(DEFAULT_CONFIG) as JsonRecord;
+    const authorizationMetadata = authorizationServerMetadata(DEFAULT_CONFIG) as JsonRecord;
+
+    expect(issuerMetadata.authorization_servers).toBeUndefined();
+    expect(authorizationMetadata.issuer).toBe(DEFAULT_CONFIG.issuer_base_url);
+  });
+
   it("advertises credential scope in issuer metadata", () => {
     const metadata = credentialIssuerMetadata(DEFAULT_CONFIG) as JsonRecord;
     const configurations = metadata.credential_configurations_supported as JsonRecord;

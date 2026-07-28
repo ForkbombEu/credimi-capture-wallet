@@ -33,7 +33,6 @@ export function credentialIssuerMetadata(config: AppConfig): JsonRecord {
 
   return {
     credential_issuer: config.issuer_base_url,
-    authorization_servers: [config.issuer_base_url],
     credential_endpoint: `${config.issuer_base_url}/credential`,
     nonce_endpoint: `${config.issuer_base_url}/nonce`,
     display: [
