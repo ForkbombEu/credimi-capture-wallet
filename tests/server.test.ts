@@ -496,9 +496,7 @@ describe("capture issuer server", () => {
     expect(deeplink.searchParams.has("response_type")).toBe(false);
     expect(session.authorization_request.response_type).toBe("vp_token");
     expect(session.authorization_request.response_mode).toBe("direct_post.jwt");
-    expect(session.authorization_request.aud).toEqual(
-      expect.stringContaining(`/openid4vp/sessions/${session.session_id}/request/`),
-    );
+    expect(session.authorization_request.aud).toBe("https://self-issued.me/v2");
     expect(session.authorization_request.request_uri_method).toBeUndefined();
     expect(session.authorization_request.client_id).toMatch(/^x509_hash:/);
     expect(session.authorization_request.client_id_scheme).toBeUndefined();
@@ -1121,7 +1119,6 @@ describe("capture issuer server", () => {
     expect(response.headers["cache-control"]).toBe("no-store");
     expect(response.body).toMatchObject({
       c_nonce: expect.any(String),
-      c_nonce_expires_in: config.nonce_ttl_seconds,
     });
   });
 

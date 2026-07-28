@@ -1,2 +1,0 @@
-patchedDependencies:
-  '@openid4vc/oauth2@0.4.6': patches/@openid4vc__oauth2@0.4.6.patch

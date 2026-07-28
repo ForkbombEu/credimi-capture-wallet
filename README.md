@@ -118,8 +118,8 @@ supported signing algorithm.
 Credo-TS verifies the `OAuth-Client-Attestation` and
 `OAuth-Client-Attestation-PoP` headers when supplied; anonymous pre-authorized Token
 Requests remain supported.
-The pinned Credo-TS OAuth dependency is patched locally so its Wallet Attestation PoP
-parser follows draft 07, where `exp` is optional. Signature, audience, time, client,
+The pinned Credo-TS/OpenID4VC stack accepts the OpenID4VCI 1.0 Wallet Attestation PoP
+claim set, where `exp` is optional. Signature, audience, time, client,
 proof-of-possession key, and certificate checks remain handled by Credo-TS.
 When initialized with issuer encryption material, the metadata also advertises optional
 Credential Request and Credential Response encryption using `ECDH-ES` and `A256GCM`.
@@ -288,6 +288,7 @@ A successful response returns HTTP 201 and includes:
   "deeplink": "openid4vp://...",
   "authorization_request": {
     "client_id": "x509_hash:...",
+    "aud": "https://self-issued.me/v2",
     "response_type": "vp_token",
     "response_mode": "direct_post.jwt",
     "state": "..."
@@ -296,7 +297,7 @@ A successful response returns HTTP 201 and includes:
 }
 ```
 
-The QR deeplink contains `client_id=x509_hash:...` and `request_uri=...`. The request URI returns a signed `application/oauth-authz-req+jwt` request object with the verifier certificate in the JWS `x5c` header. By default the verifier uses `direct_post.jwt`, advertises an ephemeral JARM encryption key in `client_metadata.jwks`, captures the posted encrypted response, and stores the decrypted response in the session raw data after validation. Pass `"response_mode":"direct_post"` when creating a session if you need plaintext capture.
+The QR deeplink contains `client_id=x509_hash:...` and `request_uri=...`. The request URI returns a signed `application/oauth-authz-req+jwt` request object with `aud=https://self-issued.me/v2` and the verifier certificate in the JWS `x5c` header. By default the verifier uses `direct_post.jwt`, advertises an ephemeral JARM encryption key in `client_metadata.jwks`, captures the posted encrypted response, and stores the decrypted response in the session raw data after validation. Pass `"response_mode":"direct_post"` when creating a session if you need plaintext capture.
 
 In this case for each session you can get:
 * deeplink:

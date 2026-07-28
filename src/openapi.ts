@@ -451,8 +451,8 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           responses: {
             "200": response("Fresh credential nonce.", {
               type: "object",
-              required: ["c_nonce", "c_nonce_expires_in"],
-              properties: { c_nonce: { type: "string" }, c_nonce_expires_in: { type: "integer" } },
+              required: ["c_nonce"],
+              properties: { c_nonce: { type: "string" } },
             }),
           },
         },
