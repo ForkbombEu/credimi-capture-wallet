@@ -515,7 +515,25 @@ export function openApiDocument(config: AppConfig): JsonRecord {
                     credential_configuration_id: { type: "string" },
                     proofs: {
                       type: "object",
-                      properties: { jwt: { type: "array", items: { type: "string" } } },
+                      minProperties: 1,
+                      maxProperties: 1,
+                      properties: {
+                        jwt: {
+                          type: "array",
+                          minItems: 1,
+                          maxItems: 1,
+                          items: { type: "string" },
+                          description:
+                            "openid4vci-proof+jwt with a required key_attestation JOSE header.",
+                        },
+                        attestation: {
+                          type: "array",
+                          minItems: 1,
+                          maxItems: 1,
+                          items: { type: "string" },
+                          description: "One key-attestation+jwt proof.",
+                        },
+                      },
                     },
                   },
                   additionalProperties: true,

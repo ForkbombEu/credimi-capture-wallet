@@ -64,7 +64,7 @@ export function credentialIssuerMetadata(config: AppConfig): JsonRecord {
     credential_configurations_supported: Object.fromEntries(
       credentials.map((credential) => [
         credential.id,
-        credentialConfiguration(credential, proofTypesSupported(credential.proofType)),
+        credentialConfiguration(credential, proofTypesSupported()),
       ]),
     ),
   };
@@ -163,14 +163,14 @@ export function supportedCredentials(config: AppConfig): SupportedCredential[] {
       scope: credentialScope(config, "jwt"),
       format: "dc+sd-jwt",
       proofType: "jwt",
-      displayName: "Credimi Demo PID (SD-JWT VC, proof JWT)",
+      displayName: "Credimi Demo PID (SD-JWT VC, JWT or attestation proof)",
     },
     {
       id: mdocCredentialConfigurationId(config),
       scope: `${config.credential_scope}.mdoc.jwt`,
       format: "mso_mdoc",
       proofType: "jwt",
-      displayName: "Credimi Demo PID (MDOC, proof JWT)",
+      displayName: "Credimi Demo PID (MDOC, JWT or attestation proof)",
     },
   ];
 }
@@ -219,24 +219,21 @@ export function credentialOfferDeeplink(offer: unknown): string {
   return `openid-credential-offer://?credential_offer=${encodeURIComponent(JSON.stringify(offer))}`;
 }
 
-function proofTypesSupported(proofType: CredentialProofType): Record<
+function proofTypesSupported(): Record<
   string,
   {
     key_attestations_required?: Record<string, unknown>;
     proof_signing_alg_values_supported: string[];
   }
 > {
-  if (proofType === "attestation") {
-    return {
-      attestation: {
-        key_attestations_required: {},
-        proof_signing_alg_values_supported: ["ES256"],
-      },
-    };
-  }
   return {
     jwt: {
       proof_signing_alg_values_supported: ["ES256"],
+      key_attestations_required: {},
+    },
+    attestation: {
+      proof_signing_alg_values_supported: ["ES256"],
+      key_attestations_required: {},
     },
   };
 }

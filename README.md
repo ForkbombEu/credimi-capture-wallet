@@ -114,6 +114,8 @@ Because the Credential Issuer also provides the Authorization Server, its metada
 omits `authorization_servers` and uses the Credential Issuer identifier for discovery.
 When initialized with issuer encryption material, the metadata also advertises optional
 Credential Request and Credential Response encryption using `ECDH-ES` and `A256GCM`.
+Each credential configuration advertises both `jwt` and `attestation` proof types with
+`ES256`, and requires a key attestation for either type.
 
 ### 🪪 OpenID4VCI Issuance Flow
 
@@ -153,6 +155,21 @@ A successful response returns HTTP 201 and includes:
 
 Open or transmit the returned `deeplink` to the Wallet under test. The Wallet will call the issuer metadata, PAR, authorization, token, nonce, and credential endpoints directly during the OpenID4VCI flow.
 
+The `/credential` endpoint accepts exactly one proof per request:
+
+* `proofs.jwt[0]` must be an `openid4vci-proof+jwt` signed by its public
+  `header.jwk`. Its `header.key_attestation` is required, must be a valid
+  `key-attestation+jwt`, and must attest the proof-signing key.
+* `proofs.attestation[0]` must contain one `key-attestation+jwt`; the issued
+  credential is bound to the first public JWK in `attested_keys`.
+
+Both forms require the current issuer nonce and `ES256`. Key-attestation signatures
+and X.509 chains are verified through Credo-TS. This capture service accepts the last
+certificate supplied in the attestation `x5c` chain as that chain's trust anchor; it
+does not implement a production Wallet Provider trust list or the `kid` and
+`trust_chain` attestation trust mechanisms, and does not resolve optional attestation
+status information.
+
 For each session you can get different information:
 * deeplink:
   ```sh
@@ -166,11 +183,14 @@ For each session you can get different information:
   ```sh
   curl "$BASE_URL/sessions/{sessionId}/events"
   ```
-* Captured Wallet holder-binding JWKS after the Wallet has called `/credential` with a proof JWT containing `header.jwk`:
+* Captured Wallet holder-binding JWKS after the Wallet has called `/credential` with a
+  proof JWT `header.jwk` or a direct attestation `attested_keys` entry:
   ```sh
   curl "$BASE_URL/sessions/{sessionId}/jwks"
   ```
-  If the JWKS is not ready, the service returns HTTP 409 with `wallet_jwks_not_observed`. In that case, inspect the session object and event evidence to confirm whether the Wallet sent only `kid`, `x5c`, or no proof JWT header key material.
+  If the JWKS is not ready, the service returns HTTP 409 with
+  `wallet_jwks_not_observed`. Inspect the session object and event evidence for the
+  rejected proof details.
 
 ### 🛂 OpenID4VP Presentation Flow
 

@@ -20,7 +20,14 @@ import {
 } from "jose";
 import request from "supertest";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { DEFAULT_CONFIG, initIssuer, jwksPath, verifierCertificatePath } from "../src/config.js";
+import {
+  DEFAULT_CONFIG,
+  initIssuer,
+  issuerCertificatePath,
+  jwksPath,
+  privateJwkPath,
+  verifierCertificatePath,
+} from "../src/config.js";
 import {
   PID_MDOC_CLAIMS,
   PID_MDOC_DOCTYPE,
@@ -94,6 +101,15 @@ describe("capture issuer server", () => {
     ).toHaveProperty("application/jwt");
     expect(openApi.body.paths["/credential"].post.requestBody.content).toHaveProperty(
       "application/jwt",
+    );
+    expect(
+      openApi.body.paths["/credential"].post.requestBody.content["application/json"].schema
+        .properties.proofs.properties,
+    ).toEqual(
+      expect.objectContaining({
+        jwt: expect.objectContaining({ minItems: 1, maxItems: 1 }),
+        attestation: expect.objectContaining({ minItems: 1, maxItems: 1 }),
+      }),
     );
     expect(openApi.body.paths["/credential"].post.responses["200"].content).toHaveProperty(
       "application/jwt",
@@ -253,8 +269,8 @@ describe("capture issuer server", () => {
     expect(response.text).toContain("<dt>presentation_validation</dt>");
     expect(response.text).not.toContain("<dt>presentation_submission</dt>");
     expect(response.text).toContain('<select name="credential_configuration_id">');
-    expect(response.text).toContain("Credimi Demo PID (SD-JWT VC, proof JWT)");
-    expect(response.text).toContain("Credimi Demo PID (MDOC, proof JWT)");
+    expect(response.text).toContain("Credimi Demo PID (SD-JWT VC, JWT or attestation proof)");
+    expect(response.text).toContain("Credimi Demo PID (MDOC, JWT or attestation proof)");
     expect(response.text).toContain(
       '<img class="brand-logo" src="/assets/credimi_logo.svg" alt="Credimi"><span>Wallet metadata capture</span>',
     );
@@ -1024,13 +1040,13 @@ describe("capture issuer server", () => {
     const walletKey = await dpopKey();
     const refreshedNonce = await request(app).post("/nonce");
     expect(refreshedNonce.status).toBe(200);
-    const proof = await credentialProofJwt(walletKey, String(refreshedNonce.body.c_nonce));
+    const proof = await keyAttestationJwt(walletKey, String(refreshedNonce.body.c_nonce));
 
     const credential = await request(app)
       .post("/credential")
       .set("authorization", `DPoP ${token.access_token}`)
       .set("DPoP", await dpopProof(dpop, "POST", "/credential"))
-      .send({ proof: { proof_type: "jwt", jwt: proof } });
+      .send({ proofs: { attestation: [proof] } });
 
     expect(credential.status, JSON.stringify(credential.body)).toBe(200);
     const encodedMdoc = (credential.body as CredentialResponse).credentials[0].credential;
@@ -1050,6 +1066,11 @@ describe("capture issuer server", () => {
     );
     const capture = await getJson<SessionCapture>(app, `/sessions/${session.session_id}`);
     expect(capture.status).toBe("credential_issued");
+    expect(capture.checks.proof_attestation_present).toBe(true);
+    expect(capture.checks.key_attestation_verified).toBe(true);
+    expect(capture.observed.wallet_jwks.source).toBe(
+      "credential_request.proofs.attestation[0].payload.attested_keys[0]",
+    );
   });
 
   it("stores PAR and merges it into authorize requests", async () => {
@@ -1250,6 +1271,24 @@ describe("capture issuer server", () => {
     );
 
     const walletKey = await dpopKey();
+    const unrelatedAttestedKey = await dpopKey();
+    const mismatchedProof = await credentialProofJwt(
+      walletKey,
+      token.c_nonce,
+      config.issuer_base_url,
+      unrelatedAttestedKey,
+    );
+    const mismatchedCredential = await request(app)
+      .post("/credential")
+      .set("authorization", `DPoP ${token.access_token}`)
+      .set("DPoP", await dpopProof(dpop, "POST", "/credential"))
+      .send({ proof: { proof_type: "jwt", jwt: mismatchedProof } });
+    expect(mismatchedCredential.status).toBe(400);
+    expect(mismatchedCredential.body).toMatchObject({
+      error: "invalid_proof",
+      error_description: "Credential proof JWT signing key is not listed in attested_keys",
+    });
+
     const proof = await credentialProofJwt(walletKey, token.c_nonce);
     const credential = await request(app)
       .post("/credential")
@@ -1632,7 +1671,9 @@ async function credentialProofJwt(
   key: DpopKey,
   nonce: string,
   audience = config.issuer_base_url,
+  attestedKey = key,
 ): Promise<string> {
+  const keyAttestation = await keyAttestationJwt(attestedKey, nonce);
   return new SignJWT({
     aud: audience,
     nonce,
@@ -1642,8 +1683,30 @@ async function credentialProofJwt(
       alg: "ES256",
       typ: "openid4vci-proof+jwt",
       jwk: key.publicJwk as unknown as JWK,
+      key_attestation: keyAttestation,
     })
     .sign(key.privateKey);
+}
+
+async function keyAttestationJwt(key: DpopKey, nonce: string): Promise<string> {
+  const privateJwk = JSON.parse(readFileSync(privateJwkPath(dataDir), "utf8")) as JWK;
+  const certificate = readFileSync(issuerCertificatePath(dataDir), "utf8")
+    .replace(/-----BEGIN CERTIFICATE-----/g, "")
+    .replace(/-----END CERTIFICATE-----/g, "")
+    .replace(/\s+/g, "");
+  const now = Math.floor(Date.now() / 1000);
+  return new SignJWT({
+    iat: now,
+    exp: now + 300,
+    nonce,
+    attested_keys: [key.publicJwk],
+  })
+    .setProtectedHeader({
+      alg: "ES256",
+      typ: "key-attestation+jwt",
+      x5c: [certificate],
+    })
+    .sign(await importJWK(privateJwk, "ES256"));
 }
 
 async function sdJwtCredential(): Promise<{

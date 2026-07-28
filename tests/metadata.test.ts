@@ -52,7 +52,7 @@ describe("metadata", () => {
     expect(configuration.display).toBeUndefined();
     expect(credentialMetadata.display).toEqual([
       {
-        name: "Credimi Demo PID (SD-JWT VC, proof JWT)",
+        name: "Credimi Demo PID (SD-JWT VC, JWT or attestation proof)",
         locale: "en-US",
         logo: { uri: CREDIMI_LOGO_URL, alt_text: "Credimi" },
       },
@@ -81,14 +81,20 @@ describe("metadata", () => {
       `${DEFAULT_CONFIG.credential_configuration_id}.jwt`,
       mdocCredentialConfigurationId(DEFAULT_CONFIG),
     ]);
-    expect(jwtConfiguration.proof_types_supported).toEqual({
-      jwt: { proof_signing_alg_values_supported: ["ES256"] },
-    });
+    const proofTypesSupported = {
+      jwt: {
+        proof_signing_alg_values_supported: ["ES256"],
+        key_attestations_required: {},
+      },
+      attestation: {
+        proof_signing_alg_values_supported: ["ES256"],
+        key_attestations_required: {},
+      },
+    };
+    expect(jwtConfiguration.proof_types_supported).toEqual(proofTypesSupported);
     expect(jwtConfiguration.cryptographic_binding_methods_supported).toEqual(["jwk"]);
     expect(jwtConfiguration.credential_signing_alg_values_supported).toEqual(["ES256"]);
-    expect(mdocConfiguration.proof_types_supported).toEqual({
-      jwt: { proof_signing_alg_values_supported: ["ES256"] },
-    });
+    expect(mdocConfiguration.proof_types_supported).toEqual(proofTypesSupported);
     expect(mdocConfiguration.cryptographic_binding_methods_supported).toEqual(["cose_key"]);
     expect(mdocConfiguration.credential_signing_alg_values_supported).toEqual([-7, -9]);
   });
@@ -108,7 +114,7 @@ describe("metadata", () => {
     expect(configuration.claims).toBeUndefined();
     expect(credentialMetadata.display).toEqual([
       {
-        name: "Credimi Demo PID (MDOC, proof JWT)",
+        name: "Credimi Demo PID (MDOC, JWT or attestation proof)",
         locale: "en-US",
         logo: { uri: CREDIMI_LOGO_URL, alt_text: "Credimi" },
       },

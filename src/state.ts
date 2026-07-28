@@ -52,7 +52,9 @@ export class CaptureStore {
         state_present: false,
         issuer_state_present: false,
         proof_jwt_present: false,
+        proof_attestation_present: false,
         proof_jwt_header_jwk_present: false,
+        key_attestation_verified: false,
         nonce_verified: false,
         private_key_jwt_present: false,
         private_key_jwt_client_id_matches: null,
@@ -215,6 +217,11 @@ export class CaptureStore {
   consumeCredentialNonce(nonce: string): boolean {
     const expiresAt = this.credentialNonces.get(nonce);
     this.credentialNonces.delete(nonce);
+    return expiresAt !== undefined && expiresAt >= nowSeconds();
+  }
+
+  isCredentialNonceValid(nonce: string): boolean {
+    const expiresAt = this.credentialNonces.get(nonce);
     return expiresAt !== undefined && expiresAt >= nowSeconds();
   }
 

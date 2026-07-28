@@ -64,4 +64,23 @@ describe("proof JWT capture", () => {
       { jwt: third, source: "credential_request.proofs.jwt[1]" },
     ]);
   });
+
+  it("captures the attestation proof header and its proof type", () => {
+    const attestation = unsignedJwt({
+      alg: "ES256",
+      typ: "key-attestation+jwt",
+      x5c: ["attester-leaf"],
+    });
+
+    expect(captureProofHeaders({ proofs: { attestation: [attestation] } })).toEqual([
+      {
+        alg: "ES256",
+        key_attestation_present: false,
+        proof_type: "attestation",
+        source: "credential_request.proofs.attestation[0].header",
+        typ: "key-attestation+jwt",
+        x5c: ["attester-leaf"],
+      },
+    ]);
+  });
 });

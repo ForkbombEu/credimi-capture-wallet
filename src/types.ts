@@ -28,11 +28,13 @@ export interface CaptureEvent {
 }
 
 export interface ProofHeaderCapture {
+  proof_type?: "jwt" | "attestation";
   typ?: string;
   alg?: string;
   kid?: string;
   jwk?: JsonRecord;
   x5c?: string[];
+  key_attestation_present?: boolean;
   source: string;
 }
 
@@ -90,7 +92,9 @@ export interface SessionCapture {
     state_present: boolean;
     issuer_state_present: boolean;
     proof_jwt_present: boolean;
+    proof_attestation_present: boolean;
     proof_jwt_header_jwk_present: boolean;
+    key_attestation_verified: boolean;
     nonce_verified: boolean;
     private_key_jwt_present: boolean;
     private_key_jwt_client_id_matches: boolean | null;

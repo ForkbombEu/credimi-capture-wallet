@@ -34,6 +34,7 @@ import { verifyPkce } from "./pkce.js";
 import {
   captureProofHeaders,
   firstWalletJwks,
+  jwkToJwks,
   verifyCredentialProof,
   verifyDpopProof,
 } from "./proofs.js";
@@ -277,7 +278,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     if (!session.observed.wallet_jwks.observed || !session.observed.wallet_jwks.jwks) {
       return res.status(409).json({
         error: "wallet_jwks_not_observed",
-        reason: "Credential proof JWT did not contain header.jwk",
+        reason: "No verified credential holder-binding key has been observed",
         observed_proof_header_fields: session.observed.wallet_jwks.observed_proof_header_fields,
       });
     }
@@ -797,21 +798,44 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         encrypted_response_requested: Boolean(responseEncryption),
       });
 
-      const headers = captureProofHeaders(body);
+      let headers: ReturnType<typeof captureProofHeaders>;
+      try {
+        headers = captureProofHeaders(body);
+      } catch (error) {
+        return res.status(400).json({
+          error: "invalid_proof",
+          error_description: errorMessage(error),
+        });
+      }
       session.raw.proof_headers = headers;
-      session.checks.proof_jwt_present = headers.length > 0;
-      session.checks.proof_jwt_header_jwk_present = headers.some((header) => header.jwk);
+      session.checks.proof_jwt_present = headers.some((header) => header.proof_type === "jwt");
+      session.checks.proof_attestation_present = headers.some(
+        (header) => header.proof_type === "attestation",
+      );
+      session.checks.proof_jwt_header_jwk_present = headers.some(
+        (header) => header.proof_type === "jwt" && header.jwk,
+      );
+      session.checks.key_attestation_verified = false;
       session.checks.nonce_verified = false;
       for (const header of headers) {
-        store.addEvent(session, "proof_jwt_observed", { header });
+        store.addEvent(
+          session,
+          header.proof_type === "attestation" ? "proof_attestation_observed" : "proof_jwt_observed",
+          { header },
+        );
       }
       let verifiedProof: Awaited<ReturnType<typeof verifyCredentialProof>>;
       try {
         verifiedProof = await verifyCredentialProof({
           body,
-          expectedNonce: (nonce) => store.consumeCredentialNonce(nonce),
+          expectedNonce: (nonce) => store.isCredentialNonceValid(nonce),
           expectedAudience: config.issuer_base_url,
+          expectedClientId: session.observed.client_id.value ?? undefined,
         });
+        if (!store.consumeCredentialNonce(verifiedProof.nonce)) {
+          throw new Error("Credential proof nonce does not match issued c_nonce");
+        }
+        session.checks.key_attestation_verified = true;
         session.checks.nonce_verified = true;
       } catch (error) {
         return res.status(400).json({
@@ -821,13 +845,16 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       }
 
       const wallet = firstWalletJwks(headers);
+      const verifiedWalletJwks = jwkToJwks(verifiedProof.holderJwk);
       session.observed.wallet_jwks = {
-        observed: Boolean(wallet.jwks),
-        source: wallet.source,
-        jwks: wallet.jwks,
+        observed: true,
+        source: verifiedProof.source,
+        jwks: verifiedWalletJwks,
         observed_proof_header_fields: wallet.observedFields,
       };
-      store.addEvent(session, wallet.jwks ? "wallet_jwk_observed" : "wallet_jwk_not_observed", {
+      store.addEvent(session, "wallet_jwk_observed", {
+        proof_type: verifiedProof.proofType,
+        source: verifiedProof.source,
         observed_proof_header_fields: wallet.observedFields,
       });
 
