@@ -1,0 +1,20 @@
+diff --git a/dist/index.d.mts b/dist/index.d.mts
+index c6067316a671e289f489511f0962fc40d8f804cc..6e4d0d47e6c1198028669c9e4c91450f7a000e8e 100644
+--- a/dist/index.d.mts
++++ b/dist/index.d.mts
+@@ -760,7 +760,7 @@ declare const zClientAttestationJwtHeader: z$1.ZodObject<{
+ type ClientAttestationJwtHeader = z$1.infer<typeof zClientAttestationJwtHeader>;
+ declare const zClientAttestationPopJwtPayload: z$1.ZodObject<{
+   iss: z$1.ZodString;
+-  exp: z$1.ZodNumber;
++  exp: z$1.ZodOptional<z$1.ZodNumber>;
+   aud: z$1.ZodUnion<readonly [z$1.ZodURL, z$1.ZodArray<z$1.ZodURL>]>;
+   jti: z$1.ZodString;
+   nonce: z$1.ZodOptional<z$1.ZodString>;
+diff --git a/dist/index.mjs b/dist/index.mjs
+index 2a79a93584fd0ea874f4ca4c58accbcef3cc1593..a6267f1273a4be54643765f7506803544b6f2d92 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -1206 +1206 @@ const zClientAttestationPopJwtPayload = z$1.object({
+-	exp: zNumericDate,
++	exp: z$1.optional(zNumericDate),

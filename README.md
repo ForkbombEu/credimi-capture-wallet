@@ -118,6 +118,9 @@ supported signing algorithm.
 Credo-TS verifies the `OAuth-Client-Attestation` and
 `OAuth-Client-Attestation-PoP` headers when supplied; anonymous pre-authorized Token
 Requests remain supported.
+The pinned Credo-TS OAuth dependency is patched locally so its Wallet Attestation PoP
+parser follows draft 07, where `exp` is optional. Signature, audience, time, client,
+proof-of-possession key, and certificate checks remain handled by Credo-TS.
 When initialized with issuer encryption material, the metadata also advertises optional
 Credential Request and Credential Response encryption using `ECDH-ES` and `A256GCM`.
 Each credential configuration advertises both `jwt` and `attestation` proof types with

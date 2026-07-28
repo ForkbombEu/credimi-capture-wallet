@@ -4,6 +4,11 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  '@openid4vc/oauth2@0.4.6':
+    hash: 11042e5f84357d5e04eceb5d748c802e59102ef3a526a3c45008c5550907d719
+    path: patches/@openid4vc__oauth2@0.4.6.patch
+
 importers:
 
   .:
@@ -2022,7 +2027,7 @@ snapshots:
   '@credo-ts/openid4vc@0.7.0(typescript@5.9.3)':
     dependencies:
       '@credo-ts/core': 0.7.0(typescript@5.9.3)
-      '@openid4vc/oauth2': 0.4.6
+      '@openid4vc/oauth2': 0.4.6(patch_hash=11042e5f84357d5e04eceb5d748c802e59102ef3a526a3c45008c5550907d719)
       '@openid4vc/openid4vci': 0.4.6
       '@openid4vc/openid4vp': 0.4.6
       '@openid4vc/utils': 0.4.6
@@ -2235,20 +2240,20 @@ snapshots:
 
   '@noble/hashes@2.2.0': {}
 
-  '@openid4vc/oauth2@0.4.6':
+  '@openid4vc/oauth2@0.4.6(patch_hash=11042e5f84357d5e04eceb5d748c802e59102ef3a526a3c45008c5550907d719)':
     dependencies:
       '@openid4vc/utils': 0.4.6
       zod: 4.4.3
 
   '@openid4vc/openid4vci@0.4.6':
     dependencies:
-      '@openid4vc/oauth2': 0.4.6
+      '@openid4vc/oauth2': 0.4.6(patch_hash=11042e5f84357d5e04eceb5d748c802e59102ef3a526a3c45008c5550907d719)
       '@openid4vc/utils': 0.4.6
       zod: 4.4.3
 
   '@openid4vc/openid4vp@0.4.6':
     dependencies:
-      '@openid4vc/oauth2': 0.4.6
+      '@openid4vc/oauth2': 0.4.6(patch_hash=11042e5f84357d5e04eceb5d748c802e59102ef3a526a3c45008c5550907d719)
       '@openid4vc/utils': 0.4.6
       zod: 4.4.3
 

@@ -1144,7 +1144,7 @@ describe("capture issuer server", () => {
     expect(response.body).toMatchObject({ error: "invalid_dpop_proof" });
   });
 
-  it("uses Credo to verify wallet attestation authentication at the token endpoint", async () => {
+  it("uses Credo to verify a draft-07 wallet attestation PoP without exp", async () => {
     const app = createApp(config);
     const session = await postJson<SessionCreateResponse>(app, "/sessions", {});
     const offer = await getJson<CredentialOfferResponse>(app, new URL(session.offer_url).pathname);
@@ -1593,7 +1593,6 @@ async function walletAttestationPopJwt(key: DpopKey, clientId: string): Promise<
     iss: clientId,
     aud: config.issuer_base_url,
     iat: now,
-    exp: now + 60,
     jti: randomUUID(),
   })
     .setProtectedHeader({
