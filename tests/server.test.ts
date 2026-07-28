@@ -88,6 +88,10 @@ describe("capture issuer server", () => {
       "OpenID4VP",
     ]);
     expect(openApi.body.paths["/openid4vp/response"].post.tags).toEqual(["OpenID4VP"]);
+    expect(openApi.body.components.schemas.IssuanceSessionRequest.properties.broken).toMatchObject({
+      type: "boolean",
+      default: false,
+    });
     expect(Object.keys(openApi.body.paths)).toEqual(
       expect.arrayContaining([
         "/sessions",
@@ -713,8 +717,8 @@ describe("capture issuer server", () => {
           format: "dc+sd-jwt",
           claims: {
             vct: PID_SD_JWT_VCT,
-            family_name: "Doe",
-            given_name: "Jane",
+            family_name: "Rossi",
+            given_name: "Mario",
           },
         },
       ],
@@ -813,6 +817,7 @@ describe("capture issuer server", () => {
 
     const initial = await getJson<SessionCapture>(app, `/sessions/${sessionId}`);
     expect(initial.status).toBe("created");
+    expect(initial.broken).toBe(false);
 
     const offer = await request(app).get(`/sessions/${sessionId}/offer`);
     expect(offer.status).toBe(200);
@@ -833,7 +838,27 @@ describe("capture issuer server", () => {
     );
 
     expect(session.credential_configuration_id).toBe(requestedCredentialConfigurationId);
+    expect(session.broken).toBe(false);
     expect(offer.credential_configuration_ids).toEqual([requestedCredentialConfigurationId]);
+  });
+
+  it("records the requested broken credential fixture and rejects non-boolean values", async () => {
+    const app = createApp(config);
+
+    const brokenSession = await postJson<SessionCreateResponse>(app, "/sessions", {
+      broken: true,
+    });
+    const capture = await getJson<SessionCapture>(app, `/sessions/${brokenSession.session_id}`);
+    const invalid = await request(app).post("/sessions").send({ broken: "true" });
+
+    expect(brokenSession.broken).toBe(true);
+    expect(capture.broken).toBe(true);
+    expect(capture.events[0]?.detail.broken).toBe(true);
+    expect(invalid.status).toBe(400);
+    expect(invalid.body).toEqual({
+      error: "invalid_request",
+      error_description: "'broken' must be a boolean",
+    });
   });
 
   it("serves issuer JWKS with the self-signed certificate chain", async () => {
@@ -896,7 +921,9 @@ describe("capture issuer server", () => {
     expect(session.credential_configuration_id).toBe(mdocCredentialConfigurationId(config));
     expect(decoded.issuerAuth.mobileSecurityObject.docType).toBe(PID_MDOC_DOCTYPE);
     const namespace = decoded.getPrettyClaims(PID_MDOC_NAMESPACE) as JsonRecord | undefined;
-    expect(namespace?.given_name).toBe("Jane");
+    expect(namespace?.given_name).toBe("Mario");
+    expect(namespace?.family_name).toBe("Rossi");
+    expect(namespace?.place_of_birth).toEqual(new Map([["locality", "Roma"]]));
     expect(namespace?.resident_country).toBe("IT");
     const portrait = namespace?.portrait;
     expect(portrait).toBeInstanceOf(Uint8Array);
@@ -1075,7 +1102,7 @@ describe("capture issuer server", () => {
 
   it("verifies PKCE and captures credential proof JWKS", async () => {
     const app = createApp(config);
-    const session = await postJson<SessionCreateResponse>(app, "/sessions", {});
+    const session = await postJson<SessionCreateResponse>(app, "/sessions", { broken: true });
     const verifier = "pkce-verifier";
     const challenge = createHash("sha256").update(verifier).digest("base64url");
     const par = await postPar(app, {
@@ -1460,6 +1487,7 @@ function escapeRegExp(value: string): string {
 interface SessionCreateResponse extends JsonRecord {
   session_id: string;
   credential_configuration_id: string;
+  broken: boolean;
 }
 
 interface ParResponse extends JsonRecord {

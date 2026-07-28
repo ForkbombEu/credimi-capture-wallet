@@ -33,6 +33,7 @@ export async function issueSdJwtCredential(options: {
   config: AppConfig;
   credentialConfigurationId: string;
   holderJwk: JsonRecord;
+  broken?: boolean;
   now?: Date;
 }): Promise<string> {
   const privateJwk = loadPrivateJwk(options.config);
@@ -49,7 +50,7 @@ export async function issueSdJwtCredential(options: {
     payload: {
       vct: PID_SD_JWT_VCT,
       exp: Math.floor(now.getTime() / 1000) + 365 * 24 * 60 * 60,
-      ...sdJwtPidClaims(),
+      ...sdJwtPidClaims(options.broken ?? false),
     },
     disclosureFrame: {
       _sd: [
@@ -82,6 +83,7 @@ export async function issueSdJwtCredential(options: {
 export async function issueMdocCredential(options: {
   config: AppConfig;
   holderJwk: JsonRecord;
+  broken?: boolean;
   now?: Date;
 }): Promise<string> {
   const privateJwk = loadPrivateJwk(options.config);
@@ -97,7 +99,7 @@ export async function issueMdocCredential(options: {
   const context = createMdocContext(privateJwk);
 
   const issuerSigned = await new Issuer(PID_MDOC_DOCTYPE, context)
-    .addIssuerNamespace(PID_MDOC_NAMESPACE, mdocPidClaims())
+    .addIssuerNamespace(PID_MDOC_NAMESPACE, mdocPidClaims(options.broken ?? false))
     .sign({
       signingKey: CoseKey.fromJwk(privateJwk),
       algorithm: SignatureAlgorithm.ES256,
@@ -110,7 +112,9 @@ export async function issueMdocCredential(options: {
   return issuerSigned.encodedForOid4Vci;
 }
 
-function sdJwtPidClaims(): JsonRecord {
+function sdJwtPidClaims(broken: boolean): JsonRecord {
+  const givenName = broken ? "Jane" : "Mario";
+  const familyName = broken ? "Doe" : "Rossi";
   return {
     address: {
       country: "IT",
@@ -121,15 +125,15 @@ function sdJwtPidClaims(): JsonRecord {
       region: "Lazio",
       street_address: "Via Europa",
     },
-    birth_family_name: "Doe",
-    birth_given_name: "Jane",
+    birth_family_name: familyName,
+    birth_given_name: givenName,
     birthdate: "1990-01-01",
     date_of_expiry: "2031-01-01",
     date_of_issuance: "2026-01-01",
     document_number: "CREDIMI-DEMO-001",
     email: "jane.doe@example.test",
-    family_name: "Doe",
-    given_name: "Jane",
+    family_name: familyName,
+    given_name: givenName,
     issuing_authority: "Credimi Fake Issuer",
     issuing_country: "IT",
     issuing_jurisdiction: "IT-RM",
@@ -137,21 +141,23 @@ function sdJwtPidClaims(): JsonRecord {
     personal_administrative_number: "PID-DEMO-001",
     phone_number: "+390600000000",
     picture: PID_PICTURE_DATA_URL,
-    place_of_birth: "Roma", // WRONG DO NOT MODIFY - must be object, and at least one of country, region, or locality must be present.
+    place_of_birth: broken ? "Roma" : { locality: "Roma" },
     sex: 2,
   };
 }
 
-function mdocPidClaims(): JsonRecord {
+function mdocPidClaims(broken: boolean): JsonRecord {
+  const givenName = broken ? "Jane" : "Mario";
+  const familyName = broken ? "Doe" : "Rossi";
   return {
     birth_date: new DateOnly("1990-01-01"),
     document_number: "CREDIMI-DEMO-001",
     email_address: "jane.doe@example.test",
     expiry_date: new DateOnly("2031-01-01"),
-    family_name: "Doe",
-    family_name_birth: "Doe",
-    given_name: "Jane",
-    given_name_birth: "Jane",
+    family_name: familyName,
+    family_name_birth: familyName,
+    given_name: givenName,
+    given_name_birth: givenName,
     issuance_date: new DateOnly("2026-01-01"),
     issuing_authority: "Credimi Fake Issuer",
     issuing_country: "IT",
@@ -159,7 +165,7 @@ function mdocPidClaims(): JsonRecord {
     mobile_phone_number: "+390600000000",
     nationality: ["IT"],
     personal_administrative_number: "PID-DEMO-001",
-    place_of_birth: "Roma", // WRONG DO NOT MODIFY - must be object, and at least one of country, region, or locality must be present.
+    place_of_birth: broken ? "Roma" : { locality: "Roma" },
     portrait: new Uint8Array(PID_PORTRAIT_JPEG),
     resident_address: "Via Europa 1, 00100 Roma, IT",
     resident_city: "Roma",

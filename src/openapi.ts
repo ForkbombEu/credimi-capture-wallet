@@ -558,6 +558,12 @@ export function openApiDocument(config: AppConfig): JsonRecord {
               type: "string",
               description: "One of the IDs advertised by credential issuer metadata.",
             },
+            broken: {
+              type: "boolean",
+              default: false,
+              description:
+                "Issue the intentionally malformed legacy PID test fixture instead of the conforming fixture.",
+            },
           },
         },
         IssuanceSessionCreated: {
@@ -565,6 +571,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           required: [
             "session_id",
             "credential_configuration_id",
+            "broken",
             "offer_url",
             "deeplink",
             "status",
@@ -572,6 +579,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           properties: {
             session_id: { type: "string", format: "uuid" },
             credential_configuration_id: { type: "string" },
+            broken: { type: "boolean" },
             offer_url: { type: "string", format: "uri" },
             deeplink: { type: "string" },
             status: { type: "string", const: "created" },
@@ -583,6 +591,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             "session_id",
             "status",
             "credential_configuration_id",
+            "broken",
             "observed",
             "checks",
             "events",

@@ -26,12 +26,14 @@ export class CaptureStore {
 
   createSession(
     credentialConfigurationId = defaultCredentialConfigurationId(this.config),
+    broken = false,
   ): SessionCapture {
     const sessionId = randomUUID();
     const session: SessionCapture = {
       session_id: sessionId,
       status: "created",
       credential_configuration_id: credentialConfigurationId,
+      broken,
       observed: {
         client_id: { value: null, source: null, also_seen_in: [] },
         redirect_uri: { value: null, source: null, also_seen_in: [] },
@@ -65,6 +67,7 @@ export class CaptureStore {
     this.sessions.set(sessionId, session);
     this.addEvent(session, "session_created", {
       credential_configuration_id: credentialConfigurationId,
+      broken,
     });
     return session;
   }

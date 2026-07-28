@@ -198,6 +198,12 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
 
   app.post("/sessions", (req, res) => {
     const body = requestParams(req);
+    if (body.broken !== undefined && typeof body.broken !== "boolean") {
+      return res.status(400).json({
+        error: "invalid_request",
+        error_description: "'broken' must be a boolean",
+      });
+    }
     const credentialConfigurationId =
       asStringOrNull(body.credential_configuration_id) ??
       supportedCredentialConfigurationIds(config)[0];
@@ -208,12 +214,13 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       });
     }
 
-    const session = store.createSession(credentialConfigurationId);
+    const session = store.createSession(credentialConfigurationId, body.broken === true);
     const offer = credentialOffer(config, session.session_id, session.credential_configuration_id);
     store.addEvent(session, "credential_offer_generated", {});
     res.status(201).json({
       session_id: session.session_id,
       credential_configuration_id: session.credential_configuration_id,
+      broken: session.broken,
       offer_url: `${config.issuer_base_url}/sessions/${session.session_id}/offer`,
       deeplink: credentialOfferDeeplink(offer),
       status: session.status,
@@ -818,16 +825,18 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
 
       const credential =
         selectedCredential.format === "mso_mdoc"
-          ? await issueMdocCredential({ config, holderJwk })
+          ? await issueMdocCredential({ config, holderJwk, broken: session.broken })
           : await issueSdJwtCredential({
               config,
               credentialConfigurationId: session.credential_configuration_id,
               holderJwk,
+              broken: session.broken,
             });
       session.status = "credential_issued";
       store.addEvent(session, "credential_issued", {
         format: selectedCredential.format,
         credential_configuration_id: session.credential_configuration_id,
+        broken: session.broken,
       });
 
       res.json({

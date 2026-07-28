@@ -66,6 +66,7 @@ export interface SessionCapture {
   session_id: string;
   status: string;
   credential_configuration_id: string;
+  broken: boolean;
   observed: {
     client_id: ObservedValue<string>;
     redirect_uri: ObservedValue<string>;
