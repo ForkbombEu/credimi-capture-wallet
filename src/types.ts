@@ -82,6 +82,7 @@ export interface ClientAuthenticationCapture {
 export interface SessionCapture {
   session_id: string;
   status: string;
+  flow: "pre_authorized_code" | "authorization_code";
   credential_configuration_id: string;
   broken: boolean;
   observed: {
@@ -164,27 +165,9 @@ export interface VpSessionCapture {
   };
 }
 
-export interface ParRecord {
-  request_uri: string;
-  expires_at: number;
-  params: JsonRecord;
-}
-
-export interface AuthorizationCode {
-  code: string;
-  session_id: string;
-  client_id: string | null;
-  redirect_uri: string | null;
-  code_challenge: string | null;
-  code_challenge_method: string | null;
-  state: string | null;
-  expires_at: number;
-  used: boolean;
-}
-
-export interface AccessToken {
-  token: string;
-  session_id: string;
-  dpop_jkt: string;
-  expires_at: number;
+export interface CredoIssuanceOffer {
+  credential_offer: string;
+  credential_offer_object: JsonRecord;
+  credential_offer_uri: string;
+  credo_issuance_session_id: string;
 }

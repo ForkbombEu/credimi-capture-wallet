@@ -1,21 +1,7 @@
-import { createHash, createPrivateKey, randomBytes, sign } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { Kms, SdJwtVcService, type SdJwtVcSignOptions } from "@credo-ts/core";
-import {
-  CoseKey,
-  DateOnly,
-  DeviceKey,
-  Issuer,
-  type MdocContext,
-  SignatureAlgorithm,
-} from "@owf/mdoc";
-import {
-  ISSUER_KEY_ID,
-  createIssuerSigningContext,
-  issuerCertificatePath,
-  loadIssuerCertificate,
-  privateJwkPath,
-} from "./config.js";
+import { Kms, type MdocSignOptions, SdJwtVcService, type SdJwtVcSignOptions } from "@credo-ts/core";
+import { DateOnly } from "@owf/mdoc";
+import { ISSUER_KEY_ID, createIssuerSigningContext, loadIssuerCertificate } from "./config.js";
 import {
   CREDIMI_LOGO_URL,
   CREDIMI_WEBSITE,
@@ -23,7 +9,6 @@ import {
   PID_MDOC_NAMESPACE,
   PID_SD_JWT_VCT,
 } from "./credential-definitions.js";
-import type { CredoOpenId4VciIssuer } from "./credo-openid4vci.js";
 import type { AppConfig, JsonRecord } from "./types.js";
 
 export { CREDIMI_LOGO_URL, CREDIMI_WEBSITE };
@@ -37,15 +22,27 @@ export async function issueSdJwtCredential(options: {
   holderJwk: JsonRecord;
   broken?: boolean;
   now?: Date;
-  credoIssuer?: CredoOpenId4VciIssuer;
 }): Promise<string> {
   const issuerCertificate = loadIssuerCertificate(options.config);
   issuerCertificate.keyId = ISSUER_KEY_ID;
   const agentContext = createIssuerSigningContext(options.config);
   const service = new SdJwtVcService({} as never);
-  const now = options.now ?? new Date();
+  const signOptions = sdJwtCredentialSignOptions(options);
+  const credential = await service.sign(agentContext as never, signOptions);
 
-  const signOptions: SdJwtVcSignOptions = {
+  return credential.compact;
+}
+
+export function sdJwtCredentialSignOptions(options: {
+  config: AppConfig;
+  holderJwk: JsonRecord;
+  broken?: boolean;
+  now?: Date;
+}): SdJwtVcSignOptions {
+  const issuerCertificate = loadIssuerCertificate(options.config);
+  issuerCertificate.keyId = ISSUER_KEY_ID;
+  const now = options.now ?? new Date();
+  return {
     issuer: { method: "x5c", issuer: options.config.issuer_base_url, x5c: [issuerCertificate] },
     holder: { method: "jwk", jwk: Kms.PublicJwk.fromUnknown(options.holderJwk) },
     headerType: "dc+sd-jwt",
@@ -78,56 +75,28 @@ export async function issueSdJwtCredential(options: {
       ],
     },
   };
-  const credential = options.credoIssuer
-    ? await options.credoIssuer.sdJwtVc.sign(signOptions)
-    : await service.sign(agentContext as never, signOptions);
-
-  return credential.compact;
 }
 
-export async function issueMdocCredential(options: {
+export function mdocCredentialSignOptions(options: {
   config: AppConfig;
   holderJwk: JsonRecord;
   broken?: boolean;
   now?: Date;
-  credoIssuer?: CredoOpenId4VciIssuer;
-}): Promise<string> {
-  const privateJwk = loadPrivateJwk(options.config);
-  const issuerCertificate = Buffer.from(
-    readFileSync(issuerCertificatePath(options.config.data_dir), "utf8")
-      .replace(/-----BEGIN CERTIFICATE-----/g, "")
-      .replace(/-----END CERTIFICATE-----/g, "")
-      .replace(/\s+/g, ""),
-    "base64",
-  );
+}): MdocSignOptions {
   const now = options.now ?? new Date();
-  const validUntil = new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000);
-  const context = createMdocContext(privateJwk);
-  if (options.credoIssuer) {
-    const issuerCertificate = loadIssuerCertificate(options.config);
-    issuerCertificate.keyId = ISSUER_KEY_ID;
-    const credential = await options.credoIssuer.mdoc.sign({
-      docType: PID_MDOC_DOCTYPE,
-      validityInfo: { signed: now, validFrom: now, validUntil },
-      namespaces: { [PID_MDOC_NAMESPACE]: mdocPidClaims(options.broken ?? false) },
-      issuerCertificate,
-      holderKey: Kms.PublicJwk.fromUnknown(options.holderJwk),
-    });
-    return credential.base64Url;
-  }
-
-  const issuerSigned = await new Issuer(PID_MDOC_DOCTYPE, context)
-    .addIssuerNamespace(PID_MDOC_NAMESPACE, mdocPidClaims(options.broken ?? false))
-    .sign({
-      signingKey: CoseKey.fromJwk(privateJwk),
-      algorithm: SignatureAlgorithm.ES256,
-      digestAlgorithm: "SHA-256",
-      validityInfo: { signed: now, validFrom: now, validUntil },
-      deviceKeyInfo: { deviceKey: DeviceKey.fromJwk(options.holderJwk) as DeviceKey },
-      certificates: [issuerCertificate],
-    });
-
-  return issuerSigned.encodedForOid4Vci;
+  const issuerCertificate = loadIssuerCertificate(options.config);
+  issuerCertificate.keyId = ISSUER_KEY_ID;
+  return {
+    docType: PID_MDOC_DOCTYPE,
+    validityInfo: {
+      signed: now,
+      validFrom: now,
+      validUntil: new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000),
+    },
+    namespaces: { [PID_MDOC_NAMESPACE]: mdocPidClaims(options.broken ?? false) },
+    issuerCertificate,
+    holderKey: Kms.PublicJwk.fromUnknown(options.holderJwk),
+  };
 }
 
 function sdJwtPidClaims(broken: boolean): JsonRecord {
@@ -193,49 +162,5 @@ function mdocPidClaims(broken: boolean): JsonRecord {
     resident_state: "Lazio",
     resident_street: "Via Europa",
     sex: 2,
-  };
-}
-
-function loadPrivateJwk(config: AppConfig): JsonRecord {
-  return JSON.parse(readFileSync(privateJwkPath(config.data_dir), "utf8")) as JsonRecord;
-}
-
-function createMdocContext(privateJwk: JsonRecord): {
-  crypto: MdocContext["crypto"];
-  cose: MdocContext["cose"];
-} {
-  return {
-    crypto: {
-      random: (length) => randomBytes(length),
-      digest: ({ digestAlgorithm, bytes }) => {
-        if (digestAlgorithm !== "SHA-256") {
-          throw new Error(`Unsupported MDOC digest algorithm '${digestAlgorithm}'`);
-        }
-        return createHash("sha256").update(bytes).digest();
-      },
-      calculateEphemeralMacKey: () => {
-        throw new Error("MDOC ephemeral MAC key calculation is not supported by this issuer");
-      },
-    },
-    cose: {
-      sign1: {
-        sign: async ({ toBeSigned }) =>
-          sign("sha256", toBeSigned, {
-            key: createPrivateKey({ key: privateJwk as never, format: "jwk" }),
-            dsaEncoding: "ieee-p1363",
-          }),
-        verify: () => {
-          throw new Error("MDOC verification is not supported by this issuer");
-        },
-      },
-      mac0: {
-        sign: () => {
-          throw new Error("MDOC MAC signing is not supported by this issuer");
-        },
-        verify: () => {
-          throw new Error("MDOC MAC verification is not supported by this issuer");
-        },
-      },
-    },
   };
 }

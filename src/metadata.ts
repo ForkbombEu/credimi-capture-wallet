@@ -1,4 +1,4 @@
-import { JwsService, JwtPayload, Kms } from "@credo-ts/core";
+import { type AgentContext, JwsService, JwtPayload, Kms } from "@credo-ts/core";
 import {
   ISSUER_KEY_ID,
   createIssuerSigningContext,
@@ -74,10 +74,23 @@ export async function signedCredentialIssuerMetadata(
   config: AppConfig,
   now = new Date(),
 ): Promise<string> {
-  const metadata = credentialIssuerMetadata(config);
+  return signCredentialIssuerMetadata(
+    config,
+    credentialIssuerMetadata(config),
+    createIssuerSigningContext(config) as never,
+    now,
+  );
+}
+
+export async function signCredentialIssuerMetadata(
+  config: AppConfig,
+  metadata: JsonRecord,
+  agentContext: AgentContext,
+  now = new Date(),
+): Promise<string> {
   const certificateChain = issuerCertificateChain(config);
 
-  return new JwsService().createJwsCompact(createIssuerSigningContext(config) as never, {
+  return new JwsService().createJwsCompact(agentContext, {
     payload: new JwtPayload({
       iss: config.issuer_base_url,
       sub: config.issuer_base_url,
@@ -113,25 +126,6 @@ function publicJwkMatches(candidate: JsonRecord, expected: Kms.PublicJwk): boole
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((entry) => typeof entry === "string");
-}
-
-export function authorizationServerMetadata(config: AppConfig): unknown {
-  return {
-    issuer: config.issuer_base_url,
-    authorization_endpoint: `${config.issuer_base_url}/authorize`,
-    token_endpoint: `${config.issuer_base_url}/token`,
-    pushed_authorization_request_endpoint: `${config.issuer_base_url}/par`,
-    jwks_uri: `${config.issuer_base_url}/jwks.json`,
-    response_types_supported: ["code"],
-    grant_types_supported: ["authorization_code"],
-    code_challenge_methods_supported: ["S256"],
-    authorization_response_iss_parameter_supported: true,
-    token_endpoint_auth_methods_supported: ["private_key_jwt", "attest_jwt_client_auth"],
-    token_endpoint_auth_signing_alg_values_supported: ["ES256"],
-    client_attestation_signing_alg_values_supported: ["ES256"],
-    client_attestation_pop_signing_alg_values_supported: ["ES256"],
-    dpop_signing_alg_values_supported: ["ES256"],
-  };
 }
 
 export function jwtVcIssuerMetadata(config: AppConfig): unknown {
@@ -190,35 +184,6 @@ export function supportedCredentialById(
   );
 }
 
-export function supportedCredentialByScope(
-  config: AppConfig,
-  scope: string,
-): SupportedCredential | null {
-  return supportedCredentials(config).find((credential) => credential.scope === scope) ?? null;
-}
-
-export function credentialOffer(
-  config: AppConfig,
-  sessionId: string,
-  credentialConfigurationId = supportedCredentialConfigurationIds(config)[0],
-): unknown {
-  const credential = supportedCredentialById(config, credentialConfigurationId);
-  return {
-    credential_issuer: config.issuer_base_url,
-    credential_configuration_ids: [credentialConfigurationId],
-    grants: {
-      authorization_code: {
-        issuer_state: sessionId,
-        scope: credential?.scope,
-      },
-    },
-  };
-}
-
-export function credentialOfferDeeplink(offer: unknown): string {
-  return `openid-credential-offer://?credential_offer=${encodeURIComponent(JSON.stringify(offer))}`;
-}
-
 function proofTypesSupported(): Record<
   string,
   {
@@ -265,8 +230,7 @@ function credentialConfiguration(
     },
     cryptographic_binding_methods_supported:
       credential.format === "mso_mdoc" ? ["cose_key"] : ["jwk"],
-    credential_signing_alg_values_supported:
-      credential.format === "mso_mdoc" ? [-7, -9] : ["ES256"],
+    credential_signing_alg_values_supported: credential.format === "mso_mdoc" ? [-7] : ["ES256"],
     proof_types_supported: proofTypesSupported,
   };
 

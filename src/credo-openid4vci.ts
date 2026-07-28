@@ -1,38 +1,93 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { readFile } from "node:fs/promises";
-import { Agent, type AgentContext, ConsoleLogger, Kms, LogLevel, X509Module } from "@credo-ts/core";
-import { OpenId4VcModule } from "@credo-ts/openid4vc";
-import express from "express";
-import { ISSUER_KEY_ID, privateJwkPath } from "./config.js";
+import { Agent, ClaimFormat, ConsoleLogger, Kms, LogLevel, X509Module } from "@credo-ts/core";
+import {
+  type OpenId4VcIssuanceSessionRecord,
+  OpenId4VcIssuanceSessionState,
+  type OpenId4VcIssuanceSessionStateChangedEvent,
+  OpenId4VcIssuerEvents,
+  OpenId4VcModule,
+  type OpenId4VciCredentialRequestToCredentialMapperOptions,
+  type OpenId4VciSignCredentials,
+} from "@credo-ts/openid4vc";
+import express, { type NextFunction, type Request, type Response } from "express";
+import { ISSUER_KEY_ID, loadIssuerCertificate, privateJwkPath } from "./config.js";
+import { mdocCredentialSignOptions, sdJwtCredentialSignOptions } from "./credential.js";
 import { InMemoryStorageModule, NodeKmsBackend, nodeAgentDependencies } from "./credo-openid4vp.js";
-import type { AppConfig, JsonRecord } from "./types.js";
+import { credentialIssuerMetadata, supportedCredentialById } from "./metadata.js";
+import { captureProofHeaders, decodeDpopHeader } from "./proofs.js";
+import type { CaptureStore } from "./state.js";
+import type { AppConfig, JsonRecord, Oid4vciHttpRequestCapture } from "./types.js";
 
-const issuerPromises = new Map<string, Promise<CredoOpenId4VciIssuer>>();
+const ROOT_ISSUER_ID = "/";
+const ROOT_ISSUER_ROUTE_ALIAS = "_root";
+const issuers = new WeakMap<CaptureStore, Promise<CredoOpenId4VciIssuer>>();
 
-export async function credoOpenId4VciIssuer(config: AppConfig): Promise<CredoOpenId4VciIssuer> {
-  const key = `${config.issuer_base_url}|${config.data_dir}`;
-  let issuerPromise = issuerPromises.get(key);
+type RequestContext = {
+  capture: Oid4vciHttpRequestCapture | null;
+  dpop: string | undefined;
+  credentialRequestEvidence?: {
+    body: JsonRecord;
+    raw?: unknown;
+  };
+};
+
+export interface CredoCredentialOffer {
+  credentialOffer: string;
+  credentialOfferObject: JsonRecord;
+  credentialOfferUri: string;
+  issuanceSessionId: string;
+}
+
+export async function credoOpenId4VciIssuer(
+  config: AppConfig,
+  store: CaptureStore,
+): Promise<CredoOpenId4VciIssuer> {
+  let issuerPromise = issuers.get(store);
   if (!issuerPromise) {
-    issuerPromise = CredoOpenId4VciIssuer.create(config);
-    issuerPromises.set(key, issuerPromise);
+    issuerPromise = CredoOpenId4VciIssuer.create(config, store);
+    issuers.set(store, issuerPromise);
   }
   return issuerPromise;
 }
 
 export class CredoOpenId4VciIssuer {
-  private constructor(private readonly agent: Agent) {}
+  private readonly requestContext = new AsyncLocalStorage<RequestContext>();
 
-  static async create(config: AppConfig): Promise<CredoOpenId4VciIssuer> {
+  private constructor(
+    private readonly config: AppConfig,
+    private readonly store: CaptureStore,
+    private readonly agent: Agent,
+    private readonly app: express.Express,
+  ) {}
+
+  static async create(config: AppConfig, store: CaptureStore): Promise<CredoOpenId4VciIssuer> {
     const kms = new NodeKmsBackend();
     const internalApp = express();
+    const runtimeRef: { current?: CredoOpenId4VciIssuer } = {};
+    const dependencies = nodeAgentDependencies(config);
+    const networkFetch = dependencies.fetch;
+    dependencies.fetch = async (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url === `${config.issuer_base_url}/jwks.json` && runtimeRef.current) {
+        return new Response(JSON.stringify(await runtimeRef.current.authorizationServerJwks()), {
+          headers: { "content-type": "application/json" },
+          status: 200,
+        });
+      }
+      return networkFetch(input, init);
+    };
     const agent = new Agent({
       config: {
         allowInsecureHttpUrls: true,
-        autoUpdateStorageOnStartup: false,
+        autoUpdateStorageOnStartup: true,
         logger: new ConsoleLogger(LogLevel.Error),
       },
-      dependencies: nodeAgentDependencies(config),
+      dependencies,
       modules: {
-        storage: new InMemoryStorageModule(),
+        storage: new InMemoryStorageModule({
+          issuerId: { [ROOT_ISSUER_ROUTE_ALIAS]: ROOT_ISSUER_ID },
+        }),
         kms: new Kms.KeyManagementModule({
           backends: [kms],
           defaultBackend: kms.backend,
@@ -42,40 +97,317 @@ export class CredoOpenId4VciIssuer {
             verificationContext.certificateChain.map((certificate) => certificate.toString("pem")),
         }),
         openid4vc: new OpenId4VcModule({
+          app: internalApp as never,
           issuer: {
-            app: internalApp,
             baseUrl: config.issuer_base_url,
             cNonceExpiresInSeconds: config.nonce_ttl_seconds,
             authorizationCodeExpiresInSeconds: config.authorization_code_ttl_seconds,
             accessTokenExpiresInSeconds: config.access_token_ttl_seconds,
             requestUriExpiresInSeconds: config.par_request_uri_ttl_seconds,
             dpopRequired: true,
-            credentialRequestToCredentialMapper: () => {
-              throw new Error("Credential mapping is handled by the capture-aware route adapter");
+            walletAttestationsRequired: false,
+            credentialRequestToCredentialMapper: (options) =>
+              runtimeRef.current?.mapCredentialRequest(options) ??
+              Promise.reject(new Error("Credo OpenID4VCI issuer is not initialized")),
+            endpoints: {
+              authorization: "/authorize",
+              authorizationChallenge: "/challenge",
+              credential: "/credential",
+              credentialOffer: "/offers",
+              deferredCredential: "/deferred-credential",
+              accessToken: "/token",
+              pushedAuthorizationRequest: "/par",
+              redirect: "/redirect",
+              nonce: "/nonce",
+              jwks: "/jwks.json",
             },
-            endpoints: { jwks: "/jwks.json" },
           },
         }),
       },
     });
 
-    const privateJwk = JSON.parse(
-      await readFile(privateJwkPath(config.data_dir), "utf8"),
-    ) as JsonRecord;
-    privateJwk.kid = ISSUER_KEY_ID;
-    await agent.kms.importKey({ privateJwk: privateJwk as never });
-    return new CredoOpenId4VciIssuer(agent);
+    const runtime = new CredoOpenId4VciIssuer(config, store, agent, internalApp);
+    runtimeRef.current = runtime;
+    await agent.initialize();
+    await runtime.importIssuerSigningKey();
+    await runtime.createIssuerRecord();
+    runtime.listenForIssuanceEvents();
+    return runtime;
   }
 
-  get context(): AgentContext {
+  async createCredentialOffer(options: {
+    captureSessionId: string;
+    credentialConfigurationId: string;
+    broken: boolean;
+  }): Promise<CredoCredentialOffer> {
+    const created = await this.issuerApi().createCredentialOffer({
+      issuerId: ROOT_ISSUER_ID,
+      credentialConfigurationIds: [options.credentialConfigurationId],
+      preAuthorizedCodeFlowConfig: {},
+      authorization: {
+        requireDpop: true,
+        requireWalletAttestation: false,
+      },
+      issuanceMetadata: {
+        captureSessionId: options.captureSessionId,
+        broken: options.broken,
+      },
+      version: "v1",
+    });
+    this.store.linkCredoIssuanceSession(
+      options.captureSessionId,
+      created.issuanceSession.id,
+      created.issuanceSession.credentialOfferId,
+    );
+    return {
+      credentialOffer: created.credentialOffer,
+      credentialOfferObject: created.issuanceSession.credentialOfferPayload as JsonRecord,
+      credentialOfferUri: created.issuanceSession.credentialOfferUri,
+      issuanceSessionId: created.issuanceSession.id,
+    };
+  }
+
+  get context() {
     return this.agent.context;
   }
 
-  get sdJwtVc() {
-    return this.agent.sdJwtVc;
+  async credentialIssuerMetadata(): Promise<JsonRecord> {
+    const { credentialIssuer } = await this.issuerApi().getIssuerMetadata(ROOT_ISSUER_ID);
+    const encryptionMetadata = credentialIssuerMetadata(this.config);
+    const { deferred_credential_endpoint: _deferredCredentialEndpoint, ...supportedMetadata } =
+      credentialIssuer as JsonRecord;
+    return {
+      ...supportedMetadata,
+      credential_request_encryption: encryptionMetadata.credential_request_encryption,
+      credential_response_encryption: encryptionMetadata.credential_response_encryption,
+    };
   }
 
-  get mdoc() {
-    return this.agent.mdoc;
+  async authorizationServerMetadata(): Promise<JsonRecord> {
+    const { authorizationServers } = await this.issuerApi().getIssuerMetadata(ROOT_ISSUER_ID);
+    const {
+      authorization_endpoint: _authorizationEndpoint,
+      authorization_challenge_endpoint: _authorizationChallengeEndpoint,
+      pushed_authorization_request_endpoint: _pushedAuthorizationRequestEndpoint,
+      require_pushed_authorization_requests: _requirePushedAuthorizationRequests,
+      code_challenge_methods_supported: _codeChallengeMethodsSupported,
+      authorization_response_iss_parameter_supported: _authorizationResponseIssParameterSupported,
+      ...metadata
+    } = authorizationServers[0] as JsonRecord;
+    return {
+      ...metadata,
+      grant_types_supported: ["urn:ietf:params:oauth:grant-type:pre-authorized_code"],
+    };
   }
+
+  forward(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+    capture: Oid4vciHttpRequestCapture | null,
+    credentialRequestEvidence?: RequestContext["credentialRequestEvidence"],
+  ): void {
+    const queryIndex = req.url.indexOf("?");
+    const query = queryIndex >= 0 ? req.url.slice(queryIndex) : "";
+    req.url = `${internalCredoPath(req.path)}${query}`;
+    (req as Request & { _parsedUrl?: unknown })._parsedUrl = undefined;
+    this.requestContext.run({ capture, dpop: req.header("DPoP"), credentialRequestEvidence }, () =>
+      this.app(req, res, next),
+    );
+  }
+
+  private async createIssuerRecord(): Promise<void> {
+    const metadata = credentialIssuerMetadata(this.config);
+    await this.issuerApi().createIssuer({
+      issuerId: ROOT_ISSUER_ID,
+      accessTokenSignerKeyType: { kty: "EC", crv: "P-256" },
+      display: metadata.display as never,
+      dpopSigningAlgValuesSupported: ["ES256"],
+      credentialConfigurationsSupported: metadata.credential_configurations_supported as never,
+    });
+  }
+
+  private async authorizationServerJwks(): Promise<JsonRecord> {
+    const issuer = await this.issuerApi().getIssuerByIssuerId(ROOT_ISSUER_ID);
+    return { keys: [issuer.resolvedAccessTokenPublicJwk.toJson()] };
+  }
+
+  private async importIssuerSigningKey(): Promise<void> {
+    const privateJwk = JSON.parse(
+      await readFile(privateJwkPath(this.config.data_dir), "utf8"),
+    ) as JsonRecord;
+    privateJwk.kid = ISSUER_KEY_ID;
+    await this.agent.kms.importKey({ privateJwk: privateJwk as never });
+  }
+
+  private listenForIssuanceEvents(): void {
+    this.agent.events.on<OpenId4VcIssuanceSessionStateChangedEvent>(
+      OpenId4VcIssuerEvents.IssuanceSessionStateChanged,
+      async (event) => {
+        const captureSessionId = captureSessionIdFromCredo(event.payload.issuanceSession);
+        if (!captureSessionId) return;
+        this.store.linkCredoIssuanceSession(
+          captureSessionId,
+          event.payload.issuanceSession.id,
+          event.payload.issuanceSession.credentialOfferId,
+        );
+        await this.linkCurrentRequest(captureSessionId);
+        const captureSession = this.store.getSession(captureSessionId);
+        if (!captureSession) return;
+        captureSession.status = captureStatus(event.payload.issuanceSession.state);
+        this.store.addEvent(captureSession, "credo_issuance_state_changed", {
+          previous_state: event.payload.previousState,
+          state: event.payload.issuanceSession.state,
+        });
+      },
+    );
+  }
+
+  private async mapCredentialRequest(
+    options: OpenId4VciCredentialRequestToCredentialMapperOptions,
+  ): Promise<OpenId4VciSignCredentials> {
+    const captureSessionId = captureSessionIdFromCredo(options.issuanceSession);
+    if (!captureSessionId) throw new Error("Capture session is missing from issuance metadata");
+    await this.linkCurrentRequest(captureSessionId);
+    const captureSession = this.store.getSession(captureSessionId);
+    if (!captureSession) throw new Error("Capture session not found");
+    const credential = supportedCredentialById(this.config, options.credentialConfigurationId);
+    if (!credential) throw new Error("Credential configuration is not supported");
+    const request = options.credentialRequest as JsonRecord;
+    const proofHeaders = captureProofHeaders(request);
+    const proofType = Object.keys((request.proofs as JsonRecord | undefined) ?? {})[0];
+    const holderJwks = options.holderBinding.keys
+      .filter((key) => key.method === "jwk")
+      .map((key) => key.jwk.toJson() as JsonRecord);
+    if (holderJwks.length === 0) throw new Error("Credo did not resolve a JWK holder binding");
+
+    const evidence = this.requestContext.getStore()?.credentialRequestEvidence;
+    captureSession.raw ??= {};
+    captureSession.raw.credential_request = redactCredentialRequest(evidence?.body ?? request);
+    if (evidence?.raw !== undefined) {
+      captureSession.raw.credential_request_raw = evidence.raw;
+    }
+    captureSession.raw.proof_headers = proofHeaders;
+    captureSession.checks.proof_jwt_present = proofType === "jwt";
+    captureSession.checks.proof_attestation_present = proofType === "attestation";
+    captureSession.checks.proof_jwt_header_jwk_present = proofHeaders.some(
+      (header) => header.proof_type === "jwt" && Boolean(header.jwk),
+    );
+    captureSession.checks.key_attestation_verified = true;
+    captureSession.checks.nonce_verified = true;
+    captureSession.observed.wallet_jwks = {
+      observed: true,
+      source: "credo.verified_holder_binding",
+      jwks: { keys: holderJwks },
+      observed_proof_header_fields: Array.from(
+        new Set(
+          proofHeaders.flatMap((header) =>
+            ["typ", "alg", "kid", "jwk", "x5c"].filter(
+              (field) => header[field as keyof typeof header] !== undefined,
+            ),
+          ),
+        ),
+      ),
+    };
+
+    const broken = options.issuanceSession.issuanceMetadata?.broken === true;
+    if (credential.format === "mso_mdoc") {
+      return {
+        type: "credentials" as const,
+        format: ClaimFormat.MsoMdoc,
+        credentials: holderJwks.map((holderJwk) =>
+          mdocCredentialSignOptions({
+            config: this.config,
+            holderJwk,
+            broken,
+          }),
+        ),
+      };
+    }
+    return {
+      type: "credentials" as const,
+      format: ClaimFormat.SdJwtDc,
+      credentials: holderJwks.map((holderJwk) =>
+        sdJwtCredentialSignOptions({
+          config: this.config,
+          holderJwk,
+          broken,
+        }),
+      ),
+    };
+  }
+
+  private async linkCurrentRequest(captureSessionId: string): Promise<void> {
+    const context = this.requestContext.getStore();
+    if (!context?.capture) return;
+    this.store.linkOid4vciRequestToSession(context.capture, captureSessionId);
+    const captureSession = this.store.getSession(captureSessionId);
+    if (!captureSession || !context.dpop) return;
+    const dpop = await decodeDpopHeader(context.dpop);
+    if (!dpop.jwk) return;
+    captureSession.observed.dpop_jwk = {
+      observed: true,
+      source: `${context.capture.path}.headers.dpop.jwk`,
+      jwk: dpop.jwk,
+      thumbprint: dpop.thumbprint,
+    };
+  }
+
+  private issuerApi() {
+    const issuer = this.agent.openid4vc?.issuer;
+    if (!issuer) throw new Error("Credo OpenID4VC issuer API is unavailable");
+    return issuer;
+  }
+}
+
+function internalCredoPath(path: string): string {
+  if (path === "/.well-known/openid-credential-issuer") {
+    return `/.well-known/openid-credential-issuer/${ROOT_ISSUER_ROUTE_ALIAS}`;
+  }
+  if (path === "/.well-known/oauth-authorization-server") {
+    return `/.well-known/oauth-authorization-server/${ROOT_ISSUER_ROUTE_ALIAS}`;
+  }
+  return `/${ROOT_ISSUER_ROUTE_ALIAS}${path}`;
+}
+
+function captureSessionIdFromCredo(issuanceSession: OpenId4VcIssuanceSessionRecord): string | null {
+  const value = issuanceSession.issuanceMetadata?.captureSessionId;
+  return typeof value === "string" ? value : null;
+}
+
+function captureStatus(state: OpenId4VcIssuanceSessionState): string {
+  switch (state) {
+    case OpenId4VcIssuanceSessionState.OfferCreated:
+      return "created";
+    case OpenId4VcIssuanceSessionState.OfferUriRetrieved:
+      return "offer_retrieved";
+    case OpenId4VcIssuanceSessionState.AccessTokenRequested:
+      return "token_requested";
+    case OpenId4VcIssuanceSessionState.AccessTokenCreated:
+      return "token_issued";
+    case OpenId4VcIssuanceSessionState.CredentialRequestReceived:
+      return "credential_requested";
+    case OpenId4VcIssuanceSessionState.CredentialsPartiallyIssued:
+      return "credentials_partially_issued";
+    case OpenId4VcIssuanceSessionState.Completed:
+      return "credential_issued";
+    case OpenId4VcIssuanceSessionState.Error:
+      return "error";
+    default:
+      return state;
+  }
+}
+
+function redactCredentialRequest(request: JsonRecord): JsonRecord {
+  const redacted = structuredClone(request);
+  const proofs = redacted.proofs as JsonRecord | undefined;
+  if (proofs) {
+    for (const proofType of Object.keys(proofs)) {
+      proofs[proofType] = { redacted: true, present: true };
+    }
+  }
+  if (redacted.proof !== undefined) {
+    redacted.proof = { redacted: true, present: true };
+  }
+  return redacted;
 }

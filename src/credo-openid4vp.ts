@@ -456,10 +456,14 @@ function toJsonSafeValue(value: unknown, seen: WeakSet<object>): unknown {
 }
 
 export class InMemoryStorageModule implements Module {
+  constructor(
+    private readonly queryAliases: Readonly<Record<string, Readonly<Record<string, string>>>> = {},
+  ) {}
+
   register(dependencyManager: DependencyManager): void {
     dependencyManager.registerInstance(
       InjectionSymbols.StorageService,
-      new InMemoryStorage() as StorageService<BaseRecord>,
+      new InMemoryStorage(this.queryAliases) as StorageService<BaseRecord>,
     );
   }
 }
@@ -467,6 +471,10 @@ export class InMemoryStorageModule implements Module {
 class InMemoryStorage<T extends BaseRecord = BaseRecord> implements StorageService<T> {
   readonly supportsCursorPagination = false;
   private readonly records = new Map<string, T>();
+
+  constructor(
+    private readonly queryAliases: Readonly<Record<string, Readonly<Record<string, string>>>>,
+  ) {}
 
   async save(_agentContext: AgentContext, record: T): Promise<void> {
     const key = this.key(record.type, record.id);
@@ -530,7 +538,13 @@ class InMemoryStorage<T extends BaseRecord = BaseRecord> implements StorageServi
     _queryOptions?: QueryOptions,
   ): Promise<T[]> {
     const records = await this.getAll(agentContext, recordClass);
-    return records.filter((record) => recordMatchesQuery(record, query as JsonRecord));
+    const normalizedQuery = Object.fromEntries(
+      Object.entries(query as JsonRecord).map(([key, value]) => [
+        key,
+        typeof value === "string" ? (this.queryAliases[key]?.[value] ?? value) : value,
+      ]),
+    );
+    return records.filter((record) => recordMatchesQuery(record, normalizedQuery));
   }
 
   private key(type: string, id: string): string {

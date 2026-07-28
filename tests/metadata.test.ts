@@ -9,9 +9,7 @@ import {
 } from "../src/credential-definitions.js";
 import { CREDIMI_LOGO_URL } from "../src/credential.js";
 import {
-  authorizationServerMetadata,
   credentialIssuerMetadata,
-  credentialOffer,
   jwtVcIssuerMetadata,
   mdocCredentialConfigurationId,
 } from "../src/metadata.js";
@@ -20,10 +18,8 @@ import type { JsonRecord } from "../src/types.js";
 describe("metadata", () => {
   it("uses the credential issuer identifier for authorization server discovery", () => {
     const issuerMetadata = credentialIssuerMetadata(DEFAULT_CONFIG) as JsonRecord;
-    const authorizationMetadata = authorizationServerMetadata(DEFAULT_CONFIG) as JsonRecord;
 
     expect(issuerMetadata.authorization_servers).toBeUndefined();
-    expect(authorizationMetadata.issuer).toBe(DEFAULT_CONFIG.issuer_base_url);
   });
 
   it("advertises credential scope in issuer metadata", () => {
@@ -96,7 +92,7 @@ describe("metadata", () => {
     expect(jwtConfiguration.credential_signing_alg_values_supported).toEqual(["ES256"]);
     expect(mdocConfiguration.proof_types_supported).toEqual(proofTypesSupported);
     expect(mdocConfiguration.cryptographic_binding_methods_supported).toEqual(["cose_key"]);
-    expect(mdocConfiguration.credential_signing_alg_values_supported).toEqual([-7, -9]);
+    expect(mdocConfiguration.credential_signing_alg_values_supported).toEqual([-7]);
   });
 
   it("advertises the MDOC PID credential configuration", () => {
@@ -129,43 +125,12 @@ describe("metadata", () => {
     );
   });
 
-  it("advertises client attestation support in authorization server metadata", () => {
-    const metadata = authorizationServerMetadata(DEFAULT_CONFIG) as JsonRecord;
-
-    expect(metadata.token_endpoint_auth_methods_supported).toEqual([
-      "private_key_jwt",
-      "attest_jwt_client_auth",
-    ]);
-    expect(metadata.token_endpoint_auth_signing_alg_values_supported).toEqual(["ES256"]);
-    expect(metadata.client_attestation_signing_alg_values_supported).toEqual(["ES256"]);
-    expect(metadata.client_attestation_pop_signing_alg_values_supported).toEqual(["ES256"]);
-    expect(metadata.authorization_response_iss_parameter_supported).toBe(true);
-  });
-
   it("advertises JWT VC issuer metadata for the HTTPS issuer identifier", () => {
     const metadata = jwtVcIssuerMetadata(DEFAULT_CONFIG) as JsonRecord;
 
     expect(metadata).toEqual({
       issuer: DEFAULT_CONFIG.issuer_base_url,
       jwks_uri: `${DEFAULT_CONFIG.issuer_base_url}/jwks.json`,
-    });
-  });
-
-  it("puts scope inside authorization_code credential offers", () => {
-    const offer = credentialOffer(
-      DEFAULT_CONFIG,
-      "session-id",
-      mdocCredentialConfigurationId(DEFAULT_CONFIG),
-    ) as JsonRecord;
-    const grants = offer.grants as JsonRecord;
-    const authorizationCode = grants.authorization_code as JsonRecord;
-
-    expect(offer.credential_configuration_ids).toEqual([
-      mdocCredentialConfigurationId(DEFAULT_CONFIG),
-    ]);
-    expect(authorizationCode).toEqual({
-      issuer_state: "session-id",
-      scope: `${DEFAULT_CONFIG.credential_scope}.mdoc.jwt`,
     });
   });
 });

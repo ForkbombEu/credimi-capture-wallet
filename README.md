@@ -15,10 +15,9 @@
 
 
 During the credential issue the service captures:
-- Wallet OAuth client identifier: `client_id`
-- Wallet authorization callback: `redirect_uri`
 - Holder-binding public key from proof headers: `wallet_jwks`
 - DPoP public key when present: `dpop_jwk`
+- Redacted request headers and bodies for every OpenID4VCI endpoint call
 
 During the credential verification the service captures:
 - Verifier request object sent to the wallet: `authorization_request`
@@ -100,7 +99,7 @@ Common REST API endpoints are:
 * Health: `/healthz`
 * Credential Issuer well-known: `/.well-known/openid-credential-issuer`
 * Authorization server well-known: `/.well-known/oauth-authorization-server`
-* Credential Issuer jwks: `/jwks.json`
+* Authorization Server JWKS: `/jwks.json`
 
 The Credential Issuer well-known endpoint returns unsigned JSON by default. Request
 the OpenID4VCI 1.0 signed form with:
@@ -127,8 +126,14 @@ Start by creating a capture session for a credential configuration (that is the 
 ```sh
 curl -X POST "$BASE_URL/sessions" \
   -H 'Content-Type: application/json' \
-  -d '{"credential_configuration_id":"urn:eu.europa.ec.eudi:pid:1.mdoc.jwt"}'
+  -d '{
+    "flow":"pre_authorized_code",
+    "credential_configuration_id":"urn:eu.europa.ec.eudi:pid:1.mdoc.jwt"
+  }'
 ```
+`flow` is optional and currently defaults to `pre_authorized_code`. Requests for
+`authorization_code` are rejected until that preset is implemented.
+
 By default, the session issues a conforming PID for Mario Rossi. Set the optional JSON
 field `"broken": true` to issue the intentionally malformed legacy Jane Doe fixture,
 whose `place_of_birth` claim is a string instead of the required structured value.
@@ -145,15 +150,18 @@ A successful response returns HTTP 201 and includes:
 ```json
 {
   "session_id": "...",
+  "flow": "pre_authorized_code",
   "credential_configuration_id": "urn:eu.europa.ec.eudi:pid:1.mdoc.jwt",
   "broken": false,
-  "offer_url": "https://capture-wallet.credimi.io/sessions/.../offer",
+  "offer_url": "https://capture-wallet.credimi.io/offers/...",
   "deeplink": "openid-credential-offer://...",
   "status": "created"
 }
 ```
 
-Open or transmit the returned `deeplink` to the Wallet under test. The Wallet will call the issuer metadata, PAR, authorization, token, nonce, and credential endpoints directly during the OpenID4VCI flow.
+Open or transmit the returned `deeplink` to the Wallet under test. The offer contains
+the `urn:ietf:params:oauth:grant-type:pre-authorized_code` grant. The Wallet retrieves
+the offer and calls the token, nonce, and credential endpoints directly.
 
 The `/credential` endpoint accepts exactly one proof per request:
 
@@ -170,11 +178,12 @@ does not implement a production Wallet Provider trust list or the `kid` and
 `trust_chain` attestation trust mechanisms, and does not resolve optional attestation
 status information.
 
-The OpenID4VCI cryptographic path uses a dedicated Credo-TS issuer agent for
-credential-proof verification and SD-JWT VC or MDOC signing. The small HTTP route
-adapter remains responsible for the service's capture model and for encrypted
-Credential Requests and Responses, which the installed Credo-TS issuer router does
-not currently expose.
+The complete pre-authorized OpenID4VCI protocol path is owned by the Credo-TS issuer
+agent: credential offers, token issuance, DPoP, nonce and proof validation, holder
+binding, and SD-JWT VC or MDOC signing. Express middleware records redacted evidence.
+The credential request/response encryption adapter remains narrowly scoped around
+Credo's `/credential` handler because the installed Credo-TS router does not expose
+that encryption extension.
 
 For each session you can get different information:
 * deeplink:
@@ -194,9 +203,9 @@ For each session you can get different information:
   curl "$BASE_URL/oid4vci/requests"
   ```
   Correlatable requests are also included under `raw.oid4vci_requests` in the
-  normalized session capture. Authorization, DPoP, client-attestation, JWT proof,
-  authorization-code, token, and secret values are replaced with presence and
-  length metadata. The issuer-wide ledger retains the latest 1,000 requests.
+  normalized session capture. DPoP, pre-authorized-code, access-token, JWT proof,
+  client-attestation, and other secret values are replaced with presence and length
+  metadata. The issuer-wide ledger retains the latest 1,000 requests.
 * Captured Wallet holder-binding JWKS after the Wallet has called `/credential` with a
   proof JWT `header.jwk` or a direct attestation `attested_keys` entry:
   ```sh

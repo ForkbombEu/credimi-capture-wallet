@@ -389,57 +389,25 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           },
         },
       },
-      "/par": {
-        post: {
-          tags: ["OpenID4VCI"],
-          operationId: "pushedAuthorizationRequest",
-          summary: "Submit a pushed authorization request",
-          requestBody: {
-            required: true,
-            ...form({
-              type: "object",
-              required: [
-                "issuer_state",
-                "client_id",
-                "redirect_uri",
-                "scope",
-                "code_challenge",
-                "code_challenge_method",
-              ],
-              properties: {
-                issuer_state: { type: "string" },
-                client_id: { type: "string" },
-                redirect_uri: { type: "string", format: "uri" },
-                scope: { type: "string" },
-                code_challenge: { type: "string" },
-                code_challenge_method: { type: "string", const: "S256" },
-              },
-              additionalProperties: true,
-            }),
-          },
-          responses: {
-            "201": response("PAR request URI.", {
-              type: "object",
-              required: ["request_uri", "expires_in"],
-              properties: { request_uri: { type: "string" }, expires_in: { type: "integer" } },
-            }),
-            "400": errorResponses["400"],
-          },
-        },
-      },
-      "/authorize": {
+      "/offers/{credentialOfferId}": {
         get: {
           tags: ["OpenID4VCI"],
-          operationId: "authorize",
-          summary: "Authorize a credential request",
-          description:
-            "Resolves a valid PAR `request_uri` and redirects the wallet to its registered redirect URI with an authorization code.",
+          operationId: "credentialOffer",
+          summary: "Retrieve a Credo credential offer",
           parameters: [
-            { name: "request_uri", in: "query", required: true, schema: { type: "string" } },
+            {
+              name: "credentialOfferId",
+              in: "path",
+              required: true,
+              schema: { type: "string", format: "uuid" },
+            },
           ],
           responses: {
-            "302": { description: "Redirect to the wallet callback with code, state, and iss." },
-            "400": errorResponses["400"],
+            "200": response("Pre-authorized OpenID4VCI credential offer.", {
+              type: "object",
+              additionalProperties: true,
+            }),
+            "404": errorResponses["404"],
           },
         },
       },
@@ -447,37 +415,21 @@ export function openApiDocument(config: AppConfig): JsonRecord {
         post: {
           tags: ["OpenID4VCI"],
           operationId: "token",
-          summary: "Exchange an authorization code for a DPoP-bound token",
-          parameters: [
-            { name: "DPoP", in: "header", required: true, schema: { type: "string" } },
-            {
-              name: "OAuth-Client-Attestation",
-              in: "header",
-              required: false,
-              schema: { type: "string" },
-            },
-            {
-              name: "OAuth-Client-Attestation-PoP",
-              in: "header",
-              required: false,
-              schema: { type: "string" },
-            },
-          ],
+          summary: "Exchange a pre-authorized code for a DPoP-bound token",
+          parameters: [{ name: "DPoP", in: "header", required: true, schema: { type: "string" } }],
           requestBody: {
             required: true,
             ...form({
               type: "object",
-              required: ["code", "code_verifier"],
+              required: ["grant_type", "pre-authorized_code"],
               properties: {
-                grant_type: { type: "string", const: "authorization_code" },
-                code: { type: "string" },
-                code_verifier: { type: "string" },
-                redirect_uri: { type: "string", format: "uri" },
-                client_id: { type: "string" },
-                client_assertion: { type: "string" },
-                client_assertion_type: { type: "string" },
+                grant_type: {
+                  type: "string",
+                  const: "urn:ietf:params:oauth:grant-type:pre-authorized_code",
+                },
+                "pre-authorized_code": { type: "string" },
+                tx_code: { type: "string" },
               },
-              additionalProperties: true,
             }),
           },
           responses: {
@@ -485,7 +437,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
               $ref: "#/components/schemas/TokenResponse",
             }),
             "400": errorResponses["400"],
-            "401": response("Client authentication or DPoP validation failed.", {
+            "401": response("DPoP validation failed.", {
               $ref: "#/components/schemas/Error",
             }),
           },
@@ -666,6 +618,13 @@ export function openApiDocument(config: AppConfig): JsonRecord {
         IssuanceSessionRequest: {
           type: "object",
           properties: {
+            flow: {
+              type: "string",
+              const: "pre_authorized_code",
+              default: "pre_authorized_code",
+              description:
+                "Issuance flow preset. Authorization-code support is intentionally deferred.",
+            },
             credential_configuration_id: {
               type: "string",
               description: "One of the IDs advertised by credential issuer metadata.",
@@ -682,6 +641,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           type: "object",
           required: [
             "session_id",
+            "flow",
             "credential_configuration_id",
             "broken",
             "offer_url",
@@ -690,6 +650,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           ],
           properties: {
             session_id: { type: "string", format: "uuid" },
+            flow: { type: "string", const: "pre_authorized_code" },
             credential_configuration_id: { type: "string" },
             broken: { type: "boolean" },
             offer_url: { type: "string", format: "uri" },
@@ -702,6 +663,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           required: [
             "session_id",
             "status",
+            "flow",
             "credential_configuration_id",
             "broken",
             "observed",

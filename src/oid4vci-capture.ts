@@ -39,9 +39,13 @@ export function isOid4vciProtocolPath(path: string): boolean {
     path === "/jwks.json" ||
     path === "/par" ||
     path === "/authorize" ||
+    path === "/challenge" ||
+    path === "/redirect" ||
     path === "/token" ||
     path === "/nonce" ||
     path === "/credential" ||
+    path === "/deferred-credential" ||
+    /^\/offers\/[^/]+$/.test(path) ||
     /^\/sessions\/[^/]+\/(?:offer|deeplink)$/.test(path)
   );
 }

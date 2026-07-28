@@ -1,13 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { supportedCredentialConfigurationIds } from "./metadata.js";
 import type {
-  AccessToken,
   AppConfig,
-  AuthorizationCode,
   CaptureEvent,
+  CredoIssuanceOffer,
   JsonRecord,
   Oid4vciHttpRequestCapture,
-  ParRecord,
   SessionCapture,
   VpSessionCapture,
 } from "./types.js";
@@ -15,26 +13,27 @@ import type {
 export class CaptureStore {
   readonly oid4vciRequests: Oid4vciHttpRequestCapture[] = [];
   readonly sessions = new Map<string, SessionCapture>();
-  readonly parRequests = new Map<string, ParRecord>();
-  readonly authorizationCodes = new Map<string, AuthorizationCode>();
-  readonly accessTokens = new Map<string, AccessToken>();
-  readonly credentialNonces = new Map<string, number>();
   readonly vpSessions = new Map<string, VpSessionCapture>();
   readonly vpCredoVerificationSessionIds = new Map<string, string>();
   readonly vpCredoAuthorizationRequestJwts = new Map<string, string>();
-  readonly dpopJtis = new Set<string>();
+  readonly credoIssuanceSessionIds = new Map<string, string>();
+  readonly captureSessionIdsByCredoSession = new Map<string, string>();
+  readonly captureSessionIdsByCredentialOffer = new Map<string, string>();
+  readonly credoIssuanceOffers = new Map<string, CredoIssuanceOffer>();
 
   constructor(private readonly config: AppConfig) {}
 
   createSession(
     credentialConfigurationId = defaultCredentialConfigurationId(this.config),
     broken = false,
+    flow: SessionCapture["flow"] = "pre_authorized_code",
   ): SessionCapture {
     const sessionId = randomUUID();
     const session: SessionCapture = {
       session_id: sessionId,
       status: "created",
       credential_configuration_id: credentialConfigurationId,
+      flow,
       broken,
       observed: {
         client_id: { value: null, source: null, also_seen_in: [] },
@@ -71,6 +70,7 @@ export class CaptureStore {
     this.sessions.set(sessionId, session);
     this.addEvent(session, "session_created", {
       credential_configuration_id: credentialConfigurationId,
+      flow,
       broken,
     });
     return session;
@@ -89,6 +89,30 @@ export class CaptureStore {
     session.raw ??= {};
     session.raw.oid4vci_requests ??= [];
     session.raw.oid4vci_requests.push(capture);
+  }
+
+  linkOid4vciRequestToSession(capture: Oid4vciHttpRequestCapture, sessionId: string): void {
+    if (capture.session_id === sessionId) return;
+    capture.session_id = sessionId;
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+    session.raw ??= {};
+    session.raw.oid4vci_requests ??= [];
+    if (!session.raw.oid4vci_requests.includes(capture)) {
+      session.raw.oid4vci_requests.push(capture);
+    }
+  }
+
+  linkCredoIssuanceSession(
+    captureSessionId: string,
+    credoSessionId: string,
+    credentialOfferId?: string,
+  ): void {
+    this.credoIssuanceSessionIds.set(captureSessionId, credoSessionId);
+    this.captureSessionIdsByCredoSession.set(credoSessionId, captureSessionId);
+    if (credentialOfferId) {
+      this.captureSessionIdsByCredentialOffer.set(credentialOfferId, captureSessionId);
+    }
   }
 
   createVpSession(
@@ -145,17 +169,6 @@ export class CaptureStore {
     return this.vpSessions.get(sessionId);
   }
 
-  ensureSession(sessionId?: string | null): SessionCapture {
-    if (sessionId) {
-      const existing = this.sessions.get(sessionId);
-      if (existing) return existing;
-    }
-    const orphan = this.createSession();
-    orphan.status = "orphaned";
-    this.addEvent(orphan, "orphan_session_created", { requested_session_id: sessionId ?? null });
-    return orphan;
-  }
-
   addEvent(
     session: SessionCapture | VpSessionCapture,
     type: string,
@@ -164,109 +177,6 @@ export class CaptureStore {
     const event = { at: new Date().toISOString(), type, detail };
     session.events.push(event);
     return event;
-  }
-
-  storePar(params: JsonRecord): ParRecord {
-    const requestUri = `urn:credimi:fake-vci-issuer:par:${randomUUID()}`;
-    const record = {
-      request_uri: requestUri,
-      expires_at: nowSeconds() + this.config.par_request_uri_ttl_seconds,
-      params,
-    };
-    this.parRequests.set(requestUri, record);
-    return record;
-  }
-
-  resolvePar(requestUri: string | undefined): ParRecord | null {
-    if (!requestUri) return null;
-    const record = this.parRequests.get(requestUri);
-    if (!record || record.expires_at < nowSeconds()) return null;
-    return record;
-  }
-
-  issueAuthorizationCode(session: SessionCapture, params: JsonRecord): AuthorizationCode {
-    const code = randomUUID();
-    const record: AuthorizationCode = {
-      code,
-      session_id: session.session_id,
-      client_id: asStringOrNull(params.client_id),
-      redirect_uri: asStringOrNull(params.redirect_uri),
-      code_challenge: asStringOrNull(params.code_challenge),
-      code_challenge_method: asStringOrNull(params.code_challenge_method),
-      state: asStringOrNull(params.state),
-      expires_at: nowSeconds() + this.config.authorization_code_ttl_seconds,
-      used: false,
-    };
-    this.authorizationCodes.set(code, record);
-    return record;
-  }
-
-  consumeAuthorizationCode(code: string | undefined): AuthorizationCode | null {
-    if (!code) return null;
-    const record = this.authorizationCodes.get(code);
-    if (!record || record.used || record.expires_at < nowSeconds()) return null;
-    record.used = true;
-    return record;
-  }
-
-  issueAccessToken(sessionId: string, dpopJkt: string): AccessToken {
-    const token = randomUUID();
-    const record = {
-      token,
-      session_id: sessionId,
-      dpop_jkt: dpopJkt,
-      expires_at: nowSeconds() + this.config.access_token_ttl_seconds,
-    };
-    this.accessTokens.set(token, record);
-    return record;
-  }
-
-  issueCredentialNonce(): string {
-    const nonce = randomUUID();
-    this.credentialNonces.set(nonce, nowSeconds() + this.config.nonce_ttl_seconds);
-    return nonce;
-  }
-
-  consumeCredentialNonce(nonce: string): boolean {
-    const expiresAt = this.credentialNonces.get(nonce);
-    this.credentialNonces.delete(nonce);
-    return expiresAt !== undefined && expiresAt >= nowSeconds();
-  }
-
-  isCredentialNonceValid(nonce: string): boolean {
-    const expiresAt = this.credentialNonces.get(nonce);
-    return expiresAt !== undefined && expiresAt >= nowSeconds();
-  }
-
-  resolveAccessToken(header: string | undefined): AccessToken | null {
-    const token = header?.replace(/^Bearer\s+/i, "").replace(/^DPoP\s+/i, "");
-    if (!token) return null;
-    const record = this.accessTokens.get(token);
-    if (!record || record.expires_at < nowSeconds()) return null;
-    return record;
-  }
-}
-
-export function nowSeconds(): number {
-  return Math.floor(Date.now() / 1000);
-}
-
-export function updateObservedValue(
-  session: SessionCapture,
-  key: "client_id" | "redirect_uri",
-  value: unknown,
-  source: string,
-): void {
-  if (typeof value !== "string" || value.length === 0) return;
-  const observed = session.observed[key];
-  if (!observed.value) {
-    observed.value = value;
-    observed.source = source;
-    return;
-  }
-  if (observed.value === value && observed.source !== source) {
-    observed.also_seen_in ??= [];
-    if (!observed.also_seen_in.includes(source)) observed.also_seen_in.push(source);
   }
 }
 

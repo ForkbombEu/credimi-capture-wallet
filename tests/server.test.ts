@@ -118,16 +118,21 @@ describe("capture issuer server", () => {
       type: "boolean",
       default: false,
     });
+    expect(openApi.body.components.schemas.IssuanceSessionRequest.properties.flow).toMatchObject({
+      const: "pre_authorized_code",
+      default: "pre_authorized_code",
+    });
     expect(Object.keys(openApi.body.paths)).toEqual(
       expect.arrayContaining([
         "/sessions",
         "/openid4vp/sessions",
-        "/par",
-        "/authorize",
+        "/offers/{credentialOfferId}",
         "/token",
         "/credential",
       ]),
     );
+    expect(openApi.body.paths).not.toHaveProperty("/par");
+    expect(openApi.body.paths).not.toHaveProperty("/authorize");
     expect(openApi.body.paths).not.toHaveProperty("/init");
     expect((await request(app).post("/init").send({ force: true })).status).toBe(404);
   });
@@ -194,6 +199,20 @@ describe("capture issuer server", () => {
     expect(iat).toEqual(expect.any(Number));
     expect(metadataClaims).toEqual(unsignedMetadata.body);
     expect(metadataClaims.authorization_servers).toBeUndefined();
+  });
+
+  it("advertises only the implemented pre-authorized grant", async () => {
+    const app = createApp(config);
+    const metadata = await getJson<JsonRecord>(app, "/.well-known/oauth-authorization-server");
+
+    expect(metadata.grant_types_supported).toEqual([
+      "urn:ietf:params:oauth:grant-type:pre-authorized_code",
+    ]);
+    expect(metadata.token_endpoint).toBe(`${config.issuer_base_url}/token`);
+    expect(metadata).not.toHaveProperty("authorization_endpoint");
+    expect(metadata).not.toHaveProperty("pushed_authorization_request_endpoint");
+    expect((await request(app).post("/par")).status).toBe(404);
+    expect((await request(app).get("/authorize")).status).toBe(404);
   });
 
   it("selects the signed metadata certificate chain by issuer public key", async () => {
@@ -944,7 +963,7 @@ describe("capture issuer server", () => {
     expect(capture.authorization_request.wallet_nonce).toBe("wallet-nonce-123");
   });
 
-  it("marks GUI QR sessions consumed when the wallet retrieves the offer", async () => {
+  it("creates GUI sessions backed by a Credo credential offer", async () => {
     const app = createApp(config);
     const created = await request(app).post("/ui/sessions").redirects(0);
     const sessionId = (created.headers.location ?? "").split("/").pop() ?? "";
@@ -953,7 +972,9 @@ describe("capture issuer server", () => {
     expect(initial.status).toBe("created");
     expect(initial.broken).toBe(false);
 
-    const offer = await request(app).get(`/sessions/${sessionId}/offer`);
+    const deeplink = await getJson<{ deeplink: string }>(app, `/sessions/${sessionId}/deeplink`);
+    const offerUri = new URL(deeplink.deeplink).searchParams.get("credential_offer_uri");
+    const offer = await request(app).get(new URL(offerUri ?? "").pathname);
     expect(offer.status).toBe(200);
 
     const consumed = await getJson<SessionCapture>(app, `/sessions/${sessionId}`);
@@ -972,6 +993,7 @@ describe("capture issuer server", () => {
     );
 
     expect(session.credential_configuration_id).toBe(requestedCredentialConfigurationId);
+    expect(session.flow).toBe("pre_authorized_code");
     expect(session.broken).toBe(false);
     expect(offer.credential_configuration_ids).toEqual([requestedCredentialConfigurationId]);
   });
@@ -995,14 +1017,13 @@ describe("capture issuer server", () => {
     });
   });
 
-  it("serves issuer JWKS with the self-signed certificate chain", async () => {
+  it("serves Credo authorization-server JWKS without private material", async () => {
     const app = createApp(config);
     const jwks = await getJson<JwksResponse>(app, "/jwks.json");
 
     expect(jwks.keys).toHaveLength(1);
-    expect(jwks.keys[0]?.x5c).toEqual([expect.any(String)]);
-    const certificate = X509Certificate.fromEncodedCertificate((jwks.keys[0]?.x5c as string[])[0]);
-    expect(Kms.PublicJwk.fromUnknown(jwks.keys[0]).equals(certificate.publicJwk)).toBe(true);
+    expect(jwks.keys[0]).toMatchObject({ kty: "EC", crv: "P-256" });
+    expect(jwks.keys[0]).not.toHaveProperty("d");
   });
 
   it("issues an MDOC PID credential for the selected MDOC configuration", async () => {
@@ -1010,33 +1031,8 @@ describe("capture issuer server", () => {
     const session = await postJson<SessionCreateResponse>(app, "/sessions", {
       credential_configuration_id: mdocCredentialConfigurationId(config),
     });
-    const verifier = "mdoc-pkce-verifier";
-    const challenge = createHash("sha256").update(verifier).digest("base64url");
-    const par = await postPar(app, {
-      client_id: "wallet-client",
-      redirect_uri: "https://wallet.example/callback",
-      state: "abc",
-      issuer_state: session.session_id,
-      code_challenge: challenge,
-      code_challenge_method: "S256",
-      scope: `${config.credential_scope}.mdoc.jwt`,
-    });
-    const authorize = await request(app)
-      .get(`/authorize?request_uri=${encodeURIComponent(par.request_uri)}`)
-      .redirects(0);
-    const code = new URL(authorize.headers.location ?? "").searchParams.get("code");
     const dpop = await dpopKey();
-    const token = await postToken(
-      app,
-      {
-        grant_type: "authorization_code",
-        code: code ?? "",
-        client_id: "wallet-client",
-        redirect_uri: "https://wallet.example/callback",
-        code_verifier: verifier,
-      },
-      dpop,
-    );
+    const token = await preAuthorizedToken(app, session, dpop);
     const walletKey = await dpopKey();
     const refreshedNonce = await request(app).post("/nonce");
     expect(refreshedNonce.status).toBe(200);
@@ -1045,10 +1041,16 @@ describe("capture issuer server", () => {
     const credential = await request(app)
       .post("/credential")
       .set("authorization", `DPoP ${token.access_token}`)
-      .set("DPoP", await dpopProof(dpop, "POST", "/credential"))
-      .send({ proofs: { attestation: [proof] } });
+      .set("DPoP", await dpopProof(dpop, "POST", "/credential", token.access_token))
+      .send({
+        credential_configuration_id: session.credential_configuration_id,
+        proofs: { attestation: [proof] },
+      });
 
-    expect(credential.status, JSON.stringify(credential.body)).toBe(200);
+    expect(
+      credential.status,
+      JSON.stringify({ body: credential.body, headers: credential.headers, text: credential.text }),
+    ).toBe(200);
     const encodedMdoc = (credential.body as CredentialResponse).credentials[0].credential;
     const decoded = IssuerSigned.fromEncodedForOid4Vci(encodedMdoc);
 
@@ -1068,162 +1070,44 @@ describe("capture issuer server", () => {
     expect(capture.status).toBe("credential_issued");
     expect(capture.checks.proof_attestation_present).toBe(true);
     expect(capture.checks.key_attestation_verified).toBe(true);
-    expect(capture.observed.wallet_jwks.source).toBe(
-      "credential_request.proofs.attestation[0].payload.attested_keys[0]",
-    );
+    expect(capture.observed.wallet_jwks.source).toBe("credo.verified_holder_binding");
   });
 
-  it("stores PAR and merges it into authorize requests", async () => {
+  it("captures and correlates pre-authorized requests with secrets redacted", async () => {
     const app = createApp(config);
     const session = await postJson<SessionCreateResponse>(app, "/sessions", {});
-    const verifier = "correct horse battery staple";
-    const challenge = createHash("sha256").update(verifier).digest("base64url");
-    const par = await postPar(app, {
-      client_id: "wallet-client",
-      redirect_uri: "eudi-wallet://callback",
-      response_type: "code",
-      state: "wallet-state",
-      issuer_state: session.session_id,
-      code_challenge: challenge,
-      code_challenge_method: "S256",
-      scope: `${config.credential_scope}.jwt`,
+    const offer = await getJson<CredentialOfferResponse>(app, new URL(session.offer_url).pathname);
+    const grant = offer.grants[
+      "urn:ietf:params:oauth:grant-type:pre-authorized_code"
+    ] as JsonRecord;
+    const preAuthorizedCode = String(grant["pre-authorized_code"]);
+    const dpopKeyPair = await dpopKey();
+    const dpop = await dpopProof(dpopKeyPair, "POST", "/token");
+
+    const token = await request(app).post("/token").set("DPoP", dpop).type("form").send({
+      grant_type: "urn:ietf:params:oauth:grant-type:pre-authorized_code",
+      "pre-authorized_code": preAuthorizedCode,
     });
 
-    const authorize = await request(app)
-      .get(`/authorize?request_uri=${encodeURIComponent(par.request_uri)}`)
-      .redirects(0);
-
-    expect(authorize.status).toBe(302);
-    const location = new URL(authorize.headers.location ?? "");
-    expect(location.protocol).toBe("eudi-wallet:");
-    expect(location.searchParams.get("state")).toBe("wallet-state");
-    expect(location.searchParams.get("code")).toBeTruthy();
-    expect(location.searchParams.get("iss")).toBe(config.issuer_base_url);
-
-    const capture = await getJson<SessionCapture>(app, `/sessions/${session.session_id}`);
-    expect(capture.observed.client_id.value).toBe("wallet-client");
-    expect(capture.observed.redirect_uri.value).toBe("eudi-wallet://callback");
-    expect(capture.raw?.authorization_request?.client_id).toBe("wallet-client");
-  });
-
-  it("rejects PAR requests without client authentication", async () => {
-    const app = createApp(config);
-    const session = await postJson<SessionCreateResponse>(app, "/sessions", {});
-    const response = await request(app)
-      .post("/par")
-      .type("form")
-      .send({
-        client_id: "wallet-client",
-        redirect_uri: "https://wallet.example/callback",
-        state: "abc",
-        issuer_state: session.session_id,
-        code_challenge: createHash("sha256").update("verifier").digest("base64url"),
-        code_challenge_method: "S256",
-        scope: `${config.credential_scope}.jwt`,
-      });
-
-    expect(response.status).toBe(400);
-    expect(response.body).toMatchObject({ error: "invalid_client" });
-  });
-
-  it("captures correlated OpenID4VCI requests with security-sensitive values redacted", async () => {
-    const app = createApp(config);
-    const session = await postJson<SessionCreateResponse>(app, "/sessions", {});
-    const clientAssertion = "header.client-assertion.signature";
-    const dpop = "header.dpop.signature";
-
-    await request(app).post("/par").set("DPoP", dpop).type("form").send({
-      issuer_state: session.session_id,
-      client_id: "wallet-client",
-      client_assertion: clientAssertion,
-    });
-
+    expect(token.status).toBe(200);
     const ledger = await getJson<Array<JsonRecord>>(app, "/oid4vci/requests");
-    const capture = await getJson<SessionCapture>(app, `/sessions/${session.session_id}`);
-    const parCapture = ledger.find((entry) => entry.path === "/par");
-
-    expect(parCapture).toMatchObject({
+    const tokenCapture = ledger.find((entry) => entry.path === "/token");
+    expect(tokenCapture).toMatchObject({
       method: "POST",
       session_id: session.session_id,
       headers: { dpop: { redacted: true, present: true } },
       body: {
-        issuer_state: session.session_id,
-        client_id: "wallet-client",
-        client_assertion: { redacted: true, present: true },
+        grant_type: "urn:ietf:params:oauth:grant-type:pre-authorized_code",
+        "pre-authorized_code": { redacted: true, present: true },
       },
-      response: { status: 400 },
+      response: { status: 200 },
     });
-    expect(capture.raw?.oid4vci_requests).toHaveLength(1);
-    expect(JSON.stringify(ledger)).not.toContain(clientAssertion);
+    const capture = await getJson<SessionCapture>(app, `/sessions/${session.session_id}`);
+    expect(capture.raw?.oid4vci_requests?.map((entry) => entry.path)).toEqual(
+      expect.arrayContaining([new URL(session.offer_url).pathname, "/token"]),
+    );
+    expect(JSON.stringify(ledger)).not.toContain(preAuthorizedCode);
     expect(JSON.stringify(ledger)).not.toContain(dpop);
-  });
-
-  it("logs PAR and authorization resolution without sensitive assertions", async () => {
-    const logs: string[] = [];
-    vi.spyOn(console, "log").mockImplementation((line: string) => {
-      logs.push(line);
-    });
-    const app = createApp(config);
-    const session = await postJson<SessionCreateResponse>(app, "/sessions", {});
-    const par = await postPar(app, {
-      client_id: "wallet-client",
-      redirect_uri: "eudi-wallet://callback",
-      response_type: "code",
-      state: "wallet-state",
-      issuer_state: session.session_id,
-      code_challenge: "challenge",
-      code_challenge_method: "S256",
-      scope: `${config.credential_scope}.jwt`,
-    });
-
-    await request(app)
-      .get(`/authorize?request_uri=${encodeURIComponent(par.request_uri)}`)
-      .redirects(0);
-
-    const entries = logs.map((line) => JSON.parse(line) as JsonRecord);
-    expect(entries.map((entry) => entry.event)).toEqual([
-      "http.request",
-      "par.stored",
-      "http.request",
-      "authorize.received",
-      "authorize.redirect",
-    ]);
-    expect(entries[0]).toMatchObject({
-      component: "fake-issuer",
-      event: "http.request",
-      method: "POST",
-      path: "/par",
-    });
-    expect(entries[1]).toMatchObject({
-      component: "fake-issuer",
-      request_uri_present: true,
-      session_id: session.session_id,
-      client_id: "wallet-client",
-      has_redirect_uri: true,
-      has_client_assertion: false,
-      has_pkce: true,
-    });
-    expect(entries[2]).toMatchObject({
-      component: "fake-issuer",
-      event: "http.request",
-      method: "GET",
-      path: "/authorize",
-    });
-    expect(entries[3]).toMatchObject({
-      request_uri_present: true,
-      par_resolution: "resolved",
-      session_id: session.session_id,
-      has_redirect_uri: true,
-    });
-    expect(entries[4]).toMatchObject({
-      request_uri_present: true,
-      par_resolution: "resolved",
-      session_id: session.session_id,
-      redirect_uri: "eudi-wallet://callback",
-      state_present: true,
-    });
-    expect(logs.join("\n")).not.toContain("sensitive.jwt.assertion");
-    expect(logs.join("\n")).not.toContain(par.request_uri);
   });
 
   it("makes credential nonce responses uncacheable", async () => {
@@ -1241,96 +1125,61 @@ describe("capture issuer server", () => {
   it("rejects token requests without DPoP", async () => {
     const app = createApp(config);
     const session = await postJson<SessionCreateResponse>(app, "/sessions", {});
-    const verifier = "pkce-verifier";
-    const challenge = createHash("sha256").update(verifier).digest("base64url");
-    const par = await postPar(app, {
-      client_id: "wallet-client",
-      redirect_uri: "https://wallet.example/callback",
-      state: "abc",
-      issuer_state: session.session_id,
-      code_challenge: challenge,
-      code_challenge_method: "S256",
-      scope: `${config.credential_scope}.jwt`,
-    });
-    const authorize = await request(app)
-      .get(`/authorize?request_uri=${encodeURIComponent(par.request_uri)}`)
-      .redirects(0);
-    const code = new URL(authorize.headers.location ?? "").searchParams.get("code");
+    const offer = await getJson<CredentialOfferResponse>(app, new URL(session.offer_url).pathname);
+    const grant = offer.grants[
+      "urn:ietf:params:oauth:grant-type:pre-authorized_code"
+    ] as JsonRecord;
     const response = await request(app)
       .post("/token")
-      .set(walletClientAuthenticationHeaders("wallet-client", config.issuer_base_url))
       .type("form")
       .send({
-        grant_type: "authorization_code",
-        code: code ?? "",
-        client_id: "wallet-client",
-        redirect_uri: "https://wallet.example/callback",
-        code_verifier: verifier,
+        grant_type: "urn:ietf:params:oauth:grant-type:pre-authorized_code",
+        "pre-authorized_code": String(grant["pre-authorized_code"]),
       });
 
-    expect(response.status).toBe(401);
+    expect(response.status).toBe(400);
     expect(response.body).toMatchObject({ error: "invalid_dpop_proof" });
   });
 
-  it("verifies PKCE and captures credential proof JWKS", async () => {
+  it("uses Credo to verify JWT proof, key attestation, nonce, and holder binding", async () => {
     const app = createApp(config);
-    const session = await postJson<SessionCreateResponse>(app, "/sessions", { broken: true });
-    const verifier = "pkce-verifier";
-    const challenge = createHash("sha256").update(verifier).digest("base64url");
-    const par = await postPar(app, {
-      client_id: "wallet-client",
-      redirect_uri: "https://wallet.example/callback",
-      state: "abc",
-      issuer_state: session.session_id,
-      code_challenge: challenge,
-      code_challenge_method: "S256",
-      scope: `${config.credential_scope}.jwt`,
-    });
-    const authorize = await request(app)
-      .get(`/authorize?request_uri=${encodeURIComponent(par.request_uri)}`)
-      .redirects(0);
-    const code = new URL(authorize.headers.location ?? "").searchParams.get("code");
-    const dpop = await dpopKey();
-    const token = await postToken(
-      app,
-      {
-        grant_type: "authorization_code",
-        code: code ?? "",
-        client_id: "wallet-client",
-        redirect_uri: "https://wallet.example/callback",
-        code_verifier: verifier,
-      },
-      dpop,
-    );
-
+    const invalidSession = await postJson<SessionCreateResponse>(app, "/sessions", {});
+    const invalidDpop = await dpopKey();
+    const invalidToken = await preAuthorizedToken(app, invalidSession, invalidDpop);
     const walletKey = await dpopKey();
     const unrelatedAttestedKey = await dpopKey();
     const mismatchedProof = await credentialProofJwt(
       walletKey,
-      token.c_nonce,
+      invalidToken.c_nonce,
       config.issuer_base_url,
       unrelatedAttestedKey,
     );
     const mismatchedCredential = await request(app)
       .post("/credential")
-      .set("authorization", `DPoP ${token.access_token}`)
-      .set("DPoP", await dpopProof(dpop, "POST", "/credential"))
-      .send({ proof: { proof_type: "jwt", jwt: mismatchedProof } });
+      .set("authorization", `DPoP ${invalidToken.access_token}`)
+      .set("DPoP", await dpopProof(invalidDpop, "POST", "/credential", invalidToken.access_token))
+      .send({
+        credential_configuration_id: invalidSession.credential_configuration_id,
+        proofs: { jwt: [mismatchedProof] },
+      });
     expect(mismatchedCredential.status).toBe(400);
-    expect(mismatchedCredential.body).toMatchObject({
-      error: "invalid_proof",
-      error_description: "Credential proof JWT signing key is not listed in attested_keys",
-    });
+    expect(mismatchedCredential.body).toMatchObject({ error: "invalid_proof" });
 
+    const session = await postJson<SessionCreateResponse>(app, "/sessions", { broken: true });
+    const dpop = await dpopKey();
+    const token = await preAuthorizedToken(app, session, dpop);
     const proof = await credentialProofJwt(walletKey, token.c_nonce);
     const credential = await request(app)
       .post("/credential")
       .set("authorization", `DPoP ${token.access_token}`)
-      .set("DPoP", await dpopProof(dpop, "POST", "/credential"))
-      .send({ proof: { proof_type: "jwt", jwt: proof } });
+      .set("DPoP", await dpopProof(dpop, "POST", "/credential", token.access_token))
+      .send({
+        credential_configuration_id: session.credential_configuration_id,
+        proofs: { jwt: [proof] },
+      });
 
     expect(credential.status).toBe(200);
-    expect(credential.body).toEqual({
+    expect(credential.body).toMatchObject({
       credentials: [
         {
           credential: expect.any(String),
@@ -1400,10 +1249,12 @@ describe("capture issuer server", () => {
     expect(Kms.PublicJwk.fromUnknown(walletKey.publicJwk).equals(decoded.holder.jwk)).toBe(true);
     const walletJwks = await getJson<JwksResponse>(app, `/sessions/${session.session_id}/jwks`);
     expect(walletJwks.keys).toHaveLength(1);
-    expect(walletJwks.keys[0]).toMatchObject({ ...walletKey.publicJwk, alg: "ES256", use: "sig" });
+    expect(walletJwks.keys[0]).toMatchObject(walletKey.publicJwk);
 
     const capture = await getJson<SessionCapture>(app, `/sessions/${session.session_id}`);
-    expect(capture.checks.pkce_valid).toBe(true);
+    expect(capture.flow).toBe("pre_authorized_code");
+    expect(capture.checks.nonce_verified).toBe(true);
+    expect(capture.checks.key_attestation_verified).toBe(true);
     expect(capture.checks.proof_jwt_header_jwk_present).toBe(true);
     expect(capture.status).toBe("credential_issued");
   });
@@ -1411,33 +1262,8 @@ describe("capture issuer server", () => {
   it("decrypts the Credential Request and encrypts the Credential Response", async () => {
     const app = createApp(config);
     const session = await postJson<SessionCreateResponse>(app, "/sessions", {});
-    const verifier = "credential-encryption-verifier";
-    const challenge = createHash("sha256").update(verifier).digest("base64url");
-    const par = await postPar(app, {
-      client_id: "wallet-client",
-      redirect_uri: "https://wallet.example/callback",
-      state: "abc",
-      issuer_state: session.session_id,
-      code_challenge: challenge,
-      code_challenge_method: "S256",
-      scope: `${config.credential_scope}.jwt`,
-    });
-    const authorize = await request(app)
-      .get(`/authorize?request_uri=${encodeURIComponent(par.request_uri)}`)
-      .redirects(0);
-    const code = new URL(authorize.headers.location ?? "").searchParams.get("code");
     const dpop = await dpopKey();
-    const token = await postToken(
-      app,
-      {
-        grant_type: "authorization_code",
-        code: code ?? "",
-        client_id: "wallet-client",
-        redirect_uri: "https://wallet.example/callback",
-        code_verifier: verifier,
-      },
-      dpop,
-    );
+    const token = await preAuthorizedToken(app, session, dpop);
     const holderKey = await dpopKey();
     const proof = await credentialProofJwt(holderKey, token.c_nonce);
     const responseEncryptionKeyPair = await generateKeyPair("ECDH-ES", {
@@ -1462,7 +1288,7 @@ describe("capture issuer server", () => {
     const plaintextResponseEncryptionRequest = await request(app)
       .post("/credential")
       .set("authorization", `DPoP ${token.access_token}`)
-      .set("DPoP", await dpopProof(dpop, "POST", "/credential"))
+      .set("DPoP", await dpopProof(dpop, "POST", "/credential", token.access_token))
       .send(credentialRequest);
     expect(plaintextResponseEncryptionRequest.status).toBe(400);
     expect(plaintextResponseEncryptionRequest.body).toMatchObject({
@@ -1488,12 +1314,12 @@ describe("capture issuer server", () => {
     const credentialResponse = await request(app)
       .post("/credential")
       .set("authorization", `DPoP ${token.access_token}`)
-      .set("DPoP", await dpopProof(dpop, "POST", "/credential"))
+      .set("DPoP", await dpopProof(dpop, "POST", "/credential", token.access_token))
       .type("application/jwt")
       .send(encryptedRequest);
 
     expect(credentialResponse.status, credentialResponse.text).toBe(200);
-    expect(credentialResponse.type).toBe("application/jwt");
+    expect(credentialResponse.type, credentialResponse.text).toBe("application/jwt");
     const decryptedResponse = await compactDecrypt(
       credentialResponse.text,
       responseEncryptionKeyPair.privateKey,
@@ -1530,59 +1356,8 @@ describe("capture issuer server", () => {
       .post("/credential")
       .send({ proof: { proof_type: "jwt", jwt: unsignedJwt({ alg: "ES256", kid: "key-1" }) } });
 
-    expect(response.status).toBe(401);
-    expect(response.body).toMatchObject({ error: "invalid_token" });
-  });
-
-  it("captures wallet attestation client authentication on token requests", async () => {
-    const app = createApp(config);
-    const session = await postJson<SessionCreateResponse>(app, "/sessions", {});
-    const verifier = "pkce-verifier";
-    const challenge = createHash("sha256").update(verifier).digest("base64url");
-    const par = await postPar(app, {
-      client_id: "wallet-client",
-      redirect_uri: "https://wallet.example/callback",
-      state: "abc",
-      issuer_state: session.session_id,
-      code_challenge: challenge,
-      code_challenge_method: "S256",
-      scope: `${config.credential_scope}.jwt`,
-    });
-    const authorize = await request(app)
-      .get(`/authorize?request_uri=${encodeURIComponent(par.request_uri)}`)
-      .redirects(0);
-    const code = new URL(authorize.headers.location ?? "").searchParams.get("code");
-    const attestation = unsignedJwt(
-      { alg: "ES256", typ: "oauth-client-attestation+jwt", kid: "attester-key" },
-      { sub: "wallet-client", cnf: { jwk: { kty: "EC", crv: "P-256", x: "x", y: "y" } } },
-    );
-    const pop = unsignedJwt(
-      { alg: "ES256", typ: "oauth-client-attestation-pop+jwt", kid: "instance-key" },
-      { iss: "wallet-client", aud: config.issuer_base_url, challenge: "token-nonce" },
-    );
-
-    const dpop = await dpopKey();
-    const token = await request(app)
-      .post("/token")
-      .set("OAuth-Client-Attestation", attestation)
-      .set("OAuth-Client-Attestation-PoP", pop)
-      .set("DPoP", await dpopProof(dpop, "POST", "/token"))
-      .type("form")
-      .send({
-        grant_type: "authorization_code",
-        code: code ?? "",
-        client_id: "wallet-client",
-        redirect_uri: "https://wallet.example/callback",
-        code_verifier: verifier,
-      });
-
-    expect(token.status).toBe(200);
-    const capture = await getJson<SessionCapture>(app, `/sessions/${session.session_id}`);
-    expect(capture.observed.client_authentication.method).toBe("wallet_attestation");
-    expect(capture.checks.wallet_attestation_present).toBe(true);
-    expect(capture.checks.wallet_attestation_pop_present).toBe(true);
-    expect(capture.checks.wallet_attestation_client_id_matches).toBe(true);
-    expect(capture.checks.wallet_attestation_pop_audience_matches).toBe(true);
+    expect(response.status).toBe(403);
+    expect(response.headers["www-authenticate"]).toContain("DPoP");
   });
 
   it("returns a clear JWKS failure before a wallet key is observed", async () => {
@@ -1603,6 +1378,17 @@ describe("capture issuer server", () => {
     expect(response.status).toBe(400);
     expect(response.body).toMatchObject({ error: "unsupported_credential_configuration" });
   });
+
+  it("rejects authorization-code presets until that flow is implemented", async () => {
+    const app = createApp(config);
+    const response = await request(app).post("/sessions").send({ flow: "authorization_code" });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({
+      error: "unsupported_issuance_flow",
+      supported_flows: ["pre_authorized_code"],
+    });
+  });
 });
 
 async function postJson<T>(app: Express, path: string, body: object): Promise<T> {
@@ -1613,19 +1399,8 @@ async function postJson<T>(app: Express, path: string, body: object): Promise<T>
 
 async function postForm<T>(app: Express, path: string, body: Record<string, string>): Promise<T> {
   const response = await request(app).post(path).type("form").send(body);
-  if (path === "/par") expect(response.status).toBe(201);
   expect(response.status).toBeLessThan(400);
   return response.body as T;
-}
-
-async function postPar(app: Express, body: Record<string, string>): Promise<ParResponse> {
-  const response = await request(app)
-    .post("/par")
-    .set(walletClientAuthenticationHeaders(body.client_id, config.issuer_base_url))
-    .type("form")
-    .send({ ...body, scope: body.scope ?? config.credential_scope });
-  expect(response.status, JSON.stringify(response.body)).toBe(201);
-  return response.body as ParResponse;
 }
 
 async function postToken(
@@ -1635,12 +1410,28 @@ async function postToken(
 ): Promise<TokenResponse> {
   const response = await request(app)
     .post("/token")
-    .set(walletClientAuthenticationHeaders(body.client_id, config.issuer_base_url))
     .set("DPoP", await dpopProof(dpopKey, "POST", "/token"))
     .type("form")
     .send(body);
   expect(response.status, JSON.stringify(response.body)).toBeLessThan(400);
   return response.body as TokenResponse;
+}
+
+async function preAuthorizedToken(
+  app: Express,
+  session: SessionCreateResponse,
+  dpopKey: DpopKey,
+): Promise<TokenResponse> {
+  const offer = await getJson<CredentialOfferResponse>(app, new URL(session.offer_url).pathname);
+  const grant = offer.grants["urn:ietf:params:oauth:grant-type:pre-authorized_code"] as JsonRecord;
+  return postToken(
+    app,
+    {
+      grant_type: "urn:ietf:params:oauth:grant-type:pre-authorized_code",
+      "pre-authorized_code": String(grant["pre-authorized_code"]),
+    },
+    dpopKey,
+  );
 }
 
 async function getJson<T>(app: Express, path: string): Promise<T> {
@@ -1668,24 +1459,6 @@ function endpointUrl(path: string): string {
   return `${config.issuer_base_url}${path}`;
 }
 
-function walletClientAuthenticationHeaders(
-  clientId: string,
-  audience: string,
-): Record<string, string> {
-  const attestation = unsignedJwt(
-    { alg: "ES256", typ: "oauth-client-attestation+jwt", kid: "attester-key" },
-    { sub: clientId, cnf: { jwk: { kty: "EC", crv: "P-256", x: "x", y: "y" } } },
-  );
-  const pop = unsignedJwt(
-    { alg: "ES256", typ: "oauth-client-attestation-pop+jwt", kid: "instance-key" },
-    { iss: clientId, aud: audience, challenge: "token-nonce" },
-  );
-  return {
-    "OAuth-Client-Attestation": attestation,
-    "OAuth-Client-Attestation-PoP": pop,
-  };
-}
-
 interface DpopKey {
   publicJwk: JsonRecord;
   privateKey: KeyLike | Uint8Array;
@@ -1699,12 +1472,18 @@ async function dpopKey(): Promise<DpopKey> {
   };
 }
 
-async function dpopProof(key: DpopKey, method: string, path: string): Promise<string> {
+async function dpopProof(
+  key: DpopKey,
+  method: string,
+  path: string,
+  accessToken?: string,
+): Promise<string> {
   return new SignJWT({
     htm: method,
     htu: endpointUrl(path),
     iat: Math.floor(Date.now() / 1000),
     jti: randomUUID(),
+    ...(accessToken ? { ath: createHash("sha256").update(accessToken).digest("base64url") } : {}),
   })
     .setProtectedHeader({ alg: "ES256", typ: "dpop+jwt", jwk: key.publicJwk as unknown as JWK })
     .sign(key.privateKey);
@@ -1816,12 +1595,10 @@ function escapeRegExp(value: string): string {
 
 interface SessionCreateResponse extends JsonRecord {
   session_id: string;
+  flow: "pre_authorized_code";
   credential_configuration_id: string;
   broken: boolean;
-}
-
-interface ParResponse extends JsonRecord {
-  request_uri: string;
+  offer_url: string;
 }
 
 interface TokenResponse extends JsonRecord {
@@ -1835,6 +1612,7 @@ interface JwksResponse extends JsonRecord {
 
 interface CredentialOfferResponse extends JsonRecord {
   credential_configuration_ids: string[];
+  grants: Record<string, JsonRecord>;
 }
 
 interface CredentialResponse extends JsonRecord {
