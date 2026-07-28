@@ -197,6 +197,9 @@ export class CredoOpenId4VciIssuer {
     return {
       ...metadata,
       grant_types_supported: ["urn:ietf:params:oauth:grant-type:pre-authorized_code"],
+      token_endpoint_auth_methods_supported: ["attest_jwt_client_auth"],
+      client_attestation_signing_alg_values_supported: ["ES256"],
+      client_attestation_pop_signing_alg_values_supported: ["ES256"],
     };
   }
 

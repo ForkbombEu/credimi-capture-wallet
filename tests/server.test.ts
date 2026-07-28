@@ -209,6 +209,9 @@ describe("capture issuer server", () => {
       "urn:ietf:params:oauth:grant-type:pre-authorized_code",
     ]);
     expect(metadata.token_endpoint).toBe(`${config.issuer_base_url}/token`);
+    expect(metadata.token_endpoint_auth_methods_supported).toEqual(["attest_jwt_client_auth"]);
+    expect(metadata.client_attestation_signing_alg_values_supported).toEqual(["ES256"]);
+    expect(metadata.client_attestation_pop_signing_alg_values_supported).toEqual(["ES256"]);
     expect(metadata).not.toHaveProperty("authorization_endpoint");
     expect(metadata).not.toHaveProperty("pushed_authorization_request_endpoint");
     expect((await request(app).post("/par")).status).toBe(404);
@@ -1141,6 +1144,37 @@ describe("capture issuer server", () => {
     expect(response.body).toMatchObject({ error: "invalid_dpop_proof" });
   });
 
+  it("uses Credo to verify wallet attestation authentication at the token endpoint", async () => {
+    const app = createApp(config);
+    const session = await postJson<SessionCreateResponse>(app, "/sessions", {});
+    const offer = await getJson<CredentialOfferResponse>(app, new URL(session.offer_url).pathname);
+    const grant = offer.grants[
+      "urn:ietf:params:oauth:grant-type:pre-authorized_code"
+    ] as JsonRecord;
+    const walletInstanceKey = await dpopKey();
+    const clientId = "https://wallet.example.test";
+    const walletAttestation = await walletAttestationJwt(walletInstanceKey, clientId);
+    const walletAttestationPop = await walletAttestationPopJwt(walletInstanceKey, clientId);
+    const dpop = await dpopKey();
+
+    const response = await request(app)
+      .post("/token")
+      .set("DPoP", await dpopProof(dpop, "POST", "/token"))
+      .set("OAuth-Client-Attestation", walletAttestation)
+      .set("OAuth-Client-Attestation-PoP", walletAttestationPop)
+      .type("form")
+      .send({
+        grant_type: "urn:ietf:params:oauth:grant-type:pre-authorized_code",
+        "pre-authorized_code": String(grant["pre-authorized_code"]),
+      });
+
+    expect(response.status, JSON.stringify(response.body)).toBe(200);
+    expect(response.body).toMatchObject({
+      access_token: expect.any(String),
+      token_type: "DPoP",
+    });
+  });
+
   it("uses Credo to verify JWT proof, key attestation, nonce, and holder binding", async () => {
     const app = createApp(config);
     const invalidSession = await postJson<SessionCreateResponse>(app, "/sessions", {});
@@ -1529,6 +1563,44 @@ async function keyAttestationJwt(key: DpopKey, nonce: string): Promise<string> {
       x5c: [certificate],
     })
     .sign(await importJWK(privateJwk, "ES256"));
+}
+
+async function walletAttestationJwt(key: DpopKey, clientId: string): Promise<string> {
+  const privateJwk = JSON.parse(readFileSync(privateJwkPath(dataDir), "utf8")) as JWK;
+  const certificate = readFileSync(issuerCertificatePath(dataDir), "utf8")
+    .replace(/-----BEGIN CERTIFICATE-----/g, "")
+    .replace(/-----END CERTIFICATE-----/g, "")
+    .replace(/\s+/g, "");
+  const now = Math.floor(Date.now() / 1000);
+  return new SignJWT({
+    iss: "https://wallet-provider.example.test",
+    sub: clientId,
+    iat: now,
+    exp: now + 300,
+    cnf: { jwk: key.publicJwk },
+  })
+    .setProtectedHeader({
+      alg: "ES256",
+      typ: "oauth-client-attestation+jwt",
+      x5c: [certificate],
+    })
+    .sign(await importJWK(privateJwk, "ES256"));
+}
+
+async function walletAttestationPopJwt(key: DpopKey, clientId: string): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
+  return new SignJWT({
+    iss: clientId,
+    aud: config.issuer_base_url,
+    iat: now,
+    exp: now + 60,
+    jti: randomUUID(),
+  })
+    .setProtectedHeader({
+      alg: "ES256",
+      typ: "oauth-client-attestation-pop+jwt",
+    })
+    .sign(key.privateKey);
 }
 
 async function sdJwtCredential(): Promise<{

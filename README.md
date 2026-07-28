@@ -111,6 +111,13 @@ The response is a compact JWS with media type `application/jwt`, protected type
 `openidvci-issuer-metadata+jwt`, and the issuer certificate chain in `x5c`.
 Because the Credential Issuer also provides the Authorization Server, its metadata
 omits `authorization_servers` and uses the Credential Issuer identifier for discovery.
+The Authorization Server metadata advertises optional Wallet Attestation client
+authentication with `token_endpoint_auth_methods_supported: ["attest_jwt_client_auth"]`.
+Both the Wallet Attestation and its proof of possession advertise `ES256` as their
+supported signing algorithm.
+Credo-TS verifies the `OAuth-Client-Attestation` and
+`OAuth-Client-Attestation-PoP` headers when supplied; anonymous pre-authorized Token
+Requests remain supported.
 When initialized with issuer encryption material, the metadata also advertises optional
 Credential Request and Credential Response encryption using `ECDH-ES` and `A256GCM`.
 Each credential configuration advertises both `jwt` and `attestation` proof types with
