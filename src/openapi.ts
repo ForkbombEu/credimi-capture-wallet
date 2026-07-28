@@ -506,34 +506,58 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           ],
           requestBody: {
             required: true,
-            ...json({
-              type: "object",
-              required: ["credential_configuration_id", "proofs"],
-              properties: {
-                credential_configuration_id: { type: "string" },
-                proofs: {
+            content: {
+              "application/json": {
+                schema: {
                   type: "object",
-                  properties: { jwt: { type: "array", items: { type: "string" } } },
+                  required: ["credential_configuration_id", "proofs"],
+                  properties: {
+                    credential_configuration_id: { type: "string" },
+                    proofs: {
+                      type: "object",
+                      properties: { jwt: { type: "array", items: { type: "string" } } },
+                    },
+                  },
+                  additionalProperties: true,
                 },
               },
-              additionalProperties: true,
-            }),
+              "application/jwt": {
+                schema: {
+                  type: "string",
+                  description:
+                    "Compact JWE Credential Request. Required when credential_response_encryption is present.",
+                },
+              },
+            },
           },
           responses: {
-            "200": response("Issued credential.", {
-              type: "object",
-              required: ["credentials"],
-              properties: {
-                credentials: {
-                  type: "array",
-                  items: {
+            "200": {
+              description: "Issued credential, optionally encrypted as a compact JWE.",
+              content: {
+                "application/json": {
+                  schema: {
                     type: "object",
-                    required: ["credential"],
-                    properties: { credential: { type: "string" } },
+                    required: ["credentials"],
+                    properties: {
+                      credentials: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          required: ["credential"],
+                          properties: { credential: { type: "string" } },
+                        },
+                      },
+                    },
+                  },
+                },
+                "application/jwt": {
+                  schema: {
+                    type: "string",
+                    description: "Compact JWE containing the Credential Response JSON object.",
                   },
                 },
               },
-            }),
+            },
             "400": errorResponses["400"],
             "401": response("Access token or DPoP validation failed.", {
               $ref: "#/components/schemas/Error",

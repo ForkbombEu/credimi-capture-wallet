@@ -6,6 +6,7 @@ import { exportJWK, generateKeyPair } from "jose";
 import type { AppConfig, JsonRecord } from "./types.js";
 
 export const ISSUER_KEY_ID = "credimi-fake-issuer-key";
+export const ISSUER_ENCRYPTION_KEY_ID = "credimi-fake-issuer-encryption-key";
 export const VERIFIER_KEY_ID = "credimi-fake-verifier-key";
 
 export const DEFAULT_CONFIG: AppConfig = {
@@ -184,6 +185,10 @@ export function issuerCertificatePath(dataDir: string): string {
   return join(dataDir, "issuer-certificate.pem");
 }
 
+export function issuerEncryptionPrivateJwkPath(dataDir: string): string {
+  return join(dataDir, "issuer-encryption-private-jwk.json");
+}
+
 export function verifierPrivateJwkPath(dataDir: string): string {
   return join(dataDir, "verifier-private-jwk.json");
 }
@@ -226,6 +231,7 @@ export async function initIssuer(options: InitOptions): Promise<AppConfig> {
   const publicPath = jwksPath(dataDir);
   const secretPath = privateJwkPath(dataDir);
   const certificatePath = issuerCertificatePath(dataDir);
+  const issuerEncryptionSecretPath = issuerEncryptionPrivateJwkPath(dataDir);
   const verifierSecretPath = verifierPrivateJwkPath(dataDir);
   const verifierPublicPath = verifierJwksPath(dataDir);
   const verifierCertPath = verifierCertificatePath(dataDir);
@@ -235,6 +241,10 @@ export async function initIssuer(options: InitOptions): Promise<AppConfig> {
       await writeIssuerCertificate(certificatePath, loadConfig(dataDir));
     }
     writeIssuerJwksCertificate(publicPath, certificatePath);
+    await ensureIssuerEncryptionMaterial({
+      force,
+      secretPath: issuerEncryptionSecretPath,
+    });
     await ensureVerifierMaterial({
       config: loadConfig(dataDir),
       force,
@@ -268,6 +278,10 @@ export async function initIssuer(options: InitOptions): Promise<AppConfig> {
     await writeIssuerCertificate(certificatePath, loadedConfig);
   }
   writeIssuerJwksCertificate(publicPath, certificatePath);
+  await ensureIssuerEncryptionMaterial({
+    force,
+    secretPath: issuerEncryptionSecretPath,
+  });
   await ensureVerifierMaterial({
     config: loadedConfig,
     force,
@@ -301,6 +315,17 @@ export function loadIssuerPublicJwk(config: AppConfig): JsonRecord {
   return toPublicJwk(privateJwk);
 }
 
+export function loadIssuerEncryptionPrivateJwk(config: AppConfig): JsonRecord | null {
+  const path = issuerEncryptionPrivateJwkPath(config.data_dir);
+  if (!existsSync(path)) return null;
+  return JSON.parse(readFileSync(path, "utf8")) as JsonRecord;
+}
+
+export function loadIssuerEncryptionPublicJwk(config: AppConfig): JsonRecord | null {
+  const privateJwk = loadIssuerEncryptionPrivateJwk(config);
+  return privateJwk ? toPublicJwk(privateJwk) : null;
+}
+
 export function createIssuerSigningContext(config: AppConfig): object {
   const privateJwk = JSON.parse(
     readFileSync(privateJwkPath(config.data_dir), "utf8"),
@@ -312,6 +337,24 @@ export function createIssuerSigningContext(config: AppConfig): object {
       agentDependencies: { fetch: globalThis.fetch },
     },
   };
+}
+
+async function ensureIssuerEncryptionMaterial({
+  force,
+  secretPath,
+}: {
+  force: boolean;
+  secretPath: string;
+}): Promise<void> {
+  if (!force && existsSync(secretPath)) return;
+  const { privateKey } = await generateKeyPair("ECDH-ES", { extractable: true });
+  const privateJwk = await exportJWK(privateKey);
+  const common = {
+    alg: "ECDH-ES",
+    use: "enc",
+    kid: ISSUER_ENCRYPTION_KEY_ID,
+  };
+  writeJson(secretPath, { ...privateJwk, ...common });
 }
 
 async function writeIssuerCertificate(path: string, config: AppConfig): Promise<void> {

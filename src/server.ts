@@ -4,6 +4,12 @@ import express, { type Request } from "express";
 import QRCode from "qrcode";
 import { captureClientAuthentication } from "./client-auth.js";
 import { loadIssuerJwks } from "./config.js";
+import {
+  CredentialEncryptionError,
+  credentialResponseEncryption,
+  decryptCredentialRequest,
+  encryptCredentialResponse,
+} from "./credential-encryption.js";
 import { issueMdocCredential, issueSdJwtCredential } from "./credential.js";
 import { credoOpenId4VpVerifier } from "./credo-openid4vp.js";
 import {
@@ -65,6 +71,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     }),
   );
   app.use(express.urlencoded({ extended: false, type: "application/x-www-form-urlencoded" }));
+  app.use(express.text({ type: "application/jwt" }));
 
   app.get("/openapi.json", (_req, res) => {
     res.json(openApiDocument(config));
@@ -734,11 +741,45 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
 
   app.post("/credential", async (req, res, next) => {
     try {
-      const body = requestParams(req);
       const accessToken = store.resolveAccessToken(req.header("Authorization"));
       if (!accessToken) {
         return res.status(401).json({ error: "invalid_token" });
       }
+      const encryptedRequest = req.is("application/jwt") === "application/jwt";
+      let body: JsonRecord;
+      try {
+        if (encryptedRequest) {
+          if (typeof req.body !== "string" || !req.body) {
+            throw new CredentialEncryptionError(
+              "Encrypted Credential Request body must be a compact JWE",
+            );
+          }
+          body = await decryptCredentialRequest(config, req.body);
+        } else {
+          body = requestParams(req);
+        }
+      } catch (error) {
+        return res.status(400).json({
+          error: "invalid_encryption_parameters",
+          error_description: errorMessage(error),
+        });
+      }
+
+      let responseEncryption: ReturnType<typeof credentialResponseEncryption>;
+      try {
+        responseEncryption = credentialResponseEncryption(body);
+        if (responseEncryption && !encryptedRequest) {
+          throw new CredentialEncryptionError(
+            "credential_response_encryption requires an encrypted Credential Request",
+          );
+        }
+      } catch (error) {
+        return res.status(400).json({
+          error: "invalid_encryption_parameters",
+          error_description: errorMessage(error),
+        });
+      }
+
       const session = accessToken
         ? store.ensureSession(accessToken.session_id)
         : store.ensureSession();
@@ -746,10 +787,14 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       session.raw ??= {};
       session.raw.credential_request = body;
       session.raw.credential_request_raw =
-        (req as Request & { rawBody?: string }).rawBody ?? JSON.stringify(body);
+        (encryptedRequest
+          ? (req.body as string)
+          : (req as Request & { rawBody?: string }).rawBody) ?? JSON.stringify(body);
       store.addEvent(session, "credential_request_received", {
         authorization_header_observed: Boolean(req.header("Authorization")),
         dpop_observed: Boolean(req.header("DPoP")),
+        encrypted: encryptedRequest,
+        encrypted_response_requested: Boolean(responseEncryption),
       });
 
       const headers = captureProofHeaders(body);
@@ -852,13 +897,19 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         broken: session.broken,
       });
 
-      res.json({
+      const credentialResponse: JsonRecord = {
         credentials: [
           {
             credential,
           },
         ],
-      });
+      };
+      if (responseEncryption) {
+        return res
+          .type("application/jwt")
+          .send(await encryptCredentialResponse(config, responseEncryption, credentialResponse));
+      }
+      return res.json(credentialResponse);
     } catch (error) {
       next(error);
     }

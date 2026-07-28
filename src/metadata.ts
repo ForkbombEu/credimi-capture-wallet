@@ -2,6 +2,7 @@ import { JwsService, JwtPayload, Kms } from "@credo-ts/core";
 import {
   ISSUER_KEY_ID,
   createIssuerSigningContext,
+  loadIssuerEncryptionPublicJwk,
   loadIssuerJwks,
   loadIssuerPublicJwk,
 } from "./config.js";
@@ -30,11 +31,26 @@ export { PID_MDOC_DOCTYPE, PID_MDOC_NAMESPACE, PID_SD_JWT_VCT };
 
 export function credentialIssuerMetadata(config: AppConfig): JsonRecord {
   const credentials = supportedCredentials(config);
+  const encryptionJwk = loadIssuerEncryptionPublicJwk(config);
 
   return {
     credential_issuer: config.issuer_base_url,
     credential_endpoint: `${config.issuer_base_url}/credential`,
     nonce_endpoint: `${config.issuer_base_url}/nonce`,
+    ...(encryptionJwk
+      ? {
+          credential_request_encryption: {
+            jwks: { keys: [encryptionJwk] },
+            enc_values_supported: ["A256GCM"],
+            encryption_required: false,
+          },
+          credential_response_encryption: {
+            alg_values_supported: ["ECDH-ES"],
+            enc_values_supported: ["A256GCM"],
+            encryption_required: false,
+          },
+        }
+      : {}),
     display: [
       {
         locale: "en-US",

@@ -10,6 +10,7 @@ import {
   type JWK,
   type KeyLike,
   SignJWT,
+  compactDecrypt,
   compactVerify,
   decodeJwt,
   decodeProtectedHeader,
@@ -91,6 +92,12 @@ describe("capture issuer server", () => {
     expect(
       openApi.body.paths["/.well-known/openid-credential-issuer"].get.responses["200"].content,
     ).toHaveProperty("application/jwt");
+    expect(openApi.body.paths["/credential"].post.requestBody.content).toHaveProperty(
+      "application/jwt",
+    );
+    expect(openApi.body.paths["/credential"].post.responses["200"].content).toHaveProperty(
+      "application/jwt",
+    );
     expect(openApi.body.components.schemas.IssuanceSessionRequest.properties.broken).toMatchObject({
       type: "boolean",
       default: false,
@@ -122,6 +129,29 @@ describe("capture issuer server", () => {
     expect(defaultMetadata.headers.vary).toBe("Accept");
     expect(defaultMetadata.body).toEqual(unsignedMetadata.body);
     expect(unsignedMetadata.body).not.toHaveProperty("authorization_servers");
+    expect(unsignedMetadata.body.credential_request_encryption).toMatchObject({
+      jwks: {
+        keys: [
+          {
+            kty: "EC",
+            crv: "P-256",
+            alg: "ECDH-ES",
+            use: "enc",
+            kid: "credimi-fake-issuer-encryption-key",
+          },
+        ],
+      },
+      enc_values_supported: ["A256GCM"],
+      encryption_required: false,
+    });
+    expect(unsignedMetadata.body.credential_request_encryption.jwks.keys[0]).not.toHaveProperty(
+      "d",
+    );
+    expect(unsignedMetadata.body.credential_response_encryption).toEqual({
+      alg_values_supported: ["ECDH-ES"],
+      enc_values_supported: ["A256GCM"],
+      encryption_required: false,
+    });
     expect(signedMetadata.status).toBe(200);
     expect(signedMetadata.type).toBe("application/jwt");
 
@@ -1303,6 +1333,112 @@ describe("capture issuer server", () => {
     const capture = await getJson<SessionCapture>(app, `/sessions/${session.session_id}`);
     expect(capture.checks.pkce_valid).toBe(true);
     expect(capture.checks.proof_jwt_header_jwk_present).toBe(true);
+    expect(capture.status).toBe("credential_issued");
+  });
+
+  it("decrypts the Credential Request and encrypts the Credential Response", async () => {
+    const app = createApp(config);
+    const session = await postJson<SessionCreateResponse>(app, "/sessions", {});
+    const verifier = "credential-encryption-verifier";
+    const challenge = createHash("sha256").update(verifier).digest("base64url");
+    const par = await postPar(app, {
+      client_id: "wallet-client",
+      redirect_uri: "https://wallet.example/callback",
+      state: "abc",
+      issuer_state: session.session_id,
+      code_challenge: challenge,
+      code_challenge_method: "S256",
+      scope: `${config.credential_scope}.jwt`,
+    });
+    const authorize = await request(app)
+      .get(`/authorize?request_uri=${encodeURIComponent(par.request_uri)}`)
+      .redirects(0);
+    const code = new URL(authorize.headers.location ?? "").searchParams.get("code");
+    const dpop = await dpopKey();
+    const token = await postToken(
+      app,
+      {
+        grant_type: "authorization_code",
+        code: code ?? "",
+        client_id: "wallet-client",
+        redirect_uri: "https://wallet.example/callback",
+        code_verifier: verifier,
+      },
+      dpop,
+    );
+    const holderKey = await dpopKey();
+    const proof = await credentialProofJwt(holderKey, token.c_nonce);
+    const responseEncryptionKeyPair = await generateKeyPair("ECDH-ES", {
+      crv: "P-256",
+      extractable: true,
+    });
+    const responseEncryptionJwk = {
+      ...(await exportJWK(responseEncryptionKeyPair.publicKey)),
+      alg: "ECDH-ES",
+      use: "enc",
+      kid: "wallet-credential-response-key",
+    };
+    const credentialRequest = {
+      credential_configuration_id: session.credential_configuration_id,
+      proofs: { jwt: [proof] },
+      credential_response_encryption: {
+        jwk: responseEncryptionJwk,
+        enc: "A256GCM",
+      },
+    };
+
+    const plaintextResponseEncryptionRequest = await request(app)
+      .post("/credential")
+      .set("authorization", `DPoP ${token.access_token}`)
+      .set("DPoP", await dpopProof(dpop, "POST", "/credential"))
+      .send(credentialRequest);
+    expect(plaintextResponseEncryptionRequest.status).toBe(400);
+    expect(plaintextResponseEncryptionRequest.body).toMatchObject({
+      error: "invalid_encryption_parameters",
+      error_description: "credential_response_encryption requires an encrypted Credential Request",
+    });
+
+    const metadata = await getJson<JsonRecord>(app, "/.well-known/openid-credential-issuer");
+    const requestEncryption = metadata.credential_request_encryption as {
+      jwks: { keys: JWK[] };
+    };
+    const issuerEncryptionJwk = requestEncryption.jwks.keys[0];
+    const encryptedRequest = await new CompactEncrypt(
+      Buffer.from(JSON.stringify(credentialRequest), "utf8"),
+    )
+      .setProtectedHeader({
+        alg: "ECDH-ES",
+        enc: "A256GCM",
+        kid: issuerEncryptionJwk.kid,
+      })
+      .encrypt(await importJWK(issuerEncryptionJwk, "ECDH-ES"));
+
+    const credentialResponse = await request(app)
+      .post("/credential")
+      .set("authorization", `DPoP ${token.access_token}`)
+      .set("DPoP", await dpopProof(dpop, "POST", "/credential"))
+      .type("application/jwt")
+      .send(encryptedRequest);
+
+    expect(credentialResponse.status, credentialResponse.text).toBe(200);
+    expect(credentialResponse.type).toBe("application/jwt");
+    const decryptedResponse = await compactDecrypt(
+      credentialResponse.text,
+      responseEncryptionKeyPair.privateKey,
+    );
+    expect(decryptedResponse.protectedHeader).toMatchObject({
+      alg: "ECDH-ES",
+      enc: "A256GCM",
+      kid: "wallet-credential-response-key",
+    });
+    const responsePayload = JSON.parse(
+      Buffer.from(decryptedResponse.plaintext).toString("utf8"),
+    ) as CredentialResponse;
+    expect(responsePayload.credentials).toEqual([{ credential: expect.any(String) }]);
+
+    const capture = await getJson<SessionCapture>(app, `/sessions/${session.session_id}`);
+    expect(capture.raw?.credential_request_raw).toBe(encryptedRequest);
+    expect(capture.raw?.credential_request).toMatchObject(credentialRequest);
     expect(capture.status).toBe("credential_issued");
   });
 

@@ -6,6 +6,8 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_CONFIG,
   initIssuer,
+  issuerEncryptionPrivateJwkPath,
+  loadIssuerEncryptionPublicJwk,
   loadIssuerJwks,
   normalizeBaseUrl,
   parseEnvText,
@@ -115,6 +117,32 @@ QUOTED="value"
       expect(
         Kms.PublicJwk.fromUnknown(verifierPublicJwk).equals(verifierCertificate.publicJwk),
       ).toBe(true);
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+
+  it("creates a dedicated issuer credential request encryption key", async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "fake-issuer-encryption-config-test-"));
+    try {
+      const config = await initIssuer({
+        issuer_base_url: "http://issuer.example.test",
+        data_dir: dataDir,
+        force: true,
+      });
+
+      expect(existsSync(issuerEncryptionPrivateJwkPath(dataDir))).toBe(true);
+      expect(readFileSync(issuerEncryptionPrivateJwkPath(dataDir), "utf8")).not.toBe(
+        readFileSync(privateJwkPath(dataDir), "utf8"),
+      );
+      expect(loadIssuerEncryptionPublicJwk(config)).toMatchObject({
+        kty: "EC",
+        crv: "P-256",
+        alg: "ECDH-ES",
+        use: "enc",
+        kid: "credimi-fake-issuer-encryption-key",
+      });
+      expect(loadIssuerEncryptionPublicJwk(config)).not.toHaveProperty("d");
     } finally {
       rmSync(dataDir, { recursive: true, force: true });
     }

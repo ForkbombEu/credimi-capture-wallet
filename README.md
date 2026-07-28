@@ -112,6 +112,8 @@ The response is a compact JWS with media type `application/jwt`, protected type
 `openidvci-issuer-metadata+jwt`, and the issuer certificate chain in `x5c`.
 Because the Credential Issuer also provides the Authorization Server, its metadata
 omits `authorization_servers` and uses the Credential Issuer identifier for discovery.
+When initialized with issuer encryption material, the metadata also advertises optional
+Credential Request and Credential Response encryption using `ECDH-ES` and `A256GCM`.
 
 ### 🪪 OpenID4VCI Issuance Flow
 
@@ -128,6 +130,14 @@ curl -X POST "$BASE_URL/sessions" \
 By default, the session issues a conforming PID for Mario Rossi. Set the optional JSON
 field `"broken": true` to issue the intentionally malformed legacy Jane Doe fixture,
 whose `place_of_birth` claim is a string instead of the required structured value.
+
+To request an encrypted Credential Response, include `credential_response_encryption`
+with a public JWK whose `alg` is `ECDH-ES` and set `enc` to `A256GCM`. OpenID4VCI 1.0
+requires the containing Credential Request to also be encrypted: send it as an
+`application/jwt` compact JWE using the public key from
+`credential_request_encryption.jwks` in the issuer metadata. The response is an
+`application/jwt` compact JWE. Plain JSON requests and responses remain supported when
+response encryption is not requested.
 
 A successful response returns HTTP 201 and includes:
 ```json
@@ -259,10 +269,14 @@ Runtime configuration comes from generated services config and environment varia
 
 `pnpm capture-services init` is the only way to initialize service material; the running HTTP service has no initialization endpoint. The command is idempotent and writes generated issuer, verifier, and config files below `./data`, which is ignored by Git. Use `--force` to replace existing generated state.
 
+After upgrading an existing installation, rerun the command without `--force` to add
+missing credential-request encryption material without rotating existing keys.
+
 Issuer material:
 
 ```text
 data/issuer-private-jwk.json
+data/issuer-encryption-private-jwk.json
 data/issuer-certificate.pem
 data/jwks.json
 ```
