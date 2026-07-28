@@ -88,6 +88,9 @@ describe("capture issuer server", () => {
       "OpenID4VP",
     ]);
     expect(openApi.body.paths["/openid4vp/response"].post.tags).toEqual(["OpenID4VP"]);
+    expect(
+      openApi.body.paths["/.well-known/openid-credential-issuer"].get.responses["200"].content,
+    ).toHaveProperty("application/jwt");
     expect(openApi.body.components.schemas.IssuanceSessionRequest.properties.broken).toMatchObject({
       type: "boolean",
       default: false,
@@ -104,6 +107,45 @@ describe("capture issuer server", () => {
     );
     expect(openApi.body.paths).not.toHaveProperty("/init");
     expect((await request(app).post("/init").send({ force: true })).status).toBe(404);
+  });
+
+  it("returns signed issuer metadata when the wallet requests application/jwt", async () => {
+    const app = createApp(config);
+    const [defaultMetadata, unsignedMetadata, signedMetadata] = await Promise.all([
+      request(app).get("/.well-known/openid-credential-issuer"),
+      request(app).get("/.well-known/openid-credential-issuer").set("Accept", "application/json"),
+      request(app).get("/.well-known/openid-credential-issuer").set("Accept", "application/jwt"),
+    ]);
+
+    expect(defaultMetadata.status).toBe(200);
+    expect(defaultMetadata.type).toBe("application/json");
+    expect(defaultMetadata.headers.vary).toBe("Accept");
+    expect(defaultMetadata.body).toEqual(unsignedMetadata.body);
+    expect(signedMetadata.status).toBe(200);
+    expect(signedMetadata.type).toBe("application/jwt");
+
+    const protectedHeader = decodeProtectedHeader(signedMetadata.text);
+    expect(protectedHeader).toMatchObject({
+      alg: "ES256",
+      typ: "openidvci-issuer-metadata+jwt",
+      kid: "credimi-fake-issuer-key",
+      x5c: [expect.any(String)],
+    });
+    const certificate = X509Certificate.fromEncodedCertificate(
+      (protectedHeader.x5c as string[])[0],
+    );
+    const verified = await compactVerify(
+      signedMetadata.text,
+      await importJWK(certificate.publicJwk.toJson(), "ES256"),
+    );
+    const { iss, sub, iat, ...metadataClaims } = JSON.parse(
+      Buffer.from(verified.payload).toString("utf8"),
+    ) as JsonRecord;
+
+    expect(iss).toBe(config.issuer_base_url);
+    expect(sub).toBe(config.issuer_base_url);
+    expect(iat).toEqual(expect.any(Number));
+    expect(metadataClaims).toEqual(unsignedMetadata.body);
   });
 
   it("serves a launcher button that opens new GUI sessions in a new tab", async () => {

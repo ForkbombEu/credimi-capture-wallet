@@ -294,6 +294,19 @@ export function loadIssuerCertificate(config: AppConfig): X509Certificate {
   );
 }
 
+export function createIssuerSigningContext(config: AppConfig): object {
+  const privateJwk = JSON.parse(
+    readFileSync(privateJwkPath(config.data_dir), "utf8"),
+  ) as JsonRecord;
+  return {
+    ...createSigningContext(privateJwk, ISSUER_KEY_ID),
+    config: {
+      allowInsecureHttpUrls: true,
+      agentDependencies: { fetch: globalThis.fetch },
+    },
+  };
+}
+
 async function writeIssuerCertificate(path: string, config: AppConfig): Promise<void> {
   await writeCertificate({
     path,
@@ -404,8 +417,13 @@ function toPublicJwk(privateJwk: JsonRecord): JsonRecord {
 }
 
 function createSigningContext(privateJwk: JsonRecord, keyId: string): object {
+  const publicJwk = toPublicJwk(privateJwk);
   const kms = {
     randomBytes: ({ length }: { length: number }) => randomBytes(length),
+    getPublicKey: async ({ keyId: requestedKeyId }: { keyId: string }) => {
+      if (requestedKeyId !== keyId) throw new Error(`Unknown key id '${requestedKeyId}'`);
+      return publicJwk;
+    },
     sign: async ({ keyId: requestedKeyId, data }: { keyId: string; data: Uint8Array }) => {
       if (requestedKeyId !== keyId) throw new Error(`Unknown key id '${requestedKeyId}'`);
       const { createPrivateKey, sign } = await import("node:crypto");

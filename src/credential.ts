@@ -11,6 +11,7 @@ import {
 } from "@owf/mdoc";
 import {
   ISSUER_KEY_ID,
+  createIssuerSigningContext,
   issuerCertificatePath,
   loadIssuerCertificate,
   privateJwkPath,
@@ -36,10 +37,9 @@ export async function issueSdJwtCredential(options: {
   broken?: boolean;
   now?: Date;
 }): Promise<string> {
-  const privateJwk = loadPrivateJwk(options.config);
   const issuerCertificate = loadIssuerCertificate(options.config);
   issuerCertificate.keyId = ISSUER_KEY_ID;
-  const agentContext = createSigningContext(privateJwk);
+  const agentContext = createIssuerSigningContext(options.config);
   const service = new SdJwtVcService({} as never);
   const now = options.now ?? new Date();
 
@@ -180,34 +180,6 @@ function mdocPidClaims(broken: boolean): JsonRecord {
 
 function loadPrivateJwk(config: AppConfig): JsonRecord {
   return JSON.parse(readFileSync(privateJwkPath(config.data_dir), "utf8")) as JsonRecord;
-}
-
-function createSigningContext(privateJwk: JsonRecord): object {
-  const kms = {
-    randomBytes: ({ length }: { length: number }) => randomBytes(length),
-    sign: async ({ keyId, data }: { keyId: string; data: Uint8Array }) => {
-      if (keyId !== ISSUER_KEY_ID) throw new Error(`Unknown issuer key id '${keyId}'`);
-      return {
-        signature: sign("sha256", data, {
-          key: createPrivateKey({ key: privateJwk as never, format: "jwk" }),
-          dsaEncoding: "ieee-p1363",
-        }),
-      };
-    },
-  };
-  const resolve = (token: unknown) => {
-    if (token === Kms.KeyManagementApi) return kms;
-    throw new Error("Unsupported Credo dependency requested while issuing SD-JWT VC");
-  };
-
-  return {
-    resolve,
-    dependencyManager: { resolve },
-    config: {
-      allowInsecureHttpUrls: true,
-      agentDependencies: { fetch: globalThis.fetch },
-    },
-  };
 }
 
 function createMdocContext(privateJwk: JsonRecord): {

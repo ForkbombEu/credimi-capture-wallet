@@ -102,6 +102,15 @@ Common REST API endpoints are:
 * Authorization server well-known: `/.well-known/oauth-authorization-server`
 * Credential Issuer jwks: `/jwks.json`
 
+The Credential Issuer well-known endpoint returns unsigned JSON by default. Request
+the OpenID4VCI 1.0 signed form with:
+```sh
+curl "$BASE_URL/.well-known/openid-credential-issuer" \
+  -H 'Accept: application/jwt'
+```
+The response is a compact JWS with media type `application/jwt`, protected type
+`openidvci-issuer-metadata+jwt`, and the issuer certificate chain in `x5c`.
+
 ### 🪪 OpenID4VCI Issuance Flow
 
 > [!IMPORTANT]

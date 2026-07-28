@@ -12,6 +12,7 @@ import {
   credentialOffer,
   credentialOfferDeeplink,
   jwtVcIssuerMetadata,
+  signedCredentialIssuerMetadata,
   supportedCredentialById,
   supportedCredentialByScope,
   supportedCredentialConfigurationIds,
@@ -180,8 +181,20 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     res.json({ status: "ok" });
   });
 
-  app.get("/.well-known/openid-credential-issuer", (_req, res) => {
-    res.json(credentialIssuerMetadata(config));
+  app.get("/.well-known/openid-credential-issuer", async (req, res, next) => {
+    try {
+      res.vary("Accept");
+      const responseType = req.accepts(["application/json", "application/jwt"]);
+      if (responseType === "application/jwt") {
+        return res
+          .status(200)
+          .type("application/jwt")
+          .send(await signedCredentialIssuerMetadata(config));
+      }
+      return res.json(credentialIssuerMetadata(config));
+    } catch (error) {
+      return next(error);
+    }
   });
 
   app.get("/.well-known/oauth-authorization-server", (_req, res) => {

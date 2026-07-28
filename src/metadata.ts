@@ -1,3 +1,5 @@
+import { JwsService, JwtPayload } from "@credo-ts/core";
+import { ISSUER_KEY_ID, createIssuerSigningContext, loadIssuerJwks } from "./config.js";
 import {
   CREDIMI_LOGO_URL,
   PID_MDOC_CLAIMS,
@@ -6,7 +8,7 @@ import {
   PID_SD_JWT_CLAIMS,
   PID_SD_JWT_VCT,
 } from "./credential-definitions.js";
-import type { AppConfig } from "./types.js";
+import type { AppConfig, JsonRecord } from "./types.js";
 
 export type CredentialProofType = "jwt" | "attestation";
 export type CredentialFormat = "dc+sd-jwt" | "mso_mdoc";
@@ -21,7 +23,7 @@ export interface SupportedCredential {
 
 export { PID_MDOC_DOCTYPE, PID_MDOC_NAMESPACE, PID_SD_JWT_VCT };
 
-export function credentialIssuerMetadata(config: AppConfig): unknown {
+export function credentialIssuerMetadata(config: AppConfig): JsonRecord {
   const credentials = supportedCredentials(config);
 
   return {
@@ -46,6 +48,38 @@ export function credentialIssuerMetadata(config: AppConfig): unknown {
       ]),
     ),
   };
+}
+
+export async function signedCredentialIssuerMetadata(
+  config: AppConfig,
+  now = new Date(),
+): Promise<string> {
+  const metadata = credentialIssuerMetadata(config);
+  const certificateChain = loadIssuerJwks(config).keys.find(
+    (key) => key.kid === ISSUER_KEY_ID,
+  )?.x5c;
+  if (
+    !Array.isArray(certificateChain) ||
+    certificateChain.some((certificate) => typeof certificate !== "string")
+  ) {
+    throw new Error("Issuer certificate chain is unavailable for signed metadata");
+  }
+
+  return new JwsService().createJwsCompact(createIssuerSigningContext(config) as never, {
+    payload: new JwtPayload({
+      iss: config.issuer_base_url,
+      sub: config.issuer_base_url,
+      iat: Math.floor(now.getTime() / 1000),
+      additionalClaims: metadata,
+    }),
+    keyId: ISSUER_KEY_ID,
+    protectedHeaderOptions: {
+      alg: "ES256",
+      typ: "openidvci-issuer-metadata+jwt",
+      kid: ISSUER_KEY_ID,
+      x5c: certificateChain,
+    },
+  });
 }
 
 export function authorizationServerMetadata(config: AppConfig): unknown {

@@ -71,11 +71,35 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           tags: ["Service"],
           operationId: "credentialIssuerMetadata",
           summary: "Get credential issuer metadata",
+          parameters: [
+            {
+              name: "Accept",
+              in: "header",
+              required: false,
+              description:
+                "Request application/jwt for signed metadata; application/json is returned otherwise.",
+              schema: {
+                type: "string",
+                enum: ["application/json", "application/jwt"],
+                default: "application/json",
+              },
+            },
+          ],
           responses: {
-            "200": response("OpenID4VCI credential issuer metadata.", {
-              type: "object",
-              additionalProperties: true,
-            }),
+            "200": {
+              description: "OpenID4VCI credential issuer metadata.",
+              content: {
+                "application/json": {
+                  schema: { type: "object", additionalProperties: true },
+                },
+                "application/jwt": {
+                  schema: {
+                    type: "string",
+                    description: "Compact JWS with the signed metadata as top-level claims.",
+                  },
+                },
+              },
+            },
           },
         },
       },
