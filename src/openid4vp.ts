@@ -151,7 +151,10 @@ function selectedSupportedCredentials(
   credentialConfigurationIds: string[] | undefined,
 ): SupportedCredential[] {
   if (!credentialConfigurationIds || credentialConfigurationIds.length === 0) {
-    return supportedCredentials(config);
+    return supportedCredentials(config).filter(
+      (credential, index, credentials) =>
+        credentials.findIndex((candidate) => candidate.format === credential.format) === index,
+    );
   }
   return credentialConfigurationIds
     .map((credentialConfigurationId) => supportedCredentialById(config, credentialConfigurationId))

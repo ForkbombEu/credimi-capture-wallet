@@ -36,7 +36,7 @@ import {
   PID_SD_JWT_VCT,
 } from "../src/credential-definitions.js";
 import { CREDIMI_LOGO_URL, issueSdJwtCredential } from "../src/credential.js";
-import { mdocCredentialConfigurationId } from "../src/metadata.js";
+import { mdocCredentialConfigurationId, sdJwtCredentialConfigurationId } from "../src/metadata.js";
 import { createApp } from "../src/server.js";
 import type { JsonRecord, SessionCapture } from "../src/types.js";
 import { unsignedJwt } from "./helpers.js";
@@ -323,8 +323,14 @@ describe("capture issuer server", () => {
     expect(response.text).toContain("<dt>presentation_validation</dt>");
     expect(response.text).not.toContain("<dt>presentation_submission</dt>");
     expect(response.text).toContain('<select name="credential_configuration_id">');
-    expect(response.text).toContain("Credimi Demo PID (SD-JWT VC, JWT or attestation proof)");
-    expect(response.text).toContain("Credimi Demo PID (MDOC, JWT or attestation proof)");
+    expect(response.text).toContain(
+      "Credimi Demo PID (SD-JWT VC, JWT or attestation proof, key attestation required)",
+    );
+    expect(response.text).toContain("Credimi Demo PID (SD-JWT VC, JWT proof, no key attestation)");
+    expect(response.text).toContain(
+      "Credimi Demo PID (MDOC, JWT or attestation proof, key attestation required)",
+    );
+    expect(response.text).toContain("Credimi Demo PID (MDOC, JWT proof, no key attestation)");
     expect(response.text).toContain(
       '<img class="brand-logo" src="/assets/credimi_logo.svg" alt="Credimi"><span>Wallet metadata capture</span>',
     );
@@ -472,7 +478,10 @@ describe("capture issuer server", () => {
 
   it("creates GUI OpenID4VP sessions for the selected credential", async () => {
     const app = createApp(config);
-    const selectedCredentialConfigurationId = mdocCredentialConfigurationId(config);
+    const selectedCredentialConfigurationId = mdocCredentialConfigurationId(
+      config,
+      "key-attestation-required",
+    );
     const created = await request(app)
       .post("/ui/openid4vp/sessions")
       .type("form")
@@ -576,6 +585,11 @@ describe("capture issuer server", () => {
 
     expect(session.scheme).toBe("eudi-wallet://");
     expect(session.deeplink.startsWith("eudi-wallet://?")).toBe(true);
+    const dcqlQuery = session.authorization_request.dcql_query as JsonRecord;
+    expect((dcqlQuery.credentials as JsonRecord[]).map((credential) => credential.format)).toEqual([
+      "dc+sd-jwt",
+      "mso_mdoc",
+    ]);
     expect(session.authorization_request.scheme).toBeUndefined();
   });
 
@@ -1020,7 +1034,10 @@ describe("capture issuer server", () => {
 
   it("embeds credential offers by value by default", async () => {
     const app = createApp(config);
-    const requestedCredentialConfigurationId = mdocCredentialConfigurationId(config);
+    const requestedCredentialConfigurationId = mdocCredentialConfigurationId(
+      config,
+      "key-attestation-required",
+    );
 
     const session = await postJson<SessionCreateResponse>(app, "/sessions", {
       credential_configuration_id: requestedCredentialConfigurationId,
@@ -1092,7 +1109,10 @@ describe("capture issuer server", () => {
   it("issues an MDOC PID credential for the selected MDOC configuration", async () => {
     const app = createApp(config);
     const session = await postJson<SessionCreateResponse>(app, "/sessions", {
-      credential_configuration_id: mdocCredentialConfigurationId(config),
+      credential_configuration_id: mdocCredentialConfigurationId(
+        config,
+        "key-attestation-required",
+      ),
       flow: "pre_authorized_code",
     });
     const dpop = await dpopKey();
@@ -1118,7 +1138,9 @@ describe("capture issuer server", () => {
     const encodedMdoc = (credential.body as CredentialResponse).credentials[0].credential;
     const decoded = IssuerSigned.fromEncodedForOid4Vci(encodedMdoc);
 
-    expect(session.credential_configuration_id).toBe(mdocCredentialConfigurationId(config));
+    expect(session.credential_configuration_id).toBe(
+      mdocCredentialConfigurationId(config, "key-attestation-required"),
+    );
     expect(decoded.issuerAuth.mobileSecurityObject.docType).toBe(PID_MDOC_DOCTYPE);
     const namespace = decoded.getPrettyClaims(PID_MDOC_NAMESPACE) as JsonRecord | undefined;
     expect(namespace?.given_name).toBe("Mario");
@@ -1239,6 +1261,64 @@ describe("capture issuer server", () => {
       access_token: expect.any(String),
       token_type: "DPoP",
     });
+  });
+
+  it("enforces the selected JWT proof key-attestation policy", async () => {
+    const app = createApp(config);
+    const requiredSession = await postJson<SessionCreateResponse>(app, "/sessions", {
+      credential_configuration_id: sdJwtCredentialConfigurationId(
+        config,
+        "key-attestation-required",
+      ),
+      flow: "pre_authorized_code",
+    });
+    const requiredDpop = await dpopKey();
+    const requiredToken = await preAuthorizedToken(app, requiredSession, requiredDpop);
+    const holderKey = await dpopKey();
+    const proofWithoutAttestation = await credentialProofJwtWithoutKeyAttestation(
+      holderKey,
+      requiredToken.c_nonce,
+    );
+
+    const rejected = await request(app)
+      .post("/credential")
+      .set("authorization", `DPoP ${requiredToken.access_token}`)
+      .set("DPoP", await dpopProof(requiredDpop, "POST", "/credential", requiredToken.access_token))
+      .send({
+        credential_configuration_id: requiredSession.credential_configuration_id,
+        proofs: { jwt: [proofWithoutAttestation] },
+      });
+
+    expect(rejected.status).toBe(400);
+    expect(rejected.body).toMatchObject({
+      error: "invalid_proof",
+      error_description: expect.stringContaining("Missing required key attestation"),
+    });
+
+    const jwtProofSession = await postJson<SessionCreateResponse>(app, "/sessions", {
+      credential_configuration_id: sdJwtCredentialConfigurationId(config, "jwt-proof"),
+      flow: "pre_authorized_code",
+    });
+    const jwtProofDpop = await dpopKey();
+    const jwtProofToken = await preAuthorizedToken(app, jwtProofSession, jwtProofDpop);
+    const acceptedProof = await credentialProofJwtWithoutKeyAttestation(
+      holderKey,
+      jwtProofToken.c_nonce,
+    );
+    const accepted = await request(app)
+      .post("/credential")
+      .set("authorization", `DPoP ${jwtProofToken.access_token}`)
+      .set("DPoP", await dpopProof(jwtProofDpop, "POST", "/credential", jwtProofToken.access_token))
+      .send({
+        credential_configuration_id: jwtProofSession.credential_configuration_id,
+        proofs: { jwt: [acceptedProof] },
+      });
+
+    expect(accepted.status).toBe(200);
+    const capture = await getJson<SessionCapture>(app, `/sessions/${jwtProofSession.session_id}`);
+    expect(capture.checks.proof_jwt_present).toBe(true);
+    expect(capture.checks.key_attestation_verified).toBe(false);
+    expect(capture.status).toBe("credential_issued");
   });
 
   it("uses Credo to verify JWT proof, key attestation, nonce, and holder binding", async () => {
@@ -1735,6 +1815,23 @@ async function credentialProofJwt(
       typ: "openid4vci-proof+jwt",
       jwk: key.publicJwk as unknown as JWK,
       key_attestation: keyAttestation,
+    })
+    .sign(key.privateKey);
+}
+
+async function credentialProofJwtWithoutKeyAttestation(
+  key: DpopKey,
+  nonce: string,
+): Promise<string> {
+  return new SignJWT({
+    aud: config.issuer_base_url,
+    nonce,
+    iat: Math.floor(Date.now() / 1000),
+  })
+    .setProtectedHeader({
+      alg: "ES256",
+      typ: "openid4vci-proof+jwt",
+      jwk: key.publicJwk as unknown as JWK,
     })
     .sign(key.privateKey);
 }

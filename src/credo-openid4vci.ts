@@ -346,7 +346,8 @@ export class CredoOpenId4VciIssuer {
     captureSession.checks.proof_jwt_header_jwk_present = proofHeaders.some(
       (header) => header.proof_type === "jwt" && Boolean(header.jwk),
     );
-    captureSession.checks.key_attestation_verified = true;
+    captureSession.checks.key_attestation_verified =
+      proofType === "attestation" || proofHeaders.some((header) => header.key_attestation_present);
     captureSession.checks.nonce_verified = true;
     captureSession.observed.wallet_jwks = {
       observed: true,

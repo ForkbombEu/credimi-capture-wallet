@@ -12,6 +12,7 @@ import {
   credentialIssuerMetadata,
   jwtVcIssuerMetadata,
   mdocCredentialConfigurationId,
+  sdJwtCredentialConfigurationId,
 } from "../src/metadata.js";
 import type { JsonRecord } from "../src/types.js";
 
@@ -25,22 +26,32 @@ describe("metadata", () => {
   it("advertises credential scope in issuer metadata", () => {
     const metadata = credentialIssuerMetadata(DEFAULT_CONFIG) as JsonRecord;
     const configurations = metadata.credential_configurations_supported as JsonRecord;
-    const jwtConfiguration = configurations[
-      `${DEFAULT_CONFIG.credential_configuration_id}.jwt`
-    ] as JsonRecord;
-    const mdocConfiguration = configurations[
-      mdocCredentialConfigurationId(DEFAULT_CONFIG)
-    ] as JsonRecord;
+    const expectedScopes = {
+      [sdJwtCredentialConfigurationId(DEFAULT_CONFIG, "key-attestation-required")]:
+        `${DEFAULT_CONFIG.credential_scope}.sd-jwt.key-attestation-required`,
+      [sdJwtCredentialConfigurationId(DEFAULT_CONFIG, "jwt-proof")]:
+        `${DEFAULT_CONFIG.credential_scope}.sd-jwt.jwt-proof`,
+      [mdocCredentialConfigurationId(DEFAULT_CONFIG, "key-attestation-required")]:
+        `${DEFAULT_CONFIG.credential_scope}.mdoc.key-attestation-required`,
+      [mdocCredentialConfigurationId(DEFAULT_CONFIG, "jwt-proof")]:
+        `${DEFAULT_CONFIG.credential_scope}.mdoc.jwt-proof`,
+    };
 
-    expect(jwtConfiguration.scope).toBe(`${DEFAULT_CONFIG.credential_scope}.jwt`);
-    expect(mdocConfiguration.scope).toBe(`${DEFAULT_CONFIG.credential_scope}.mdoc.jwt`);
+    expect(
+      Object.fromEntries(
+        Object.entries(configurations).map(([id, configuration]) => [
+          id,
+          (configuration as JsonRecord).scope,
+        ]),
+      ),
+    ).toEqual(expectedScopes);
   });
 
   it("advertises explicit display names in issuer metadata", () => {
     const metadata = credentialIssuerMetadata(DEFAULT_CONFIG) as JsonRecord;
     const configurations = metadata.credential_configurations_supported as JsonRecord;
     const configuration = configurations[
-      `${DEFAULT_CONFIG.credential_configuration_id}.jwt`
+      sdJwtCredentialConfigurationId(DEFAULT_CONFIG, "jwt-proof")
     ] as JsonRecord;
     const credentialMetadata = configuration.credential_metadata as JsonRecord;
 
@@ -48,7 +59,7 @@ describe("metadata", () => {
     expect(configuration.display).toBeUndefined();
     expect(credentialMetadata.display).toEqual([
       {
-        name: "Credimi Demo PID (SD-JWT VC, JWT or attestation proof)",
+        name: "Credimi Demo PID (SD-JWT VC, JWT proof, no key attestation)",
         locale: "en-US",
         logo: { uri: CREDIMI_LOGO_URL, alt_text: "Credimi" },
       },
@@ -63,21 +74,29 @@ describe("metadata", () => {
     );
   });
 
-  it("advertises the supported JWT proof credential configurations", () => {
+  it("advertises separate JWT-only and key-attestation-required configurations", () => {
     const metadata = credentialIssuerMetadata(DEFAULT_CONFIG) as JsonRecord;
     const configurations = metadata.credential_configurations_supported as JsonRecord;
-    const jwtConfiguration = configurations[
-      `${DEFAULT_CONFIG.credential_configuration_id}.jwt`
+    const sdJwtAttested = configurations[
+      sdJwtCredentialConfigurationId(DEFAULT_CONFIG, "key-attestation-required")
     ] as JsonRecord;
-    const mdocConfiguration = configurations[
-      mdocCredentialConfigurationId(DEFAULT_CONFIG)
+    const sdJwtProof = configurations[
+      sdJwtCredentialConfigurationId(DEFAULT_CONFIG, "jwt-proof")
+    ] as JsonRecord;
+    const mdocAttested = configurations[
+      mdocCredentialConfigurationId(DEFAULT_CONFIG, "key-attestation-required")
+    ] as JsonRecord;
+    const mdocJwtProof = configurations[
+      mdocCredentialConfigurationId(DEFAULT_CONFIG, "jwt-proof")
     ] as JsonRecord;
 
     expect(Object.keys(configurations)).toEqual([
-      `${DEFAULT_CONFIG.credential_configuration_id}.jwt`,
-      mdocCredentialConfigurationId(DEFAULT_CONFIG),
+      sdJwtCredentialConfigurationId(DEFAULT_CONFIG, "key-attestation-required"),
+      sdJwtCredentialConfigurationId(DEFAULT_CONFIG, "jwt-proof"),
+      mdocCredentialConfigurationId(DEFAULT_CONFIG, "key-attestation-required"),
+      mdocCredentialConfigurationId(DEFAULT_CONFIG, "jwt-proof"),
     ]);
-    const proofTypesSupported = {
+    const keyAttestationRequired = {
       jwt: {
         proof_signing_alg_values_supported: ["ES256"],
         key_attestations_required: {},
@@ -87,19 +106,31 @@ describe("metadata", () => {
         key_attestations_required: {},
       },
     };
-    expect(jwtConfiguration.proof_types_supported).toEqual(proofTypesSupported);
-    expect(jwtConfiguration.cryptographic_binding_methods_supported).toEqual(["jwk"]);
-    expect(jwtConfiguration.credential_signing_alg_values_supported).toEqual(["ES256"]);
-    expect(mdocConfiguration.proof_types_supported).toEqual(proofTypesSupported);
-    expect(mdocConfiguration.cryptographic_binding_methods_supported).toEqual(["cose_key"]);
-    expect(mdocConfiguration.credential_signing_alg_values_supported).toEqual([-7]);
+    const jwtProof = {
+      jwt: {
+        proof_signing_alg_values_supported: ["ES256"],
+      },
+    };
+    expect(sdJwtAttested.proof_types_supported).toEqual(keyAttestationRequired);
+    expect(sdJwtProof.proof_types_supported).toEqual(jwtProof);
+    expect(sdJwtAttested.vct).toBe(PID_SD_JWT_VCT);
+    expect(sdJwtProof.vct).toBe(PID_SD_JWT_VCT);
+    expect(sdJwtAttested.cryptographic_binding_methods_supported).toEqual(["jwk"]);
+    expect(sdJwtProof.credential_signing_alg_values_supported).toEqual(["ES256"]);
+
+    expect(mdocAttested.proof_types_supported).toEqual(keyAttestationRequired);
+    expect(mdocJwtProof.proof_types_supported).toEqual(jwtProof);
+    expect(mdocAttested.doctype).toBe(PID_MDOC_DOCTYPE);
+    expect(mdocJwtProof.doctype).toBe(PID_MDOC_DOCTYPE);
+    expect(mdocAttested.cryptographic_binding_methods_supported).toEqual(["cose_key"]);
+    expect(mdocJwtProof.credential_signing_alg_values_supported).toEqual([-7]);
   });
 
   it("advertises the MDOC PID credential configuration", () => {
     const metadata = credentialIssuerMetadata(DEFAULT_CONFIG) as JsonRecord;
     const configurations = metadata.credential_configurations_supported as JsonRecord;
     const configuration = configurations[
-      mdocCredentialConfigurationId(DEFAULT_CONFIG)
+      mdocCredentialConfigurationId(DEFAULT_CONFIG, "key-attestation-required")
     ] as JsonRecord;
     const credentialMetadata = configuration.credential_metadata as JsonRecord;
     const claims = credentialMetadata.claims as JsonRecord[];
@@ -110,7 +141,7 @@ describe("metadata", () => {
     expect(configuration.claims).toBeUndefined();
     expect(credentialMetadata.display).toEqual([
       {
-        name: "Credimi Demo PID (MDOC, JWT or attestation proof)",
+        name: "Credimi Demo PID (MDOC, JWT or attestation proof, key attestation required)",
         locale: "en-US",
         logo: { uri: CREDIMI_LOGO_URL, alt_text: "Credimi" },
       },

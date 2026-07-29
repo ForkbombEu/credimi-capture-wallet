@@ -16,14 +16,14 @@ import {
 } from "./credential-definitions.js";
 import type { AppConfig, JsonRecord } from "./types.js";
 
-export type CredentialProofType = "jwt" | "attestation";
 export type CredentialFormat = "dc+sd-jwt" | "mso_mdoc";
+export type CredentialProofPolicy = "jwt-proof" | "key-attestation-required";
 
 export interface SupportedCredential {
   id: string;
   scope: string;
   format: CredentialFormat;
-  proofType: CredentialProofType;
+  proofPolicy: CredentialProofPolicy;
   displayName: string;
 }
 
@@ -64,7 +64,7 @@ export function credentialIssuerMetadata(config: AppConfig): JsonRecord {
     credential_configurations_supported: Object.fromEntries(
       credentials.map((credential) => [
         credential.id,
-        credentialConfiguration(credential, proofTypesSupported()),
+        credentialConfiguration(credential, proofTypesSupported(credential.proofPolicy)),
       ]),
     ),
   };
@@ -137,34 +137,64 @@ export function jwtVcIssuerMetadata(config: AppConfig): unknown {
 
 export function credentialConfigurationId(
   config: AppConfig,
-  proofType: CredentialProofType,
+  format: CredentialFormat,
+  proofPolicy: CredentialProofPolicy,
 ): string {
-  return `${config.credential_configuration_id}.${proofType}`;
+  return `${config.credential_configuration_id}.${credentialFormatId(format)}.${proofPolicy}`;
 }
 
-export function mdocCredentialConfigurationId(config: AppConfig): string {
-  return `${config.credential_configuration_id}.mdoc.jwt`;
+export function sdJwtCredentialConfigurationId(
+  config: AppConfig,
+  proofPolicy: CredentialProofPolicy,
+): string {
+  return credentialConfigurationId(config, "dc+sd-jwt", proofPolicy);
 }
 
-export function credentialScope(config: AppConfig, proofType: CredentialProofType): string {
-  return `${config.credential_scope}.${proofType}`;
+export function mdocCredentialConfigurationId(
+  config: AppConfig,
+  proofPolicy: CredentialProofPolicy,
+): string {
+  return credentialConfigurationId(config, "mso_mdoc", proofPolicy);
+}
+
+export function credentialScope(
+  config: AppConfig,
+  format: CredentialFormat,
+  proofPolicy: CredentialProofPolicy,
+): string {
+  return `${config.credential_scope}.${credentialFormatId(format)}.${proofPolicy}`;
 }
 
 export function supportedCredentials(config: AppConfig): SupportedCredential[] {
   return [
     {
-      id: credentialConfigurationId(config, "jwt"),
-      scope: credentialScope(config, "jwt"),
+      id: sdJwtCredentialConfigurationId(config, "key-attestation-required"),
+      scope: credentialScope(config, "dc+sd-jwt", "key-attestation-required"),
       format: "dc+sd-jwt",
-      proofType: "jwt",
-      displayName: "Credimi Demo PID (SD-JWT VC, JWT or attestation proof)",
+      proofPolicy: "key-attestation-required",
+      displayName:
+        "Credimi Demo PID (SD-JWT VC, JWT or attestation proof, key attestation required)",
     },
     {
-      id: mdocCredentialConfigurationId(config),
-      scope: `${config.credential_scope}.mdoc.jwt`,
+      id: sdJwtCredentialConfigurationId(config, "jwt-proof"),
+      scope: credentialScope(config, "dc+sd-jwt", "jwt-proof"),
+      format: "dc+sd-jwt",
+      proofPolicy: "jwt-proof",
+      displayName: "Credimi Demo PID (SD-JWT VC, JWT proof, no key attestation)",
+    },
+    {
+      id: mdocCredentialConfigurationId(config, "key-attestation-required"),
+      scope: credentialScope(config, "mso_mdoc", "key-attestation-required"),
       format: "mso_mdoc",
-      proofType: "jwt",
-      displayName: "Credimi Demo PID (MDOC, JWT or attestation proof)",
+      proofPolicy: "key-attestation-required",
+      displayName: "Credimi Demo PID (MDOC, JWT or attestation proof, key attestation required)",
+    },
+    {
+      id: mdocCredentialConfigurationId(config, "jwt-proof"),
+      scope: credentialScope(config, "mso_mdoc", "jwt-proof"),
+      format: "mso_mdoc",
+      proofPolicy: "jwt-proof",
+      displayName: "Credimi Demo PID (MDOC, JWT proof, no key attestation)",
     },
   ];
 }
@@ -184,13 +214,21 @@ export function supportedCredentialById(
   );
 }
 
-function proofTypesSupported(): Record<
+function proofTypesSupported(proofPolicy: CredentialProofPolicy): Record<
   string,
   {
     key_attestations_required?: Record<string, unknown>;
     proof_signing_alg_values_supported: string[];
   }
 > {
+  if (proofPolicy === "jwt-proof") {
+    return {
+      jwt: {
+        proof_signing_alg_values_supported: ["ES256"],
+      },
+    };
+  }
+
   return {
     jwt: {
       proof_signing_alg_values_supported: ["ES256"],
@@ -201,6 +239,10 @@ function proofTypesSupported(): Record<
       key_attestations_required: {},
     },
   };
+}
+
+function credentialFormatId(format: CredentialFormat): "sd-jwt" | "mdoc" {
+  return format === "dc+sd-jwt" ? "sd-jwt" : "mdoc";
 }
 
 function credentialConfiguration(

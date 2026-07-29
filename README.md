@@ -126,8 +126,9 @@ claim set, where `exp` is optional. Signature, audience, time, client,
 proof-of-possession key, and certificate checks remain handled by Credo-TS.
 When initialized with issuer encryption material, the metadata also advertises optional
 Credential Request and Credential Response encryption using `ECDH-ES` and `A256GCM`.
-Each credential configuration advertises both `jwt` and `attestation` proof types with
-`ES256`, and requires a key attestation for either type.
+The issuer exposes separate credential configurations for JWT proofs with and without
+a required key attestation. The key-attestation-required configurations also support
+the `attestation` proof type. All proof signing uses `ES256`.
 
 ### 🪪 OpenID4VCI Issuance Flow
 
@@ -135,12 +136,28 @@ Each credential configuration advertises both `jwt` and `attestation` proof type
 > BASE_URL must be the `--services-base-url` you set during the setup, to use our hosted services use `https://capture-wallet.credimi.io`
 
 
-Start by creating a capture session for a credential configuration (that is the `--credential-configuration-id` used during the setup + `.jwt` for dc+sd-jwt or + `.mdoc.jwt` for mdoc):
+The configured `--credential-configuration-id` is the base for four Credential
+Configuration Identifiers:
+
+| Format | Proof policy | Configuration ID and scope suffix | Credential type |
+| --- | --- | --- | --- |
+| SD-JWT VC | JWT proof, no key attestation | `.sd-jwt.jwt-proof` | `vct: urn:eudi:pid:1` |
+| SD-JWT VC | Key attestation required | `.sd-jwt.key-attestation-required` | `vct: urn:eudi:pid:1` |
+| mdoc | JWT proof, no key attestation | `.mdoc.jwt-proof` | `doctype: eu.europa.ec.eudi.pid.1` |
+| mdoc | Key attestation required | `.mdoc.key-attestation-required` | `doctype: eu.europa.ec.eudi.pid.1` |
+
+Each configuration has a unique scope formed by appending the same suffix to the
+configured credential scope. The duplicated configurations issue the same credential
+type and claims; only their proof policy differs. The key-attestation-required SD-JWT
+configuration is the default when no `credential_configuration_id` is supplied.
+
+Start by creating a capture session for a credential configuration:
+
 ```sh
 curl -X POST "$BASE_URL/sessions" \
   -H 'Content-Type: application/json' \
   -d '{
-    "credential_configuration_id":"urn:eu.europa.ec.eudi:pid:1.mdoc.jwt"
+    "credential_configuration_id":"urn:eu.europa.ec.eudi:pid:1.mdoc.key-attestation-required"
   }'
 ```
 `flow` is optional and defaults to `authorization_code`, whose authorization is
@@ -170,7 +187,7 @@ A successful response returns HTTP 201 and includes:
   "session_id": "...",
   "flow": "authorization_code",
   "credential_offer_mode": "credential_offer",
-  "credential_configuration_id": "urn:eu.europa.ec.eudi:pid:1.mdoc.jwt",
+  "credential_configuration_id": "urn:eu.europa.ec.eudi:pid:1.mdoc.key-attestation-required",
   "broken": false,
   "offer_url": "https://capture-wallet.credimi.io/offers/...",
   "deeplink": "openid-credential-offer://...",
@@ -206,7 +223,7 @@ curl -X POST "$BASE_URL/sessions" \
   -H 'Content-Type: application/json' \
   -d '{
     "flow":"pre_authorized_code",
-    "credential_configuration_id":"urn:eu.europa.ec.eudi:pid:1.mdoc.jwt"
+    "credential_configuration_id":"urn:eu.europa.ec.eudi:pid:1.mdoc.key-attestation-required"
   }'
 ```
 
@@ -215,13 +232,16 @@ This offer contains the
 pre-authorized code directly at the token endpoint, then calls the nonce and
 credential endpoints.
 
-The `/credential` endpoint accepts exactly one proof per request:
+The `/credential` endpoint accepts exactly one proof type per request:
 
-* `proofs.jwt[0]` must be an `openid4vci-proof+jwt` signed by its public
-  `header.jwk`. Its `header.key_attestation` is required, must be a valid
-  `key-attestation+jwt`, and must attest the proof-signing key.
-* `proofs.attestation[0]` must contain one `key-attestation+jwt`; the issued
-  credential is bound to the first public JWK in `attested_keys`.
+* A `.jwt-proof` configuration accepts `proofs.jwt`, containing one or more
+  `openid4vci-proof+jwt` values signed by their public `header.jwk`. It does not
+  require `header.key_attestation` and does not support the `attestation` proof type.
+* A `.key-attestation-required` configuration accepts `proofs.jwt[0]` only when its
+  `header.key_attestation` is a valid `key-attestation+jwt` that attests the
+  proof-signing key. It also accepts `proofs.attestation[0]` containing one
+  `key-attestation+jwt`; the issued credential is bound to the public keys in
+  `attested_keys`.
 
 Both forms require the current issuer nonce and `ES256`. Key-attestation signatures
 and X.509 chains are verified through Credo-TS. This capture service accepts the last
