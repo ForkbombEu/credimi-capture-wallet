@@ -38,17 +38,19 @@ describe("OpenID4VCI HTTP capture redaction", () => {
 
   it("recognizes every public OpenID4VCI protocol route", () => {
     for (const path of [
-      "/.well-known/openid-credential-issuer",
-      "/.well-known/oauth-authorization-server",
-      "/.well-known/jwt-vc-issuer",
-      "/jwks.json",
+      "/.well-known/openid-credential-issuer/issuers/eu-pid-device-bound",
+      "/.well-known/oauth-authorization-server/issuers/eu-pid-device-bound",
+      "/.well-known/jwt-vc-issuer/issuers/eu-pid-device-bound",
+      "/issuers/eu-pid-device-bound/jwks.json",
+      "/issuers/eu-pid-device-bound/credential-jwks.json",
       "/sessions/session-id/offer",
       "/sessions/session-id/deeplink",
-      "/par",
-      "/authorize",
-      "/token",
-      "/nonce",
-      "/credential",
+      "/issuers/eu-pid-device-bound/par",
+      "/issuers/eu-pid-device-bound/authorize",
+      "/issuers/eu-pid-device-bound/token",
+      "/issuers/eu-pid-device-bound/nonce",
+      "/issuers/eu-pid-device-bound/credential",
+      "/authorization-servers/eu-pid-device-bound/authorize",
     ]) {
       expect(isOid4vciProtocolPath(path), path).toBe(true);
     }

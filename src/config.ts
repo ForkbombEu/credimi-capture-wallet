@@ -1,13 +1,16 @@
 import { randomBytes } from "node:crypto";
+import { X509Certificate as NodeX509Certificate } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { CredoWebCrypto, Kms, X509Certificate, X509KeyUsage } from "@credo-ts/core";
 import { exportJWK, generateKeyPair } from "jose";
+import { resolvedIssuerConfigurations } from "./configurations/registry.js";
+import { issuerAppConfig } from "./configurations/resolve-urls.js";
+import type { ResolvedIssuerConfiguration } from "./configurations/types.js";
 import type { AppConfig, JsonRecord } from "./types.js";
 
-export const ISSUER_KEY_ID = "credimi-fake-issuer-key";
-export const ISSUER_ENCRYPTION_KEY_ID = "credimi-fake-issuer-encryption-key";
 export const VERIFIER_KEY_ID = "credimi-fake-verifier-key";
+export const ACCESS_TOKEN_PRIVATE_JWK_FILE = "access-token-private-jwk.json";
 
 export const DEFAULT_CONFIG: AppConfig = {
   issuer_base_url: "http://localhost:8080",
@@ -190,15 +193,19 @@ export function issuerEncryptionPrivateJwkPath(dataDir: string): string {
 }
 
 export function verifierPrivateJwkPath(dataDir: string): string {
-  return join(dataDir, "verifier-private-jwk.json");
+  return join(dataDir, "verifier", "verifier-private-jwk.json");
 }
 
 export function verifierJwksPath(dataDir: string): string {
-  return join(dataDir, "verifier-jwks.json");
+  return join(dataDir, "verifier", "verifier-jwks.json");
 }
 
 export function verifierCertificatePath(dataDir: string): string {
-  return join(dataDir, "verifier-certificate.pem");
+  return join(dataDir, "verifier", "verifier-certificate.pem");
+}
+
+export function accessTokenPrivateJwkPath(materialDirectory: string): string {
+  return join(materialDirectory, ACCESS_TOKEN_PRIVATE_JWK_FILE);
 }
 
 export function loadConfig(dataDir = DEFAULT_CONFIG.data_dir): AppConfig {
@@ -228,60 +235,19 @@ export async function initIssuer(options: InitOptions): Promise<AppConfig> {
 
   mkdirSync(dataDir, { recursive: true });
   const cfgPath = configPath(dataDir);
-  const publicPath = jwksPath(dataDir);
-  const secretPath = privateJwkPath(dataDir);
-  const certificatePath = issuerCertificatePath(dataDir);
-  const issuerEncryptionSecretPath = issuerEncryptionPrivateJwkPath(dataDir);
-  const verifierSecretPath = verifierPrivateJwkPath(dataDir);
-  const verifierPublicPath = verifierJwksPath(dataDir);
-  const verifierCertPath = verifierCertificatePath(dataDir);
-
-  if (!force && existsSync(cfgPath) && existsSync(publicPath) && existsSync(secretPath)) {
-    if (!existsSync(certificatePath)) {
-      await writeIssuerCertificate(certificatePath, loadConfig(dataDir));
-    }
-    writeIssuerJwksCertificate(publicPath, certificatePath);
-    await ensureIssuerEncryptionMaterial({
-      force,
-      secretPath: issuerEncryptionSecretPath,
-    });
-    await ensureVerifierMaterial({
-      config: loadConfig(dataDir),
-      force,
-      secretPath: verifierSecretPath,
-      publicPath: verifierPublicPath,
-      certificatePath: verifierCertPath,
-    });
-    return loadConfig(dataDir);
-  }
-
-  if (force || !existsSync(secretPath) || !existsSync(publicPath)) {
-    const { publicKey, privateKey } = await generateKeyPair("ES256", { extractable: true });
-    const publicJwk = await exportJWK(publicKey);
-    const privateJwk = await exportJWK(privateKey);
-    publicJwk.alg = "ES256";
-    publicJwk.use = "sig";
-    publicJwk.kid = ISSUER_KEY_ID;
-    privateJwk.alg = "ES256";
-    privateJwk.use = "sig";
-    privateJwk.kid = ISSUER_KEY_ID;
-    writeJson(publicPath, { keys: [publicJwk] });
-    writeJson(secretPath, privateJwk);
-  }
 
   if (force || !existsSync(cfgPath)) {
     writeFileSync(cfgPath, stringifyYaml(config as unknown as JsonRecord), { mode: 0o600 });
   }
 
   const loadedConfig = loadConfig(dataDir);
-  if (force || !existsSync(certificatePath)) {
-    await writeIssuerCertificate(certificatePath, loadedConfig);
+  for (const issuer of resolvedIssuerConfigurations(loadedConfig)) {
+    await ensureIssuerMaterial(loadedConfig, issuer, force);
   }
-  writeIssuerJwksCertificate(publicPath, certificatePath);
-  await ensureIssuerEncryptionMaterial({
-    force,
-    secretPath: issuerEncryptionSecretPath,
-  });
+  const verifierSecretPath = verifierPrivateJwkPath(dataDir);
+  const verifierPublicPath = verifierJwksPath(dataDir);
+  const verifierCertPath = verifierCertificatePath(dataDir);
+  mkdirSync(dirname(verifierSecretPath), { recursive: true });
   await ensureVerifierMaterial({
     config: loadedConfig,
     force,
@@ -289,8 +255,131 @@ export async function initIssuer(options: InitOptions): Promise<AppConfig> {
     publicPath: verifierPublicPath,
     certificatePath: verifierCertPath,
   });
+  validateIssuerMaterial(loadedConfig);
 
   return loadedConfig;
+}
+
+export function validateIssuerMaterial(config: AppConfig): void {
+  const publicKeyOwners = new Map<string, string>();
+
+  for (const issuer of resolvedIssuerConfigurations(config)) {
+    const material = issuerAppConfig(config, issuer);
+    const paths = {
+      signing: privateJwkPath(issuer.materialDirectory),
+      encryption: issuerEncryptionPrivateJwkPath(issuer.materialDirectory),
+      accessToken: accessTokenPrivateJwkPath(issuer.materialDirectory),
+      certificate: issuerCertificatePath(issuer.materialDirectory),
+      jwks: jwksPath(issuer.materialDirectory),
+    };
+    for (const [role, path] of Object.entries(paths)) {
+      if (!existsSync(path)) {
+        throw new Error(`Issuer '${issuer.id}' is missing ${role} material at '${path}'`);
+      }
+    }
+
+    const signingPrivateJwk = readJwk(paths.signing, issuer.id, "signing");
+    const encryptionPrivateJwk = readJwk(paths.encryption, issuer.id, "encryption");
+    const accessTokenPrivateJwk = readJwk(paths.accessToken, issuer.id, "access-token");
+    const certificatePem = readFileSync(paths.certificate, "utf8");
+    const certificate = X509Certificate.fromEncodedCertificate(certificatePem);
+    if (!Kms.PublicJwk.fromUnknown(toPublicJwk(signingPrivateJwk)).equals(certificate.publicJwk)) {
+      throw new Error(`Issuer '${issuer.id}' certificate does not match its signing key`);
+    }
+    const nodeCertificate = new NodeX509Certificate(certificatePem);
+    if (!nodeCertificate.subjectAltName?.includes(`URI:${issuer.issuerIdentifier}`)) {
+      throw new Error(
+        `Issuer '${issuer.id}' certificate is missing URI SAN '${issuer.issuerIdentifier}'`,
+      );
+    }
+    if (
+      !nodeCertificate.subjectAltName?.includes(`DNS:${new URL(issuer.issuerIdentifier).hostname}`)
+    ) {
+      throw new Error(
+        `Issuer '${issuer.id}' certificate is missing its deployment hostname DNS SAN`,
+      );
+    }
+
+    const publishedJwks = loadIssuerJwks(material);
+    const signingPublicJwk = Kms.PublicJwk.fromUnknown(toPublicJwk(signingPrivateJwk));
+    if (
+      !publishedJwks.keys.some((jwk) => {
+        try {
+          return Kms.PublicJwk.fromUnknown(jwk).equals(signingPublicJwk);
+        } catch {
+          return false;
+        }
+      })
+    ) {
+      throw new Error(`Issuer '${issuer.id}' JWKS does not publish its signing key`);
+    }
+
+    registerUniquePublicKey(publicKeyOwners, issuer.id, "signing", signingPrivateJwk);
+    registerUniquePublicKey(publicKeyOwners, issuer.id, "encryption", encryptionPrivateJwk);
+    registerUniquePublicKey(publicKeyOwners, issuer.id, "access-token", accessTokenPrivateJwk);
+  }
+}
+
+function readJwk(path: string, issuerId: string, role: string): JsonRecord {
+  try {
+    return JSON.parse(readFileSync(path, "utf8")) as JsonRecord;
+  } catch (error) {
+    throw new Error(
+      `Issuer '${issuerId}' has invalid ${role} JWK material: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+}
+
+function registerUniquePublicKey(
+  owners: Map<string, string>,
+  issuerId: string,
+  role: string,
+  privateJwk: JsonRecord,
+): void {
+  const publicJwk = Kms.PublicJwk.fromUnknown(toPublicJwk(privateJwk));
+  const identity = publicJwk.fingerprint;
+  const owner = owners.get(identity);
+  if (owner) {
+    throw new Error(`Issuer key reuse detected between '${owner}' and '${issuerId}:${role}'`);
+  }
+  owners.set(identity, `${issuerId}:${role}`);
+}
+
+async function ensureIssuerMaterial(
+  rootConfig: AppConfig,
+  issuer: ResolvedIssuerConfiguration,
+  force: boolean,
+): Promise<void> {
+  const materialDirectory = issuer.materialDirectory;
+  const publicPath = jwksPath(materialDirectory);
+  const secretPath = privateJwkPath(materialDirectory);
+  const certificatePath = issuerCertificatePath(materialDirectory);
+  const encryptionSecretPath = issuerEncryptionPrivateJwkPath(materialDirectory);
+  const accessTokenSecretPath = accessTokenPrivateJwkPath(materialDirectory);
+
+  mkdirSync(materialDirectory, { recursive: true });
+  if (force || !existsSync(secretPath) || !existsSync(publicPath)) {
+    await writeGeneratedJwkPair(secretPath, publicPath, issuer.issuerKeyId);
+  }
+  if (force || !existsSync(certificatePath)) {
+    await writeIssuerCertificate(
+      certificatePath,
+      issuerAppConfig(rootConfig, issuer),
+      issuer.issuerKeyId,
+    );
+  }
+  writePublicJwksFromPrivate(publicPath, secretPath, issuer.issuerKeyId);
+  writeIssuerJwksCertificate(publicPath, certificatePath);
+  await ensureIssuerEncryptionMaterial({
+    force,
+    secretPath: encryptionSecretPath,
+    keyId: issuer.issuerEncryptionKeyId,
+  });
+  if (force || !existsSync(accessTokenSecretPath)) {
+    await writeGeneratedPrivateJwk(accessTokenSecretPath, issuer.accessTokenKeyId);
+  }
 }
 
 export function loadIssuerJwks(config: AppConfig): { keys: JsonRecord[] } {
@@ -315,6 +404,16 @@ export function loadIssuerPublicJwk(config: AppConfig): JsonRecord {
   return toPublicJwk(privateJwk);
 }
 
+export function issuerSigningKeyId(config: AppConfig): string {
+  const privateJwk = JSON.parse(
+    readFileSync(privateJwkPath(config.data_dir), "utf8"),
+  ) as JsonRecord;
+  if (typeof privateJwk.kid !== "string" || privateJwk.kid.length === 0) {
+    throw new Error(`Issuer signing key in '${config.data_dir}' is missing a kid`);
+  }
+  return privateJwk.kid;
+}
+
 export function loadIssuerEncryptionPrivateJwk(config: AppConfig): JsonRecord | null {
   const path = issuerEncryptionPrivateJwkPath(config.data_dir);
   if (!existsSync(path)) return null;
@@ -331,7 +430,7 @@ export function createIssuerSigningContext(config: AppConfig): object {
     readFileSync(privateJwkPath(config.data_dir), "utf8"),
   ) as JsonRecord;
   return {
-    ...createSigningContext(privateJwk, ISSUER_KEY_ID),
+    ...createSigningContext(privateJwk, issuerSigningKeyId(config)),
     config: {
       allowInsecureHttpUrls: true,
       agentDependencies: { fetch: globalThis.fetch },
@@ -342,9 +441,11 @@ export function createIssuerSigningContext(config: AppConfig): object {
 async function ensureIssuerEncryptionMaterial({
   force,
   secretPath,
+  keyId,
 }: {
   force: boolean;
   secretPath: string;
+  keyId: string;
 }): Promise<void> {
   if (!force && existsSync(secretPath)) return;
   const { privateKey } = await generateKeyPair("ECDH-ES", { extractable: true });
@@ -352,16 +453,20 @@ async function ensureIssuerEncryptionMaterial({
   const common = {
     alg: "ECDH-ES",
     use: "enc",
-    kid: ISSUER_ENCRYPTION_KEY_ID,
+    kid: keyId,
   };
   writeJson(secretPath, { ...privateJwk, ...common });
 }
 
-async function writeIssuerCertificate(path: string, config: AppConfig): Promise<void> {
+async function writeIssuerCertificate(
+  path: string,
+  config: AppConfig,
+  keyId: string,
+): Promise<void> {
   await writeCertificate({
     path,
     privateJwkPath: privateJwkPath(config.data_dir),
-    keyId: ISSUER_KEY_ID,
+    keyId,
     organizationalUnit: "Credimi Fake Issuer",
     config,
   });
@@ -412,6 +517,17 @@ async function writeGeneratedJwkPair(
   privateJwk.kid = keyId;
   writeJson(publicPath, { keys: [publicJwk] });
   writeJson(secretPath, privateJwk);
+}
+
+async function writeGeneratedPrivateJwk(secretPath: string, keyId: string): Promise<void> {
+  const { privateKey } = await generateKeyPair("ES256", { extractable: true });
+  const privateJwk = await exportJWK(privateKey);
+  writeJson(secretPath, {
+    ...privateJwk,
+    alg: "ES256",
+    use: "sig",
+    kid: keyId,
+  });
 }
 
 async function writeCertificate({
@@ -513,9 +629,7 @@ function withIssuerCertificate(
 ): { keys: JsonRecord[] } {
   const certificate = pemToBase64Der(certificatePem);
   return {
-    keys: jwks.keys.map((key) =>
-      key.kid === ISSUER_KEY_ID || key.x5c === undefined ? { ...key, x5c: [certificate] } : key,
-    ),
+    keys: jwks.keys.map((key) => (key.x5c === undefined ? { ...key, x5c: [certificate] } : key)),
   };
 }
 

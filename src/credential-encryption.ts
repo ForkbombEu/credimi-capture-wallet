@@ -11,11 +11,7 @@ import {
   generateKeyPair,
   importJWK,
 } from "jose";
-import {
-  ISSUER_ENCRYPTION_KEY_ID,
-  loadIssuerEncryptionPrivateJwk,
-  loadIssuerEncryptionPublicJwk,
-} from "./config.js";
+import { loadIssuerEncryptionPrivateJwk, loadIssuerEncryptionPublicJwk } from "./config.js";
 import type { AppConfig, JsonRecord } from "./types.js";
 
 export const CREDENTIAL_JWE_ALG = "ECDH-ES";
@@ -55,7 +51,7 @@ export async function decryptCredentialRequest(
     if (result.header.enc !== CREDENTIAL_JWE_ENC) {
       throw new CredentialEncryptionError(`Credential Request JWE must use ${CREDENTIAL_JWE_ENC}`);
     }
-    if (result.header.kid !== ISSUER_ENCRYPTION_KEY_ID) {
+    if (result.header.kid !== issuerPublicJwk.kid) {
       throw new CredentialEncryptionError(
         "Credential Request JWE kid does not identify the issuer encryption key",
       );
@@ -167,7 +163,10 @@ class CredentialEncryptionKms {
   private readonly privateJwks = new Map<string, JWK>();
 
   constructor(issuerPrivateJwk: JsonRecord) {
-    this.privateJwks.set(ISSUER_ENCRYPTION_KEY_ID, issuerPrivateJwk as unknown as JWK);
+    if (typeof issuerPrivateJwk.kid !== "string") {
+      throw new CredentialEncryptionError("Issuer encryption key is missing a kid");
+    }
+    this.privateJwks.set(issuerPrivateJwk.kid, issuerPrivateJwk as unknown as JWK);
   }
 
   async createKey({ type }: { type: JsonRecord }): Promise<{

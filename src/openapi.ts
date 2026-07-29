@@ -30,6 +30,17 @@ const sessionIdParameter: JsonRecord = {
   schema: { type: "string", format: "uuid" },
 };
 
+const issuerConfigurationIdParameter: JsonRecord = {
+  name: "issuerConfigurationId",
+  in: "path",
+  required: true,
+  description: "Always-on issuer configuration identifier returned by GET /issuers.",
+  schema: {
+    type: "string",
+    enum: ["eu-pid-device-bound", "eu-pid-jwt-proof-only"],
+  },
+};
+
 /**
  * The service's public REST and OpenID protocol surface. This deliberately
  * describes the wire contracts without attempting to make stateful wallet
@@ -71,12 +82,13 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           },
         },
       },
-      "/.well-known/openid-credential-issuer": {
+      "/.well-known/openid-credential-issuer/issuers/{issuerConfigurationId}": {
         get: {
           tags: ["Service"],
           operationId: "credentialIssuerMetadata",
           summary: "Get credential issuer metadata",
           parameters: [
+            issuerConfigurationIdParameter,
             {
               name: "Accept",
               in: "header",
@@ -108,11 +120,12 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           },
         },
       },
-      "/.well-known/oauth-authorization-server": {
+      "/.well-known/oauth-authorization-server/issuers/{issuerConfigurationId}": {
         get: {
           tags: ["Service"],
           operationId: "authorizationServerMetadata",
           summary: "Get authorization server metadata",
+          parameters: [issuerConfigurationIdParameter],
           responses: {
             "200": response("OAuth authorization server metadata.", {
               type: "object",
@@ -121,11 +134,12 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           },
         },
       },
-      "/.well-known/oauth-authorization-server/fake-oauth": {
+      "/.well-known/oauth-authorization-server/authorization-servers/{issuerConfigurationId}": {
         get: {
           tags: ["Fake OAuth"],
           operationId: "fakeAuthorizationServerMetadata",
           summary: "Get fake OAuth server metadata",
+          parameters: [issuerConfigurationIdParameter],
           responses: {
             "200": response("Auto-approving OAuth authorization server metadata.", {
               type: "object",
@@ -134,11 +148,12 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           },
         },
       },
-      "/.well-known/jwt-vc-issuer": {
+      "/.well-known/jwt-vc-issuer/issuers/{issuerConfigurationId}": {
         get: {
           tags: ["Service"],
           operationId: "jwtVcIssuerMetadata",
           summary: "Get JWT VC issuer metadata",
+          parameters: [issuerConfigurationIdParameter],
           responses: {
             "200": response("JWT VC issuer metadata.", {
               type: "object",
@@ -147,13 +162,29 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           },
         },
       },
-      "/jwks.json": {
+      "/issuers/{issuerConfigurationId}/jwks.json": {
         get: {
           tags: ["Service"],
-          operationId: "issuerJwks",
-          summary: "Get issuer signing keys",
+          operationId: "authorizationServerJwks",
+          summary: "Get authorization-server signing keys",
+          parameters: [issuerConfigurationIdParameter],
           responses: {
-            "200": response("Issuer JSON Web Key Set.", { $ref: "#/components/schemas/Jwks" }),
+            "200": response("Authorization-server JSON Web Key Set.", {
+              $ref: "#/components/schemas/Jwks",
+            }),
+          },
+        },
+      },
+      "/issuers/{issuerConfigurationId}/credential-jwks.json": {
+        get: {
+          tags: ["Service"],
+          operationId: "credentialIssuerJwks",
+          summary: "Get credential-signing keys",
+          parameters: [issuerConfigurationIdParameter],
+          responses: {
+            "200": response("Credential issuer JSON Web Key Set.", {
+              $ref: "#/components/schemas/Jwks",
+            }),
           },
         },
       },
@@ -168,6 +199,19 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             "200": response("Redacted OpenID4VCI request evidence.", {
               type: "array",
               items: { $ref: "#/components/schemas/Oid4vciHttpRequestCapture" },
+            }),
+          },
+        },
+      },
+      "/issuers": {
+        get: {
+          tags: ["Service"],
+          operationId: "issuerCatalogue",
+          summary: "List all always-on credential issuers",
+          responses: {
+            "200": response("Public issuer catalogue.", {
+              type: "array",
+              items: { $ref: "#/components/schemas/IssuerCatalogueEntry" },
             }),
           },
         },
@@ -407,12 +451,13 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           },
         },
       },
-      "/offers/{credentialOfferId}": {
+      "/issuers/{issuerConfigurationId}/offers/{credentialOfferId}": {
         get: {
           tags: ["OpenID4VCI"],
           operationId: "credentialOffer",
           summary: "Retrieve a Credo credential offer",
           parameters: [
+            issuerConfigurationIdParameter,
             {
               name: "credentialOfferId",
               in: "path",
@@ -429,12 +474,15 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           },
         },
       },
-      "/par": {
+      "/issuers/{issuerConfigurationId}/par": {
         post: {
           tags: ["OpenID4VCI"],
           operationId: "pushedAuthorizationRequest",
           summary: "Submit an authorization-code request",
-          parameters: [{ name: "DPoP", in: "header", required: true, schema: { type: "string" } }],
+          parameters: [
+            issuerConfigurationIdParameter,
+            { name: "DPoP", in: "header", required: true, schema: { type: "string" } },
+          ],
           requestBody: {
             required: true,
             ...form({
@@ -472,12 +520,13 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           },
         },
       },
-      "/authorize": {
+      "/issuers/{issuerConfigurationId}/authorize": {
         get: {
           tags: ["OpenID4VCI"],
           operationId: "authorize",
           summary: "Start auto-approved authorization",
           parameters: [
+            issuerConfigurationIdParameter,
             { name: "client_id", in: "query", required: true, schema: { type: "string" } },
             { name: "request_uri", in: "query", required: true, schema: { type: "string" } },
           ],
@@ -490,11 +539,12 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           },
         },
       },
-      "/redirect": {
+      "/issuers/{issuerConfigurationId}/redirect": {
         get: {
           tags: ["OpenID4VCI"],
           operationId: "chainedAuthorizationCallback",
           summary: "Complete the chained OAuth authorization",
+          parameters: [issuerConfigurationIdParameter],
           responses: {
             "302": {
               description: "Redirect to the Wallet with Credo's authorization code.",
@@ -503,11 +553,12 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           },
         },
       },
-      "/fake-oauth/authorize": {
+      "/authorization-servers/{issuerConfigurationId}/authorize": {
         get: {
           tags: ["Fake OAuth"],
           operationId: "fakeAuthorize",
           summary: "Automatically approve Credo's authorization request",
+          parameters: [issuerConfigurationIdParameter],
           responses: {
             "302": {
               description: "Immediate redirect to Credo's registered callback with a code.",
@@ -516,11 +567,12 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           },
         },
       },
-      "/fake-oauth/token": {
+      "/authorization-servers/{issuerConfigurationId}/token": {
         post: {
           tags: ["Fake OAuth"],
           operationId: "fakeToken",
           summary: "Exchange Credo's chained authorization code",
+          parameters: [issuerConfigurationIdParameter],
           requestBody: {
             required: true,
             ...form({
@@ -559,12 +611,15 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           },
         },
       },
-      "/token": {
+      "/issuers/{issuerConfigurationId}/token": {
         post: {
           tags: ["OpenID4VCI"],
           operationId: "token",
           summary: "Exchange an issuance grant for a DPoP-bound token",
-          parameters: [{ name: "DPoP", in: "header", required: true, schema: { type: "string" } }],
+          parameters: [
+            issuerConfigurationIdParameter,
+            { name: "DPoP", in: "header", required: true, schema: { type: "string" } },
+          ],
           requestBody: {
             required: true,
             ...form({
@@ -606,11 +661,12 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           },
         },
       },
-      "/nonce": {
+      "/issuers/{issuerConfigurationId}/nonce": {
         post: {
           tags: ["OpenID4VCI"],
           operationId: "credentialNonce",
           summary: "Request a credential nonce",
+          parameters: [issuerConfigurationIdParameter],
           responses: {
             "200": response("Fresh credential nonce.", {
               type: "object",
@@ -620,12 +676,13 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           },
         },
       },
-      "/credential": {
+      "/issuers/{issuerConfigurationId}/credential": {
         post: {
           tags: ["OpenID4VCI"],
           operationId: "credential",
           summary: "Request a credential",
           parameters: [
+            issuerConfigurationIdParameter,
             {
               name: "Authorization",
               in: "header",
@@ -755,6 +812,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             "method",
             "path",
             "session_id",
+            "issuer_configuration_id",
             "headers",
             "query",
             "body",
@@ -766,6 +824,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             method: { type: "string" },
             path: { type: "string" },
             session_id: { type: ["string", "null"] },
+            issuer_configuration_id: { type: ["string", "null"] },
             headers: { type: "object", additionalProperties: true },
             query: {},
             body: {},
@@ -781,6 +840,12 @@ export function openApiDocument(config: AppConfig): JsonRecord {
         IssuanceSessionRequest: {
           type: "object",
           properties: {
+            issuer_configuration_id: {
+              type: "string",
+              enum: ["eu-pid-device-bound", "eu-pid-jwt-proof-only"],
+              default: "eu-pid-device-bound",
+              description: "Selects one of the always-on isolated issuer configurations.",
+            },
             flow: {
               type: "string",
               enum: ["pre_authorized_code", "authorization_code"],
@@ -798,28 +863,27 @@ export function openApiDocument(config: AppConfig): JsonRecord {
               type: "string",
               description: "One of the IDs advertised by credential issuer metadata.",
             },
-            broken: {
-              type: "boolean",
-              default: false,
-              description:
-                "Issue the intentionally malformed legacy PID test fixture instead of the conforming fixture.",
-            },
           },
         },
         IssuanceSessionCreated: {
           type: "object",
           required: [
             "session_id",
+            "issuer_configuration_id",
+            "issuer_identifier",
+            "authorization_server_identifier",
             "flow",
             "credential_offer_mode",
             "credential_configuration_id",
-            "broken",
             "offer_url",
             "deeplink",
             "status",
           ],
           properties: {
             session_id: { type: "string", format: "uuid" },
+            issuer_configuration_id: { type: "string" },
+            issuer_identifier: { type: "string", format: "uri" },
+            authorization_server_identifier: { type: "string", format: "uri" },
             flow: {
               type: "string",
               enum: ["pre_authorized_code", "authorization_code"],
@@ -829,7 +893,6 @@ export function openApiDocument(config: AppConfig): JsonRecord {
               enum: ["credential_offer", "credential_offer_uri"],
             },
             credential_configuration_id: { type: "string" },
-            broken: { type: "boolean" },
             offer_url: { type: "string", format: "uri" },
             deeplink: { type: "string" },
             status: { type: "string", const: "created" },
@@ -839,16 +902,47 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           type: "object",
           required: [
             "session_id",
+            "issuer_configuration_id",
+            "issuer_identifier",
+            "authorization_server_identifier",
             "status",
             "flow",
             "credential_offer_mode",
             "credential_configuration_id",
-            "broken",
             "observed",
             "checks",
             "events",
           ],
           additionalProperties: true,
+        },
+        IssuerCatalogueEntry: {
+          type: "object",
+          required: [
+            "id",
+            "compliance",
+            "credential_issuer",
+            "credential_issuer_metadata",
+            "authorization_server_metadata",
+            "upstream_authorization_server",
+            "name",
+            "description",
+            "credential_configuration_ids",
+          ],
+          properties: {
+            id: { type: "string" },
+            compliance: { type: "string" },
+            credential_issuer: { type: "string", format: "uri" },
+            credential_issuer_metadata: { type: "string", format: "uri" },
+            authorization_server_metadata: { type: "string", format: "uri" },
+            upstream_authorization_server: { type: "string", format: "uri" },
+            name: { type: "string" },
+            description: { type: "string" },
+            warning: { type: "string" },
+            credential_configuration_ids: {
+              type: "array",
+              items: { type: "string" },
+            },
+          },
         },
         PresentationSessionRequest: {
           type: "object",

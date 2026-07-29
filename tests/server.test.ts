@@ -28,6 +28,8 @@ import {
   privateJwkPath,
   verifierCertificatePath,
 } from "../src/config.js";
+import { resolvedIssuerConfigurationById } from "../src/configurations/registry.js";
+import { issuerAppConfig } from "../src/configurations/resolve-urls.js";
 import {
   PID_MDOC_CLAIMS,
   PID_MDOC_DOCTYPE,
@@ -47,6 +49,17 @@ const config = {
   issuer_base_url: "http://issuer.example.test",
   data_dir: dataDir,
 };
+const conformingIssuerId = "eu-pid-device-bound";
+const jwtOnlyIssuerId = "eu-pid-jwt-proof-only";
+const conformingIssuerPath = `/issuers/${conformingIssuerId}`;
+const jwtOnlyIssuerPath = `/issuers/${jwtOnlyIssuerId}`;
+const conformingMetadataPath = `/.well-known/openid-credential-issuer/issuers/${conformingIssuerId}`;
+const conformingAuthorizationServerMetadataPath = `/.well-known/oauth-authorization-server/issuers/${conformingIssuerId}`;
+const conformingUpstreamAuthorizationServerMetadataPath = `/.well-known/oauth-authorization-server/authorization-servers/${conformingIssuerId}`;
+const conformingIssuer = resolvedIssuerConfigurationById(config, conformingIssuerId);
+if (!conformingIssuer) throw new Error("conforming issuer configuration unavailable");
+const conformingMaterialDirectory = conformingIssuer.materialDirectory;
+const conformingIssuerConfig = issuerAppConfig(config, conformingIssuer);
 
 beforeAll(async () => {
   await initIssuer({
@@ -97,27 +110,35 @@ describe("capture issuer server", () => {
     ]);
     expect(openApi.body.paths["/openid4vp/response"].post.tags).toEqual(["OpenID4VP"]);
     expect(
-      openApi.body.paths["/.well-known/openid-credential-issuer"].get.responses["200"].content,
+      openApi.body.paths["/.well-known/openid-credential-issuer/issuers/{issuerConfigurationId}"]
+        .get.responses["200"].content,
     ).toHaveProperty("application/jwt");
-    expect(openApi.body.paths["/credential"].post.requestBody.content).toHaveProperty(
-      "application/jwt",
-    );
     expect(
-      openApi.body.paths["/credential"].post.requestBody.content["application/json"].schema
-        .properties.proofs.properties,
+      openApi.body.paths["/issuers/{issuerConfigurationId}/credential"].post.requestBody.content,
+    ).toHaveProperty("application/jwt");
+    expect(
+      openApi.body.paths["/issuers/{issuerConfigurationId}/credential"].post.requestBody.content[
+        "application/json"
+      ].schema.properties.proofs.properties,
     ).toEqual(
       expect.objectContaining({
         jwt: expect.objectContaining({ minItems: 1, maxItems: 1 }),
         attestation: expect.objectContaining({ minItems: 1, maxItems: 1 }),
       }),
     );
-    expect(openApi.body.paths["/credential"].post.responses["200"].content).toHaveProperty(
-      "application/jwt",
-    );
-    expect(openApi.body.components.schemas.IssuanceSessionRequest.properties.broken).toMatchObject({
-      type: "boolean",
-      default: false,
+    expect(
+      openApi.body.paths["/issuers/{issuerConfigurationId}/credential"].post.responses["200"]
+        .content,
+    ).toHaveProperty("application/jwt");
+    expect(
+      openApi.body.components.schemas.IssuanceSessionRequest.properties.issuer_configuration_id,
+    ).toMatchObject({
+      enum: [conformingIssuerId, jwtOnlyIssuerId],
+      default: conformingIssuerId,
     });
+    expect(
+      openApi.body.components.schemas.IssuanceSessionRequest.properties.broken,
+    ).toBeUndefined();
     expect(openApi.body.components.schemas.IssuanceSessionRequest.properties.flow).toMatchObject({
       enum: ["pre_authorized_code", "authorization_code"],
       default: "authorization_code",
@@ -132,14 +153,15 @@ describe("capture issuer server", () => {
       expect.arrayContaining([
         "/sessions",
         "/openid4vp/sessions",
-        "/offers/{credentialOfferId}",
-        "/par",
-        "/authorize",
-        "/redirect",
-        "/fake-oauth/authorize",
-        "/fake-oauth/token",
-        "/token",
-        "/credential",
+        "/issuers/{issuerConfigurationId}/offers/{credentialOfferId}",
+        "/issuers/{issuerConfigurationId}/par",
+        "/issuers/{issuerConfigurationId}/authorize",
+        "/issuers/{issuerConfigurationId}/redirect",
+        "/authorization-servers/{issuerConfigurationId}/authorize",
+        "/authorization-servers/{issuerConfigurationId}/token",
+        "/issuers/{issuerConfigurationId}/credential-jwks.json",
+        "/issuers/{issuerConfigurationId}/token",
+        "/issuers/{issuerConfigurationId}/credential",
       ]),
     );
     expect(openApi.body.paths).not.toHaveProperty("/init");
@@ -149,9 +171,9 @@ describe("capture issuer server", () => {
   it("returns signed issuer metadata when the wallet requests application/jwt", async () => {
     const app = createApp(config);
     const [defaultMetadata, unsignedMetadata, signedMetadata] = await Promise.all([
-      request(app).get("/.well-known/openid-credential-issuer"),
-      request(app).get("/.well-known/openid-credential-issuer").set("Accept", "application/json"),
-      request(app).get("/.well-known/openid-credential-issuer").set("Accept", "application/jwt"),
+      request(app).get(conformingMetadataPath),
+      request(app).get(conformingMetadataPath).set("Accept", "application/json"),
+      request(app).get(conformingMetadataPath).set("Accept", "application/jwt"),
     ]);
 
     expect(defaultMetadata.status).toBe(200);
@@ -167,7 +189,7 @@ describe("capture issuer server", () => {
             crv: "P-256",
             alg: "ECDH-ES",
             use: "enc",
-            kid: "credimi-fake-issuer-encryption-key",
+            kid: "credimi-eu-pid-device-bound-issuer-encryption-key",
           },
         ],
       },
@@ -203,24 +225,109 @@ describe("capture issuer server", () => {
       Buffer.from(verified.payload).toString("utf8"),
     ) as JsonRecord;
 
-    expect(iss).toBe(config.issuer_base_url);
-    expect(sub).toBe(config.issuer_base_url);
+    expect(iss).toBe(`${config.issuer_base_url}${conformingIssuerPath}`);
+    expect(sub).toBe(`${config.issuer_base_url}${conformingIssuerPath}`);
     expect(iat).toEqual(expect.any(Number));
     expect(metadataClaims).toEqual(unsignedMetadata.body);
     expect(metadataClaims.authorization_servers).toBeUndefined();
   });
 
+  it("exposes only the two path-based issuers and removes the legacy root issuer", async () => {
+    const app = createApp(config);
+    const catalogue = await getJson<JsonRecord[]>(app, "/issuers");
+
+    expect(catalogue).toEqual([
+      expect.objectContaining({
+        id: conformingIssuerId,
+        compliance: "eudi-pid-device-bound",
+        credential_issuer: `${config.issuer_base_url}${conformingIssuerPath}`,
+      }),
+      expect.objectContaining({
+        id: jwtOnlyIssuerId,
+        compliance: "deliberately-nonconforming",
+        credential_issuer: `${config.issuer_base_url}${jwtOnlyIssuerPath}`,
+      }),
+    ]);
+    expect((await request(app).get("/.well-known/openid-credential-issuer")).status).toBe(404);
+    expect((await request(app).get("/.well-known/oauth-authorization-server")).status).toBe(404);
+    expect((await request(app).get("/credential")).status).toBe(404);
+    expect((await request(app).post("/token")).status).toBe(404);
+  });
+
+  it("partitions otherwise identical PID metadata by proof policy", async () => {
+    const app = createApp(config);
+    const deviceBoundMetadata = await getJson<JsonRecord>(app, conformingMetadataPath);
+    const jwtOnlyMetadata = await getJson<JsonRecord>(
+      app,
+      `/.well-known/openid-credential-issuer/issuers/${jwtOnlyIssuerId}`,
+    );
+    const deviceBoundConfigurations =
+      deviceBoundMetadata.credential_configurations_supported as Record<string, JsonRecord>;
+    const jwtOnlyConfigurations = jwtOnlyMetadata.credential_configurations_supported as Record<
+      string,
+      JsonRecord
+    >;
+
+    expect(Object.keys(deviceBoundConfigurations)).toEqual([
+      sdJwtCredentialConfigurationId(config, "key-attestation-required"),
+      mdocCredentialConfigurationId(config, "key-attestation-required"),
+    ]);
+    expect(Object.keys(jwtOnlyConfigurations)).toEqual([
+      sdJwtCredentialConfigurationId(config, "jwt-proof"),
+      mdocCredentialConfigurationId(config, "jwt-proof"),
+    ]);
+    expect(
+      deviceBoundConfigurations[sdJwtCredentialConfigurationId(config, "key-attestation-required")]
+        ?.vct,
+    ).toBe(PID_SD_JWT_VCT);
+    expect(jwtOnlyConfigurations[sdJwtCredentialConfigurationId(config, "jwt-proof")]?.vct).toBe(
+      PID_SD_JWT_VCT,
+    );
+    expect(
+      deviceBoundConfigurations[mdocCredentialConfigurationId(config, "key-attestation-required")]
+        ?.doctype,
+    ).toBe(PID_MDOC_DOCTYPE);
+    expect(jwtOnlyConfigurations[mdocCredentialConfigurationId(config, "jwt-proof")]?.doctype).toBe(
+      PID_MDOC_DOCTYPE,
+    );
+    expect(
+      deviceBoundConfigurations[sdJwtCredentialConfigurationId(config, "key-attestation-required")]
+        ?.proof_types_supported,
+    ).toEqual({
+      jwt: {
+        proof_signing_alg_values_supported: ["ES256"],
+        key_attestations_required: {},
+      },
+      attestation: {
+        proof_signing_alg_values_supported: ["ES256"],
+        key_attestations_required: {},
+      },
+    });
+    expect(
+      jwtOnlyConfigurations[sdJwtCredentialConfigurationId(config, "jwt-proof")]
+        ?.proof_types_supported,
+    ).toEqual({
+      jwt: {
+        proof_signing_alg_values_supported: ["ES256"],
+      },
+    });
+  });
+
   it("advertises the implemented pre-authorized and authorization-code grants", async () => {
     const app = createApp(config);
-    const metadata = await getJson<JsonRecord>(app, "/.well-known/oauth-authorization-server");
+    const metadata = await getJson<JsonRecord>(app, conformingAuthorizationServerMetadataPath);
 
     expect(metadata.grant_types_supported).toEqual([
       "authorization_code",
       "urn:ietf:params:oauth:grant-type:pre-authorized_code",
     ]);
-    expect(metadata.token_endpoint).toBe(`${config.issuer_base_url}/token`);
-    expect(metadata.authorization_endpoint).toBe(`${config.issuer_base_url}/authorize`);
-    expect(metadata.pushed_authorization_request_endpoint).toBe(`${config.issuer_base_url}/par`);
+    expect(metadata.token_endpoint).toBe(`${config.issuer_base_url}${conformingIssuerPath}/token`);
+    expect(metadata.authorization_endpoint).toBe(
+      `${config.issuer_base_url}${conformingIssuerPath}/authorize`,
+    );
+    expect(metadata.pushed_authorization_request_endpoint).toBe(
+      `${config.issuer_base_url}${conformingIssuerPath}/par`,
+    );
     expect(metadata.require_pushed_authorization_requests).toBe(true);
     expect(metadata.response_types_supported).toEqual(["code"]);
     expect(metadata.code_challenge_methods_supported).toEqual(["S256"]);
@@ -236,17 +343,56 @@ describe("capture issuer server", () => {
     const app = createApp(config);
     const metadata = await getJson<JsonRecord>(
       app,
-      "/.well-known/oauth-authorization-server/fake-oauth",
+      conformingUpstreamAuthorizationServerMetadataPath,
     );
 
     expect(metadata).toMatchObject({
-      issuer: `${config.issuer_base_url}/fake-oauth`,
-      authorization_endpoint: `${config.issuer_base_url}/fake-oauth/authorize`,
-      token_endpoint: `${config.issuer_base_url}/fake-oauth/token`,
+      issuer: `${config.issuer_base_url}/authorization-servers/${conformingIssuerId}`,
+      authorization_endpoint: `${config.issuer_base_url}/authorization-servers/${conformingIssuerId}/authorize`,
+      token_endpoint: `${config.issuer_base_url}/authorization-servers/${conformingIssuerId}/token`,
       response_types_supported: ["code"],
       grant_types_supported: ["authorization_code"],
       code_challenge_methods_supported: ["S256"],
       token_endpoint_auth_methods_supported: ["client_secret_post"],
+    });
+  });
+
+  it("does not accept an authorization code at another issuer's OAuth server", async () => {
+    const app = createApp(config);
+    const codeVerifier = randomBytes(48).toString("base64url");
+    const codeChallenge = createHash("sha256").update(codeVerifier).digest("base64url");
+    const authorization = await request(app)
+      .get(`/authorization-servers/${conformingIssuerId}/authorize`)
+      .query({
+        response_type: "code",
+        client_id: `credimi-capture-wallet-${conformingIssuerId}`,
+        redirect_uri: `${config.issuer_base_url}${conformingIssuerPath}/redirect`,
+        state: "issuer-isolation",
+        code_challenge: codeChallenge,
+        code_challenge_method: "S256",
+        scope: "credimi.capture.eu-pid-device-bound",
+      })
+      .redirects(0);
+    expect(authorization.status).toBe(302);
+    const code = new URL(String(authorization.headers.location)).searchParams.get("code");
+    expect(code).toEqual(expect.any(String));
+
+    const crossIssuerRedemption = await request(app)
+      .post(`/authorization-servers/${jwtOnlyIssuerId}/token`)
+      .type("form")
+      .send({
+        grant_type: "authorization_code",
+        client_id: `credimi-capture-wallet-${jwtOnlyIssuerId}`,
+        client_secret: `credimi-capture-wallet-test-secret-${jwtOnlyIssuerId}`,
+        code,
+        redirect_uri: `${config.issuer_base_url}${jwtOnlyIssuerPath}/redirect`,
+        code_verifier: codeVerifier,
+      });
+
+    expect(crossIssuerRedemption.status).toBe(400);
+    expect(crossIssuerRedemption.body).toMatchObject({
+      error: "invalid_grant",
+      error_description: "authorization code is invalid or expired",
     });
   });
 
@@ -258,7 +404,9 @@ describe("capture issuer server", () => {
         data_dir: isolatedDataDir,
         force: true,
       });
-      const jwks = JSON.parse(readFileSync(jwksPath(isolatedDataDir), "utf8")) as {
+      const isolatedIssuer = resolvedIssuerConfigurationById(isolatedConfig, conformingIssuerId);
+      if (!isolatedIssuer) throw new Error("conforming issuer unavailable");
+      const jwks = JSON.parse(readFileSync(jwksPath(isolatedIssuer.materialDirectory), "utf8")) as {
         keys: JsonRecord[];
       };
       const { kid: _kid, ...issuerJwk } = jwks.keys[0] ?? {};
@@ -279,10 +427,13 @@ describe("capture issuer server", () => {
       const unrelatedJwk = (await exportJWK(publicKey)) as unknown as JsonRecord;
       unrelatedJwk.kid = "unrelated-key";
       unrelatedJwk.x5c = [additionalCertificate];
-      writeFileSync(jwksPath(isolatedDataDir), JSON.stringify({ keys: [unrelatedJwk, issuerJwk] }));
+      writeFileSync(
+        jwksPath(isolatedIssuer.materialDirectory),
+        JSON.stringify({ keys: [unrelatedJwk, issuerJwk] }),
+      );
 
       const response = await request(createApp(isolatedConfig))
-        .get("/.well-known/openid-credential-issuer")
+        .get(conformingMetadataPath)
         .set("Accept", "application/jwt");
 
       expect(response.status).toBe(200);
@@ -323,6 +474,10 @@ describe("capture issuer server", () => {
     expect(response.text).toContain("<dt>presentation_validation</dt>");
     expect(response.text).not.toContain("<dt>presentation_submission</dt>");
     expect(response.text).toContain('<select name="credential_configuration_id">');
+    expect(response.text).toContain('<optgroup label="EUDI PID — device-bound conforming">');
+    expect(response.text).toContain(
+      '<optgroup label="EUDI PID — JWT proof only — deliberately non-conforming">',
+    );
     expect(response.text).toContain(
       "Credimi Demo PID (SD-JWT VC, JWT or attestation proof, key attestation required)",
     );
@@ -1018,7 +1173,9 @@ describe("capture issuer server", () => {
     const initial = await getJson<SessionCapture>(app, `/sessions/${sessionId}`);
     expect(initial.status).toBe("created");
     expect(initial.flow).toBe("authorization_code");
-    expect(initial.broken).toBe(false);
+    expect(initial).not.toHaveProperty("broken");
+    expect(initial.issuer_configuration_id).toBe(conformingIssuerId);
+    expect(initial.issuer_identifier).toBe(`${config.issuer_base_url}${conformingIssuerPath}`);
     expect(initial.credential_offer_mode).toBe("credential_offer");
 
     const deeplink = await getJson<{ deeplink: string }>(app, `/sessions/${sessionId}/deeplink`);
@@ -1050,7 +1207,7 @@ describe("capture issuer server", () => {
     expect(session.credential_configuration_id).toBe(requestedCredentialConfigurationId);
     expect(session.flow).toBe("authorization_code");
     expect(session.credential_offer_mode).toBe("credential_offer");
-    expect(session.broken).toBe(false);
+    expect(session.issuer_configuration_id).toBe(conformingIssuerId);
     expect(offer.credential_configuration_ids).toEqual([requestedCredentialConfigurationId]);
     expect(offer.grants.authorization_code).toMatchObject({
       issuer_state: expect.any(String),
@@ -1078,32 +1235,53 @@ describe("capture issuer server", () => {
     expect(consumed.status).toBe("offer_retrieved");
   });
 
-  it("records the requested broken credential fixture and rejects non-boolean values", async () => {
+  it("rejects the removed legacy broken credential fixture", async () => {
     const app = createApp(config);
 
-    const brokenSession = await postJson<SessionCreateResponse>(app, "/sessions", {
+    const removed = await request(app).post("/sessions").send({
       broken: true,
     });
-    const capture = await getJson<SessionCapture>(app, `/sessions/${brokenSession.session_id}`);
     const invalid = await request(app).post("/sessions").send({ broken: "true" });
 
-    expect(brokenSession.broken).toBe(true);
-    expect(capture.broken).toBe(true);
-    expect(capture.events[0]?.detail.broken).toBe(true);
+    expect(removed.status).toBe(400);
     expect(invalid.status).toBe(400);
-    expect(invalid.body).toEqual({
+    expect(removed.body).toEqual({
       error: "invalid_request",
-      error_description: "'broken' must be a boolean",
+      error_description: "'broken' is unavailable because the legacy root issuer has been removed",
     });
+    expect(invalid.body).toEqual(removed.body);
   });
 
   it("serves Credo authorization-server JWKS without private material", async () => {
     const app = createApp(config);
-    const jwks = await getJson<JwksResponse>(app, "/jwks.json");
+    const jwks = await getJson<JwksResponse>(app, `${conformingIssuerPath}/jwks.json`);
 
     expect(jwks.keys).toHaveLength(1);
     expect(jwks.keys[0]).toMatchObject({ kty: "EC", crv: "P-256" });
     expect(jwks.keys[0]).not.toHaveProperty("d");
+  });
+
+  it("publishes distinct authorization and credential-signing JWKS for each issuer", async () => {
+    const app = createApp(config);
+    const [deviceBoundAuthorizationJwks, jwtOnlyAuthorizationJwks, deviceBoundCredentialJwks] =
+      await Promise.all([
+        getJson<JwksResponse>(app, `${conformingIssuerPath}/jwks.json`),
+        getJson<JwksResponse>(app, `${jwtOnlyIssuerPath}/jwks.json`),
+        getJson<JwksResponse>(app, `${conformingIssuerPath}/credential-jwks.json`),
+      ]);
+    const jwtVcMetadata = await getJson<JsonRecord>(
+      app,
+      `/.well-known/jwt-vc-issuer/issuers/${conformingIssuerId}`,
+    );
+
+    expect(deviceBoundAuthorizationJwks.keys[0]).not.toEqual(jwtOnlyAuthorizationJwks.keys[0]);
+    expect(deviceBoundCredentialJwks.keys[0]).not.toHaveProperty("d");
+    expect(deviceBoundCredentialJwks.keys[0]?.x5c).toEqual([expect.any(String)]);
+    expect(deviceBoundCredentialJwks.keys[0]).not.toEqual(deviceBoundAuthorizationJwks.keys[0]);
+    expect(jwtVcMetadata).toEqual({
+      issuer: `${config.issuer_base_url}${conformingIssuerPath}`,
+      jwks_uri: `${config.issuer_base_url}${conformingIssuerPath}/credential-jwks.json`,
+    });
   });
 
   it("issues an MDOC PID credential for the selected MDOC configuration", async () => {
@@ -1118,14 +1296,15 @@ describe("capture issuer server", () => {
     const dpop = await dpopKey();
     const token = await preAuthorizedToken(app, session, dpop);
     const walletKey = await dpopKey();
-    const refreshedNonce = await request(app).post("/nonce");
+    const credentialPath = issuerProtocolPath(session, "/credential");
+    const refreshedNonce = await request(app).post(issuerProtocolPath(session, "/nonce"));
     expect(refreshedNonce.status).toBe(200);
     const proof = await keyAttestationJwt(walletKey, String(refreshedNonce.body.c_nonce));
 
     const credential = await request(app)
-      .post("/credential")
+      .post(credentialPath)
       .set("authorization", `DPoP ${token.access_token}`)
-      .set("DPoP", await dpopProof(dpop, "POST", "/credential", token.access_token))
+      .set("DPoP", await dpopProof(dpop, "POST", credentialPath, token.access_token))
       .send({
         credential_configuration_id: session.credential_configuration_id,
         proofs: { attestation: [proof] },
@@ -1170,16 +1349,17 @@ describe("capture issuer server", () => {
     ] as JsonRecord;
     const preAuthorizedCode = String(grant["pre-authorized_code"]);
     const dpopKeyPair = await dpopKey();
-    const dpop = await dpopProof(dpopKeyPair, "POST", "/token");
+    const tokenPath = issuerProtocolPath(session, "/token");
+    const dpop = await dpopProof(dpopKeyPair, "POST", tokenPath);
 
-    const token = await request(app).post("/token").set("DPoP", dpop).type("form").send({
+    const token = await request(app).post(tokenPath).set("DPoP", dpop).type("form").send({
       grant_type: "urn:ietf:params:oauth:grant-type:pre-authorized_code",
       "pre-authorized_code": preAuthorizedCode,
     });
 
     expect(token.status).toBe(200);
     const ledger = await getJson<Array<JsonRecord>>(app, "/oid4vci/requests");
-    const tokenCapture = ledger.find((entry) => entry.path === "/token");
+    const tokenCapture = ledger.find((entry) => entry.path === tokenPath);
     expect(tokenCapture).toMatchObject({
       method: "POST",
       session_id: session.session_id,
@@ -1192,7 +1372,7 @@ describe("capture issuer server", () => {
     });
     const capture = await getJson<SessionCapture>(app, `/sessions/${session.session_id}`);
     expect(capture.raw?.oid4vci_requests?.map((entry) => entry.path)).toEqual(
-      expect.arrayContaining([new URL(session.offer_url).pathname, "/token"]),
+      expect.arrayContaining([new URL(session.offer_url).pathname, tokenPath]),
     );
     expect(JSON.stringify(ledger)).not.toContain(preAuthorizedCode);
     expect(JSON.stringify(ledger)).not.toContain(dpop);
@@ -1200,7 +1380,7 @@ describe("capture issuer server", () => {
 
   it("makes credential nonce responses uncacheable", async () => {
     const app = createApp(config);
-    const response = await request(app).post("/nonce");
+    const response = await request(app).post(`${conformingIssuerPath}/nonce`);
 
     expect(response.status).toBe(200);
     expect(response.headers["cache-control"]).toBe("no-store");
@@ -1219,7 +1399,7 @@ describe("capture issuer server", () => {
       "urn:ietf:params:oauth:grant-type:pre-authorized_code"
     ] as JsonRecord;
     const response = await request(app)
-      .post("/token")
+      .post(issuerProtocolPath(session, "/token"))
       .type("form")
       .send({
         grant_type: "urn:ietf:params:oauth:grant-type:pre-authorized_code",
@@ -1246,8 +1426,8 @@ describe("capture issuer server", () => {
     const dpop = await dpopKey();
 
     const response = await request(app)
-      .post("/token")
-      .set("DPoP", await dpopProof(dpop, "POST", "/token"))
+      .post(issuerProtocolPath(session, "/token"))
+      .set("DPoP", await dpopProof(dpop, "POST", issuerProtocolPath(session, "/token")))
       .set("OAuth-Client-Attestation", walletAttestation)
       .set("OAuth-Client-Attestation-PoP", walletAttestationPop)
       .type("form")
@@ -1279,11 +1459,15 @@ describe("capture issuer server", () => {
       holderKey,
       requiredToken.c_nonce,
     );
+    const requiredCredentialPath = issuerProtocolPath(requiredSession, "/credential");
 
     const rejected = await request(app)
-      .post("/credential")
+      .post(requiredCredentialPath)
       .set("authorization", `DPoP ${requiredToken.access_token}`)
-      .set("DPoP", await dpopProof(requiredDpop, "POST", "/credential", requiredToken.access_token))
+      .set(
+        "DPoP",
+        await dpopProof(requiredDpop, "POST", requiredCredentialPath, requiredToken.access_token),
+      )
       .send({
         credential_configuration_id: requiredSession.credential_configuration_id,
         proofs: { jwt: [proofWithoutAttestation] },
@@ -1296,6 +1480,7 @@ describe("capture issuer server", () => {
     });
 
     const jwtProofSession = await postJson<SessionCreateResponse>(app, "/sessions", {
+      issuer_configuration_id: jwtOnlyIssuerId,
       credential_configuration_id: sdJwtCredentialConfigurationId(config, "jwt-proof"),
       flow: "pre_authorized_code",
     });
@@ -1304,11 +1489,16 @@ describe("capture issuer server", () => {
     const acceptedProof = await credentialProofJwtWithoutKeyAttestation(
       holderKey,
       jwtProofToken.c_nonce,
+      `${config.issuer_base_url}${jwtOnlyIssuerPath}`,
     );
+    const jwtOnlyCredentialPath = issuerProtocolPath(jwtProofSession, "/credential");
     const accepted = await request(app)
-      .post("/credential")
+      .post(jwtOnlyCredentialPath)
       .set("authorization", `DPoP ${jwtProofToken.access_token}`)
-      .set("DPoP", await dpopProof(jwtProofDpop, "POST", "/credential", jwtProofToken.access_token))
+      .set(
+        "DPoP",
+        await dpopProof(jwtProofDpop, "POST", jwtOnlyCredentialPath, jwtProofToken.access_token),
+      )
       .send({
         credential_configuration_id: jwtProofSession.credential_configuration_id,
         proofs: { jwt: [acceptedProof] },
@@ -1336,10 +1526,14 @@ describe("capture issuer server", () => {
       config.issuer_base_url,
       unrelatedAttestedKey,
     );
+    const invalidCredentialPath = issuerProtocolPath(invalidSession, "/credential");
     const mismatchedCredential = await request(app)
-      .post("/credential")
+      .post(invalidCredentialPath)
       .set("authorization", `DPoP ${invalidToken.access_token}`)
-      .set("DPoP", await dpopProof(invalidDpop, "POST", "/credential", invalidToken.access_token))
+      .set(
+        "DPoP",
+        await dpopProof(invalidDpop, "POST", invalidCredentialPath, invalidToken.access_token),
+      )
       .send({
         credential_configuration_id: invalidSession.credential_configuration_id,
         proofs: { jwt: [mismatchedProof] },
@@ -1348,16 +1542,16 @@ describe("capture issuer server", () => {
     expect(mismatchedCredential.body).toMatchObject({ error: "invalid_proof" });
 
     const session = await postJson<SessionCreateResponse>(app, "/sessions", {
-      broken: true,
       flow: "pre_authorized_code",
     });
     const dpop = await dpopKey();
     const token = await preAuthorizedToken(app, session, dpop);
     const proof = await credentialProofJwt(walletKey, token.c_nonce);
+    const credentialPath = issuerProtocolPath(session, "/credential");
     const credential = await request(app)
-      .post("/credential")
+      .post(credentialPath)
       .set("authorization", `DPoP ${token.access_token}`)
-      .set("DPoP", await dpopProof(dpop, "POST", "/credential", token.access_token))
+      .set("DPoP", await dpopProof(dpop, "POST", credentialPath, token.access_token))
       .send({
         credential_configuration_id: session.credential_configuration_id,
         proofs: { jwt: [proof] },
@@ -1387,7 +1581,7 @@ describe("capture issuer server", () => {
       issuerJwt,
       await importJWK(issuerCertificate.publicJwk.toJson(), "ES256"),
     );
-    expect(issuerPayload.iss).toBe(config.issuer_base_url);
+    expect(issuerPayload.iss).toBe(`${config.issuer_base_url}${conformingIssuerPath}`);
     expect(issuerPayload.iss).not.toMatch(/^did:/);
     expect(verified.protectedHeader).toMatchObject({
       alg: "ES256",
@@ -1409,15 +1603,15 @@ describe("capture issuer server", () => {
         region: "Lazio",
         street_address: "Via Europa",
       },
-      birth_family_name: "Doe",
-      birth_given_name: "Jane",
+      birth_family_name: "Rossi",
+      birth_given_name: "Mario",
       birthdate: "1990-01-01",
       date_of_expiry: "2031-01-01",
       date_of_issuance: "2026-01-01",
       document_number: "CREDIMI-DEMO-001",
       email: "jane.doe@example.test",
-      given_name: "Jane",
-      family_name: "Doe",
+      given_name: "Mario",
+      family_name: "Rossi",
       issuing_authority: "Credimi Fake Issuer",
       issuing_country: "IT",
       issuing_jurisdiction: "IT-RM",
@@ -1425,7 +1619,7 @@ describe("capture issuer server", () => {
       personal_administrative_number: "PID-DEMO-001",
       phone_number: "+390600000000",
       picture: expect.stringMatching(/^data:image\/jpeg;base64,\/9j\//),
-      place_of_birth: "Roma",
+      place_of_birth: { locality: "Roma" },
       sex: 2,
       cnf: { jwk: walletKey.publicJwk },
     });
@@ -1471,11 +1665,12 @@ describe("capture issuer server", () => {
         enc: "A256GCM",
       },
     };
+    const credentialPath = issuerProtocolPath(session, "/credential");
 
     const plaintextResponseEncryptionRequest = await request(app)
-      .post("/credential")
+      .post(credentialPath)
       .set("authorization", `DPoP ${token.access_token}`)
-      .set("DPoP", await dpopProof(dpop, "POST", "/credential", token.access_token))
+      .set("DPoP", await dpopProof(dpop, "POST", credentialPath, token.access_token))
       .send(credentialRequest);
     expect(plaintextResponseEncryptionRequest.status).toBe(400);
     expect(plaintextResponseEncryptionRequest.body).toMatchObject({
@@ -1483,7 +1678,7 @@ describe("capture issuer server", () => {
       error_description: "credential_response_encryption requires an encrypted Credential Request",
     });
 
-    const metadata = await getJson<JsonRecord>(app, "/.well-known/openid-credential-issuer");
+    const metadata = await getJson<JsonRecord>(app, conformingMetadataPath);
     const requestEncryption = metadata.credential_request_encryption as {
       jwks: { keys: JWK[] };
     };
@@ -1499,9 +1694,9 @@ describe("capture issuer server", () => {
       .encrypt(await importJWK(issuerEncryptionJwk, "ECDH-ES"));
 
     const credentialResponse = await request(app)
-      .post("/credential")
+      .post(credentialPath)
       .set("authorization", `DPoP ${token.access_token}`)
-      .set("DPoP", await dpopProof(dpop, "POST", "/credential", token.access_token))
+      .set("DPoP", await dpopProof(dpop, "POST", credentialPath, token.access_token))
       .type("application/jwt")
       .send(encryptedRequest);
 
@@ -1540,7 +1735,7 @@ describe("capture issuer server", () => {
   it("rejects credential issuance without an access token", async () => {
     const app = createApp(config);
     const response = await request(app)
-      .post("/credential")
+      .post(`${conformingIssuerPath}/credential`)
       .send({ proof: { proof_type: "jwt", jwt: unsignedJwt({ alg: "ES256", kid: "key-1" }) } });
 
     expect(response.status).toBe(403);
@@ -1566,6 +1761,51 @@ describe("capture issuer server", () => {
     expect(response.body).toMatchObject({ error: "unsupported_credential_configuration" });
   });
 
+  it("rejects unknown issuers and credential configurations belonging to another issuer", async () => {
+    const app = createApp(config);
+    const unknownIssuer = await request(app)
+      .post("/sessions")
+      .send({ issuer_configuration_id: "missing-issuer" });
+    const crossIssuerCredential = await request(app)
+      .post("/sessions")
+      .send({
+        issuer_configuration_id: conformingIssuerId,
+        credential_configuration_id: sdJwtCredentialConfigurationId(config, "jwt-proof"),
+      });
+
+    expect(unknownIssuer.status).toBe(400);
+    expect(unknownIssuer.body).toMatchObject({
+      error: "unsupported_issuer_configuration",
+      supported_issuer_configuration_ids: [conformingIssuerId, jwtOnlyIssuerId],
+    });
+    expect(crossIssuerCredential.status).toBe(400);
+    expect(crossIssuerCredential.body).toMatchObject({
+      error: "unsupported_credential_configuration",
+      issuer_configuration_id: conformingIssuerId,
+    });
+  });
+
+  it("does not accept one issuer's access token at another issuer's credential endpoint", async () => {
+    const app = createApp(config);
+    const session = await postJson<SessionCreateResponse>(app, "/sessions", {
+      flow: "pre_authorized_code",
+    });
+    const dpop = await dpopKey();
+    const token = await preAuthorizedToken(app, session, dpop);
+    const credentialPath = `${jwtOnlyIssuerPath}/credential`;
+
+    const response = await request(app)
+      .post(credentialPath)
+      .set("authorization", `DPoP ${token.access_token}`)
+      .set("DPoP", await dpopProof(dpop, "POST", credentialPath, token.access_token))
+      .send({
+        credential_configuration_id: sdJwtCredentialConfigurationId(config, "jwt-proof"),
+        proofs: { jwt: [unsignedJwt({ alg: "ES256", jwk: dpop.publicJwk })] },
+      });
+
+    expect(response.status).toBe(403);
+  });
+
   it("runs the default authorization-code flow through the auto-approving OAuth server", async () => {
     const app = createApp(config);
     const walletClientId = "https://wallet.example.test";
@@ -1587,9 +1827,10 @@ describe("capture issuer server", () => {
     });
     expect(grant).not.toHaveProperty("authorization_server");
 
+    const parPath = issuerProtocolPath(session, "/par");
     const pushed = await request(app)
-      .post("/par")
-      .set("DPoP", await dpopProof(dpop, "POST", "/par"))
+      .post(parPath)
+      .set("DPoP", await dpopProof(dpop, "POST", parPath))
       .type("form")
       .send({
         response_type: "code",
@@ -1608,7 +1849,7 @@ describe("capture issuer server", () => {
     });
 
     const authorize = await request(app)
-      .get("/authorize")
+      .get(issuerProtocolPath(session, "/authorize"))
       .query({
         client_id: walletClientId,
         request_uri: String(pushed.body.request_uri),
@@ -1616,14 +1857,16 @@ describe("capture issuer server", () => {
       .redirects(0);
     expect(authorize.status).toBe(302);
     const externalAuthorizationUrl = new URL(String(authorize.headers.location));
-    expect(externalAuthorizationUrl.pathname).toBe("/fake-oauth/authorize");
+    expect(externalAuthorizationUrl.pathname).toBe(
+      `/authorization-servers/${conformingIssuerId}/authorize`,
+    );
 
     const autoApproval = await request(app)
       .get(`${externalAuthorizationUrl.pathname}${externalAuthorizationUrl.search}`)
       .redirects(0);
     expect(autoApproval.status).toBe(302);
     const credoCallback = new URL(String(autoApproval.headers.location));
-    expect(credoCallback.pathname).toBe("/redirect");
+    expect(credoCallback.pathname).toBe(issuerProtocolPath(session, "/redirect"));
     expect(credoCallback.searchParams.get("code")).toEqual(expect.any(String));
 
     const walletAuthorizationResponse = await request(app)
@@ -1633,7 +1876,9 @@ describe("capture issuer server", () => {
     const walletCallback = new URL(String(walletAuthorizationResponse.headers.location));
     expect(walletCallback.origin + walletCallback.pathname).toBe(walletRedirectUri);
     expect(walletCallback.searchParams.get("state")).toBe(walletState);
-    expect(walletCallback.searchParams.get("iss")).toBe(config.issuer_base_url);
+    expect(walletCallback.searchParams.get("iss")).toBe(
+      `${config.issuer_base_url}${conformingIssuerPath}`,
+    );
     const authorizationCode = walletCallback.searchParams.get("code");
     expect(authorizationCode).toEqual(expect.any(String));
 
@@ -1716,10 +1961,12 @@ async function postToken(
   app: Express,
   body: Record<string, string>,
   dpopKey: DpopKey,
+  issuerConfigurationId = conformingIssuerId,
 ): Promise<TokenResponse> {
+  const tokenPath = `/issuers/${issuerConfigurationId}/token`;
   const response = await request(app)
-    .post("/token")
-    .set("DPoP", await dpopProof(dpopKey, "POST", "/token"))
+    .post(tokenPath)
+    .set("DPoP", await dpopProof(dpopKey, "POST", tokenPath))
     .type("form")
     .send(body);
   expect(response.status, JSON.stringify(response.body)).toBeLessThan(400);
@@ -1740,6 +1987,7 @@ async function preAuthorizedToken(
       "pre-authorized_code": String(grant["pre-authorized_code"]),
     },
     dpopKey,
+    session.issuer_configuration_id,
   );
 }
 
@@ -1766,6 +2014,10 @@ function dcqlForClaims(claims: string[]): JsonRecord {
 
 function endpointUrl(path: string): string {
   return `${config.issuer_base_url}${path}`;
+}
+
+function issuerProtocolPath(session: SessionCreateResponse, suffix: `/${string}`): string {
+  return `/issuers/${session.issuer_configuration_id}${suffix}`;
 }
 
 interface DpopKey {
@@ -1801,7 +2053,7 @@ async function dpopProof(
 async function credentialProofJwt(
   key: DpopKey,
   nonce: string,
-  audience = config.issuer_base_url,
+  audience = `${config.issuer_base_url}${conformingIssuerPath}`,
   attestedKey = key,
 ): Promise<string> {
   const keyAttestation = await keyAttestationJwt(attestedKey, nonce);
@@ -1822,9 +2074,10 @@ async function credentialProofJwt(
 async function credentialProofJwtWithoutKeyAttestation(
   key: DpopKey,
   nonce: string,
+  audience = `${config.issuer_base_url}${conformingIssuerPath}`,
 ): Promise<string> {
   return new SignJWT({
-    aud: config.issuer_base_url,
+    aud: audience,
     nonce,
     iat: Math.floor(Date.now() / 1000),
   })
@@ -1837,8 +2090,10 @@ async function credentialProofJwtWithoutKeyAttestation(
 }
 
 async function keyAttestationJwt(key: DpopKey, nonce: string): Promise<string> {
-  const privateJwk = JSON.parse(readFileSync(privateJwkPath(dataDir), "utf8")) as JWK;
-  const certificate = readFileSync(issuerCertificatePath(dataDir), "utf8")
+  const privateJwk = JSON.parse(
+    readFileSync(privateJwkPath(conformingMaterialDirectory), "utf8"),
+  ) as JWK;
+  const certificate = readFileSync(issuerCertificatePath(conformingMaterialDirectory), "utf8")
     .replace(/-----BEGIN CERTIFICATE-----/g, "")
     .replace(/-----END CERTIFICATE-----/g, "")
     .replace(/\s+/g, "");
@@ -1858,8 +2113,10 @@ async function keyAttestationJwt(key: DpopKey, nonce: string): Promise<string> {
 }
 
 async function walletAttestationJwt(key: DpopKey, clientId: string): Promise<string> {
-  const privateJwk = JSON.parse(readFileSync(privateJwkPath(dataDir), "utf8")) as JWK;
-  const certificate = readFileSync(issuerCertificatePath(dataDir), "utf8")
+  const privateJwk = JSON.parse(
+    readFileSync(privateJwkPath(conformingMaterialDirectory), "utf8"),
+  ) as JWK;
+  const certificate = readFileSync(issuerCertificatePath(conformingMaterialDirectory), "utf8")
     .replace(/-----BEGIN CERTIFICATE-----/g, "")
     .replace(/-----END CERTIFICATE-----/g, "")
     .replace(/\s+/g, "");
@@ -1883,7 +2140,7 @@ async function walletAttestationPopJwt(key: DpopKey, clientId: string): Promise<
   const now = Math.floor(Date.now() / 1000);
   return new SignJWT({
     iss: clientId,
-    aud: config.issuer_base_url,
+    aud: `${config.issuer_base_url}${conformingIssuerPath}`,
     iat: now,
     jti: randomUUID(),
   })
@@ -1902,7 +2159,7 @@ async function sdJwtCredential(): Promise<{
   const holderJwk = (await exportJWK(publicKey)) as unknown as JsonRecord;
   return {
     compact: await issueSdJwtCredential({
-      config,
+      config: conformingIssuerConfig,
       credentialConfigurationId: config.credential_configuration_id,
       holderJwk,
     }),
@@ -1958,10 +2215,12 @@ function escapeRegExp(value: string): string {
 
 interface SessionCreateResponse extends JsonRecord {
   session_id: string;
+  issuer_configuration_id: string;
+  issuer_identifier: string;
+  authorization_server_identifier: string;
   flow: "pre_authorized_code" | "authorization_code";
   credential_offer_mode: "credential_offer" | "credential_offer_uri";
   credential_configuration_id: string;
-  broken: boolean;
   offer_url: string;
   deeplink: string;
 }

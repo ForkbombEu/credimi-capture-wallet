@@ -34,6 +34,7 @@ export interface Oid4vciHttpRequestCapture {
   method: string;
   path: string;
   session_id: string | null;
+  issuer_configuration_id: string | null;
   headers: JsonRecord;
   query: unknown;
   body: unknown;
@@ -82,11 +83,13 @@ export interface ClientAuthenticationCapture {
 
 export interface SessionCapture {
   session_id: string;
+  issuer_configuration_id: string;
+  issuer_identifier: string;
+  authorization_server_identifier: string;
   status: string;
   flow: "pre_authorized_code" | "authorization_code";
   credential_offer_mode: CredentialOfferMode;
   credential_configuration_id: string;
-  broken: boolean;
   observed: {
     client_id: ObservedValue<string>;
     redirect_uri: ObservedValue<string>;

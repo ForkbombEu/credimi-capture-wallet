@@ -1,11 +1,12 @@
 import { type AgentContext, JwsService, JwtPayload, Kms } from "@credo-ts/core";
 import {
-  ISSUER_KEY_ID,
   createIssuerSigningContext,
+  issuerSigningKeyId,
   loadIssuerEncryptionPublicJwk,
   loadIssuerJwks,
   loadIssuerPublicJwk,
 } from "./config.js";
+import type { IssuerConfiguration } from "./configurations/types.js";
 import {
   CREDIMI_LOGO_URL,
   PID_MDOC_CLAIMS,
@@ -29,8 +30,11 @@ export interface SupportedCredential {
 
 export { PID_MDOC_DOCTYPE, PID_MDOC_NAMESPACE, PID_SD_JWT_VCT };
 
-export function credentialIssuerMetadata(config: AppConfig): JsonRecord {
-  const credentials = supportedCredentials(config);
+export function credentialIssuerMetadata(
+  config: AppConfig,
+  issuer: IssuerConfiguration,
+): JsonRecord {
+  const credentials = supportedCredentialsForIssuer(config, issuer);
   const encryptionJwk = loadIssuerEncryptionPublicJwk(config);
 
   return {
@@ -58,7 +62,7 @@ export function credentialIssuerMetadata(config: AppConfig): JsonRecord {
           alt_text: "Credimi Capture Issuer Logo",
           uri: CREDIMI_LOGO_URL,
         },
-        name: "Credimi Capture Issuer",
+        name: issuer.display.name,
       },
     ],
     credential_configurations_supported: Object.fromEntries(
@@ -72,11 +76,12 @@ export function credentialIssuerMetadata(config: AppConfig): JsonRecord {
 
 export async function signedCredentialIssuerMetadata(
   config: AppConfig,
+  issuer: IssuerConfiguration,
   now = new Date(),
 ): Promise<string> {
   return signCredentialIssuerMetadata(
     config,
-    credentialIssuerMetadata(config),
+    credentialIssuerMetadata(config, issuer),
     createIssuerSigningContext(config) as never,
     now,
   );
@@ -97,7 +102,7 @@ export async function signCredentialIssuerMetadata(
       iat: Math.floor(now.getTime() / 1000),
       additionalClaims: metadata,
     }),
-    keyId: ISSUER_KEY_ID,
+    keyId: issuerSigningKeyId(config),
     protectedHeaderOptions: {
       alg: "ES256",
       typ: "openidvci-issuer-metadata+jwt",
@@ -131,7 +136,7 @@ function isStringArray(value: unknown): value is string[] {
 export function jwtVcIssuerMetadata(config: AppConfig): unknown {
   return {
     issuer: config.issuer_base_url,
-    jwks_uri: `${config.issuer_base_url}/jwks.json`,
+    jwks_uri: `${config.issuer_base_url}/credential-jwks.json`,
   };
 }
 
@@ -199,6 +204,22 @@ export function supportedCredentials(config: AppConfig): SupportedCredential[] {
   ];
 }
 
+export function supportedCredentialsForIssuer(
+  config: AppConfig,
+  issuer: Pick<IssuerConfiguration, "proofPolicy">,
+): SupportedCredential[] {
+  return supportedCredentials(config).filter(
+    (credential) => credential.proofPolicy === issuer.proofPolicy,
+  );
+}
+
+export function supportedCredentialConfigurationIdsForIssuer(
+  config: AppConfig,
+  issuer: Pick<IssuerConfiguration, "proofPolicy">,
+): string[] {
+  return supportedCredentialsForIssuer(config, issuer).map((credential) => credential.id);
+}
+
 export function supportedCredentialConfigurationIds(config: AppConfig): string[] {
   return supportedCredentials(config).map((credential) => credential.id);
 }
@@ -206,9 +227,10 @@ export function supportedCredentialConfigurationIds(config: AppConfig): string[]
 export function supportedCredentialById(
   config: AppConfig,
   credentialConfigurationId: string,
+  issuer?: Pick<IssuerConfiguration, "proofPolicy">,
 ): SupportedCredential | null {
   return (
-    supportedCredentials(config).find(
+    (issuer ? supportedCredentialsForIssuer(config, issuer) : supportedCredentials(config)).find(
       (credential) => credential.id === credentialConfigurationId,
     ) ?? null
   );

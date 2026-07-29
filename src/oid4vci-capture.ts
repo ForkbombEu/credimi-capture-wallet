@@ -33,19 +33,15 @@ const SENSITIVE_VALUES = new Set([
 
 export function isOid4vciProtocolPath(path: string): boolean {
   return (
-    path === "/.well-known/openid-credential-issuer" ||
-    path === "/.well-known/oauth-authorization-server" ||
-    path === "/.well-known/jwt-vc-issuer" ||
-    path === "/jwks.json" ||
-    path === "/par" ||
-    path === "/authorize" ||
-    path === "/challenge" ||
-    path === "/redirect" ||
-    path === "/token" ||
-    path === "/nonce" ||
-    path === "/credential" ||
-    path === "/deferred-credential" ||
-    /^\/offers\/[^/]+$/.test(path) ||
+    /^\/\.well-known\/(?:openid-credential-issuer|oauth-authorization-server|jwt-vc-issuer)\/issuers\/[^/]+$/.test(
+      path,
+    ) ||
+    /^\/\.well-known\/oauth-authorization-server\/authorization-servers\/[^/]+$/.test(path) ||
+    /^\/issuers\/[^/]+\/(?:credential-jwks\.json|jwks\.json|par|authorize|challenge|redirect|token|nonce|credential|deferred-credential)$/.test(
+      path,
+    ) ||
+    /^\/issuers\/[^/]+\/offers\/[^/]+$/.test(path) ||
+    /^\/authorization-servers\/[^/]+\/(?:authorize|token)$/.test(path) ||
     /^\/sessions\/[^/]+\/(?:offer|deeplink)$/.test(path)
   );
 }
@@ -53,6 +49,7 @@ export function isOid4vciProtocolPath(path: string): boolean {
 export function createOid4vciRequestCapture(
   req: Request,
   sessionId: string | null,
+  issuerConfigurationId: string | null = null,
 ): Oid4vciHttpRequestCapture {
   return {
     id: randomUUID(),
@@ -60,6 +57,7 @@ export function createOid4vciRequestCapture(
     method: req.method,
     path: req.path,
     session_id: sessionId,
+    issuer_configuration_id: issuerConfigurationId,
     headers: redactHeaders(req.headers),
     query: redactOid4vciValue(queryRecord(req)),
     body:

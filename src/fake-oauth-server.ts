@@ -1,13 +1,13 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { Express, Request as ExpressRequest, Response as ExpressResponse } from "express";
+import { resolvedIssuerConfigurations } from "./configurations/registry.js";
+import type { ResolvedIssuerConfiguration } from "./configurations/types.js";
 import type { CaptureStore } from "./state.js";
 import type { AppConfig, JsonRecord } from "./types.js";
 
-const FAKE_OAUTH_PATH = "/fake-oauth";
-const FAKE_OAUTH_SCOPE = "credimi.capture";
-const FAKE_OAUTH_CLIENT_ID = "credimi-capture-wallet";
+const FAKE_OAUTH_CLIENT_ID_PREFIX = "credimi-capture-wallet";
 // Public test credential used only between Credo and this non-production server.
-const FAKE_OAUTH_CLIENT_SECRET = "credimi-capture-wallet-test-secret";
+const FAKE_OAUTH_CLIENT_SECRET_PREFIX = "credimi-capture-wallet-test-secret";
 
 interface AuthorizationCode {
   clientId: string;
@@ -28,13 +28,22 @@ interface OAuthResult {
   status: number;
 }
 
-const servers = new WeakMap<CaptureStore, FakeOAuthServer>();
+const servers = new WeakMap<CaptureStore, Map<string, FakeOAuthServer>>();
 
-export function fakeOAuthServer(config: AppConfig, store: CaptureStore): FakeOAuthServer {
-  let server = servers.get(store);
+export function fakeOAuthServer(
+  config: AppConfig,
+  store: CaptureStore,
+  issuer: ResolvedIssuerConfiguration,
+): FakeOAuthServer {
+  let issuerServers = servers.get(store);
+  if (!issuerServers) {
+    issuerServers = new Map();
+    servers.set(store, issuerServers);
+  }
+  let server = issuerServers.get(issuer.id);
   if (!server) {
-    server = new FakeOAuthServer(config);
-    servers.set(store, server);
+    server = new FakeOAuthServer(config, issuer);
+    issuerServers.set(issuer.id, server);
   }
   return server;
 }
@@ -44,41 +53,54 @@ export function registerFakeOAuthServer(
   config: AppConfig,
   store: CaptureStore,
 ): void {
-  const server = fakeOAuthServer(config, store);
+  for (const issuer of resolvedIssuerConfigurations(config)) {
+    const server = fakeOAuthServer(config, store, issuer);
 
-  app.get(server.metadataPath, (_req, res) => {
-    res.set("Cache-Control", "no-store").json(server.metadata());
-  });
+    app.get(server.metadataPath, (_req, res) => {
+      res.set("Cache-Control", "no-store").json(server.metadata());
+    });
 
-  app.get(`${FAKE_OAUTH_PATH}/authorize`, (req, res) => {
-    const result = server.authorize(queryParams(config, req));
-    if ("redirect" in result) return res.redirect(302, result.redirect);
-    return sendOAuthResult(res, result);
-  });
+    app.get(server.authorizationPath, (req, res) => {
+      const result = server.authorize(queryParams(config, req));
+      if ("redirect" in result) return res.redirect(302, result.redirect);
+      return sendOAuthResult(res, result);
+    });
 
-  app.post(`${FAKE_OAUTH_PATH}/token`, (req, res) => {
-    const authorization = req.header("authorization");
-    return sendOAuthResult(
-      res,
-      server.token(
-        formParams(req.body),
-        new Headers(authorization ? { authorization } : undefined),
-      ),
-    );
-  });
+    app.post(server.tokenPath, (req, res) => {
+      const authorization = req.header("authorization");
+      return sendOAuthResult(
+        res,
+        server.token(
+          formParams(req.body),
+          new Headers(authorization ? { authorization } : undefined),
+        ),
+      );
+    });
+  }
 }
 
 export class FakeOAuthServer {
   private readonly authorizationCodes = new Map<string, AuthorizationCode>();
 
-  constructor(private readonly config: AppConfig) {}
+  constructor(
+    private readonly config: AppConfig,
+    private readonly issuerConfiguration: ResolvedIssuerConfiguration,
+  ) {}
 
   get issuer(): string {
-    return `${this.config.issuer_base_url}${FAKE_OAUTH_PATH}`;
+    return this.issuerConfiguration.upstreamAuthorizationServerIdentifier;
   }
 
   get metadataPath(): string {
-    return `/.well-known/oauth-authorization-server${FAKE_OAUTH_PATH}`;
+    return new URL(this.issuerConfiguration.upstreamAuthorizationServerMetadataUrl).pathname;
+  }
+
+  get authorizationPath(): string {
+    return new URL(`${this.issuer}/authorize`).pathname;
+  }
+
+  get tokenPath(): string {
+    return new URL(`${this.issuer}/token`).pathname;
   }
 
   get clientAuthentication(): {
@@ -88,13 +110,13 @@ export class FakeOAuthServer {
   } {
     return {
       type: "clientSecret",
-      clientId: FAKE_OAUTH_CLIENT_ID,
-      clientSecret: FAKE_OAUTH_CLIENT_SECRET,
+      clientId: `${FAKE_OAUTH_CLIENT_ID_PREFIX}-${this.issuerConfiguration.id}`,
+      clientSecret: `${FAKE_OAUTH_CLIENT_SECRET_PREFIX}-${this.issuerConfiguration.id}`,
     };
   }
 
   get externalScope(): string {
-    return FAKE_OAUTH_SCOPE;
+    return this.issuerConfiguration.authorizationServer.externalScope;
   }
 
   metadata(): JsonRecord {
@@ -106,7 +128,7 @@ export class FakeOAuthServer {
       grant_types_supported: ["authorization_code"],
       code_challenge_methods_supported: ["S256"],
       token_endpoint_auth_methods_supported: ["client_secret_post"],
-      scopes_supported: [FAKE_OAUTH_SCOPE],
+      scopes_supported: [this.externalScope],
     };
   }
 
@@ -122,17 +144,17 @@ export class FakeOAuthServer {
     if (responseType !== "code") {
       return oauthError("unsupported_response_type", "response_type must be 'code'");
     }
-    if (clientId !== FAKE_OAUTH_CLIENT_ID) {
+    if (clientId !== this.clientAuthentication.clientId) {
       return oauthError("invalid_request", "client_id is not registered");
     }
-    if (redirectUri !== `${this.config.issuer_base_url}/redirect`) {
+    if (redirectUri !== this.issuerConfiguration.endpoints.redirect) {
       return oauthError("invalid_request", "redirect_uri is not registered");
     }
     if (!state) return oauthError("invalid_request", "state is required");
     if (codeChallengeMethod !== "S256" || !isBase64UrlSha256(codeChallenge)) {
       return oauthError("invalid_request", "S256 PKCE is required");
     }
-    if (scope !== FAKE_OAUTH_SCOPE) {
+    if (scope !== this.externalScope) {
       return oauthError("invalid_scope", "scope is not supported");
     }
 
@@ -155,8 +177,8 @@ export class FakeOAuthServer {
       return oauthError("unsupported_grant_type", "grant_type must be 'authorization_code'");
     }
     if (
-      params.get("client_id") !== FAKE_OAUTH_CLIENT_ID ||
-      params.get("client_secret") !== FAKE_OAUTH_CLIENT_SECRET
+      params.get("client_id") !== this.clientAuthentication.clientId ||
+      params.get("client_secret") !== this.clientAuthentication.clientSecret
     ) {
       return oauthError("invalid_client", "client authentication failed", 401, {
         "WWW-Authenticate": 'Basic realm="fake-oauth"',
@@ -210,7 +232,7 @@ export class FakeOAuthServer {
     if (request.method === "GET" && url.pathname === this.metadataPath) {
       return jsonResponse({ status: 200, body: this.metadata() });
     }
-    if (request.method === "POST" && url.href === `${this.issuer}/token`) {
+    if (request.method === "POST" && url.pathname === this.tokenPath) {
       return jsonResponse(this.token(new URLSearchParams(await request.text()), request.headers));
     }
     return jsonResponse(oauthError("invalid_request", "fake OAuth endpoint not found", 404));
@@ -222,7 +244,7 @@ export class FakeOAuthServer {
     );
     return (
       url.origin === new URL(this.config.issuer_base_url).origin &&
-      (url.pathname === this.metadataPath || url.href === `${this.issuer}/token`)
+      (url.pathname === this.metadataPath || url.pathname === this.tokenPath)
     );
   }
 }

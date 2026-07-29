@@ -1,5 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { supportedCredentialConfigurationIds } from "./metadata.js";
+import {
+  DEFAULT_ISSUER_CONFIGURATION_ID,
+  resolvedIssuerConfigurationById,
+} from "./configurations/registry.js";
+import type { ResolvedIssuerConfiguration } from "./configurations/types.js";
+import { supportedCredentialConfigurationIdsForIssuer } from "./metadata.js";
 import type {
   AppConfig,
   CaptureEvent,
@@ -25,19 +30,21 @@ export class CaptureStore {
   constructor(private readonly config: AppConfig) {}
 
   createSession(
-    credentialConfigurationId = defaultCredentialConfigurationId(this.config),
-    broken = false,
+    issuer: ResolvedIssuerConfiguration = defaultIssuerConfiguration(this.config),
+    credentialConfigurationId = defaultCredentialConfigurationId(this.config, issuer),
     flow: SessionCapture["flow"] = "authorization_code",
     credentialOfferMode: CredentialOfferMode = "credential_offer",
   ): SessionCapture {
     const sessionId = randomUUID();
     const session: SessionCapture = {
       session_id: sessionId,
+      issuer_configuration_id: issuer.id,
+      issuer_identifier: issuer.issuerIdentifier,
+      authorization_server_identifier: issuer.issuerIdentifier,
       status: "created",
       credential_configuration_id: credentialConfigurationId,
       flow,
       credential_offer_mode: credentialOfferMode,
-      broken,
       observed: {
         client_id: { value: null, source: null, also_seen_in: [] },
         redirect_uri: { value: null, source: null, also_seen_in: [] },
@@ -72,10 +79,12 @@ export class CaptureStore {
     };
     this.sessions.set(sessionId, session);
     this.addEvent(session, "session_created", {
+      issuer_configuration_id: issuer.id,
+      issuer_identifier: issuer.issuerIdentifier,
+      authorization_server_identifier: issuer.issuerIdentifier,
       credential_configuration_id: credentialConfigurationId,
       flow,
       credential_offer_mode: credentialOfferMode,
-      broken,
     });
     return session;
   }
@@ -188,8 +197,21 @@ export function asStringOrNull(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
-function defaultCredentialConfigurationId(config: AppConfig): string {
-  return supportedCredentialConfigurationIds(config)[0];
+function defaultIssuerConfiguration(config: AppConfig): ResolvedIssuerConfiguration {
+  const issuer = resolvedIssuerConfigurationById(config, DEFAULT_ISSUER_CONFIGURATION_ID);
+  if (!issuer) throw new Error("Default issuer configuration is unavailable");
+  return issuer;
+}
+
+function defaultCredentialConfigurationId(
+  config: AppConfig,
+  issuer: ResolvedIssuerConfiguration,
+): string {
+  const credentialConfigurationId = supportedCredentialConfigurationIdsForIssuer(config, issuer)[0];
+  if (!credentialConfigurationId) {
+    throw new Error(`Issuer '${issuer.id}' has no credential configurations`);
+  }
+  return credentialConfigurationId;
 }
 
 function emptyClientAuthenticationCapture(): SessionCapture["observed"]["client_authentication"] {

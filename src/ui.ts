@@ -1,10 +1,17 @@
+import type { ResolvedIssuerConfiguration } from "./configurations/types.js";
+import type { SupportedCredential } from "./metadata.js";
+
 const REPOSITORY_URL = "https://github.com/ForkbombEu/credimi-capture-wallet";
 const OPENAPI_URL = "/openapi.json";
 const API_DOCS_URL = "/docs";
 
-import type { SupportedCredential } from "./metadata.js";
+export interface IssuerCredentialGroup {
+  issuer: ResolvedIssuerConfiguration;
+  credentials: readonly SupportedCredential[];
+}
 
-export function indexPage(credentials: SupportedCredential[]): string {
+export function indexPage(groups: readonly IssuerCredentialGroup[]): string {
+  const defaultIssuerId = groups[0]?.issuer.id ?? "";
   return htmlPage({
     title: "Wallet Metadata Capture",
     body: [
@@ -37,10 +44,13 @@ export function indexPage(credentials: SupportedCredential[]): string {
       "<p>Step 1) Start a one-time fake issuance flow, scan the offer, and inspect the wallet identifiers, callbacks, and proof keys observed by the issuer.</p>",
       "<p>Step 2) After receiving the credential, start a Presentation session, and inspect the Wallet response as well as the DCQL</p>",
       '<form action="/ui/sessions" method="post" target="_blank">',
+      '<input id="issuer-configuration-id" type="hidden" name="issuer_configuration_id" value="',
+      escapeHtml(defaultIssuerId),
+      '">',
       '<label class="credential-picker">',
       "<span>Credential</span>",
       '<select name="credential_configuration_id">',
-      credentials.map(credentialOptionHtml).join(""),
+      groups.map(issuerCredentialGroupHtml).join(""),
       "</select>",
       "</label>",
       '<div class="session-actions">',
@@ -48,6 +58,7 @@ export function indexPage(credentials: SupportedCredential[]): string {
       '<button class="btn btn-outline btn-lg" type="submit" formaction="/ui/openid4vp/sessions">New presentation session</button>',
       "</div>",
       "</form>",
+      '<script>const credentialPicker=document.querySelector(\'select[name="credential_configuration_id"]\');const issuerInput=document.getElementById("issuer-configuration-id");function syncIssuer(){const selected=credentialPicker?.selectedOptions[0];if(selected&&issuerInput)issuerInput.value=selected.dataset.issuerConfigurationId||"";}credentialPicker?.addEventListener("change",syncIssuer);syncIssuer();</script>',
       "</div>",
       '<aside class="summary-panel" aria-label="Captured values">',
       '<div class="section-header compact">',
@@ -163,10 +174,30 @@ export function vpSessionPage(sessionId: string, deeplink: string, qrSvg: string
   });
 }
 
-function credentialOptionHtml(credential: SupportedCredential): string {
+function issuerCredentialGroupHtml(group: IssuerCredentialGroup): string {
+  const label = group.issuer.display.warning
+    ? `${group.issuer.display.name} — deliberately non-conforming`
+    : group.issuer.display.name;
+  return [
+    '<optgroup label="',
+    escapeHtml(label),
+    '">',
+    group.credentials
+      .map((credential) => credentialOptionHtml(group.issuer.id, credential))
+      .join(""),
+    "</optgroup>",
+  ].join("");
+}
+
+function credentialOptionHtml(
+  issuerConfigurationId: string,
+  credential: SupportedCredential,
+): string {
   return [
     '<option value="',
     escapeHtml(credential.id),
+    '" data-issuer-configuration-id="',
+    escapeHtml(issuerConfigurationId),
     '">',
     escapeHtml(credential.displayName),
     "</option>",

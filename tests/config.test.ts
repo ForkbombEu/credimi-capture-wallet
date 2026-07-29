@@ -1,12 +1,16 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { X509Certificate as NodeX509Certificate } from "node:crypto";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Kms, X509Certificate } from "@credo-ts/core";
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_CONFIG,
+  accessTokenPrivateJwkPath,
   initIssuer,
+  issuerCertificatePath,
   issuerEncryptionPrivateJwkPath,
+  jwksPath,
   loadIssuerEncryptionPublicJwk,
   loadIssuerJwks,
   normalizeBaseUrl,
@@ -14,9 +18,15 @@ import {
   privateJwkPath,
   resolveGuiEnabled,
   resolveListenAddr,
+  validateIssuerMaterial,
   verifierCertificatePath,
   verifierPrivateJwkPath,
 } from "../src/config.js";
+import {
+  resolvedIssuerConfigurationById,
+  resolvedIssuerConfigurations,
+} from "../src/configurations/registry.js";
+import { issuerAppConfig } from "../src/configurations/resolve-urls.js";
 
 describe("configuration", () => {
   it("normalizes issuer base URLs from hosts and absolute URLs", () => {
@@ -80,7 +90,11 @@ QUOTED="value"
         force: true,
       });
 
-      const jwks = loadIssuerJwks(config);
+      const issuer = resolvedIssuerConfigurationById(config, "eu-pid-device-bound");
+      expect(issuer).not.toBeNull();
+      if (!issuer) throw new Error("device-bound issuer unavailable");
+      const issuerConfig = issuerAppConfig(config, issuer);
+      const jwks = loadIssuerJwks(issuerConfig);
       expect(jwks.keys).toHaveLength(1);
       expect(jwks.keys[0]?.x5c).toEqual([expect.any(String)]);
       const certificate = X509Certificate.fromEncodedCertificate(
@@ -95,7 +109,7 @@ QUOTED="value"
   it("creates separate verifier key material for OpenID4VP", async () => {
     const dataDir = mkdtempSync(join(tmpdir(), "fake-verifier-config-test-"));
     try {
-      await initIssuer({
+      const config = await initIssuer({
         issuer_base_url: "http://issuer.example.test",
         data_dir: dataDir,
         force: true,
@@ -103,8 +117,11 @@ QUOTED="value"
 
       expect(existsSync(verifierPrivateJwkPath(dataDir))).toBe(true);
       expect(existsSync(verifierCertificatePath(dataDir))).toBe(true);
+      const issuer = resolvedIssuerConfigurationById(config, "eu-pid-device-bound");
+      expect(issuer).not.toBeNull();
+      if (!issuer) throw new Error("device-bound issuer unavailable");
       expect(readFileSync(verifierPrivateJwkPath(dataDir), "utf8")).not.toBe(
-        readFileSync(privateJwkPath(dataDir), "utf8"),
+        readFileSync(privateJwkPath(issuer.materialDirectory), "utf8"),
       );
 
       const verifierPrivateJwk = JSON.parse(
@@ -131,18 +148,130 @@ QUOTED="value"
         force: true,
       });
 
-      expect(existsSync(issuerEncryptionPrivateJwkPath(dataDir))).toBe(true);
-      expect(readFileSync(issuerEncryptionPrivateJwkPath(dataDir), "utf8")).not.toBe(
-        readFileSync(privateJwkPath(dataDir), "utf8"),
-      );
-      expect(loadIssuerEncryptionPublicJwk(config)).toMatchObject({
+      const issuer = resolvedIssuerConfigurationById(config, "eu-pid-device-bound");
+      expect(issuer).not.toBeNull();
+      if (!issuer) throw new Error("device-bound issuer unavailable");
+      const issuerConfig = issuerAppConfig(config, issuer);
+      expect(existsSync(issuerEncryptionPrivateJwkPath(issuer.materialDirectory))).toBe(true);
+      expect(
+        readFileSync(issuerEncryptionPrivateJwkPath(issuer.materialDirectory), "utf8"),
+      ).not.toBe(readFileSync(privateJwkPath(issuer.materialDirectory), "utf8"));
+      expect(loadIssuerEncryptionPublicJwk(issuerConfig)).toMatchObject({
         kty: "EC",
         crv: "P-256",
         alg: "ECDH-ES",
         use: "enc",
-        kid: "credimi-fake-issuer-encryption-key",
+        kid: issuer.issuerEncryptionKeyId,
       });
-      expect(loadIssuerEncryptionPublicJwk(config)).not.toHaveProperty("d");
+      expect(loadIssuerEncryptionPublicJwk(issuerConfig)).not.toHaveProperty("d");
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+
+  it("creates isolated signing, encryption, access-token, and certificate material per issuer", async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "multi-issuer-config-test-"));
+    try {
+      const config = await initIssuer({
+        issuer_base_url: "https://issuer.example.test",
+        data_dir: dataDir,
+        force: true,
+      });
+      const [deviceBound, jwtOnly] = resolvedIssuerConfigurations(config);
+      expect(deviceBound).toBeDefined();
+      expect(jwtOnly).toBeDefined();
+      if (!deviceBound || !jwtOnly) throw new Error("issuer configurations unavailable");
+
+      const materialPaths = (materialDirectory: string) => ({
+        signing: privateJwkPath(materialDirectory),
+        encryption: issuerEncryptionPrivateJwkPath(materialDirectory),
+        accessToken: accessTokenPrivateJwkPath(materialDirectory),
+        certificate: issuerCertificatePath(materialDirectory),
+      });
+      const deviceBoundPaths = materialPaths(deviceBound.materialDirectory);
+      const jwtOnlyPaths = materialPaths(jwtOnly.materialDirectory);
+
+      for (const path of [...Object.values(deviceBoundPaths), ...Object.values(jwtOnlyPaths)]) {
+        expect(existsSync(path)).toBe(true);
+      }
+      expect(readFileSync(deviceBoundPaths.signing, "utf8")).not.toBe(
+        readFileSync(jwtOnlyPaths.signing, "utf8"),
+      );
+      expect(readFileSync(deviceBoundPaths.encryption, "utf8")).not.toBe(
+        readFileSync(jwtOnlyPaths.encryption, "utf8"),
+      );
+      expect(readFileSync(deviceBoundPaths.accessToken, "utf8")).not.toBe(
+        readFileSync(jwtOnlyPaths.accessToken, "utf8"),
+      );
+      expect(readFileSync(deviceBoundPaths.certificate, "utf8")).not.toBe(
+        readFileSync(jwtOnlyPaths.certificate, "utf8"),
+      );
+
+      const deviceBoundCertificate = new NodeX509Certificate(
+        readFileSync(deviceBoundPaths.certificate, "utf8"),
+      );
+      const jwtOnlyCertificate = new NodeX509Certificate(
+        readFileSync(jwtOnlyPaths.certificate, "utf8"),
+      );
+      expect(deviceBoundCertificate.subjectAltName).toContain(
+        `URI:${deviceBound.issuerIdentifier}`,
+      );
+      expect(jwtOnlyCertificate.subjectAltName).toContain(`URI:${jwtOnly.issuerIdentifier}`);
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps every issuer key and certificate stable when init runs without force", async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "multi-issuer-restart-test-"));
+    try {
+      const config = await initIssuer({
+        issuer_base_url: "https://issuer.example.test",
+        data_dir: dataDir,
+        force: true,
+      });
+      const paths = resolvedIssuerConfigurations(config).flatMap((issuer) => [
+        privateJwkPath(issuer.materialDirectory),
+        issuerEncryptionPrivateJwkPath(issuer.materialDirectory),
+        accessTokenPrivateJwkPath(issuer.materialDirectory),
+        issuerCertificatePath(issuer.materialDirectory),
+        jwksPath(issuer.materialDirectory),
+      ]);
+      const before = paths.map((path) => readFileSync(path, "utf8"));
+
+      await initIssuer({
+        issuer_base_url: "https://issuer.example.test",
+        data_dir: dataDir,
+      });
+
+      expect(paths.map((path) => readFileSync(path, "utf8"))).toEqual(before);
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects incomplete or reused issuer material before startup", async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "multi-issuer-validation-test-"));
+    try {
+      const config = await initIssuer({
+        issuer_base_url: "https://issuer.example.test",
+        data_dir: dataDir,
+        force: true,
+      });
+      const [deviceBound, jwtOnly] = resolvedIssuerConfigurations(config);
+      if (!deviceBound || !jwtOnly) throw new Error("issuer configurations unavailable");
+      const jwtOnlyAccessTokenPath = accessTokenPrivateJwkPath(jwtOnly.materialDirectory);
+      const originalJwtOnlyAccessToken = readFileSync(jwtOnlyAccessTokenPath, "utf8");
+
+      writeFileSync(
+        jwtOnlyAccessTokenPath,
+        readFileSync(accessTokenPrivateJwkPath(deviceBound.materialDirectory), "utf8"),
+      );
+      expect(() => validateIssuerMaterial(config)).toThrow("Issuer key reuse detected");
+
+      writeFileSync(jwtOnlyAccessTokenPath, originalJwtOnlyAccessToken);
+      rmSync(issuerEncryptionPrivateJwkPath(jwtOnly.materialDirectory));
+      expect(() => validateIssuerMaterial(config)).toThrow("is missing encryption material");
     } finally {
       rmSync(dataDir, { recursive: true, force: true });
     }

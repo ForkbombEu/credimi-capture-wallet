@@ -2,6 +2,15 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import express, { type Request } from "express";
 import QRCode from "qrcode";
+import { loadIssuerJwks } from "./config.js";
+import {
+  DEFAULT_ISSUER_CONFIGURATION_ID,
+  issuerCatalogue,
+  resolvedIssuerConfigurationById,
+  resolvedIssuerConfigurations,
+} from "./configurations/registry.js";
+import { issuerAppConfig } from "./configurations/resolve-urls.js";
+import type { ResolvedIssuerConfiguration } from "./configurations/types.js";
 import {
   CredentialEncryptionError,
   credentialResponseEncryption,
@@ -15,7 +24,9 @@ import {
   jwtVcIssuerMetadata,
   signCredentialIssuerMetadata,
   supportedCredentialConfigurationIds,
+  supportedCredentialConfigurationIdsForIssuer,
   supportedCredentials,
+  supportedCredentialsForIssuer,
 } from "./metadata.js";
 import {
   completeOid4vciRequestCapture,
@@ -54,7 +65,11 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
   app.use(express.text({ type: "application/jwt" }));
   app.use((req, res, next) => {
     if (!isOid4vciProtocolPath(req.path)) return next();
-    const capture = createOid4vciRequestCapture(req, oid4vciRequestSessionId(store, req));
+    const capture = createOid4vciRequestCapture(
+      req,
+      oid4vciRequestSessionId(store, req),
+      oid4vciRequestIssuerConfigurationId(store, req),
+    );
     oid4vciCaptures.set(req, capture);
     store.recordOid4vciRequest(capture);
     res.once("finish", () => completeOid4vciRequestCapture(capture, res));
@@ -80,7 +95,14 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
 
   if (config.gui_enabled) {
     app.get("/", (_req, res) => {
-      res.type("html").send(indexPage(supportedCredentials(config)));
+      res.type("html").send(
+        indexPage(
+          resolvedIssuerConfigurations(config).map((issuer) => ({
+            issuer,
+            credentials: supportedCredentialsForIssuer(config, issuer),
+          })),
+        ),
+      );
     });
 
     app.get("/ui/help", (_req, res) => {
@@ -100,10 +122,14 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     app.post("/ui/sessions", async (req, res, next) => {
       try {
         const body = requestParams(req);
+        const issuer = issuerFromRequest(config, body.issuer_configuration_id);
+        if (!issuer) {
+          return res.status(400).type("html").send(errorPage("Unsupported issuer configuration"));
+        }
+        const supportedIds = supportedCredentialConfigurationIdsForIssuer(config, issuer);
         const credentialConfigurationId =
-          asStringOrNull(body.credential_configuration_id) ??
-          supportedCredentialConfigurationIds(config)[0];
-        if (!supportedCredentialConfigurationIds(config).includes(credentialConfigurationId)) {
+          asStringOrNull(body.credential_configuration_id) ?? supportedIds[0];
+        if (!credentialConfigurationId || !supportedIds.includes(credentialConfigurationId)) {
           return res
             .status(400)
             .type("html")
@@ -113,8 +139,8 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         const session = await createIssuanceSession(
           config,
           store,
+          issuer,
           credentialConfigurationId,
-          false,
         );
         store.addEvent(session, "credential_deeplink_generated", {});
         return res.redirect(303, `/ui/sessions/${encodeURIComponent(session.session_id)}`);
@@ -191,45 +217,78 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     res.json(store.oid4vciRequests);
   });
 
-  app.get("/.well-known/openid-credential-issuer", async (req, res, next) => {
-    try {
-      const credoIssuer = await credoOpenId4VciIssuer(config, store);
-      const metadata = await credoIssuer.credentialIssuerMetadata();
-      res.vary("Accept");
-      const responseType = req.accepts(["application/json", "application/jwt"]);
-      if (responseType === "application/jwt") {
-        return res
-          .status(200)
-          .type("application/jwt")
-          .send(await signCredentialIssuerMetadata(config, metadata, credoIssuer.context));
+  app.get(
+    "/.well-known/openid-credential-issuer/issuers/:issuerConfigurationId",
+    async (req, res, next) => {
+      try {
+        const issuer = resolvedIssuerConfigurationById(config, req.params.issuerConfigurationId);
+        if (!issuer) return res.status(404).json({ error: "issuer_not_found" });
+        const credoIssuer = await credoOpenId4VciIssuer(config, store);
+        const metadata = await credoIssuer.credentialIssuerMetadata(issuer.id);
+        res.vary("Accept");
+        const responseType = req.accepts(["application/json", "application/jwt"]);
+        if (responseType === "application/jwt") {
+          return res
+            .status(200)
+            .type("application/jwt")
+            .send(
+              await signCredentialIssuerMetadata(
+                issuerAppConfig(config, issuer),
+                metadata,
+                credoIssuer.context,
+              ),
+            );
+        }
+        return res.json(metadata);
+      } catch (error) {
+        return next(error);
       }
-      return res.json(metadata);
-    } catch (error) {
-      return next(error);
-    }
+    },
+  );
+
+  app.get(
+    "/.well-known/oauth-authorization-server/issuers/:issuerConfigurationId",
+    async (req, res, next) => {
+      try {
+        const issuer = resolvedIssuerConfigurationById(config, req.params.issuerConfigurationId);
+        if (!issuer) return res.status(404).json({ error: "issuer_not_found" });
+        return res.json(
+          await (await credoOpenId4VciIssuer(config, store)).authorizationServerMetadata(issuer.id),
+        );
+      } catch (error) {
+        return next(error);
+      }
+    },
+  );
+
+  app.get("/.well-known/jwt-vc-issuer/issuers/:issuerConfigurationId", (req, res) => {
+    const issuer = resolvedIssuerConfigurationById(config, req.params.issuerConfigurationId);
+    if (!issuer) return res.status(404).json({ error: "issuer_not_found" });
+    res.json(jwtVcIssuerMetadata(issuerAppConfig(config, issuer)));
   });
 
-  app.get("/.well-known/oauth-authorization-server", async (_req, res, next) => {
-    try {
-      return res.json(
-        await (await credoOpenId4VciIssuer(config, store)).authorizationServerMetadata(),
-      );
-    } catch (error) {
-      return next(error);
-    }
+  app.get("/issuers/:issuerConfigurationId/credential-jwks.json", (req, res) => {
+    const issuer = resolvedIssuerConfigurationById(config, req.params.issuerConfigurationId);
+    if (!issuer) return res.status(404).json({ error: "issuer_not_found" });
+    res.json(loadIssuerJwks(issuerAppConfig(config, issuer)));
   });
 
-  app.get("/.well-known/jwt-vc-issuer", (_req, res) => {
-    res.json(jwtVcIssuerMetadata(config));
+  app.get("/issuers", (_req, res) => {
+    res.json(
+      issuerCatalogue(config, (issuer) =>
+        supportedCredentialConfigurationIdsForIssuer(config, issuer),
+      ),
+    );
   });
 
   app.post("/sessions", async (req, res, next) => {
     try {
       const body = requestParams(req);
-      if (body.broken !== undefined && typeof body.broken !== "boolean") {
+      if (body.broken !== undefined) {
         return res.status(400).json({
           error: "invalid_request",
-          error_description: "'broken' must be a boolean",
+          error_description:
+            "'broken' is unavailable because the legacy root issuer has been removed",
         });
       }
       const flow = issuanceFlowOrNull(body.flow);
@@ -246,21 +305,34 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
           supported_credential_offer_modes: ["credential_offer", "credential_offer_uri"],
         });
       }
+      const issuer = issuerFromRequest(config, body.issuer_configuration_id);
+      if (!issuer) {
+        return res.status(400).json({
+          error: "unsupported_issuer_configuration",
+          supported_issuer_configuration_ids: resolvedIssuerConfigurations(config).map(
+            (candidate) => candidate.id,
+          ),
+        });
+      }
+      const supportedCredentialIds = supportedCredentialConfigurationIdsForIssuer(config, issuer);
       const credentialConfigurationId =
-        asStringOrNull(body.credential_configuration_id) ??
-        supportedCredentialConfigurationIds(config)[0];
-      if (!supportedCredentialConfigurationIds(config).includes(credentialConfigurationId)) {
+        asStringOrNull(body.credential_configuration_id) ?? supportedCredentialIds[0];
+      if (
+        !credentialConfigurationId ||
+        !supportedCredentialIds.includes(credentialConfigurationId)
+      ) {
         return res.status(400).json({
           error: "unsupported_credential_configuration",
-          supported_credential_configuration_ids: supportedCredentialConfigurationIds(config),
+          issuer_configuration_id: issuer.id,
+          supported_credential_configuration_ids: supportedCredentialIds,
         });
       }
 
       const session = await createIssuanceSession(
         config,
         store,
+        issuer,
         credentialConfigurationId,
-        body.broken === true,
         flow ?? "authorization_code",
         credentialOfferMode ?? "credential_offer",
       );
@@ -268,10 +340,12 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       if (!offer) throw new Error("Credo credential offer was not stored");
       return res.status(201).json({
         session_id: session.session_id,
+        issuer_configuration_id: session.issuer_configuration_id,
+        issuer_identifier: session.issuer_identifier,
+        authorization_server_identifier: session.authorization_server_identifier,
         flow: session.flow,
         credential_offer_mode: session.credential_offer_mode,
         credential_configuration_id: session.credential_configuration_id,
-        broken: session.broken,
         offer_url: offer.credential_offer_uri,
         deeplink: offer.credential_offer,
         status: session.status,
@@ -510,7 +584,10 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     return res.json(session.events);
   });
 
-  app.post("/credential", async (req, res, next) => {
+  app.post("/issuers/:issuerConfigurationId/credential", async (req, res, next) => {
+    const issuer = resolvedIssuerConfigurationById(config, req.params.issuerConfigurationId);
+    if (!issuer) return res.status(404).json({ error: "issuer_not_found" });
+    const issuerConfig = issuerAppConfig(config, issuer);
     const encryptedRequest = req.is("application/jwt") === "application/jwt";
     let body: JsonRecord;
     let responseEncryption: ReturnType<typeof credentialResponseEncryption>;
@@ -521,7 +598,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
             "Encrypted Credential Request body must be a compact JWE",
           );
         }
-        body = await decryptCredentialRequest(config, req.body);
+        body = await decryptCredentialRequest(issuerConfig, req.body);
       } else {
         body = requestParams(req);
       }
@@ -559,7 +636,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         } catch {
           return send(responseBody);
         }
-        void encryptCredentialResponse(config, responseEncryption, json)
+        void encryptCredentialResponse(issuerConfig, responseEncryption, json)
           .then((jwe) => {
             res.setHeader("Content-Type", "application/jwt");
             send(jwe);
@@ -607,23 +684,33 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
 function oid4vciRequestSessionId(store: CaptureStore, req: Request): string | null {
   const sessionPath = /^\/sessions\/([^/]+)\/(?:offer|deeplink)$/.exec(req.path);
   if (sessionPath?.[1]) return decodeURIComponent(sessionPath[1]);
-  const offerPath = /^\/offers\/([^/]+)$/.exec(req.path);
+  const offerPath = /^\/issuers\/[^/]+\/offers\/([^/]+)$/.exec(req.path);
   if (offerPath?.[1]) {
     return store.captureSessionIdsByCredentialOffer.get(offerPath[1]) ?? null;
   }
   return null;
 }
 
+function oid4vciRequestIssuerConfigurationId(store: CaptureStore, req: Request): string | null {
+  const issuerPath =
+    /^\/issuers\/([^/]+)\//.exec(req.path) ??
+    /^\/(?:authorization-servers)\/([^/]+)\//.exec(req.path) ??
+    /^\/\.well-known\/(?:openid-credential-issuer|jwt-vc-issuer)\/issuers\/([^/]+)$/.exec(
+      req.path,
+    ) ??
+    /^\/\.well-known\/oauth-authorization-server\/(?:issuers|authorization-servers)\/([^/]+)$/.exec(
+      req.path,
+    );
+  if (issuerPath?.[1]) return decodeURIComponent(issuerPath[1]);
+  const sessionId = oid4vciRequestSessionId(store, req);
+  return sessionId ? (store.getSession(sessionId)?.issuer_configuration_id ?? null) : null;
+}
+
 function isCredoIssuerEndpoint(path: string): boolean {
   return (
-    path === "/jwks.json" ||
-    path === "/par" ||
-    path === "/authorize" ||
-    path === "/redirect" ||
-    path === "/nonce" ||
-    path === "/token" ||
-    path === "/deferred-credential" ||
-    /^\/offers\/[^/]+$/.test(path)
+    /^\/issuers\/[^/]+\/(?:jwks\.json|par|authorize|challenge|redirect|nonce|token|deferred-credential)$/.test(
+      path,
+    ) || /^\/issuers\/[^/]+\/offers\/[^/]+$/.test(path)
   );
 }
 
@@ -642,16 +729,16 @@ function rawBodyCapture(req: Request, _res: express.Response, buffer: Buffer): v
 async function createIssuanceSession(
   config: AppConfig,
   store: CaptureStore,
+  issuer: ResolvedIssuerConfiguration,
   credentialConfigurationId: string,
-  broken: boolean,
   flow: SessionCapture["flow"] = "authorization_code",
   credentialOfferMode: CredentialOfferMode = "credential_offer",
 ): Promise<SessionCapture> {
-  const session = store.createSession(credentialConfigurationId, broken, flow, credentialOfferMode);
+  const session = store.createSession(issuer, credentialConfigurationId, flow, credentialOfferMode);
   const offer = await (await credoOpenId4VciIssuer(config, store)).createCredentialOffer({
+    issuerConfigurationId: issuer.id,
     captureSessionId: session.session_id,
     credentialConfigurationId: session.credential_configuration_id,
-    broken: session.broken,
     flow: session.flow,
     credentialOfferMode: session.credential_offer_mode,
   });
@@ -667,6 +754,11 @@ async function createIssuanceSession(
     implementation: "credo-ts",
   });
   return session;
+}
+
+function issuerFromRequest(config: AppConfig, value: unknown): ResolvedIssuerConfiguration | null {
+  const id = asStringOrNull(value) ?? DEFAULT_ISSUER_CONFIGURATION_ID;
+  return resolvedIssuerConfigurationById(config, id);
 }
 
 function issuanceFlowOrNull(value: unknown): SessionCapture["flow"] | null {

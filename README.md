@@ -52,7 +52,7 @@ During the credential verification the service captures:
 
 Visit https://capture-wallet.credimi.io/ and start issuing and verifying PID in dc+sd-jwt and mdoc format.
 
-Once you have chosen what type of credential:
+Once you have chosen an issuer and credential format:
 * Click on `New fake-issuance session` to open an OpenID4VCI QR session. Scan the QR with an EUDI Wallet. The session page updates as Wallet metadata, proof keys, DPoP keys, checks, and flow events are observed.
 * Click on `New presentation session` to open an OpenID4VP QR session. The QR contains a presentation request for the credentials supported by this issuer. The page updates when the Wallet retrieves the request and posts the presentation response.
 
@@ -79,7 +79,8 @@ pnpm capture-services init \
 pnpm dev
 ```
 
-Default local issuer URL is `http://localhost:8080`. You can select your port using
+The default local service URL is `http://localhost:8080`. Both issuers are always
+started below its `/issuers/` prefix. You can select your port using
 
 ```sh
 PORT=22000 pnpm dev
@@ -97,16 +98,20 @@ The interactive API reference is available at `$BASE_URL/docs`. It uses Stopligh
 
 Common REST API endpoints are:
 * Health: `/healthz`
-* Credential Issuer well-known: `/.well-known/openid-credential-issuer`
-* Authorization server well-known: `/.well-known/oauth-authorization-server`
+* Issuer catalogue: `/issuers`
+* Credential Issuer well-known:
+  `/.well-known/openid-credential-issuer/issuers/{issuerConfigurationId}`
+* Authorization server well-known:
+  `/.well-known/oauth-authorization-server/issuers/{issuerConfigurationId}`
 * Auto-approving chained OAuth server well-known:
-  `/.well-known/oauth-authorization-server/fake-oauth`
-* Authorization Server JWKS: `/jwks.json`
+  `/.well-known/oauth-authorization-server/authorization-servers/{issuerConfigurationId}`
+* Authorization Server JWKS: `/issuers/{issuerConfigurationId}/jwks.json`
+* Credential-signing JWKS: `/issuers/{issuerConfigurationId}/credential-jwks.json`
 
 The Credential Issuer well-known endpoint returns unsigned JSON by default. Request
 the OpenID4VCI 1.0 signed form with:
 ```sh
-curl "$BASE_URL/.well-known/openid-credential-issuer" \
+curl "$BASE_URL/.well-known/openid-credential-issuer/issuers/eu-pid-device-bound" \
   -H 'Accept: application/jwt'
 ```
 The response is a compact JWS with media type `application/jwt`, protected type
@@ -126,9 +131,18 @@ claim set, where `exp` is optional. Signature, audience, time, client,
 proof-of-possession key, and certificate checks remain handled by Credo-TS.
 When initialized with issuer encryption material, the metadata also advertises optional
 Credential Request and Credential Response encryption using `ECDH-ES` and `A256GCM`.
-The issuer exposes separate credential configurations for JWT proofs with and without
-a required key attestation. The key-attestation-required configurations also support
-the `attestation` proof type. All proof signing uses `ES256`.
+The service runs two Credo-TS issuer records at all times. Each has its own identifier,
+authorization server, chained auto-approving OAuth server, signing and encryption
+keys, access-token key, and certificate:
+
+| Issuer configuration ID | Credential issuer | Advertised proof policy |
+| --- | --- | --- |
+| `eu-pid-device-bound` | `/issuers/eu-pid-device-bound` | `jwt` and `attestation`, both with `key_attestations_required: {}` |
+| `eu-pid-jwt-proof-only` | `/issuers/eu-pid-jwt-proof-only` | `jwt` without a key-attestation requirement |
+
+The device-bound issuer is the default. The JWT-proof-only issuer is deliberately
+non-conforming for a device-bound EUDI PID and exists for interoperability testing.
+The legacy root issuer no longer exists.
 
 ### 🪪 OpenID4VCI Issuance Flow
 
@@ -137,19 +151,20 @@ the `attestation` proof type. All proof signing uses `ES256`.
 
 
 The configured `--credential-configuration-id` is the base for four Credential
-Configuration Identifiers:
+Configuration Identifiers split across the two issuers:
 
-| Format | Proof policy | Configuration ID and scope suffix | Credential type |
+| Issuer | Format | Configuration ID and scope suffix | Credential type |
 | --- | --- | --- | --- |
-| SD-JWT VC | JWT proof, no key attestation | `.sd-jwt.jwt-proof` | `vct: urn:eudi:pid:1` |
-| SD-JWT VC | Key attestation required | `.sd-jwt.key-attestation-required` | `vct: urn:eudi:pid:1` |
-| mdoc | JWT proof, no key attestation | `.mdoc.jwt-proof` | `doctype: eu.europa.ec.eudi.pid.1` |
-| mdoc | Key attestation required | `.mdoc.key-attestation-required` | `doctype: eu.europa.ec.eudi.pid.1` |
+| `eu-pid-device-bound` | SD-JWT VC | `.sd-jwt.key-attestation-required` | `vct: urn:eudi:pid:1` |
+| `eu-pid-device-bound` | mdoc | `.mdoc.key-attestation-required` | `doctype: eu.europa.ec.eudi.pid.1` |
+| `eu-pid-jwt-proof-only` | SD-JWT VC | `.sd-jwt.jwt-proof` | `vct: urn:eudi:pid:1` |
+| `eu-pid-jwt-proof-only` | mdoc | `.mdoc.jwt-proof` | `doctype: eu.europa.ec.eudi.pid.1` |
 
 Each configuration has a unique scope formed by appending the same suffix to the
 configured credential scope. The duplicated configurations issue the same credential
-type and claims; only their proof policy differs. The key-attestation-required SD-JWT
-configuration is the default when no `credential_configuration_id` is supplied.
+type and claims and retain the same `vct` or `doctype`; only the issuer and proof policy
+differ. The device-bound issuer and its key-attestation-required SD-JWT configuration
+are selected when their request fields are omitted.
 
 Start by creating a capture session for a credential configuration:
 
@@ -157,9 +172,14 @@ Start by creating a capture session for a credential configuration:
 curl -X POST "$BASE_URL/sessions" \
   -H 'Content-Type: application/json' \
   -d '{
+    "issuer_configuration_id":"eu-pid-device-bound",
     "credential_configuration_id":"urn:eu.europa.ec.eudi:pid:1.mdoc.key-attestation-required"
   }'
 ```
+`issuer_configuration_id` is optional and accepts `eu-pid-device-bound` or
+`eu-pid-jwt-proof-only`. A credential configuration must belong to the selected
+issuer; the service rejects cross-issuer combinations.
+
 `flow` is optional and defaults to `authorization_code`, whose authorization is
 handled by Credo-TS through the service's auto-approving chained OAuth server. Set it
 to `pre_authorized_code` to issue a pre-authorized offer instead.
@@ -169,9 +189,8 @@ the Credential Offer JSON directly in the `deeplink`. Set it to
 `credential_offer_uri` to make the `deeplink` refer to the hosted `offer_url` instead;
 this can keep a QR code smaller when the offer is large.
 
-By default, the session issues a conforming PID for Mario Rossi. Set the optional JSON
-field `"broken": true` to issue the intentionally malformed legacy Jane Doe fixture,
-whose `place_of_birth` claim is a string instead of the required structured value.
+Both issuers issue the same deterministic Mario Rossi PID claims. The removed legacy
+root issuer and its `broken` credential fixture are no longer available.
 
 To request an encrypted Credential Response, include `credential_response_encryption`
 with a public JWK whose `alg` is `ECDH-ES` and set `enc` to `A256GCM`. OpenID4VCI 1.0
@@ -185,11 +204,13 @@ A successful response returns HTTP 201 and includes:
 ```json
 {
   "session_id": "...",
+  "issuer_configuration_id": "eu-pid-device-bound",
+  "issuer_identifier": "https://capture-wallet.credimi.io/issuers/eu-pid-device-bound",
+  "authorization_server_identifier": "https://capture-wallet.credimi.io/issuers/eu-pid-device-bound",
   "flow": "authorization_code",
   "credential_offer_mode": "credential_offer",
   "credential_configuration_id": "urn:eu.europa.ec.eudi:pid:1.mdoc.key-attestation-required",
-  "broken": false,
-  "offer_url": "https://capture-wallet.credimi.io/offers/...",
+  "offer_url": "https://capture-wallet.credimi.io/issuers/eu-pid-device-bound/offers/...",
   "deeplink": "openid-credential-offer://...",
   "status": "created"
 }
@@ -204,17 +225,20 @@ By default, the offer contains the `authorization_code` grant. The Wallet uses t
 scope advertised for the offered Credential Configuration and returns the offer's
 `issuer_state` in its Authorization Request. Credo requires PAR, S256 PKCE, and DPoP
 for this flow. Opening Credo's `/authorize` endpoint redirects to
-`/fake-oauth/authorize`; that test server immediately approves every valid request and
-redirects to Credo's `/redirect` callback. Credo exchanges the external one-time code,
-then immediately redirects to the Wallet's registered `redirect_uri` with a separate
-Credo authorization code. The Wallet exchanges that code at `/token` and continues
-with the nonce and credential requests.
+`/authorization-servers/{issuerConfigurationId}/authorize`; that issuer-specific test
+server immediately approves every valid request and redirects to the matching
+`/issuers/{issuerConfigurationId}/redirect` callback. Credo exchanges the external
+one-time code, then immediately redirects to the Wallet's registered `redirect_uri`
+with a separate Credo authorization code. The Wallet exchanges that code at the
+matching issuer's `/token` endpoint and continues with the nonce and credential
+requests.
 
 The fake OAuth server is deliberately not an authentication or consent system. It has
-one fixed internal client, accepts only Credo's exact callback URI, requires S256 PKCE,
-and issues short-lived single-use codes. Its access token is consumed only by Credo
-and is never accepted at the Credential Endpoint. Do not use this auto-approval
-mechanism as a production authorization policy.
+one issuer-specific internal client, accepts only that issuer's exact callback URI,
+requires S256 PKCE, and issues short-lived single-use codes. Authorization codes,
+clients, and scopes are isolated between issuers. Its access token is consumed only
+by Credo and is never accepted at the Credential Endpoint. Do not use this
+auto-approval mechanism as a production authorization policy.
 
 For a Pre-Authorized Code offer:
 
@@ -222,6 +246,7 @@ For a Pre-Authorized Code offer:
 curl -X POST "$BASE_URL/sessions" \
   -H 'Content-Type: application/json' \
   -d '{
+    "issuer_configuration_id":"eu-pid-device-bound",
     "flow":"pre_authorized_code",
     "credential_configuration_id":"urn:eu.europa.ec.eudi:pid:1.mdoc.key-attestation-required"
   }'
@@ -232,10 +257,10 @@ This offer contains the
 pre-authorized code directly at the token endpoint, then calls the nonce and
 credential endpoints.
 
-The `/credential` endpoint accepts exactly one proof type per request:
+Each issuer's `/credential` endpoint accepts exactly one proof type per request:
 
-* A `.jwt-proof` configuration accepts `proofs.jwt`, containing one or more
-  `openid4vci-proof+jwt` values signed by their public `header.jwk`. It does not
+* A `.jwt-proof` configuration accepts `proofs.jwt`, containing one
+  `openid4vci-proof+jwt` value signed by its public `header.jwk`. It does not
   require `header.key_attestation` and does not support the `attestation` proof type.
 * A `.key-attestation-required` configuration accepts `proofs.jwt[0]` only when its
   `header.key_attestation` is a valid `key-attestation+jwt` that attests the
@@ -280,7 +305,7 @@ For each session you can get different information:
   Correlatable requests are also included under `raw.oid4vci_requests` in the
   normalized session capture. DPoP, pre-authorized-code, access-token, JWT proof,
   client-attestation, and other secret values are replaced with presence and length
-  metadata. The issuer-wide ledger retains the latest 1,000 requests.
+  metadata. The service-wide ledger retains the latest 1,000 requests.
 * Captured Wallet holder-binding JWKS after the Wallet has called `/credential` with a
   proof JWT `header.jwk` or a direct attestation `attested_keys` entry:
   ```sh
@@ -367,7 +392,7 @@ The QR deeplink contains `client_id=x509_hash:...` and `request_uri=...`. The re
 In this case for each session you can get:
 * deeplink:
   ```sh
-  curl "$BASE_URL/sessions/{sessionId}/deeplink"
+  curl "$BASE_URL/openid4vp/sessions/{sessionId}/deeplink"
   ```
 * Normalized capture object:
   ```sh
@@ -388,27 +413,48 @@ Runtime configuration comes from generated services config and environment varia
 
 `pnpm capture-services init` is the only way to initialize service material; the running HTTP service has no initialization endpoint. The command is idempotent and writes generated issuer, verifier, and config files below `./data`, which is ignored by Git. Use `--force` to replace existing generated state.
 
-After upgrading an existing installation, rerun the command without `--force` to add
-missing credential-request encryption material without rotating existing keys.
+After upgrading an existing installation, rerun the command without `--force` to
+provision the two issuer-specific material directories without rotating material that
+already exists there. Legacy root issuer files are ignored; they are not served and
+are not deleted automatically.
 
-Issuer material:
+Startup validates that both issuer directories are complete, that certificates match
+their signing keys and exact issuer URI SANs, and that signing, encryption, and
+access-token public keys are not reused between issuer roles.
+
+Issuer material is stored independently for each issuer:
 
 ```text
-data/issuer-private-jwk.json
-data/issuer-encryption-private-jwk.json
-data/issuer-certificate.pem
-data/jwks.json
+data/issuers/eu-pid-device-bound/
+├── access-token-private-jwk.json
+├── issuer-certificate.pem
+├── issuer-encryption-private-jwk.json
+├── issuer-private-jwk.json
+└── jwks.json
+
+data/issuers/eu-pid-jwt-proof-only/
+├── access-token-private-jwk.json
+├── issuer-certificate.pem
+├── issuer-encryption-private-jwk.json
+├── issuer-private-jwk.json
+└── jwks.json
 ```
 
 OpenID4VP verifier material:
 
 ```text
-data/verifier-private-jwk.json
-data/verifier-certificate.pem
-data/verifier-jwks.json
+data/verifier/verifier-private-jwk.json
+data/verifier/verifier-certificate.pem
+data/verifier/verifier-jwks.json
 ```
 
-To use a specific verifier key, replace `verifier-private-jwk.json` with an ES256 private JWK and replace `verifier-certificate.pem` with a certificate for the matching public key. Do not use `init --force` after replacing verifier material unless you want it regenerated. The verifier `x509_hash` client identifier is derived from `verifier-certificate.pem`, and signed request objects are signed with `verifier-private-jwk.json`.
+To use a specific verifier key, replace `data/verifier/verifier-private-jwk.json`
+with an ES256 private JWK and replace
+`data/verifier/verifier-certificate.pem` with a certificate for the matching public
+key. Do not use `init --force` after replacing verifier or issuer material unless you
+want all generated material regenerated. The verifier `x509_hash` client identifier
+is derived from its certificate, and signed request objects are signed with its
+private JWK.
 
 From env file `.env`, that is loaded automatically when present, you can set:
 - `GUI_ENABLED`: enables or disables browser GUI routes. Defaults to `true`.
