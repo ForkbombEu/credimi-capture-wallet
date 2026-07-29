@@ -1840,6 +1840,112 @@ describe("capture issuer server", () => {
     expect(response.status).toBe(403);
   });
 
+  it("accepts independent wallet-attestation and DPoP keys at PAR", async () => {
+    const app = createApp(config);
+    const clientId = "https://wallet.example.test";
+    const redirectUri = "https://wallet.example.test/callback";
+    const session = await postJson<SessionCreateResponse>(app, "/sessions", {});
+    const offer = await getJson<CredentialOfferResponse>(app, new URL(session.offer_url).pathname);
+    const grant = offer.grants.authorization_code;
+    const walletInstanceKey = await dpopKey();
+    const unrelatedWalletInstanceKey = await dpopKey();
+    const dpop = await dpopKey();
+    const walletAttestation = await walletAttestationJwt(walletInstanceKey, clientId);
+    const parPath = issuerProtocolPath(session, "/par");
+    const codeVerifier = randomBytes(48).toString("base64url");
+    const codeChallenge = createHash("sha256").update(codeVerifier).digest("base64url");
+    const parRequest = {
+      response_type: "code",
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      scope: session.credential_configuration_id,
+      issuer_state: String(grant.issuer_state),
+      state: "wallet-state",
+      code_challenge: codeChallenge,
+      code_challenge_method: "S256",
+    };
+
+    const invalidProof = await request(app)
+      .post(parPath)
+      .set("DPoP", await dpopProof(dpop, "POST", parPath))
+      .set("OAuth-Client-Attestation", walletAttestation)
+      .set(
+        "OAuth-Client-Attestation-PoP",
+        await walletAttestationPopJwt(unrelatedWalletInstanceKey, clientId),
+      )
+      .type("form")
+      .send(parRequest);
+
+    expect(invalidProof.status).toBe(401);
+    expect(invalidProof.body).toMatchObject({ error: "invalid_client" });
+
+    const accepted = await request(app)
+      .post(parPath)
+      .set("DPoP", await dpopProof(dpop, "POST", parPath))
+      .set("OAuth-Client-Attestation", walletAttestation)
+      .set(
+        "OAuth-Client-Attestation-PoP",
+        await walletAttestationPopJwt(walletInstanceKey, clientId),
+      )
+      .type("form")
+      .send(parRequest);
+
+    expect(accepted.status, JSON.stringify(accepted.body)).toBe(201);
+    expect(accepted.body).toMatchObject({
+      request_uri: expect.any(String),
+      expires_in: expect.any(Number),
+    });
+
+    const authorize = await request(app)
+      .get(issuerProtocolPath(session, "/authorize"))
+      .query({
+        client_id: clientId,
+        request_uri: String(accepted.body.request_uri),
+      })
+      .redirects(0);
+    expect(authorize.status).toBe(302);
+
+    const externalAuthorizationUrl = new URL(String(authorize.headers.location));
+    const autoApproval = await request(app)
+      .get(`${externalAuthorizationUrl.pathname}${externalAuthorizationUrl.search}`)
+      .redirects(0);
+    expect(autoApproval.status).toBe(302);
+
+    const credoCallback = new URL(String(autoApproval.headers.location));
+    const walletAuthorizationResponse = await request(app)
+      .get(`${credoCallback.pathname}${credoCallback.search}`)
+      .redirects(0);
+    expect(walletAuthorizationResponse.status).toBe(302);
+
+    const walletCallback = new URL(String(walletAuthorizationResponse.headers.location));
+    const authorizationCode = walletCallback.searchParams.get("code");
+    expect(authorizationCode).toEqual(expect.any(String));
+
+    const tokenPath = issuerProtocolPath(session, "/token");
+    const token = await request(app)
+      .post(tokenPath)
+      .set("DPoP", await dpopProof(dpop, "POST", tokenPath))
+      .set("OAuth-Client-Attestation", walletAttestation)
+      .set(
+        "OAuth-Client-Attestation-PoP",
+        await walletAttestationPopJwt(walletInstanceKey, clientId),
+      )
+      .type("form")
+      .send({
+        grant_type: "authorization_code",
+        code: String(authorizationCode),
+        code_verifier: codeVerifier,
+        redirect_uri: redirectUri,
+        client_id: clientId,
+      });
+
+    expect(token.status, JSON.stringify(token.body)).toBe(200);
+    expect(token.body).toMatchObject({
+      access_token: expect.any(String),
+      token_type: "DPoP",
+    });
+  });
+
   it("runs the default authorization-code flow through the auto-approving OAuth server", async () => {
     const app = createApp(config);
     const walletClientId = "https://wallet.example.test";

@@ -126,6 +126,10 @@ supported signing algorithm.
 Credo-TS verifies the `OAuth-Client-Attestation` and
 `OAuth-Client-Attestation-PoP` headers when supplied; anonymous pre-authorized Token
 Requests remain supported.
+When a request supplies both a Client Attestation PoP and DPoP, Credo validates the
+proofs independently and permits their keys to differ, as required by
+[OAuth 2.0 Attestation-Based Client Authentication draft 10](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-attestation-based-client-auth-10#section-7).
+The DPoP combined client-authentication method is not advertised.
 The pinned Credo-TS/OpenID4VC stack accepts the OpenID4VCI 1.0 Wallet Attestation PoP
 claim set, where `exp` is optional. Signature, audience, time, client,
 proof-of-possession key, and certificate checks remain handled by Credo-TS.
