@@ -420,7 +420,9 @@ are not deleted automatically.
 
 Startup validates that both issuer directories are complete, that certificates match
 their signing keys and exact issuer URI SANs, and that signing, encryption, and
-access-token public keys are not reused between issuer roles.
+access-token public keys are not reused between issuer roles. A deployment-hostname
+`dNSName` SAN is optional and is not checked, allowing externally issued certificates
+that bind the path-based issuer through the URI SAN only.
 
 Issuer material is stored independently for each issuer:
 

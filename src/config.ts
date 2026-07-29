@@ -287,18 +287,11 @@ export function validateIssuerMaterial(config: AppConfig): void {
       throw new Error(`Issuer '${issuer.id}' certificate does not match its signing key`);
     }
     const nodeCertificate = new NodeX509Certificate(certificatePem);
-    if (!nodeCertificate.subjectAltName?.includes(`URI:${issuer.issuerIdentifier}`)) {
-      throw new Error(
-        `Issuer '${issuer.id}' certificate is missing URI SAN '${issuer.issuerIdentifier}'`,
-      );
-    }
-    if (
-      !nodeCertificate.subjectAltName?.includes(`DNS:${new URL(issuer.issuerIdentifier).hostname}`)
-    ) {
-      throw new Error(
-        `Issuer '${issuer.id}' certificate is missing its deployment hostname DNS SAN`,
-      );
-    }
+    validateIssuerCertificateSubjectAlternativeName(
+      nodeCertificate.subjectAltName,
+      issuer.issuerIdentifier,
+      issuer.id,
+    );
 
     const publishedJwks = loadIssuerJwks(material);
     const signingPublicJwk = Kms.PublicJwk.fromUnknown(toPublicJwk(signingPrivateJwk));
@@ -317,6 +310,17 @@ export function validateIssuerMaterial(config: AppConfig): void {
     registerUniquePublicKey(publicKeyOwners, issuer.id, "signing", signingPrivateJwk);
     registerUniquePublicKey(publicKeyOwners, issuer.id, "encryption", encryptionPrivateJwk);
     registerUniquePublicKey(publicKeyOwners, issuer.id, "access-token", accessTokenPrivateJwk);
+  }
+}
+
+export function validateIssuerCertificateSubjectAlternativeName(
+  subjectAlternativeName: string | undefined,
+  issuerIdentifier: string,
+  issuerId: string,
+): void {
+  const names = subjectAlternativeName?.split(", ") ?? [];
+  if (!names.includes(`URI:${issuerIdentifier}`)) {
+    throw new Error(`Issuer '${issuerId}' certificate is missing URI SAN '${issuerIdentifier}'`);
   }
 }
 

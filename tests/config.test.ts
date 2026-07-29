@@ -18,6 +18,7 @@ import {
   privateJwkPath,
   resolveGuiEnabled,
   resolveListenAddr,
+  validateIssuerCertificateSubjectAlternativeName,
   validateIssuerMaterial,
   verifierCertificatePath,
   verifierPrivateJwkPath,
@@ -275,5 +276,24 @@ QUOTED="value"
     } finally {
       rmSync(dataDir, { recursive: true, force: true });
     }
+  });
+
+  it("accepts an issuer certificate URI SAN without a deployment-hostname DNS SAN", () => {
+    const issuerIdentifier = "https://issuer.example.test/issuers/eu-pid-device-bound";
+
+    expect(() =>
+      validateIssuerCertificateSubjectAlternativeName(
+        `URI:${issuerIdentifier}`,
+        issuerIdentifier,
+        "eu-pid-device-bound",
+      ),
+    ).not.toThrow();
+    expect(() =>
+      validateIssuerCertificateSubjectAlternativeName(
+        "DNS:issuer.example.test",
+        issuerIdentifier,
+        "eu-pid-device-bound",
+      ),
+    ).toThrow(`certificate is missing URI SAN '${issuerIdentifier}'`);
   });
 });
