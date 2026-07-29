@@ -43,6 +43,24 @@ import { createApp } from "../src/server.js";
 import type { JsonRecord, SessionCapture } from "../src/types.js";
 import { unsignedJwt } from "./helpers.js";
 
+const credentialEncryptionTestState = vi.hoisted(() => ({ responseDelayMs: 0 }));
+vi.mock("../src/credential-encryption.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/credential-encryption.js")>();
+  return {
+    ...actual,
+    encryptCredentialResponse: async (
+      ...args: Parameters<typeof actual.encryptCredentialResponse>
+    ) => {
+      if (credentialEncryptionTestState.responseDelayMs > 0) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, credentialEncryptionTestState.responseDelayMs),
+        );
+      }
+      return actual.encryptCredentialResponse(...args);
+    },
+  };
+});
+
 const dataDir = mkdtempSync(join(tmpdir(), "fake-issuer-test-"));
 const config = {
   ...DEFAULT_CONFIG,
@@ -75,6 +93,7 @@ afterAll(() => {
 });
 
 afterEach(() => {
+  credentialEncryptionTestState.responseDelayMs = 0;
   vi.restoreAllMocks();
 });
 
@@ -1727,12 +1746,14 @@ describe("capture issuer server", () => {
       })
       .encrypt(await importJWK(issuerEncryptionJwk, "ECDH-ES"));
 
+    credentialEncryptionTestState.responseDelayMs = 25;
     const credentialResponse = await request(app)
       .post(credentialPath)
       .set("authorization", `DPoP ${token.access_token}`)
       .set("DPoP", await dpopProof(dpop, "POST", credentialPath, token.access_token))
       .type("application/jwt")
       .send(encryptedRequest);
+    credentialEncryptionTestState.responseDelayMs = 0;
 
     expect(credentialResponse.status, credentialResponse.text).toBe(200);
     expect(credentialResponse.type, credentialResponse.text).toBe("application/jwt");

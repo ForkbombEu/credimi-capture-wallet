@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import express, { type Request } from "express";
+import express, { type NextFunction, type Request, type Response } from "express";
 import QRCode from "qrcode";
 import { loadIssuerJwks } from "./config.js";
 import {
@@ -621,38 +621,26 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     const { credential_response_encryption: _credentialResponseEncryption, ...credoBody } = body;
     req.body = credoBody;
     req.headers["content-type"] = "application/json";
-    if (responseEncryption) {
-      const send = res.send.bind(res);
-      res.send = ((responseBody: unknown) => {
-        const serialized =
-          typeof responseBody === "string"
-            ? responseBody
-            : Buffer.isBuffer(responseBody)
-              ? responseBody.toString("utf8")
-              : JSON.stringify(responseBody);
-        let json: JsonRecord;
-        try {
-          json = JSON.parse(serialized) as JsonRecord;
-        } catch {
-          return send(responseBody);
-        }
-        void encryptCredentialResponse(issuerConfig, responseEncryption, json)
-          .then((jwe) => {
-            res.setHeader("Content-Type", "application/jwt");
-            send(jwe);
-          })
-          .catch(next);
-        return res;
-      }) as typeof res.send;
-      res.once("finish", () => {
-        res.send = send;
-      });
-    }
+    const encryptedResponse = responseEncryption
+      ? interceptCredentialResponse(res, next, issuerConfig, responseEncryption)
+      : null;
+    const credentialEndpointNext: NextFunction = (error) => {
+      if (encryptedResponse?.isPending()) return;
+      if (error) return next(error);
+      if (res.headersSent) return;
+      return next(new Error("Credo Credential endpoint completed without sending a response"));
+    };
     try {
-      return (await credoOpenId4VciIssuer(config, store)).forward(req, res, next, capture, {
-        body,
-        raw: credentialRequestRaw,
-      });
+      return (await credoOpenId4VciIssuer(config, store)).forward(
+        req,
+        res,
+        credentialEndpointNext,
+        capture,
+        {
+          body,
+          raw: credentialRequestRaw,
+        },
+      );
     } catch (error) {
       return next(error);
     }
@@ -712,6 +700,54 @@ function isCredoIssuerEndpoint(path: string): boolean {
       path,
     ) || /^\/issuers\/[^/]+\/offers\/[^/]+$/.test(path)
   );
+}
+
+function interceptCredentialResponse(
+  res: Response,
+  next: NextFunction,
+  issuerConfig: AppConfig,
+  responseEncryption: NonNullable<ReturnType<typeof credentialResponseEncryption>>,
+): { isPending: () => boolean } {
+  const send = res.send.bind(res);
+  let pending = false;
+  let settled = false;
+  res.send = ((responseBody: unknown) => {
+    if (pending || settled) return res;
+    const serialized =
+      typeof responseBody === "string"
+        ? responseBody
+        : Buffer.isBuffer(responseBody)
+          ? responseBody.toString("utf8")
+          : JSON.stringify(responseBody);
+    let json: JsonRecord;
+    try {
+      json = JSON.parse(serialized) as JsonRecord;
+    } catch {
+      settled = true;
+      res.send = send;
+      return send(responseBody);
+    }
+
+    const statusCode = res.statusCode;
+    pending = true;
+    void encryptCredentialResponse(issuerConfig, responseEncryption, json)
+      .then((jwe) => {
+        pending = false;
+        settled = true;
+        res.send = send;
+        res.status(statusCode);
+        res.setHeader("Content-Type", "application/jwt");
+        send(jwe);
+      })
+      .catch((error: unknown) => {
+        pending = false;
+        settled = true;
+        res.send = send;
+        next(error);
+      });
+    return res;
+  }) as typeof res.send;
+  return { isPending: () => pending };
 }
 
 function errorMessage(error: unknown): string {
