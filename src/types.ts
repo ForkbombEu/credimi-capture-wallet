@@ -1,4 +1,5 @@
 export type JsonRecord = Record<string, unknown>;
+export type CredentialOfferMode = "credential_offer" | "credential_offer_uri";
 
 export interface AppConfig {
   issuer_base_url: string;
@@ -83,6 +84,7 @@ export interface SessionCapture {
   session_id: string;
   status: string;
   flow: "pre_authorized_code" | "authorization_code";
+  credential_offer_mode: CredentialOfferMode;
   credential_configuration_id: string;
   broken: boolean;
   observed: {

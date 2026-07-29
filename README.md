@@ -148,6 +148,11 @@ curl -X POST "$BASE_URL/sessions" \
 `authorization_code` to create an offer whose authorization is handled by Credo-TS
 through the service's auto-approving chained OAuth server.
 
+`credential_offer_mode` is optional and defaults to `credential_offer`, which embeds
+the Credential Offer JSON directly in the `deeplink`. Set it to
+`credential_offer_uri` to make the `deeplink` refer to the hosted `offer_url` instead;
+this can keep a QR code smaller when the offer is large.
+
 By default, the session issues a conforming PID for Mario Rossi. Set the optional JSON
 field `"broken": true` to issue the intentionally malformed legacy Jane Doe fixture,
 whose `place_of_birth` claim is a string instead of the required structured value.
@@ -165,6 +170,7 @@ A successful response returns HTTP 201 and includes:
 {
   "session_id": "...",
   "flow": "pre_authorized_code",
+  "credential_offer_mode": "credential_offer",
   "credential_configuration_id": "urn:eu.europa.ec.eudi:pid:1.mdoc.jwt",
   "broken": false,
   "offer_url": "https://capture-wallet.credimi.io/offers/...",
@@ -174,8 +180,11 @@ A successful response returns HTTP 201 and includes:
 ```
 
 Open or transmit the returned `deeplink` to the Wallet under test. The offer contains
-the `urn:ietf:params:oauth:grant-type:pre-authorized_code` grant. The Wallet retrieves
-the offer and calls the token, nonce, and credential endpoints directly.
+the `urn:ietf:params:oauth:grant-type:pre-authorized_code` grant. With the default
+`credential_offer` mode, the Wallet reads the offer directly from the deeplink. With
+`credential_offer_uri`, it first retrieves the hosted offer. The `offer_url` remains
+available in both modes for capture diagnostics and manual inspection. The Wallet
+then calls the token, nonce, and credential endpoints directly.
 
 For an Authorization Code offer:
 

@@ -32,6 +32,7 @@ import {
 import { CaptureStore, asStringOrNull } from "./state.js";
 import type {
   AppConfig,
+  CredentialOfferMode,
   JsonRecord,
   Oid4vciHttpRequestCapture,
   SessionCapture,
@@ -238,6 +239,13 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
           supported_flows: ["pre_authorized_code", "authorization_code"],
         });
       }
+      const credentialOfferMode = credentialOfferModeOrNull(body.credential_offer_mode);
+      if (body.credential_offer_mode !== undefined && !credentialOfferMode) {
+        return res.status(400).json({
+          error: "unsupported_credential_offer_mode",
+          supported_credential_offer_modes: ["credential_offer", "credential_offer_uri"],
+        });
+      }
       const credentialConfigurationId =
         asStringOrNull(body.credential_configuration_id) ??
         supportedCredentialConfigurationIds(config)[0];
@@ -254,12 +262,14 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         credentialConfigurationId,
         body.broken === true,
         flow ?? "pre_authorized_code",
+        credentialOfferMode ?? "credential_offer",
       );
       const offer = store.credoIssuanceOffers.get(session.session_id);
       if (!offer) throw new Error("Credo credential offer was not stored");
       return res.status(201).json({
         session_id: session.session_id,
         flow: session.flow,
+        credential_offer_mode: session.credential_offer_mode,
         credential_configuration_id: session.credential_configuration_id,
         broken: session.broken,
         offer_url: offer.credential_offer_uri,
@@ -635,13 +645,15 @@ async function createIssuanceSession(
   credentialConfigurationId: string,
   broken: boolean,
   flow: SessionCapture["flow"] = "pre_authorized_code",
+  credentialOfferMode: CredentialOfferMode = "credential_offer",
 ): Promise<SessionCapture> {
-  const session = store.createSession(credentialConfigurationId, broken, flow);
+  const session = store.createSession(credentialConfigurationId, broken, flow, credentialOfferMode);
   const offer = await (await credoOpenId4VciIssuer(config, store)).createCredentialOffer({
     captureSessionId: session.session_id,
     credentialConfigurationId: session.credential_configuration_id,
     broken: session.broken,
     flow: session.flow,
+    credentialOfferMode: session.credential_offer_mode,
   });
   store.credoIssuanceOffers.set(session.session_id, {
     credential_offer: offer.credentialOffer,
@@ -651,6 +663,7 @@ async function createIssuanceSession(
   });
   store.addEvent(session, "credential_offer_generated", {
     flow: session.flow,
+    credential_offer_mode: session.credential_offer_mode,
     implementation: "credo-ts",
   });
   return session;
@@ -658,6 +671,10 @@ async function createIssuanceSession(
 
 function issuanceFlowOrNull(value: unknown): SessionCapture["flow"] | null {
   return value === "pre_authorized_code" || value === "authorization_code" ? value : null;
+}
+
+function credentialOfferModeOrNull(value: unknown): CredentialOfferMode | null {
+  return value === "credential_offer" || value === "credential_offer_uri" ? value : null;
 }
 
 async function createVpSession(

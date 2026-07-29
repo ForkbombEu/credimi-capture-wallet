@@ -122,6 +122,12 @@ describe("capture issuer server", () => {
       enum: ["pre_authorized_code", "authorization_code"],
       default: "pre_authorized_code",
     });
+    expect(
+      openApi.body.components.schemas.IssuanceSessionRequest.properties.credential_offer_mode,
+    ).toMatchObject({
+      enum: ["credential_offer", "credential_offer_uri"],
+      default: "credential_offer",
+    });
     expect(Object.keys(openApi.body.paths)).toEqual(
       expect.arrayContaining([
         "/sessions",
@@ -998,16 +1004,20 @@ describe("capture issuer server", () => {
     const initial = await getJson<SessionCapture>(app, `/sessions/${sessionId}`);
     expect(initial.status).toBe("created");
     expect(initial.broken).toBe(false);
+    expect(initial.credential_offer_mode).toBe("credential_offer");
 
     const deeplink = await getJson<{ deeplink: string }>(app, `/sessions/${sessionId}/deeplink`);
-    const offerUri = new URL(deeplink.deeplink).searchParams.get("credential_offer_uri");
-    const offer = await request(app).get(new URL(offerUri ?? "").pathname);
-    expect(offer.status).toBe(200);
+    const deeplinkUrl = new URL(deeplink.deeplink);
+    expect(deeplinkUrl.searchParams.get("credential_offer_uri")).toBeNull();
+    expect(JSON.parse(String(deeplinkUrl.searchParams.get("credential_offer")))).toMatchObject({
+      credential_configuration_ids: expect.any(Array),
+    });
 
-    const consumed = await getJson<SessionCapture>(app, `/sessions/${sessionId}`);
-    expect(consumed.status).toBe("offer_retrieved");
+    const unchanged = await getJson<SessionCapture>(app, `/sessions/${sessionId}`);
+    expect(unchanged.status).toBe("created");
   });
-  it("creates session offers for the requested credential configuration", async () => {
+
+  it("embeds credential offers by value by default", async () => {
     const app = createApp(config);
     const requestedCredentialConfigurationId = mdocCredentialConfigurationId(config);
 
@@ -1021,8 +1031,30 @@ describe("capture issuer server", () => {
 
     expect(session.credential_configuration_id).toBe(requestedCredentialConfigurationId);
     expect(session.flow).toBe("pre_authorized_code");
+    expect(session.credential_offer_mode).toBe("credential_offer");
     expect(session.broken).toBe(false);
     expect(offer.credential_configuration_ids).toEqual([requestedCredentialConfigurationId]);
+    const deeplink = new URL(session.deeplink);
+    expect(deeplink.searchParams.get("credential_offer_uri")).toBeNull();
+    expect(JSON.parse(String(deeplink.searchParams.get("credential_offer")))).toEqual(offer);
+  });
+
+  it("creates credential-offer URI deeplinks when requested", async () => {
+    const app = createApp(config);
+    const session = await postJson<SessionCreateResponse>(app, "/sessions", {
+      credential_offer_mode: "credential_offer_uri",
+    });
+    const deeplink = new URL(session.deeplink);
+
+    expect(session.credential_offer_mode).toBe("credential_offer_uri");
+    expect(deeplink.searchParams.get("credential_offer")).toBeNull();
+    expect(deeplink.searchParams.get("credential_offer_uri")).toBe(session.offer_url);
+
+    const offer = await request(app).get(new URL(session.offer_url).pathname);
+    expect(offer.status).toBe(200);
+    expect(offer.type).toBe("application/json");
+    const consumed = await getJson<SessionCapture>(app, `/sessions/${session.session_id}`);
+    expect(consumed.status).toBe("offer_retrieved");
   });
 
   it("records the requested broken credential fixture and rejects non-boolean values", async () => {
@@ -1447,10 +1479,13 @@ describe("capture issuer server", () => {
     const session = await postJson<SessionCreateResponse>(app, "/sessions", {
       flow: "authorization_code",
     });
-    const offer = await getJson<CredentialOfferResponse>(app, new URL(session.offer_url).pathname);
+    const offer = JSON.parse(
+      String(new URL(session.deeplink).searchParams.get("credential_offer")),
+    ) as CredentialOfferResponse;
     const grant = offer.grants.authorization_code;
 
     expect(session.flow).toBe("authorization_code");
+    expect(session.credential_offer_mode).toBe("credential_offer");
     expect(grant).toMatchObject({
       issuer_state: expect.any(String),
     });
@@ -1552,6 +1587,19 @@ describe("capture issuer server", () => {
     expect(response.body).toEqual({
       error: "unsupported_issuance_flow",
       supported_flows: ["pre_authorized_code", "authorization_code"],
+    });
+  });
+
+  it("rejects unknown credential-offer modes", async () => {
+    const app = createApp(config);
+    const response = await request(app)
+      .post("/sessions")
+      .send({ credential_offer_mode: "reference" });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({
+      error: "unsupported_credential_offer_mode",
+      supported_credential_offer_modes: ["credential_offer", "credential_offer_uri"],
     });
   });
 });
@@ -1798,9 +1846,11 @@ function escapeRegExp(value: string): string {
 interface SessionCreateResponse extends JsonRecord {
   session_id: string;
   flow: "pre_authorized_code" | "authorization_code";
+  credential_offer_mode: "credential_offer" | "credential_offer_uri";
   credential_configuration_id: string;
   broken: boolean;
   offer_url: string;
+  deeplink: string;
 }
 
 interface TokenResponse extends JsonRecord {

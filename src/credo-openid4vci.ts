@@ -22,7 +22,13 @@ import {
 } from "./metadata.js";
 import { captureProofHeaders, decodeDpopHeader } from "./proofs.js";
 import type { CaptureStore } from "./state.js";
-import type { AppConfig, JsonRecord, Oid4vciHttpRequestCapture, SessionCapture } from "./types.js";
+import type {
+  AppConfig,
+  CredentialOfferMode,
+  JsonRecord,
+  Oid4vciHttpRequestCapture,
+  SessionCapture,
+} from "./types.js";
 
 const ROOT_ISSUER_ID = "/";
 const ROOT_ISSUER_ROUTE_ALIAS = "_root";
@@ -147,6 +153,7 @@ export class CredoOpenId4VciIssuer {
     credentialConfigurationId: string;
     broken: boolean;
     flow: SessionCapture["flow"];
+    credentialOfferMode: CredentialOfferMode;
   }): Promise<CredoCredentialOffer> {
     const credential = supportedCredentialById(this.config, options.credentialConfigurationId);
     if (!credential) throw new Error("Credential configuration is not supported");
@@ -178,7 +185,13 @@ export class CredoOpenId4VciIssuer {
       created.issuanceSession.credentialOfferId,
     );
     return {
-      credentialOffer: created.credentialOffer,
+      credentialOffer:
+        options.credentialOfferMode === "credential_offer"
+          ? credentialOfferByValue(
+              created.credentialOffer,
+              created.issuanceSession.credentialOfferPayload as JsonRecord,
+            )
+          : created.credentialOffer,
       credentialOfferObject: created.issuanceSession.credentialOfferPayload as JsonRecord,
       credentialOfferUri: created.issuanceSession.credentialOfferUri,
       issuanceSessionId: created.issuanceSession.id,
@@ -400,6 +413,13 @@ export class CredoOpenId4VciIssuer {
     if (!issuer) throw new Error("Credo OpenID4VC issuer API is unavailable");
     return issuer;
   }
+}
+
+function credentialOfferByValue(byReference: string, offer: JsonRecord): string {
+  const deeplink = new URL(byReference);
+  deeplink.searchParams.delete("credential_offer_uri");
+  deeplink.searchParams.set("credential_offer", JSON.stringify(offer));
+  return deeplink.toString();
 }
 
 function normalizeParResponseStatus(res: Response): void {

@@ -3,6 +3,7 @@ import { supportedCredentialConfigurationIds } from "./metadata.js";
 import type {
   AppConfig,
   CaptureEvent,
+  CredentialOfferMode,
   CredoIssuanceOffer,
   JsonRecord,
   Oid4vciHttpRequestCapture,
@@ -27,6 +28,7 @@ export class CaptureStore {
     credentialConfigurationId = defaultCredentialConfigurationId(this.config),
     broken = false,
     flow: SessionCapture["flow"] = "pre_authorized_code",
+    credentialOfferMode: CredentialOfferMode = "credential_offer",
   ): SessionCapture {
     const sessionId = randomUUID();
     const session: SessionCapture = {
@@ -34,6 +36,7 @@ export class CaptureStore {
       status: "created",
       credential_configuration_id: credentialConfigurationId,
       flow,
+      credential_offer_mode: credentialOfferMode,
       broken,
       observed: {
         client_id: { value: null, source: null, also_seen_in: [] },
@@ -71,6 +74,7 @@ export class CaptureStore {
     this.addEvent(session, "session_created", {
       credential_configuration_id: credentialConfigurationId,
       flow,
+      credential_offer_mode: credentialOfferMode,
       broken,
     });
     return session;

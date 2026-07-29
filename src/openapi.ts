@@ -787,6 +787,13 @@ export function openApiDocument(config: AppConfig): JsonRecord {
               default: "pre_authorized_code",
               description: "Issuance flow preset.",
             },
+            credential_offer_mode: {
+              type: "string",
+              enum: ["credential_offer", "credential_offer_uri"],
+              default: "credential_offer",
+              description:
+                "Encode the offer directly in the deeplink or provide its hosted URI by reference.",
+            },
             credential_configuration_id: {
               type: "string",
               description: "One of the IDs advertised by credential issuer metadata.",
@@ -804,6 +811,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           required: [
             "session_id",
             "flow",
+            "credential_offer_mode",
             "credential_configuration_id",
             "broken",
             "offer_url",
@@ -815,6 +823,10 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             flow: {
               type: "string",
               enum: ["pre_authorized_code", "authorization_code"],
+            },
+            credential_offer_mode: {
+              type: "string",
+              enum: ["credential_offer", "credential_offer_uri"],
             },
             credential_configuration_id: { type: "string" },
             broken: { type: "boolean" },
@@ -829,6 +841,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             "session_id",
             "status",
             "flow",
+            "credential_offer_mode",
             "credential_configuration_id",
             "broken",
             "observed",
