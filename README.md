@@ -99,6 +99,8 @@ Common REST API endpoints are:
 * Health: `/healthz`
 * Credential Issuer well-known: `/.well-known/openid-credential-issuer`
 * Authorization server well-known: `/.well-known/oauth-authorization-server`
+* Auto-approving chained OAuth server well-known:
+  `/.well-known/oauth-authorization-server/fake-oauth`
 * Authorization Server JWKS: `/jwks.json`
 
 The Credential Issuer well-known endpoint returns unsigned JSON by default. Request
@@ -111,8 +113,9 @@ The response is a compact JWS with media type `application/jwt`, protected type
 `openidvci-issuer-metadata+jwt`, and the issuer certificate chain in `x5c`.
 Because the Credential Issuer also provides the Authorization Server, its metadata
 omits `authorization_servers` and uses the Credential Issuer identifier for discovery.
-The Authorization Server metadata advertises optional Wallet Attestation client
-authentication with `token_endpoint_auth_methods_supported: ["attest_jwt_client_auth"]`.
+The Authorization Server metadata advertises public-client and optional Wallet
+Attestation client authentication with
+`token_endpoint_auth_methods_supported: ["none", "attest_jwt_client_auth"]`.
 Both the Wallet Attestation and its proof of possession advertise `ES256` as their
 supported signing algorithm.
 Credo-TS verifies the `OAuth-Client-Attestation` and
@@ -141,8 +144,9 @@ curl -X POST "$BASE_URL/sessions" \
     "credential_configuration_id":"urn:eu.europa.ec.eudi:pid:1.mdoc.jwt"
   }'
 ```
-`flow` is optional and currently defaults to `pre_authorized_code`. Requests for
-`authorization_code` are rejected until that preset is implemented.
+`flow` is optional and defaults to `pre_authorized_code`. Set it to
+`authorization_code` to create an offer whose authorization is handled by Credo-TS
+through the service's auto-approving chained OAuth server.
 
 By default, the session issues a conforming PID for Mario Rossi. Set the optional JSON
 field `"broken": true` to issue the intentionally malformed legacy Jane Doe fixture,
@@ -173,6 +177,32 @@ Open or transmit the returned `deeplink` to the Wallet under test. The offer con
 the `urn:ietf:params:oauth:grant-type:pre-authorized_code` grant. The Wallet retrieves
 the offer and calls the token, nonce, and credential endpoints directly.
 
+For an Authorization Code offer:
+
+```sh
+curl -X POST "$BASE_URL/sessions" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "flow":"authorization_code",
+    "credential_configuration_id":"urn:eu.europa.ec.eudi:pid:1.mdoc.jwt"
+  }'
+```
+
+The Wallet uses the scope advertised for the offered Credential Configuration and
+returns the offer's `issuer_state` in its Authorization Request. Credo requires PAR,
+S256 PKCE, and DPoP for this flow. Opening Credo's `/authorize` endpoint redirects to
+`/fake-oauth/authorize`; that test server immediately approves every valid request and
+redirects to Credo's `/redirect` callback. Credo exchanges the external one-time code,
+then immediately redirects to the Wallet's registered `redirect_uri` with a separate
+Credo authorization code. The Wallet exchanges that code at `/token` and continues
+with the nonce and credential requests.
+
+The fake OAuth server is deliberately not an authentication or consent system. It has
+one fixed internal client, accepts only Credo's exact callback URI, requires S256 PKCE,
+and issues short-lived single-use codes. Its access token is consumed only by Credo
+and is never accepted at the Credential Endpoint. Do not use this auto-approval
+mechanism as a production authorization policy.
+
 The `/credential` endpoint accepts exactly one proof per request:
 
 * `proofs.jwt[0]` must be an `openid4vci-proof+jwt` signed by its public
@@ -188,9 +218,12 @@ does not implement a production Wallet Provider trust list or the `kid` and
 `trust_chain` attestation trust mechanisms, and does not resolve optional attestation
 status information.
 
-The complete pre-authorized OpenID4VCI protocol path is owned by the Credo-TS issuer
-agent: credential offers, token issuance, DPoP, nonce and proof validation, holder
-binding, and SD-JWT VC or MDOC signing. Express middleware records redacted evidence.
+The wallet-facing pre-authorized and Authorization Code OpenID4VCI protocol paths are
+owned by the Credo-TS issuer agent: credential offers, PAR, PKCE, authorization-code
+and token issuance, DPoP, nonce and proof validation, holder binding, and SD-JWT VC or
+MDOC signing. The narrowly scoped fake OAuth server only provides the chained,
+auto-approved external authorization step. Express middleware records redacted
+evidence.
 The credential request/response encryption adapter remains narrowly scoped around
 Credo's `/credential` handler because the installed Credo-TS router does not expose
 that encryption extension.

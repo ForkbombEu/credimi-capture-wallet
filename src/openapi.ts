@@ -54,6 +54,11 @@ export function openApiDocument(config: AppConfig): JsonRecord {
       },
       { name: "OpenID4VCI", description: "OpenID for Verifiable Credential Issuance endpoints." },
       { name: "OpenID4VP", description: "OpenID for Verifiable Presentations wallet endpoints." },
+      {
+        name: "Fake OAuth",
+        description:
+          "Test-only auto-approving OAuth server used by Credo's chained authorization-code flow.",
+      },
     ],
     paths: {
       "/healthz": {
@@ -110,6 +115,19 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           summary: "Get authorization server metadata",
           responses: {
             "200": response("OAuth authorization server metadata.", {
+              type: "object",
+              additionalProperties: true,
+            }),
+          },
+        },
+      },
+      "/.well-known/oauth-authorization-server/fake-oauth": {
+        get: {
+          tags: ["Fake OAuth"],
+          operationId: "fakeAuthorizationServerMetadata",
+          summary: "Get fake OAuth server metadata",
+          responses: {
+            "200": response("Auto-approving OAuth authorization server metadata.", {
               type: "object",
               additionalProperties: true,
             }),
@@ -403,7 +421,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             },
           ],
           responses: {
-            "200": response("Pre-authorized OpenID4VCI credential offer.", {
+            "200": response("OpenID4VCI credential offer.", {
               type: "object",
               additionalProperties: true,
             }),
@@ -411,25 +429,170 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           },
         },
       },
-      "/token": {
+      "/par": {
         post: {
           tags: ["OpenID4VCI"],
-          operationId: "token",
-          summary: "Exchange a pre-authorized code for a DPoP-bound token",
+          operationId: "pushedAuthorizationRequest",
+          summary: "Submit an authorization-code request",
           parameters: [{ name: "DPoP", in: "header", required: true, schema: { type: "string" } }],
           requestBody: {
             required: true,
             ...form({
               type: "object",
-              required: ["grant_type", "pre-authorized_code"],
+              required: [
+                "response_type",
+                "client_id",
+                "redirect_uri",
+                "scope",
+                "code_challenge",
+                "code_challenge_method",
+              ],
               properties: {
-                grant_type: {
-                  type: "string",
-                  const: "urn:ietf:params:oauth:grant-type:pre-authorized_code",
-                },
-                "pre-authorized_code": { type: "string" },
-                tx_code: { type: "string" },
+                response_type: { type: "string", const: "code" },
+                client_id: { type: "string" },
+                redirect_uri: { type: "string", format: "uri" },
+                scope: { type: "string" },
+                issuer_state: { type: "string" },
+                state: { type: "string" },
+                code_challenge: { type: "string" },
+                code_challenge_method: { type: "string", const: "S256" },
               },
+            }),
+          },
+          responses: {
+            "201": response("Short-lived pushed authorization request URI.", {
+              type: "object",
+              required: ["request_uri", "expires_in"],
+              properties: {
+                request_uri: { type: "string" },
+                expires_in: { type: "integer" },
+              },
+            }),
+            "400": errorResponses["400"],
+          },
+        },
+      },
+      "/authorize": {
+        get: {
+          tags: ["OpenID4VCI"],
+          operationId: "authorize",
+          summary: "Start auto-approved authorization",
+          parameters: [
+            { name: "client_id", in: "query", required: true, schema: { type: "string" } },
+            { name: "request_uri", in: "query", required: true, schema: { type: "string" } },
+          ],
+          responses: {
+            "302": {
+              description:
+                "Redirect through the chained fake OAuth server and ultimately back to the Wallet.",
+            },
+            "400": errorResponses["400"],
+          },
+        },
+      },
+      "/redirect": {
+        get: {
+          tags: ["OpenID4VCI"],
+          operationId: "chainedAuthorizationCallback",
+          summary: "Complete the chained OAuth authorization",
+          responses: {
+            "302": {
+              description: "Redirect to the Wallet with Credo's authorization code.",
+            },
+            "400": errorResponses["400"],
+          },
+        },
+      },
+      "/fake-oauth/authorize": {
+        get: {
+          tags: ["Fake OAuth"],
+          operationId: "fakeAuthorize",
+          summary: "Automatically approve Credo's authorization request",
+          responses: {
+            "302": {
+              description: "Immediate redirect to Credo's registered callback with a code.",
+            },
+            "400": errorResponses["400"],
+          },
+        },
+      },
+      "/fake-oauth/token": {
+        post: {
+          tags: ["Fake OAuth"],
+          operationId: "fakeToken",
+          summary: "Exchange Credo's chained authorization code",
+          requestBody: {
+            required: true,
+            ...form({
+              type: "object",
+              required: [
+                "grant_type",
+                "code",
+                "code_verifier",
+                "redirect_uri",
+                "client_id",
+                "client_secret",
+              ],
+              properties: {
+                grant_type: { type: "string", const: "authorization_code" },
+                code: { type: "string" },
+                code_verifier: { type: "string" },
+                redirect_uri: { type: "string", format: "uri" },
+                client_id: { type: "string" },
+                client_secret: { type: "string", format: "password" },
+              },
+            }),
+          },
+          responses: {
+            "200": response("Short-lived token used only by Credo's chained flow.", {
+              type: "object",
+              required: ["access_token", "token_type", "expires_in"],
+              properties: {
+                access_token: { type: "string" },
+                token_type: { type: "string", const: "Bearer" },
+                expires_in: { type: "integer" },
+                scope: { type: "string" },
+              },
+            }),
+            "400": errorResponses["400"],
+            "401": errorResponses["400"],
+          },
+        },
+      },
+      "/token": {
+        post: {
+          tags: ["OpenID4VCI"],
+          operationId: "token",
+          summary: "Exchange an issuance grant for a DPoP-bound token",
+          parameters: [{ name: "DPoP", in: "header", required: true, schema: { type: "string" } }],
+          requestBody: {
+            required: true,
+            ...form({
+              oneOf: [
+                {
+                  type: "object",
+                  required: ["grant_type", "pre-authorized_code"],
+                  properties: {
+                    grant_type: {
+                      type: "string",
+                      const: "urn:ietf:params:oauth:grant-type:pre-authorized_code",
+                    },
+                    "pre-authorized_code": { type: "string" },
+                    tx_code: { type: "string" },
+                  },
+                },
+                {
+                  type: "object",
+                  required: ["grant_type", "code", "code_verifier", "redirect_uri"],
+                  properties: {
+                    grant_type: { type: "string", const: "authorization_code" },
+                    code: { type: "string" },
+                    code_verifier: { type: "string" },
+                    redirect_uri: { type: "string", format: "uri" },
+                    client_id: { type: "string" },
+                  },
+                },
+              ],
             }),
           },
           responses: {
@@ -620,10 +783,9 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           properties: {
             flow: {
               type: "string",
-              const: "pre_authorized_code",
+              enum: ["pre_authorized_code", "authorization_code"],
               default: "pre_authorized_code",
-              description:
-                "Issuance flow preset. Authorization-code support is intentionally deferred.",
+              description: "Issuance flow preset.",
             },
             credential_configuration_id: {
               type: "string",
@@ -650,7 +812,10 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           ],
           properties: {
             session_id: { type: "string", format: "uuid" },
-            flow: { type: "string", const: "pre_authorized_code" },
+            flow: {
+              type: "string",
+              enum: ["pre_authorized_code", "authorization_code"],
+            },
             credential_configuration_id: { type: "string" },
             broken: { type: "boolean" },
             offer_url: { type: "string", format: "uri" },

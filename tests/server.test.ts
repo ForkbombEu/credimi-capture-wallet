@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -119,7 +119,7 @@ describe("capture issuer server", () => {
       default: false,
     });
     expect(openApi.body.components.schemas.IssuanceSessionRequest.properties.flow).toMatchObject({
-      const: "pre_authorized_code",
+      enum: ["pre_authorized_code", "authorization_code"],
       default: "pre_authorized_code",
     });
     expect(Object.keys(openApi.body.paths)).toEqual(
@@ -127,12 +127,15 @@ describe("capture issuer server", () => {
         "/sessions",
         "/openid4vp/sessions",
         "/offers/{credentialOfferId}",
+        "/par",
+        "/authorize",
+        "/redirect",
+        "/fake-oauth/authorize",
+        "/fake-oauth/token",
         "/token",
         "/credential",
       ]),
     );
-    expect(openApi.body.paths).not.toHaveProperty("/par");
-    expect(openApi.body.paths).not.toHaveProperty("/authorize");
     expect(openApi.body.paths).not.toHaveProperty("/init");
     expect((await request(app).post("/init").send({ force: true })).status).toBe(404);
   });
@@ -201,21 +204,44 @@ describe("capture issuer server", () => {
     expect(metadataClaims.authorization_servers).toBeUndefined();
   });
 
-  it("advertises only the implemented pre-authorized grant", async () => {
+  it("advertises the implemented pre-authorized and authorization-code grants", async () => {
     const app = createApp(config);
     const metadata = await getJson<JsonRecord>(app, "/.well-known/oauth-authorization-server");
 
     expect(metadata.grant_types_supported).toEqual([
+      "authorization_code",
       "urn:ietf:params:oauth:grant-type:pre-authorized_code",
     ]);
     expect(metadata.token_endpoint).toBe(`${config.issuer_base_url}/token`);
-    expect(metadata.token_endpoint_auth_methods_supported).toEqual(["attest_jwt_client_auth"]);
+    expect(metadata.authorization_endpoint).toBe(`${config.issuer_base_url}/authorize`);
+    expect(metadata.pushed_authorization_request_endpoint).toBe(`${config.issuer_base_url}/par`);
+    expect(metadata.require_pushed_authorization_requests).toBe(true);
+    expect(metadata.response_types_supported).toEqual(["code"]);
+    expect(metadata.code_challenge_methods_supported).toEqual(["S256"]);
+    expect(metadata.token_endpoint_auth_methods_supported).toEqual([
+      "none",
+      "attest_jwt_client_auth",
+    ]);
     expect(metadata.client_attestation_signing_alg_values_supported).toEqual(["ES256"]);
     expect(metadata.client_attestation_pop_signing_alg_values_supported).toEqual(["ES256"]);
-    expect(metadata).not.toHaveProperty("authorization_endpoint");
-    expect(metadata).not.toHaveProperty("pushed_authorization_request_endpoint");
-    expect((await request(app).post("/par")).status).toBe(404);
-    expect((await request(app).get("/authorize")).status).toBe(404);
+  });
+
+  it("publishes metadata for the auto-approving chained OAuth server", async () => {
+    const app = createApp(config);
+    const metadata = await getJson<JsonRecord>(
+      app,
+      "/.well-known/oauth-authorization-server/fake-oauth",
+    );
+
+    expect(metadata).toMatchObject({
+      issuer: `${config.issuer_base_url}/fake-oauth`,
+      authorization_endpoint: `${config.issuer_base_url}/fake-oauth/authorize`,
+      token_endpoint: `${config.issuer_base_url}/fake-oauth/token`,
+      response_types_supported: ["code"],
+      grant_types_supported: ["authorization_code"],
+      code_challenge_methods_supported: ["S256"],
+      token_endpoint_auth_methods_supported: ["client_secret_post"],
+    });
   });
 
   it("selects the signed metadata certificate chain by issuer public key", async () => {
@@ -1410,14 +1436,122 @@ describe("capture issuer server", () => {
     expect(response.body).toMatchObject({ error: "unsupported_credential_configuration" });
   });
 
-  it("rejects authorization-code presets until that flow is implemented", async () => {
+  it("runs the authorization-code flow through the auto-approving chained OAuth server", async () => {
     const app = createApp(config);
-    const response = await request(app).post("/sessions").send({ flow: "authorization_code" });
+    const walletClientId = "https://wallet.example.test";
+    const walletRedirectUri = "https://wallet.example.test/callback";
+    const walletState = "wallet-state";
+    const codeVerifier = randomBytes(48).toString("base64url");
+    const codeChallenge = createHash("sha256").update(codeVerifier).digest("base64url");
+    const dpop = await dpopKey();
+    const session = await postJson<SessionCreateResponse>(app, "/sessions", {
+      flow: "authorization_code",
+    });
+    const offer = await getJson<CredentialOfferResponse>(app, new URL(session.offer_url).pathname);
+    const grant = offer.grants.authorization_code;
+
+    expect(session.flow).toBe("authorization_code");
+    expect(grant).toMatchObject({
+      issuer_state: expect.any(String),
+    });
+    expect(grant).not.toHaveProperty("authorization_server");
+
+    const pushed = await request(app)
+      .post("/par")
+      .set("DPoP", await dpopProof(dpop, "POST", "/par"))
+      .type("form")
+      .send({
+        response_type: "code",
+        client_id: walletClientId,
+        redirect_uri: walletRedirectUri,
+        scope: session.credential_configuration_id,
+        issuer_state: String(grant.issuer_state),
+        state: walletState,
+        code_challenge: codeChallenge,
+        code_challenge_method: "S256",
+      });
+    expect(pushed.status, JSON.stringify(pushed.body)).toBe(201);
+    expect(pushed.body).toMatchObject({
+      request_uri: expect.any(String),
+      expires_in: expect.any(Number),
+    });
+
+    const authorize = await request(app)
+      .get("/authorize")
+      .query({
+        client_id: walletClientId,
+        request_uri: String(pushed.body.request_uri),
+      })
+      .redirects(0);
+    expect(authorize.status).toBe(302);
+    const externalAuthorizationUrl = new URL(String(authorize.headers.location));
+    expect(externalAuthorizationUrl.pathname).toBe("/fake-oauth/authorize");
+
+    const autoApproval = await request(app)
+      .get(`${externalAuthorizationUrl.pathname}${externalAuthorizationUrl.search}`)
+      .redirects(0);
+    expect(autoApproval.status).toBe(302);
+    const credoCallback = new URL(String(autoApproval.headers.location));
+    expect(credoCallback.pathname).toBe("/redirect");
+    expect(credoCallback.searchParams.get("code")).toEqual(expect.any(String));
+
+    const walletAuthorizationResponse = await request(app)
+      .get(`${credoCallback.pathname}${credoCallback.search}`)
+      .redirects(0);
+    expect(walletAuthorizationResponse.status).toBe(302);
+    const walletCallback = new URL(String(walletAuthorizationResponse.headers.location));
+    expect(walletCallback.origin + walletCallback.pathname).toBe(walletRedirectUri);
+    expect(walletCallback.searchParams.get("state")).toBe(walletState);
+    expect(walletCallback.searchParams.get("iss")).toBe(config.issuer_base_url);
+    const authorizationCode = walletCallback.searchParams.get("code");
+    expect(authorizationCode).toEqual(expect.any(String));
+
+    const token = await postToken(
+      app,
+      {
+        grant_type: "authorization_code",
+        code: String(authorizationCode),
+        code_verifier: codeVerifier,
+        redirect_uri: walletRedirectUri,
+        client_id: walletClientId,
+      },
+      dpop,
+    );
+    expect(token).toMatchObject({
+      access_token: expect.any(String),
+      token_type: "DPoP",
+      c_nonce: expect.any(String),
+    });
+
+    const capture = await getJson<SessionCapture>(app, `/sessions/${session.session_id}`);
+    expect(capture.status).toBe("token_issued");
+    expect(capture.observed.client_id.value).toBe(walletClientId);
+    expect(capture.observed.redirect_uri.value).toBe(walletRedirectUri);
+    expect(capture.checks).toMatchObject({
+      pkce_present: true,
+      pkce_valid: true,
+      state_present: true,
+      issuer_state_present: true,
+    });
+    expect(capture.raw?.par_request).toMatchObject({
+      client_id: walletClientId,
+      redirect_uri: walletRedirectUri,
+      code_challenge: codeChallenge,
+    });
+    expect(capture.raw?.token_request?.code).toMatchObject({
+      redacted: true,
+      present: true,
+    });
+  });
+
+  it("rejects unknown issuance flow presets", async () => {
+    const app = createApp(config);
+    const response = await request(app).post("/sessions").send({ flow: "implicit" });
 
     expect(response.status).toBe(400);
     expect(response.body).toEqual({
       error: "unsupported_issuance_flow",
-      supported_flows: ["pre_authorized_code"],
+      supported_flows: ["pre_authorized_code", "authorization_code"],
     });
   });
 });
@@ -1663,7 +1797,7 @@ function escapeRegExp(value: string): string {
 
 interface SessionCreateResponse extends JsonRecord {
   session_id: string;
-  flow: "pre_authorized_code";
+  flow: "pre_authorized_code" | "authorization_code";
   credential_configuration_id: string;
   broken: boolean;
   offer_url: string;

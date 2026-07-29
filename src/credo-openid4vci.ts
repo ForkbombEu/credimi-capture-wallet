@@ -14,10 +14,15 @@ import express, { type NextFunction, type Request, type Response } from "express
 import { ISSUER_KEY_ID, loadIssuerCertificate, privateJwkPath } from "./config.js";
 import { mdocCredentialSignOptions, sdJwtCredentialSignOptions } from "./credential.js";
 import { InMemoryStorageModule, NodeKmsBackend, nodeAgentDependencies } from "./credo-openid4vp.js";
-import { credentialIssuerMetadata, supportedCredentialById } from "./metadata.js";
+import { fakeOAuthServer } from "./fake-oauth-server.js";
+import {
+  credentialIssuerMetadata,
+  supportedCredentialById,
+  supportedCredentials,
+} from "./metadata.js";
 import { captureProofHeaders, decodeDpopHeader } from "./proofs.js";
 import type { CaptureStore } from "./state.js";
-import type { AppConfig, JsonRecord, Oid4vciHttpRequestCapture } from "./types.js";
+import type { AppConfig, JsonRecord, Oid4vciHttpRequestCapture, SessionCapture } from "./types.js";
 
 const ROOT_ISSUER_ID = "/";
 const ROOT_ISSUER_ROUTE_ALIAS = "_root";
@@ -67,6 +72,7 @@ export class CredoOpenId4VciIssuer {
     const runtimeRef: { current?: CredoOpenId4VciIssuer } = {};
     const dependencies = nodeAgentDependencies(config);
     const networkFetch = dependencies.fetch;
+    const fakeOAuth = fakeOAuthServer(config, store);
     dependencies.fetch = async (input, init) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
       if (url === `${config.issuer_base_url}/jwks.json` && runtimeRef.current) {
@@ -75,6 +81,7 @@ export class CredoOpenId4VciIssuer {
           status: 200,
         });
       }
+      if (fakeOAuth.handles(input)) return fakeOAuth.fetch(input, init);
       return networkFetch(input, init);
     };
     const agent = new Agent({
@@ -139,11 +146,22 @@ export class CredoOpenId4VciIssuer {
     captureSessionId: string;
     credentialConfigurationId: string;
     broken: boolean;
+    flow: SessionCapture["flow"];
   }): Promise<CredoCredentialOffer> {
+    const credential = supportedCredentialById(this.config, options.credentialConfigurationId);
+    if (!credential) throw new Error("Credential configuration is not supported");
+    const fakeOAuth = fakeOAuthServer(this.config, this.store);
     const created = await this.issuerApi().createCredentialOffer({
       issuerId: ROOT_ISSUER_ID,
       credentialConfigurationIds: [options.credentialConfigurationId],
-      preAuthorizedCodeFlowConfig: {},
+      ...(options.flow === "authorization_code"
+        ? {
+            authorizationCodeFlowConfig: {
+              authorizationServerUrl: fakeOAuth.issuer,
+              scope: credential.scope,
+            },
+          }
+        : { preAuthorizedCodeFlowConfig: {} }),
       authorization: {
         requireDpop: true,
         requireWalletAttestation: false,
@@ -185,19 +203,17 @@ export class CredoOpenId4VciIssuer {
 
   async authorizationServerMetadata(): Promise<JsonRecord> {
     const { authorizationServers } = await this.issuerApi().getIssuerMetadata(ROOT_ISSUER_ID);
-    const {
-      authorization_endpoint: _authorizationEndpoint,
-      authorization_challenge_endpoint: _authorizationChallengeEndpoint,
-      pushed_authorization_request_endpoint: _pushedAuthorizationRequestEndpoint,
-      require_pushed_authorization_requests: _requirePushedAuthorizationRequests,
-      code_challenge_methods_supported: _codeChallengeMethodsSupported,
-      authorization_response_iss_parameter_supported: _authorizationResponseIssParameterSupported,
-      ...metadata
-    } = authorizationServers[0] as JsonRecord;
+    const { authorization_challenge_endpoint: _authorizationChallengeEndpoint, ...metadata } =
+      authorizationServers[0] as JsonRecord;
     return {
       ...metadata,
-      grant_types_supported: ["urn:ietf:params:oauth:grant-type:pre-authorized_code"],
-      token_endpoint_auth_methods_supported: ["attest_jwt_client_auth"],
+      grant_types_supported: [
+        "authorization_code",
+        "urn:ietf:params:oauth:grant-type:pre-authorized_code",
+      ],
+      response_types_supported: ["code"],
+      scopes_supported: supportedCredentials(this.config).map((credential) => credential.scope),
+      token_endpoint_auth_methods_supported: ["none", "attest_jwt_client_auth"],
       client_attestation_signing_alg_values_supported: ["ES256"],
       client_attestation_pop_signing_alg_values_supported: ["ES256"],
     };
@@ -210,6 +226,7 @@ export class CredoOpenId4VciIssuer {
     capture: Oid4vciHttpRequestCapture | null,
     credentialRequestEvidence?: RequestContext["credentialRequestEvidence"],
   ): void {
+    if (req.path === "/par") normalizeParResponseStatus(res);
     const queryIndex = req.url.indexOf("?");
     const query = queryIndex >= 0 ? req.url.slice(queryIndex) : "";
     req.url = `${internalCredoPath(req.path)}${query}`;
@@ -221,12 +238,26 @@ export class CredoOpenId4VciIssuer {
 
   private async createIssuerRecord(): Promise<void> {
     const metadata = credentialIssuerMetadata(this.config);
+    const fakeOAuth = fakeOAuthServer(this.config, this.store);
     await this.issuerApi().createIssuer({
       issuerId: ROOT_ISSUER_ID,
       accessTokenSignerKeyType: { kty: "EC", crv: "P-256" },
       display: metadata.display as never,
       dpopSigningAlgValuesSupported: ["ES256"],
       credentialConfigurationsSupported: metadata.credential_configurations_supported as never,
+      authorizationServerConfigs: [
+        {
+          type: "chained",
+          issuer: fakeOAuth.issuer,
+          clientAuthentication: fakeOAuth.clientAuthentication,
+          scopesMapping: Object.fromEntries(
+            supportedCredentials(this.config).map((credential) => [
+              credential.scope,
+              [fakeOAuth.externalScope],
+            ]),
+          ),
+        },
+      ],
     });
   }
 
@@ -257,6 +288,12 @@ export class CredoOpenId4VciIssuer {
         await this.linkCurrentRequest(captureSessionId);
         const captureSession = this.store.getSession(captureSessionId);
         if (!captureSession) return;
+        if (
+          captureSession.flow === "authorization_code" &&
+          event.payload.issuanceSession.state === OpenId4VcIssuanceSessionState.AccessTokenCreated
+        ) {
+          captureSession.checks.pkce_valid = true;
+        }
         captureSession.status = captureStatus(event.payload.issuanceSession.state);
         this.store.addEvent(captureSession, "credo_issuance_state_changed", {
           previous_state: event.payload.previousState,
@@ -345,7 +382,9 @@ export class CredoOpenId4VciIssuer {
     if (!context?.capture) return;
     this.store.linkOid4vciRequestToSession(context.capture, captureSessionId);
     const captureSession = this.store.getSession(captureSessionId);
-    if (!captureSession || !context.dpop) return;
+    if (!captureSession) return;
+    captureAuthorizationEvidence(captureSession, context.capture);
+    if (!context.dpop) return;
     const dpop = await decodeDpopHeader(context.dpop);
     if (!dpop.jwk) return;
     captureSession.observed.dpop_jwk = {
@@ -361,6 +400,14 @@ export class CredoOpenId4VciIssuer {
     if (!issuer) throw new Error("Credo OpenID4VC issuer API is unavailable");
     return issuer;
   }
+}
+
+function normalizeParResponseStatus(res: Response): void {
+  const send = res.send.bind(res);
+  res.send = ((body: unknown) => {
+    if (res.statusCode === 200) res.status(201);
+    return send(body);
+  }) as typeof res.send;
 }
 
 function internalCredoPath(path: string): string {
@@ -384,6 +431,10 @@ function captureStatus(state: OpenId4VcIssuanceSessionState): string {
       return "created";
     case OpenId4VcIssuanceSessionState.OfferUriRetrieved:
       return "offer_retrieved";
+    case OpenId4VcIssuanceSessionState.AuthorizationInitiated:
+      return "authorization_requested";
+    case OpenId4VcIssuanceSessionState.AuthorizationGranted:
+      return "authorization_granted";
     case OpenId4VcIssuanceSessionState.AccessTokenRequested:
       return "token_requested";
     case OpenId4VcIssuanceSessionState.AccessTokenCreated:
@@ -399,6 +450,45 @@ function captureStatus(state: OpenId4VcIssuanceSessionState): string {
     default:
       return state;
   }
+}
+
+function captureAuthorizationEvidence(
+  session: SessionCapture,
+  capture: Oid4vciHttpRequestCapture,
+): void {
+  const body = isRecord(capture.body) ? capture.body : {};
+  session.raw ??= {};
+  if (capture.path === "/par") {
+    session.raw.par_request = body;
+    setObservedString(session.observed.client_id, body.client_id, "/par.body.client_id");
+    setObservedString(session.observed.redirect_uri, body.redirect_uri, "/par.body.redirect_uri");
+    session.checks.pkce_present =
+      typeof body.code_challenge === "string" && body.code_challenge_method === "S256";
+    session.checks.state_present = typeof body.state === "string";
+    session.checks.issuer_state_present = typeof body.issuer_state === "string";
+  }
+  if (capture.path === "/token") {
+    session.raw.token_request = body;
+  }
+}
+
+function setObservedString(
+  observed: SessionCapture["observed"]["client_id"],
+  value: unknown,
+  source: string,
+): void {
+  if (typeof value !== "string" || value.length === 0) return;
+  if (observed.value && observed.value !== value) {
+    observed.also_seen_in ??= [];
+    observed.also_seen_in.push(source);
+    return;
+  }
+  observed.value = value;
+  observed.source ??= source;
+}
+
+function isRecord(value: unknown): value is JsonRecord {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function redactCredentialRequest(request: JsonRecord): JsonRecord {

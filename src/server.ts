@@ -10,6 +10,7 @@ import {
 } from "./credential-encryption.js";
 import { credoOpenId4VciIssuer } from "./credo-openid4vci.js";
 import { credoOpenId4VpVerifier } from "./credo-openid4vp.js";
+import { registerFakeOAuthServer } from "./fake-oauth-server.js";
 import {
   jwtVcIssuerMetadata,
   signCredentialIssuerMetadata,
@@ -58,6 +59,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     res.once("finish", () => completeOid4vciRequestCapture(capture, res));
     return next();
   });
+  registerFakeOAuthServer(app, config, store);
 
   app.get("/openapi.json", (_req, res) => {
     res.json(openApiDocument(config));
@@ -229,10 +231,11 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
           error_description: "'broken' must be a boolean",
         });
       }
-      if (body.flow !== undefined && body.flow !== "pre_authorized_code") {
+      const flow = issuanceFlowOrNull(body.flow);
+      if (body.flow !== undefined && !flow) {
         return res.status(400).json({
           error: "unsupported_issuance_flow",
-          supported_flows: ["pre_authorized_code"],
+          supported_flows: ["pre_authorized_code", "authorization_code"],
         });
       }
       const credentialConfigurationId =
@@ -250,6 +253,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         store,
         credentialConfigurationId,
         body.broken === true,
+        flow ?? "pre_authorized_code",
       );
       const offer = store.credoIssuanceOffers.get(session.session_id);
       if (!offer) throw new Error("Credo credential offer was not stored");
@@ -603,6 +607,9 @@ function oid4vciRequestSessionId(store: CaptureStore, req: Request): string | nu
 function isCredoIssuerEndpoint(path: string): boolean {
   return (
     path === "/jwks.json" ||
+    path === "/par" ||
+    path === "/authorize" ||
+    path === "/redirect" ||
     path === "/nonce" ||
     path === "/token" ||
     path === "/deferred-credential" ||
@@ -627,12 +634,14 @@ async function createIssuanceSession(
   store: CaptureStore,
   credentialConfigurationId: string,
   broken: boolean,
+  flow: SessionCapture["flow"] = "pre_authorized_code",
 ): Promise<SessionCapture> {
-  const session = store.createSession(credentialConfigurationId, broken, "pre_authorized_code");
+  const session = store.createSession(credentialConfigurationId, broken, flow);
   const offer = await (await credoOpenId4VciIssuer(config, store)).createCredentialOffer({
     captureSessionId: session.session_id,
     credentialConfigurationId: session.credential_configuration_id,
     broken: session.broken,
+    flow: session.flow,
   });
   store.credoIssuanceOffers.set(session.session_id, {
     credential_offer: offer.credentialOffer,
@@ -645,6 +654,10 @@ async function createIssuanceSession(
     implementation: "credo-ts",
   });
   return session;
+}
+
+function issuanceFlowOrNull(value: unknown): SessionCapture["flow"] | null {
+  return value === "pre_authorized_code" || value === "authorization_code" ? value : null;
 }
 
 async function createVpSession(
