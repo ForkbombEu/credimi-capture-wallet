@@ -2,7 +2,8 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Kms, X509Certificate } from "@credo-ts/core";
+import { Kms, Mdoc, X509Certificate } from "@credo-ts/core";
+import { DateOnly } from "@owf/cose";
 import { IssuerSigned } from "@owf/mdoc";
 import type { Express } from "express";
 import {
@@ -1369,21 +1370,49 @@ describe("capture issuer server", () => {
     ).toBe(200);
     const encodedMdoc = (credential.body as CredentialResponse).credentials[0].credential;
     const decoded = IssuerSigned.fromEncodedForOid4Vci(encodedMdoc);
+    const credoDecoded = Mdoc.fromBase64Url(encodedMdoc);
 
     expect(session.credential_configuration_id).toBe(
       mdocCredentialConfigurationId(config, "key-attestation-required"),
     );
     expect(decoded.issuerAuth.mobileSecurityObject.docType).toBe(PID_MDOC_DOCTYPE);
     const namespace = decoded.getPrettyClaims(PID_MDOC_NAMESPACE) as JsonRecord | undefined;
-    expect(namespace?.given_name).toBe("Mario");
-    expect(namespace?.family_name).toBe("Rossi");
+    expect(Object.keys(namespace ?? {}).sort()).toEqual([...PID_MDOC_CLAIMS].sort());
+    expect(namespace).toMatchObject({
+      document_number: "CREDIMI-DEMO-001",
+      email_address: "jane.doe@example.test",
+      family_name: "Rossi",
+      family_name_birth: "Rossi",
+      given_name: "Mario",
+      given_name_birth: "Mario",
+      issuing_authority: "Credimi Fake Issuer",
+      issuing_country: "IT",
+      issuing_jurisdiction: "IT-RM",
+      mobile_phone_number: "+390600000000",
+      nationality: ["IT"],
+      personal_administrative_number: "PID-DEMO-001",
+      resident_address: "Via Europa 1, 00100 Roma, IT",
+      resident_city: "Roma",
+      resident_country: "IT",
+      resident_house_number: "1",
+      resident_postal_code: "00100",
+      resident_state: "Lazio",
+      resident_street: "Via Europa",
+      sex: 2,
+    });
+    expect(namespace?.birth_date).toBeInstanceOf(DateOnly);
+    expect(String(namespace?.birth_date)).toBe("1990-01-01");
+    expect(namespace?.expiry_date).toBeInstanceOf(DateOnly);
+    expect(String(namespace?.expiry_date)).toBe("2031-01-01");
+    expect(namespace?.issuance_date).toBeInstanceOf(DateOnly);
+    expect(String(namespace?.issuance_date)).toBe("2026-01-01");
     expect(namespace?.place_of_birth).toEqual(new Map([["locality", "Roma"]]));
-    expect(namespace?.resident_country).toBe("IT");
     const portrait = namespace?.portrait;
     expect(portrait).toBeInstanceOf(Uint8Array);
     expect(Buffer.from(portrait as Uint8Array).subarray(0, 3)).toEqual(
       Buffer.from([0xff, 0xd8, 0xff]),
     );
+    expect(credoDecoded.issuerSignedNamespaces[PID_MDOC_NAMESPACE]).toEqual(namespace);
     const capture = await getJson<SessionCapture>(app, `/sessions/${session.session_id}`);
     expect(capture.status).toBe("credential_issued");
     expect(capture.checks.proof_attestation_present).toBe(true);

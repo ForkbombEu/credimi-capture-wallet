@@ -1,4 +1,4 @@
-import { DateOnly } from "@owf/mdoc";
+import { DateOnly } from "@owf/cose";
 import type { JsonRecord } from "../../types.js";
 import type { PidSubject } from "./pid-data.js";
 

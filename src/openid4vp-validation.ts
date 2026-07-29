@@ -7,6 +7,7 @@ import {
   verify as verifySignature,
 } from "node:crypto";
 import { Kms, SdJwtVcService, X509ModuleConfig } from "@credo-ts/core";
+import { SignatureAlgorithm } from "@owf/cose";
 import {
   CoseKey,
   DeviceResponse,
@@ -518,6 +519,7 @@ function dcqlFailedCredentialErrors(queryId: string, failedCredential: JsonRecor
 
 function mdocVerificationContext(): MdocContext {
   return {
+    fetch: globalThis.fetch,
     crypto: {
       random: (length) => Buffer.alloc(length),
       digest: ({ digestAlgorithm, bytes }) => {
@@ -526,7 +528,7 @@ function mdocVerificationContext(): MdocContext {
         }
         return createHash("sha256").update(bytes).digest();
       },
-      calculateEphemeralMacKey: () => {
+      hdkf: () => {
         throw new Error("mdoc HKDF is not supported");
       },
     },
@@ -535,10 +537,10 @@ function mdocVerificationContext(): MdocContext {
         sign: () => {
           throw new Error("mdoc signing is not supported by the verifier");
         },
-        verify: async ({ key, sign1 }) =>
+        verify: async ({ key, toBeVerified, signature, algorithm }) =>
           verifySignature(
-            sign1.signatureAlgorithmName === "EdDSA" ? null : "sha256",
-            sign1.toBeSigned,
+            algorithm === SignatureAlgorithm.EdDSA ? null : "sha256",
+            toBeVerified,
             {
               key: createPublicKey({
                 key: key.jwk as unknown as NodeJsonWebKey,
@@ -546,11 +548,11 @@ function mdocVerificationContext(): MdocContext {
               }),
               dsaEncoding: "ieee-p1363",
             },
-            sign1.signature,
+            signature,
           ),
       },
       mac0: {
-        sign: () => {
+        authenticate: () => {
           throw new Error("mdoc MAC signing is not supported by the verifier");
         },
         verify: () => {
@@ -570,7 +572,7 @@ function mdocVerificationContext(): MdocContext {
             format: "jwk",
           }) as unknown as Record<string, unknown>,
         ),
-      verifyCertificateChain: () => undefined,
+      verifyCertificateChain: ({ x5chain }) => ({ chain: x5chain }),
       getCertificateData: ({ certificate }) => {
         const cert = new X509Certificate(certificate);
         return {

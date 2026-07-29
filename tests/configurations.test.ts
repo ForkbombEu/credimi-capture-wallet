@@ -1,3 +1,4 @@
+import { DateOnly } from "@owf/cose";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CONFIG } from "../src/config.js";
 import {
@@ -75,7 +76,10 @@ describe("always-on issuer configurations", () => {
       birthdate: "1990-01-01",
       place_of_birth: { locality: "Roma" },
     });
-    expect(String(mdoc.birth_date)).toContain("1990-01-01");
+    expect(mdoc.birth_date).toBeInstanceOf(DateOnly);
+    expect(String(mdoc.birth_date)).toBe("1990-01-01");
+    expect(mdoc.expiry_date).toBeInstanceOf(DateOnly);
+    expect(mdoc.issuance_date).toBeInstanceOf(DateOnly);
     expect(mdoc.portrait).toBeInstanceOf(Uint8Array);
     expect(Buffer.from(mdoc.portrait as Uint8Array).subarray(0, 3)).toEqual(
       Buffer.from([0xff, 0xd8, 0xff]),
