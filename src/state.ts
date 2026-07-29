@@ -27,7 +27,7 @@ export class CaptureStore {
   createSession(
     credentialConfigurationId = defaultCredentialConfigurationId(this.config),
     broken = false,
-    flow: SessionCapture["flow"] = "pre_authorized_code",
+    flow: SessionCapture["flow"] = "authorization_code",
     credentialOfferMode: CredentialOfferMode = "credential_offer",
   ): SessionCapture {
     const sessionId = randomUUID();

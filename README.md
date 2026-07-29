@@ -140,13 +140,12 @@ Start by creating a capture session for a credential configuration (that is the 
 curl -X POST "$BASE_URL/sessions" \
   -H 'Content-Type: application/json' \
   -d '{
-    "flow":"pre_authorized_code",
     "credential_configuration_id":"urn:eu.europa.ec.eudi:pid:1.mdoc.jwt"
   }'
 ```
-`flow` is optional and defaults to `pre_authorized_code`. Set it to
-`authorization_code` to create an offer whose authorization is handled by Credo-TS
-through the service's auto-approving chained OAuth server.
+`flow` is optional and defaults to `authorization_code`, whose authorization is
+handled by Credo-TS through the service's auto-approving chained OAuth server. Set it
+to `pre_authorized_code` to issue a pre-authorized offer instead.
 
 `credential_offer_mode` is optional and defaults to `credential_offer`, which embeds
 the Credential Offer JSON directly in the `deeplink`. Set it to
@@ -169,7 +168,7 @@ A successful response returns HTTP 201 and includes:
 ```json
 {
   "session_id": "...",
-  "flow": "pre_authorized_code",
+  "flow": "authorization_code",
   "credential_offer_mode": "credential_offer",
   "credential_configuration_id": "urn:eu.europa.ec.eudi:pid:1.mdoc.jwt",
   "broken": false,
@@ -179,27 +178,15 @@ A successful response returns HTTP 201 and includes:
 }
 ```
 
-Open or transmit the returned `deeplink` to the Wallet under test. The offer contains
-the `urn:ietf:params:oauth:grant-type:pre-authorized_code` grant. With the default
+Open or transmit the returned `deeplink` to the Wallet under test. With the default
 `credential_offer` mode, the Wallet reads the offer directly from the deeplink. With
 `credential_offer_uri`, it first retrieves the hosted offer. The `offer_url` remains
-available in both modes for capture diagnostics and manual inspection. The Wallet
-then calls the token, nonce, and credential endpoints directly.
+available in both modes for capture diagnostics and manual inspection.
 
-For an Authorization Code offer:
-
-```sh
-curl -X POST "$BASE_URL/sessions" \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "flow":"authorization_code",
-    "credential_configuration_id":"urn:eu.europa.ec.eudi:pid:1.mdoc.jwt"
-  }'
-```
-
-The Wallet uses the scope advertised for the offered Credential Configuration and
-returns the offer's `issuer_state` in its Authorization Request. Credo requires PAR,
-S256 PKCE, and DPoP for this flow. Opening Credo's `/authorize` endpoint redirects to
+By default, the offer contains the `authorization_code` grant. The Wallet uses the
+scope advertised for the offered Credential Configuration and returns the offer's
+`issuer_state` in its Authorization Request. Credo requires PAR, S256 PKCE, and DPoP
+for this flow. Opening Credo's `/authorize` endpoint redirects to
 `/fake-oauth/authorize`; that test server immediately approves every valid request and
 redirects to Credo's `/redirect` callback. Credo exchanges the external one-time code,
 then immediately redirects to the Wallet's registered `redirect_uri` with a separate
@@ -211,6 +198,22 @@ one fixed internal client, accepts only Credo's exact callback URI, requires S25
 and issues short-lived single-use codes. Its access token is consumed only by Credo
 and is never accepted at the Credential Endpoint. Do not use this auto-approval
 mechanism as a production authorization policy.
+
+For a Pre-Authorized Code offer:
+
+```sh
+curl -X POST "$BASE_URL/sessions" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "flow":"pre_authorized_code",
+    "credential_configuration_id":"urn:eu.europa.ec.eudi:pid:1.mdoc.jwt"
+  }'
+```
+
+This offer contains the
+`urn:ietf:params:oauth:grant-type:pre-authorized_code` grant. The Wallet exchanges the
+pre-authorized code directly at the token endpoint, then calls the nonce and
+credential endpoints.
 
 The `/credential` endpoint accepts exactly one proof per request:
 

@@ -120,7 +120,7 @@ describe("capture issuer server", () => {
     });
     expect(openApi.body.components.schemas.IssuanceSessionRequest.properties.flow).toMatchObject({
       enum: ["pre_authorized_code", "authorization_code"],
-      default: "pre_authorized_code",
+      default: "authorization_code",
     });
     expect(
       openApi.body.components.schemas.IssuanceSessionRequest.properties.credential_offer_mode,
@@ -1003,6 +1003,7 @@ describe("capture issuer server", () => {
 
     const initial = await getJson<SessionCapture>(app, `/sessions/${sessionId}`);
     expect(initial.status).toBe("created");
+    expect(initial.flow).toBe("authorization_code");
     expect(initial.broken).toBe(false);
     expect(initial.credential_offer_mode).toBe("credential_offer");
 
@@ -1030,10 +1031,13 @@ describe("capture issuer server", () => {
     );
 
     expect(session.credential_configuration_id).toBe(requestedCredentialConfigurationId);
-    expect(session.flow).toBe("pre_authorized_code");
+    expect(session.flow).toBe("authorization_code");
     expect(session.credential_offer_mode).toBe("credential_offer");
     expect(session.broken).toBe(false);
     expect(offer.credential_configuration_ids).toEqual([requestedCredentialConfigurationId]);
+    expect(offer.grants.authorization_code).toMatchObject({
+      issuer_state: expect.any(String),
+    });
     const deeplink = new URL(session.deeplink);
     expect(deeplink.searchParams.get("credential_offer_uri")).toBeNull();
     expect(JSON.parse(String(deeplink.searchParams.get("credential_offer")))).toEqual(offer);
@@ -1089,6 +1093,7 @@ describe("capture issuer server", () => {
     const app = createApp(config);
     const session = await postJson<SessionCreateResponse>(app, "/sessions", {
       credential_configuration_id: mdocCredentialConfigurationId(config),
+      flow: "pre_authorized_code",
     });
     const dpop = await dpopKey();
     const token = await preAuthorizedToken(app, session, dpop);
@@ -1134,7 +1139,9 @@ describe("capture issuer server", () => {
 
   it("captures and correlates pre-authorized requests with secrets redacted", async () => {
     const app = createApp(config);
-    const session = await postJson<SessionCreateResponse>(app, "/sessions", {});
+    const session = await postJson<SessionCreateResponse>(app, "/sessions", {
+      flow: "pre_authorized_code",
+    });
     const offer = await getJson<CredentialOfferResponse>(app, new URL(session.offer_url).pathname);
     const grant = offer.grants[
       "urn:ietf:params:oauth:grant-type:pre-authorized_code"
@@ -1182,7 +1189,9 @@ describe("capture issuer server", () => {
 
   it("rejects token requests without DPoP", async () => {
     const app = createApp(config);
-    const session = await postJson<SessionCreateResponse>(app, "/sessions", {});
+    const session = await postJson<SessionCreateResponse>(app, "/sessions", {
+      flow: "pre_authorized_code",
+    });
     const offer = await getJson<CredentialOfferResponse>(app, new URL(session.offer_url).pathname);
     const grant = offer.grants[
       "urn:ietf:params:oauth:grant-type:pre-authorized_code"
@@ -1201,7 +1210,9 @@ describe("capture issuer server", () => {
 
   it("uses Credo to verify a draft-07 wallet attestation PoP without exp", async () => {
     const app = createApp(config);
-    const session = await postJson<SessionCreateResponse>(app, "/sessions", {});
+    const session = await postJson<SessionCreateResponse>(app, "/sessions", {
+      flow: "pre_authorized_code",
+    });
     const offer = await getJson<CredentialOfferResponse>(app, new URL(session.offer_url).pathname);
     const grant = offer.grants[
       "urn:ietf:params:oauth:grant-type:pre-authorized_code"
@@ -1232,7 +1243,9 @@ describe("capture issuer server", () => {
 
   it("uses Credo to verify JWT proof, key attestation, nonce, and holder binding", async () => {
     const app = createApp(config);
-    const invalidSession = await postJson<SessionCreateResponse>(app, "/sessions", {});
+    const invalidSession = await postJson<SessionCreateResponse>(app, "/sessions", {
+      flow: "pre_authorized_code",
+    });
     const invalidDpop = await dpopKey();
     const invalidToken = await preAuthorizedToken(app, invalidSession, invalidDpop);
     const walletKey = await dpopKey();
@@ -1254,7 +1267,10 @@ describe("capture issuer server", () => {
     expect(mismatchedCredential.status).toBe(400);
     expect(mismatchedCredential.body).toMatchObject({ error: "invalid_proof" });
 
-    const session = await postJson<SessionCreateResponse>(app, "/sessions", { broken: true });
+    const session = await postJson<SessionCreateResponse>(app, "/sessions", {
+      broken: true,
+      flow: "pre_authorized_code",
+    });
     const dpop = await dpopKey();
     const token = await preAuthorizedToken(app, session, dpop);
     const proof = await credentialProofJwt(walletKey, token.c_nonce);
@@ -1350,7 +1366,9 @@ describe("capture issuer server", () => {
 
   it("decrypts the Credential Request and encrypts the Credential Response", async () => {
     const app = createApp(config);
-    const session = await postJson<SessionCreateResponse>(app, "/sessions", {});
+    const session = await postJson<SessionCreateResponse>(app, "/sessions", {
+      flow: "pre_authorized_code",
+    });
     const dpop = await dpopKey();
     const token = await preAuthorizedToken(app, session, dpop);
     const holderKey = await dpopKey();
@@ -1468,7 +1486,7 @@ describe("capture issuer server", () => {
     expect(response.body).toMatchObject({ error: "unsupported_credential_configuration" });
   });
 
-  it("runs the authorization-code flow through the auto-approving chained OAuth server", async () => {
+  it("runs the default authorization-code flow through the auto-approving OAuth server", async () => {
     const app = createApp(config);
     const walletClientId = "https://wallet.example.test";
     const walletRedirectUri = "https://wallet.example.test/callback";
@@ -1476,9 +1494,7 @@ describe("capture issuer server", () => {
     const codeVerifier = randomBytes(48).toString("base64url");
     const codeChallenge = createHash("sha256").update(codeVerifier).digest("base64url");
     const dpop = await dpopKey();
-    const session = await postJson<SessionCreateResponse>(app, "/sessions", {
-      flow: "authorization_code",
-    });
+    const session = await postJson<SessionCreateResponse>(app, "/sessions", {});
     const offer = JSON.parse(
       String(new URL(session.deeplink).searchParams.get("credential_offer")),
     ) as CredentialOfferResponse;

@@ -784,7 +784,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             flow: {
               type: "string",
               enum: ["pre_authorized_code", "authorization_code"],
-              default: "pre_authorized_code",
+              default: "authorization_code",
               description: "Issuance flow preset.",
             },
             credential_offer_mode: {

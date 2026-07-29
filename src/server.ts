@@ -261,7 +261,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         store,
         credentialConfigurationId,
         body.broken === true,
-        flow ?? "pre_authorized_code",
+        flow ?? "authorization_code",
         credentialOfferMode ?? "credential_offer",
       );
       const offer = store.credoIssuanceOffers.get(session.session_id);
@@ -644,7 +644,7 @@ async function createIssuanceSession(
   store: CaptureStore,
   credentialConfigurationId: string,
   broken: boolean,
-  flow: SessionCapture["flow"] = "pre_authorized_code",
+  flow: SessionCapture["flow"] = "authorization_code",
   credentialOfferMode: CredentialOfferMode = "credential_offer",
 ): Promise<SessionCapture> {
   const session = store.createSession(credentialConfigurationId, broken, flow, credentialOfferMode);
