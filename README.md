@@ -424,6 +424,11 @@ access-token public keys are not reused between issuer roles. A deployment-hostn
 `dNSName` SAN is optional and is not checked, allowing externally issued certificates
 that bind the path-based issuer through the URI SAN only.
 
+For issuer signing material, `issuer-private-jwk.json` is the source of truth for the
+key ID. Initialization rebuilds the derived `jwks.json` without rotating an existing
+private key and copies its exact `kid`; Credo imports the signing key under that same
+ID. An externally supplied private JWK must therefore contain a non-empty `kid`.
+
 Issuer material is stored independently for each issuer:
 
 ```text

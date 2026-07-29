@@ -251,6 +251,42 @@ QUOTED="value"
     }
   });
 
+  it("rebuilds an issuer JWKS with the private JWK kid without rotating the private key", async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "issuer-jwks-kid-test-"));
+    try {
+      const config = await initIssuer({
+        issuer_base_url: "https://issuer.example.test",
+        data_dir: dataDir,
+        force: true,
+      });
+      const issuer = resolvedIssuerConfigurationById(config, "eu-pid-device-bound");
+      if (!issuer) throw new Error("device-bound issuer unavailable");
+      const secretPath = privateJwkPath(issuer.materialDirectory);
+      const publicPath = jwksPath(issuer.materialDirectory);
+      const privateJwk = JSON.parse(readFileSync(secretPath, "utf8")) as Record<string, unknown>;
+      privateJwk.kid = "externally-managed-issuer-key";
+      writeFileSync(secretPath, `${JSON.stringify(privateJwk, null, 2)}\n`);
+      rmSync(publicPath);
+
+      await initIssuer({
+        issuer_base_url: "https://issuer.example.test",
+        data_dir: dataDir,
+      });
+
+      const privateAfterInit = JSON.parse(readFileSync(secretPath, "utf8")) as Record<
+        string,
+        unknown
+      >;
+      const publicAfterInit = JSON.parse(readFileSync(publicPath, "utf8")) as {
+        keys: Array<Record<string, unknown>>;
+      };
+      expect(privateAfterInit.kid).toBe("externally-managed-issuer-key");
+      expect(publicAfterInit.keys[0]?.kid).toBe(privateAfterInit.kid);
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+
   it("rejects incomplete or reused issuer material before startup", async () => {
     const dataDir = mkdtempSync(join(tmpdir(), "multi-issuer-validation-test-"));
     try {
@@ -271,6 +307,21 @@ QUOTED="value"
       expect(() => validateIssuerMaterial(config)).toThrow("Issuer key reuse detected");
 
       writeFileSync(jwtOnlyAccessTokenPath, originalJwtOnlyAccessToken);
+      const jwtOnlyJwksPath = jwksPath(jwtOnly.materialDirectory);
+      const jwtOnlyJwks = JSON.parse(readFileSync(jwtOnlyJwksPath, "utf8")) as {
+        keys: Array<Record<string, unknown>>;
+      };
+      if (!jwtOnlyJwks.keys[0]) throw new Error("JWT-only issuer signing JWK unavailable");
+      jwtOnlyJwks.keys[0].kid = "mismatched-public-key-id";
+      writeFileSync(jwtOnlyJwksPath, `${JSON.stringify(jwtOnlyJwks, null, 2)}\n`);
+      expect(() => validateIssuerMaterial(config)).toThrow(
+        "JWKS kid does not match its private signing JWK kid",
+      );
+
+      await initIssuer({
+        issuer_base_url: "https://issuer.example.test",
+        data_dir: dataDir,
+      });
       rmSync(issuerEncryptionPrivateJwkPath(jwtOnly.materialDirectory));
       expect(() => validateIssuerMaterial(config)).toThrow("is missing encryption material");
     } finally {

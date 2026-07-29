@@ -281,6 +281,7 @@ export function validateIssuerMaterial(config: AppConfig): void {
     const signingPrivateJwk = readJwk(paths.signing, issuer.id, "signing");
     const encryptionPrivateJwk = readJwk(paths.encryption, issuer.id, "encryption");
     const accessTokenPrivateJwk = readJwk(paths.accessToken, issuer.id, "access-token");
+    const signingKeyId = requiredJwkKeyId(signingPrivateJwk, `Issuer '${issuer.id}' signing key`);
     const certificatePem = readFileSync(paths.certificate, "utf8");
     const certificate = X509Certificate.fromEncodedCertificate(certificatePem);
     if (!Kms.PublicJwk.fromUnknown(toPublicJwk(signingPrivateJwk)).equals(certificate.publicJwk)) {
@@ -295,16 +296,18 @@ export function validateIssuerMaterial(config: AppConfig): void {
 
     const publishedJwks = loadIssuerJwks(material);
     const signingPublicJwk = Kms.PublicJwk.fromUnknown(toPublicJwk(signingPrivateJwk));
-    if (
-      !publishedJwks.keys.some((jwk) => {
-        try {
-          return Kms.PublicJwk.fromUnknown(jwk).equals(signingPublicJwk);
-        } catch {
-          return false;
-        }
-      })
-    ) {
+    const publishedSigningJwk = publishedJwks.keys.find((jwk) => {
+      try {
+        return Kms.PublicJwk.fromUnknown(jwk).equals(signingPublicJwk);
+      } catch {
+        return false;
+      }
+    });
+    if (!publishedSigningJwk) {
       throw new Error(`Issuer '${issuer.id}' JWKS does not publish its signing key`);
+    }
+    if (publishedSigningJwk.kid !== signingKeyId) {
+      throw new Error(`Issuer '${issuer.id}' JWKS kid does not match its private signing JWK kid`);
     }
 
     registerUniquePublicKey(publicKeyOwners, issuer.id, "signing", signingPrivateJwk);
@@ -364,7 +367,7 @@ async function ensureIssuerMaterial(
   const accessTokenSecretPath = accessTokenPrivateJwkPath(materialDirectory);
 
   mkdirSync(materialDirectory, { recursive: true });
-  if (force || !existsSync(secretPath) || !existsSync(publicPath)) {
+  if (force || !existsSync(secretPath)) {
     await writeGeneratedJwkPair(secretPath, publicPath, issuer.issuerKeyId);
   }
   if (force || !existsSync(certificatePath)) {
@@ -374,7 +377,7 @@ async function ensureIssuerMaterial(
       issuer.issuerKeyId,
     );
   }
-  writePublicJwksFromPrivate(publicPath, secretPath, issuer.issuerKeyId);
+  writePublicJwksFromPrivate(publicPath, secretPath);
   writeIssuerJwksCertificate(publicPath, certificatePath);
   await ensureIssuerEncryptionMaterial({
     force,
@@ -412,10 +415,7 @@ export function issuerSigningKeyId(config: AppConfig): string {
   const privateJwk = JSON.parse(
     readFileSync(privateJwkPath(config.data_dir), "utf8"),
   ) as JsonRecord;
-  if (typeof privateJwk.kid !== "string" || privateJwk.kid.length === 0) {
-    throw new Error(`Issuer signing key in '${config.data_dir}' is missing a kid`);
-  }
-  return privateJwk.kid;
+  return requiredJwkKeyId(privateJwk, `Issuer signing key in '${config.data_dir}'`);
 }
 
 export function loadIssuerEncryptionPrivateJwk(config: AppConfig): JsonRecord | null {
@@ -613,13 +613,24 @@ function createSigningContext(privateJwk: JsonRecord, keyId: string): object {
   return { resolve, dependencyManager: { resolve } };
 }
 
-function writePublicJwksFromPrivate(publicPath: string, secretPath: string, keyId: string): void {
+function writePublicJwksFromPrivate(
+  publicPath: string,
+  secretPath: string,
+  keyIdOverride?: string,
+): void {
   const privateJwk = JSON.parse(readFileSync(secretPath, "utf8")) as JsonRecord;
   const publicJwk = toPublicJwk(privateJwk);
   publicJwk.alg = "ES256";
   publicJwk.use = "sig";
-  publicJwk.kid = keyId;
+  publicJwk.kid = keyIdOverride ?? requiredJwkKeyId(privateJwk, `Private JWK '${secretPath}'`);
   writeJson(publicPath, { keys: [publicJwk] });
+}
+
+function requiredJwkKeyId(jwk: JsonRecord, description: string): string {
+  if (typeof jwk.kid !== "string" || jwk.kid.length === 0) {
+    throw new Error(`${description} is missing a kid`);
+  }
+  return jwk.kid;
 }
 
 function writeIssuerJwksCertificate(jwksFilePath: string, certificatePath: string): void {

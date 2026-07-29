@@ -318,7 +318,6 @@ export class CredoOpenId4VciIssuer {
     const privateJwk = JSON.parse(
       await readFile(privateJwkPath(issuer.materialDirectory), "utf8"),
     ) as JsonRecord;
-    privateJwk.kid = issuer.issuerKeyId;
     await this.agent.kms.importKey({ privateJwk: privateJwk as never });
   }
 

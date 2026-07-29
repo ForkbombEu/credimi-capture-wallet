@@ -232,6 +232,40 @@ describe("capture issuer server", () => {
     expect(metadataClaims.authorization_servers).toBeUndefined();
   });
 
+  it("signs issuer metadata using an externally supplied private JWK kid", async () => {
+    const isolatedDataDir = mkdtempSync(join(tmpdir(), "external-issuer-kid-test-"));
+    try {
+      const isolatedConfig = await initIssuer({
+        issuer_base_url: config.issuer_base_url,
+        data_dir: isolatedDataDir,
+        force: true,
+      });
+      const issuer = resolvedIssuerConfigurationById(isolatedConfig, conformingIssuerId);
+      if (!issuer) throw new Error("conforming issuer unavailable");
+      const secretPath = privateJwkPath(issuer.materialDirectory);
+      const privateJwk = JSON.parse(readFileSync(secretPath, "utf8")) as JsonRecord;
+      privateJwk.kid = "externally-managed-issuer-key";
+      writeFileSync(secretPath, `${JSON.stringify(privateJwk, null, 2)}\n`);
+
+      await initIssuer({
+        issuer_base_url: isolatedConfig.issuer_base_url,
+        data_dir: isolatedDataDir,
+      });
+      const response = await request(createApp(isolatedConfig))
+        .get(conformingMetadataPath)
+        .set("Accept", "application/jwt");
+      const jwks = JSON.parse(
+        readFileSync(jwksPath(issuer.materialDirectory), "utf8"),
+      ) as JwksResponse;
+
+      expect(response.status, response.text).toBe(200);
+      expect(response.type).toBe("application/jwt");
+      expect(jwks.keys[0]?.kid).toBe(privateJwk.kid);
+    } finally {
+      rmSync(isolatedDataDir, { recursive: true, force: true });
+    }
+  });
+
   it("exposes only the two path-based issuers and removes the legacy root issuer", async () => {
     const app = createApp(config);
     const catalogue = await getJson<JsonRecord[]>(app, "/issuers");
@@ -409,7 +443,7 @@ describe("capture issuer server", () => {
       const jwks = JSON.parse(readFileSync(jwksPath(isolatedIssuer.materialDirectory), "utf8")) as {
         keys: JsonRecord[];
       };
-      const { kid: _kid, ...issuerJwk } = jwks.keys[0] ?? {};
+      const issuerJwk = { ...(jwks.keys[0] ?? {}) };
       const additionalCertificate = readFileSync(verifierCertificatePath(isolatedDataDir), "utf8")
         .replace(/-----BEGIN CERTIFICATE-----/g, "")
         .replace(/-----END CERTIFICATE-----/g, "")
