@@ -244,6 +244,10 @@ function issuerDescriptionHtml(group: IssuerCredentialGroup): string {
 }
 
 function issuerLinkHtml(label: string, href: string): string {
+  if (!isHttpUrl(href)) {
+    return `<span class="issuer-link">${escapeHtml(label)}: ${escapeHtml(href)}</span>`;
+  }
+
   return [
     '<a class="issuer-link" href="',
     escapeHtml(href),
@@ -251,6 +255,15 @@ function issuerLinkHtml(label: string, href: string): string {
     escapeHtml(label),
     "</a>",
   ].join("");
+}
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const protocol = new URL(value).protocol;
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 function credentialOptionHtml(
