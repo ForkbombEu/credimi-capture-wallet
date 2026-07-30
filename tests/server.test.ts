@@ -538,18 +538,25 @@ describe("capture issuer server", () => {
     expect(response.text).toContain('<h2 id="issuer-catalogue-title">Available issuers</h2>');
     expect(response.text.match(/<article class="issuer-card">/g)).toHaveLength(2);
     expect(response.text).toContain("EUDI PID — device-bound conforming");
-    expect(response.text).toContain("Conforming");
-    expect(response.text).toContain(
+    expect(response.text).not.toContain('class="issuer-compliance');
+    expect(response.text).not.toContain('class="issuer-warning"');
+    expect(response.text).not.toContain(
+      "Deliberately non-conforming for a device-bound EUDI PID; a conforming wallet may reject issuance.",
+    );
+    expect(response.text).not.toContain(
       "PID issuer advertising JWT and attestation proofs with key attestation required.",
     );
     expect(response.text).toContain("EUDI PID — JWT proof only");
-    expect(response.text).toContain("Deliberately non-conforming");
     expect(response.text).toContain(
       "PID interoperability test issuer advertising JWT proof without key attestation.",
     );
     expect(response.text).toContain(
-      "Deliberately non-conforming for a device-bound EUDI PID; a conforming wallet may reject issuance.",
+      '<a href="https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ%3AL_202601731" target="_blank" rel="noreferrer">Commission Implementing Regulation (EU) 2026/1731</a>',
     );
+    expect(response.text).toContain(
+      "in particular <code>TR_KA-4</code>: both <code>jwt</code> and <code>attestation</code> proof types are present and both include <code>key_attestations_required</code>.",
+    );
+    expect(response.text.match(/class="issuer-link"/g)).toHaveLength(6);
 
     for (const issuerId of [conformingIssuerId, jwtOnlyIssuerId]) {
       expect(response.text).toContain(

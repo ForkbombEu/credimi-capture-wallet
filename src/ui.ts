@@ -4,6 +4,8 @@ import type { SupportedCredential } from "./metadata.js";
 const REPOSITORY_URL = "https://github.com/ForkbombEu/credimi-capture-wallet";
 const OPENAPI_URL = "/openapi.json";
 const API_DOCS_URL = "/docs";
+const REGULATION_2026_1731_URL =
+  "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ%3AL_202601731";
 
 export interface IssuerCredentialGroup {
   issuer: ResolvedIssuerConfiguration;
@@ -203,30 +205,15 @@ function issuerCatalogueHtml(groups: readonly IssuerCredentialGroup[]): string {
 
 function issuerCardHtml(group: IssuerCredentialGroup): string {
   const { issuer } = group;
-  const conforming = issuer.compliance === "eudi-pid-device-bound";
-  const status = conforming ? "Conforming" : "Deliberately non-conforming";
-  const statusClass = conforming
-    ? "issuer-compliance-conforming"
-    : "issuer-compliance-nonconforming";
 
   return [
     '<article class="issuer-card">',
-    '<div class="issuer-card-header">',
     "<h3>",
     escapeHtml(issuer.display.name),
     "</h3>",
-    '<span class="issuer-compliance ',
-    statusClass,
-    '">',
-    status,
-    "</span>",
-    "</div>",
     '<p class="issuer-description">',
-    escapeHtml(issuer.display.description),
+    issuerDescriptionHtml(group),
     "</p>",
-    issuer.display.warning
-      ? `<p class="issuer-warning">${escapeHtml(issuer.display.warning)}</p>`
-      : "",
     '<nav class="issuer-links" aria-label="',
     escapeHtml(`${issuer.display.name} endpoints`),
     '">',
@@ -235,6 +222,24 @@ function issuerCardHtml(group: IssuerCredentialGroup): string {
     issuerLinkHtml("Authorization server well-known", issuer.authorizationServerMetadataUrl),
     "</nav>",
     "</article>",
+  ].join("");
+}
+
+function issuerDescriptionHtml(group: IssuerCredentialGroup): string {
+  if (group.issuer.compliance !== "eudi-pid-device-bound") {
+    return escapeHtml(group.issuer.display.description);
+  }
+
+  return [
+    "Conformant to ",
+    '<a href="',
+    REGULATION_2026_1731_URL,
+    '" target="_blank" rel="noreferrer">',
+    "Commission Implementing Regulation (EU) 2026/1731",
+    "</a>",
+    ", in particular <code>TR_KA-4</code>: both <code>jwt</code> and ",
+    "<code>attestation</code> proof types are present and both include ",
+    "<code>key_attestations_required</code>.",
   ].join("");
 }
 
@@ -470,13 +475,8 @@ function appCss(): string {
     ".issuer-catalogue h2 { font-size: 20px; }",
     ".issuer-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }",
     ".issuer-card { min-width: 0; display: grid; align-content: start; gap: 12px; padding: 18px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg); box-shadow: var(--shadow-sm); }",
-    ".issuer-card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }",
     ".issuer-card h3 { min-width: 0; font-size: 16px; line-height: 1.4; }",
-    ".issuer-compliance { display: inline-flex; align-items: center; min-height: 24px; padding: 0 9px; border-radius: var(--radius-pill); font-size: 10px; font-weight: 800; line-height: 1.2; text-transform: uppercase; }",
-    ".issuer-compliance-conforming { background: var(--success-bg); color: var(--success); }",
-    ".issuer-compliance-nonconforming { background: var(--warning-bg); color: var(--warning); }",
-    ".issuer-description, .issuer-warning, .issuer-empty { color: var(--fg-muted); font-size: 13px; line-height: 1.5; }",
-    ".issuer-warning { padding: 10px; border-left: 3px solid var(--warning); background: var(--warning-bg); color: var(--fg); }",
+    ".issuer-description, .issuer-empty { color: var(--fg-muted); font-size: 13px; line-height: 1.5; }",
     ".issuer-links { display: grid; gap: 6px; margin-top: auto; }",
     ".issuer-link { overflow-wrap: anywhere; font-size: 12px; font-weight: 700; }",
     ".eyebrow { margin-bottom: 10px; color: var(--brand-primary); font-size: 12px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; }",
