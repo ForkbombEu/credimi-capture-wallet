@@ -59,6 +59,7 @@ export function indexPage(groups: readonly IssuerCredentialGroup[]): string {
       "</div>",
       "</form>",
       '<script>const credentialPicker=document.querySelector(\'select[name="credential_configuration_id"]\');const issuerInput=document.getElementById("issuer-configuration-id");function syncIssuer(){const selected=credentialPicker?.selectedOptions[0];if(selected&&issuerInput)issuerInput.value=selected.dataset.issuerConfigurationId||"";}credentialPicker?.addEventListener("change",syncIssuer);syncIssuer();</script>',
+      issuerCatalogueHtml(groups),
       "</div>",
       '<aside class="summary-panel" aria-label="Captured values">',
       '<div class="section-header compact">',
@@ -186,6 +187,64 @@ function issuerCredentialGroupHtml(group: IssuerCredentialGroup): string {
       .map((credential) => credentialOptionHtml(group.issuer.id, credential))
       .join(""),
     "</optgroup>",
+  ].join("");
+}
+
+function issuerCatalogueHtml(groups: readonly IssuerCredentialGroup[]): string {
+  return [
+    '<section class="issuer-catalogue" aria-labelledby="issuer-catalogue-title">',
+    '<h2 id="issuer-catalogue-title">Available issuers</h2>',
+    groups.length > 0
+      ? `<div class="issuer-cards">${groups.map(issuerCardHtml).join("")}</div>`
+      : '<p class="issuer-empty">No issuers available</p>',
+    "</section>",
+  ].join("");
+}
+
+function issuerCardHtml(group: IssuerCredentialGroup): string {
+  const { issuer } = group;
+  const conforming = issuer.compliance === "eudi-pid-device-bound";
+  const status = conforming ? "Conforming" : "Deliberately non-conforming";
+  const statusClass = conforming
+    ? "issuer-compliance-conforming"
+    : "issuer-compliance-nonconforming";
+
+  return [
+    '<article class="issuer-card">',
+    '<div class="issuer-card-header">',
+    "<h3>",
+    escapeHtml(issuer.display.name),
+    "</h3>",
+    '<span class="issuer-compliance ',
+    statusClass,
+    '">',
+    status,
+    "</span>",
+    "</div>",
+    '<p class="issuer-description">',
+    escapeHtml(issuer.display.description),
+    "</p>",
+    issuer.display.warning
+      ? `<p class="issuer-warning">${escapeHtml(issuer.display.warning)}</p>`
+      : "",
+    '<nav class="issuer-links" aria-label="',
+    escapeHtml(`${issuer.display.name} endpoints`),
+    '">',
+    issuerLinkHtml("Issuer", issuer.issuerIdentifier),
+    issuerLinkHtml("Credential issuer well-known", issuer.issuerMetadataUrl),
+    issuerLinkHtml("Authorization server well-known", issuer.authorizationServerMetadataUrl),
+    "</nav>",
+    "</article>",
+  ].join("");
+}
+
+function issuerLinkHtml(label: string, href: string): string {
+  return [
+    '<a class="issuer-link" href="',
+    escapeHtml(href),
+    '" target="_blank" rel="noreferrer">',
+    escapeHtml(label),
+    "</a>",
   ].join("");
 }
 
@@ -407,6 +466,19 @@ function appCss(): string {
     ".credential-picker { display: grid; gap: 8px; width: min(100%, 520px); color: var(--fg); font-size: 13px; font-weight: 700; }",
     ".credential-picker select { width: 100%; min-height: 44px; padding: 0 42px 0 14px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--bg); color: var(--fg); font: inherit; font-size: 14px; font-weight: 600; }",
     ".credential-picker select:focus { outline: 2px solid color-mix(in oklch, var(--brand-primary) 36%, transparent); outline-offset: 2px; }",
+    ".issuer-catalogue { display: grid; gap: 12px; width: 100%; margin-top: 8px; }",
+    ".issuer-catalogue h2 { font-size: 20px; }",
+    ".issuer-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }",
+    ".issuer-card { min-width: 0; display: grid; align-content: start; gap: 12px; padding: 18px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg); box-shadow: var(--shadow-sm); }",
+    ".issuer-card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }",
+    ".issuer-card h3 { min-width: 0; font-size: 16px; line-height: 1.4; }",
+    ".issuer-compliance { display: inline-flex; align-items: center; min-height: 24px; padding: 0 9px; border-radius: var(--radius-pill); font-size: 10px; font-weight: 800; line-height: 1.2; text-transform: uppercase; }",
+    ".issuer-compliance-conforming { background: var(--success-bg); color: var(--success); }",
+    ".issuer-compliance-nonconforming { background: var(--warning-bg); color: var(--warning); }",
+    ".issuer-description, .issuer-warning, .issuer-empty { color: var(--fg-muted); font-size: 13px; line-height: 1.5; }",
+    ".issuer-warning { padding: 10px; border-left: 3px solid var(--warning); background: var(--warning-bg); color: var(--fg); }",
+    ".issuer-links { display: grid; gap: 6px; margin-top: auto; }",
+    ".issuer-link { overflow-wrap: anywhere; font-size: 12px; font-weight: 700; }",
     ".eyebrow { margin-bottom: 10px; color: var(--brand-primary); font-size: 12px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; }",
     ".card, .summary-panel { min-width: 0; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 24px; box-shadow: var(--shadow-sm); }",
     ".summary-panel { display: grid; gap: 18px; }",
@@ -483,7 +555,7 @@ function appCss(): string {
     "@keyframes metadata-spin { to { transform: rotate(360deg); } }",
     "@keyframes metadata-flash { 0% { background: var(--warning-bg); box-shadow: 0 0 0 0 color-mix(in oklch, var(--warning) 32%, transparent); } 30% { background: var(--success-bg); box-shadow: 0 0 0 6px color-mix(in oklch, var(--success) 20%, transparent); } 100% { background: var(--bg); box-shadow: var(--shadow-sm); } }",
     "@media (prefers-reduced-motion: reduce) { .metadata-state-waiting::before, .metadata-state-receiving::before, .metadata-flash { animation: none; } }",
-    "@media (max-width: 860px) { h1 { font-size: 38px; } h2 { font-size: 22px; } .hero-band { padding: 52px 0; } .hero-inner, .session-layout { grid-template-columns: 1fr; } .session-header, .section-head, .footer-content { flex-direction: column; align-items: stretch; } .session-actions { align-items: stretch; flex-direction: column; } .session-actions .btn { width: 100%; } .footer-links { justify-content: flex-start; } .qr-box { width: 100%; max-width: 336px; } }",
+    "@media (max-width: 860px) { h1 { font-size: 38px; } h2 { font-size: 22px; } .hero-band { padding: 52px 0; } .hero-inner, .session-layout { grid-template-columns: 1fr; } .issuer-cards { grid-template-columns: 1fr; } .session-header, .section-head, .footer-content { flex-direction: column; align-items: stretch; } .session-actions { align-items: stretch; flex-direction: column; } .session-actions .btn { width: 100%; } .footer-links { justify-content: flex-start; } .qr-box { width: 100%; max-width: 336px; } }",
     "@media (max-width: 560px) { .container, .topbar-inner, .hero-inner, .footer-inner { width: min(100% - 28px, var(--max-width)); } .page-content { padding: 28px 0 52px; } .card, .summary-panel { padding: 18px; } .brand-name { display: none; } .topbar-actions .btn { display: none; } }",
   ].join("\n");
 }

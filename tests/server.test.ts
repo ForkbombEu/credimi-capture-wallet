@@ -533,6 +533,40 @@ describe("capture issuer server", () => {
       '<optgroup label="EUDI PID — JWT proof only — deliberately non-conforming">',
     );
     expect(response.text).toContain(
+      '<section class="issuer-catalogue" aria-labelledby="issuer-catalogue-title">',
+    );
+    expect(response.text).toContain('<h2 id="issuer-catalogue-title">Available issuers</h2>');
+    expect(response.text.match(/<article class="issuer-card">/g)).toHaveLength(2);
+    expect(response.text).toContain("EUDI PID — device-bound conforming");
+    expect(response.text).toContain("Conforming");
+    expect(response.text).toContain(
+      "PID issuer advertising JWT and attestation proofs with key attestation required.",
+    );
+    expect(response.text).toContain("EUDI PID — JWT proof only");
+    expect(response.text).toContain("Deliberately non-conforming");
+    expect(response.text).toContain(
+      "PID interoperability test issuer advertising JWT proof without key attestation.",
+    );
+    expect(response.text).toContain(
+      "Deliberately non-conforming for a device-bound EUDI PID; a conforming wallet may reject issuance.",
+    );
+
+    for (const issuerId of [conformingIssuerId, jwtOnlyIssuerId]) {
+      expect(response.text).toContain(
+        `href="${config.issuer_base_url}/issuers/${issuerId}" target="_blank" rel="noreferrer">Issuer</a>`,
+      );
+      expect(response.text).toContain(
+        `href="${config.issuer_base_url}/.well-known/openid-credential-issuer/issuers/${issuerId}" target="_blank" rel="noreferrer">Credential issuer well-known</a>`,
+      );
+      expect(response.text).toContain(
+        `href="${config.issuer_base_url}/.well-known/oauth-authorization-server/issuers/${issuerId}" target="_blank" rel="noreferrer">Authorization server well-known</a>`,
+      );
+    }
+
+    expect(response.text).not.toContain(
+      "/.well-known/oauth-authorization-server/authorization-servers/",
+    );
+    expect(response.text).toContain(
       "Credimi Demo PID (SD-JWT VC, JWT or attestation proof, key attestation required)",
     );
     expect(response.text).toContain("Credimi Demo PID (SD-JWT VC, JWT proof, no key attestation)");
