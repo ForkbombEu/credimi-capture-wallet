@@ -18,8 +18,8 @@
     "init": "tsx src/cli.ts init"
   },
   "dependencies": {
-    "@credo-ts/core": "0.7.1-alpha-20260728141228",
-    "@credo-ts/openid4vc": "0.7.1-alpha-20260728141228",
+    "@credo-ts/core": "0.7.1-alpha-20260731093103",
+    "@credo-ts/openid4vc": "0.7.1-alpha-20260731093103",
     "@owf/cose": "0.3.2",
     "@owf/mdoc": "0.7.0",
     "@types/qrcode": "1.5.5",
