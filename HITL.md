@@ -8,7 +8,7 @@ It is a controlled buffer between:
 
 - agent discovery
 - human decision
-- doctrine (`BARIO.md`)
+- doctrine (`PURIA.md`)
 
 ---
 
@@ -17,7 +17,7 @@ It is a controlled buffer between:
 - entries are NOT authoritative
 - entries MUST NOT influence agent decisions
 - this file is **write-only for agents**
-- only humans may promote entries into `BARIO.md`
+- only humans may promote entries into `PURIA.md`
 
 Agents MUST:
 
@@ -57,10 +57,10 @@ If unsure:
 - observation: Required validation tooling is missing for pre-commit checks.
 - location: repository root
 - evidence: `task lint` fails with `task: command not found`; `Taskfile.yml` and `mise.toml` are absent.
-- rationale: `BARIO.md` requires formatting and linting before commits, with required tools declared in `mise.toml`.
+- rationale: `PURIA.md` requires formatting and linting before commits, with required tools declared in `mise.toml`.
 
 - id: hitl-0002
 - observation: Repository formatting rule is missing.
 - location: repository root
 - evidence: `Taskfile.yml` defines `lint` and `lint:design`, but no formatting task or formatter is defined.
-- rationale: `BARIO.md` requires formatting through a repository-defined formatter before commits.
+- rationale: `PURIA.md` requires formatting through a repository-defined formatter before commits.
