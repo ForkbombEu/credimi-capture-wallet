@@ -119,6 +119,18 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         .send(readFileSync("src/design/logo/credimi_logo_negative.svg", "utf8"));
     });
 
+    app.get("/assets/credimi_logo-transp.svg", (_req, res) => {
+      res
+        .type("image/svg+xml")
+        .send(readFileSync("src/design/logo/credimi_logo-transp.svg", "utf8"));
+    });
+
+    app.get("/assets/credimi_logo-transp_white.svg", (_req, res) => {
+      res
+        .type("image/svg+xml")
+        .send(readFileSync("src/design/logo/credimi_logo-transp_white.svg", "utf8"));
+    });
+
     app.post("/ui/sessions", async (req, res, next) => {
       try {
         const body = requestParams(req);

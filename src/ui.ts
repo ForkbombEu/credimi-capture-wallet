@@ -414,6 +414,7 @@ function htmlPage({ title, body }: { title: string; body: string }): string {
     "</style>",
     "</head>",
     "<body>",
+    credimiExtrasBarTopHtml(),
     body,
     footerHtml(),
     '<script>console.log("%cWallet metadata capture%c Credimi capture UI", "background:#312060;color:#fff;padding:5px 9px;font-weight:800;border-radius:6px 0 0 6px;", "background:#f1e9f7;color:#22172f;padding:5px 9px;font-weight:700;border-radius:0 6px 6px 0;");</script>',
@@ -438,7 +439,41 @@ function footerHtml(): string {
     "</nav>",
     "</div>",
     "</div>",
+    credimiExtrasBarBottomHtml(),
     "</footer>",
+  ].join("");
+}
+
+/**
+ * The Credimi Extras cross-promotional strips. The top one is emitted by
+ * htmlPage() rather than beside each `<header class="topbar">`: the four
+ * topbars differ in their status chips and labels, and folding them into one
+ * helper would change markup unrelated to this banner. Emitting it at the
+ * single point where `<body>` opens keeps one copy and also covers errorPage(),
+ * which has no topbar of its own but does carry the footer.
+ */
+function credimiExtrasBarTopHtml(): string {
+  return [
+    '<div class="credimi-extras-bar">',
+    '<div class="credimi-extras-bar-inner">',
+    '<img class="credimi-extras-mark" src="/assets/credimi_logo.svg" alt="" aria-hidden="true" width="16" height="16">',
+    " This app is part of <strong>Credimi Extras</strong>. Automate all your EUDI testing with ",
+    '<a href="https://credimi.io" target="_blank" rel="noopener">Credimi</a>',
+    "</div>",
+    "</div>",
+  ].join("");
+}
+
+function credimiExtrasBarBottomHtml(): string {
+  return [
+    '<div class="credimi-extras-bar-footer">',
+    '<div class="credimi-extras-bar-inner">',
+    "This app is part of <strong>Credimi Extras</strong>. Automate all your EUDI testing with ",
+    '<a class="credimi-extras-wordmark-link" href="https://credimi.io" target="_blank" rel="noopener">',
+    '<img class="credimi-extras-wordmark" src="/assets/credimi_logo-transp_white.svg" alt="Credimi">',
+    "</a>",
+    "</div>",
+    "</div>",
   ].join("");
 }
 
@@ -474,6 +509,25 @@ function appCss(): string {
     ".footer-links { display: inline-flex; align-items: center; justify-content: flex-end; gap: 12px; flex-wrap: wrap; }",
     ".footer-link { display: inline-flex; align-items: center; min-height: 36px; padding: 0 14px; border-radius: var(--radius-md); color: white; font-size: 13px; font-weight: 700; text-decoration: none; white-space: nowrap; }",
     ".fork-link { background: white; color: var(--brand-primary); }",
+    // Credimi Extras cross-promotional bars: one above the topbar, one closing
+    // the footer. Both logos are inline images inside the sentence rather than
+    // flex siblings of it, so at a phone width the line breaks between words
+    // and the marks stay attached to the text they belong to.
+    ".credimi-extras-bar { background: var(--brand-secondary); color: var(--brand-primary); padding: 7px 24px; font-size: 12.5px; line-height: 1.45; }",
+    // Darkens the footer's own brand fill rather than introducing a new colour.
+    ".credimi-extras-bar-footer { background: rgba(0,0,0,.35); color: rgba(255,255,255,.85); padding: 9px 24px; font-size: 12.5px; line-height: 1.45; }",
+    // The bar has to reach the bottom edge of the page, so the footer's own
+    // closing padding moves onto the bar's top margin: the space above the
+    // strip is unchanged and nothing shows below it.
+    ".footer { padding-bottom: 0; }",
+    ".credimi-extras-bar-footer { margin-top: 32px; }",
+    ".credimi-extras-bar-inner { max-width: var(--max-width); margin-inline: auto; text-align: center; text-wrap: balance; }",
+    ".credimi-extras-mark { display: inline-block; width: 16px; height: 16px; margin-right: 2px; object-fit: contain; vertical-align: -3px; }",
+    // Only the linked word is clickable — the bar itself is not a target.
+    ".credimi-extras-bar a { color: inherit; text-decoration: underline; }",
+    ".credimi-extras-wordmark-link { text-decoration: none; }",
+    ".credimi-extras-wordmark { display: inline-block; height: 16px; width: auto; vertical-align: -4px; }",
+    ".credimi-extras-bar a:focus-visible, .credimi-extras-wordmark-link:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; border-radius: 2px; }",
     ".hero-band { position: relative; overflow: hidden; padding: 76px 0 68px; }",
     ".hero-band::after { content: ''; position: absolute; inset: 0 0 auto auto; width: 360px; height: 360px; background: linear-gradient(135deg, transparent 49.5%, rgb(49 32 96 / 8%) 49.5%, rgb(49 32 96 / 8%) 50.5%, transparent 50.5%), linear-gradient(45deg, transparent 49.5%, rgb(49 32 96 / 8%) 49.5%, rgb(49 32 96 / 8%) 50.5%, transparent 50.5%); pointer-events: none; }",
     ".hero-inner { position: relative; z-index: 1; width: min(100% - 48px, var(--max-width)); margin-inline: auto; display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 430px); gap: 32px; align-items: start; }",
