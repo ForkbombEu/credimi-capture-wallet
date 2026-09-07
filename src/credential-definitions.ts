@@ -3,6 +3,7 @@ export const CREDIMI_LOGO_URL =
   "https://raw.githubusercontent.com/ForkbombEu/credimi/main/docs/images/logo/credimi_logo-transp_emblem.png";
 
 export const PID_SD_JWT_VCT = "urn:eudi:pid:1";
+export const DEGREE_SD_JWT_VCT = "urn:credimi:degree:1";
 export const PID_MDOC_DOCTYPE = "eu.europa.ec.eudi.pid.1";
 export const PID_MDOC_NAMESPACE = "eu.europa.ec.eudi.pid.1";
 
@@ -60,4 +61,14 @@ export const PID_MDOC_CLAIMS = [
   "resident_state",
   "resident_street",
   "sex",
+] as const;
+
+export const DEGREE_SD_JWT_CLAIMS = [
+  "name",
+  "address.street_address",
+  "address.locality",
+  "address.postal_code",
+  "degrees",
+  "academic_programmes",
+  "nationalities",
 ] as const;

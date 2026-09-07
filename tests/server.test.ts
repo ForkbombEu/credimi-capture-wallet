@@ -32,6 +32,8 @@ import {
 import { resolvedIssuerConfigurationById } from "../src/configurations/registry.js";
 import { issuerAppConfig } from "../src/configurations/resolve-urls.js";
 import {
+  DEGREE_SD_JWT_CLAIMS,
+  DEGREE_SD_JWT_VCT,
   PID_MDOC_CLAIMS,
   PID_MDOC_DOCTYPE,
   PID_MDOC_NAMESPACE,
@@ -39,7 +41,11 @@ import {
   PID_SD_JWT_VCT,
 } from "../src/credential-definitions.js";
 import { CREDIMI_LOGO_URL, issueSdJwtCredential } from "../src/credential.js";
-import { mdocCredentialConfigurationId, sdJwtCredentialConfigurationId } from "../src/metadata.js";
+import {
+  degreeSdJwtCredentialConfigurationId,
+  mdocCredentialConfigurationId,
+  sdJwtCredentialConfigurationId,
+} from "../src/metadata.js";
 import { createApp } from "../src/server.js";
 import type { JsonRecord, SessionCapture } from "../src/types.js";
 import { unsignedJwt } from "./helpers.js";
@@ -325,10 +331,12 @@ describe("capture issuer server", () => {
     expect(Object.keys(deviceBoundConfigurations)).toEqual([
       sdJwtCredentialConfigurationId(config, "key-attestation-required"),
       mdocCredentialConfigurationId(config, "key-attestation-required"),
+      degreeSdJwtCredentialConfigurationId(config, "key-attestation-required"),
     ]);
     expect(Object.keys(jwtOnlyConfigurations)).toEqual([
       sdJwtCredentialConfigurationId(config, "jwt-proof"),
       mdocCredentialConfigurationId(config, "jwt-proof"),
+      degreeSdJwtCredentialConfigurationId(config, "jwt-proof"),
     ]);
     expect(
       deviceBoundConfigurations[sdJwtCredentialConfigurationId(config, "key-attestation-required")]
@@ -751,6 +759,33 @@ describe("capture issuer server", () => {
     expect(dcqlCredentials[0]?.meta).toEqual({ doctype_value: PID_MDOC_DOCTYPE });
     expect((dcqlCredentials[0]?.claims as JsonRecord[]).map((claim) => claim.path)).toEqual(
       PID_MDOC_CLAIMS.map((claim) => [PID_MDOC_NAMESPACE, claim]),
+    );
+  });
+
+  it("creates OpenID4VP requests for the degree credential", async () => {
+    const app = createApp(config);
+    const selectedCredentialConfigurationId = degreeSdJwtCredentialConfigurationId(
+      config,
+      "key-attestation-required",
+    );
+    const created = await request(app)
+      .post("/ui/openid4vp/sessions")
+      .type("form")
+      .send({ credential_configuration_id: selectedCredentialConfigurationId })
+      .redirects(0);
+    const sessionId = (created.headers.location ?? "").split("/").pop() ?? "";
+
+    expect(created.status).toBe(303);
+    const requestObject = await request(app).get(`/openid4vp/sessions/${sessionId}/request`);
+    const dcqlQuery = (decodeJwt(requestObject.text) as JsonRecord).dcql_query as JsonRecord;
+    const credential = (dcqlQuery.credentials as JsonRecord[])[0];
+
+    expect(credential).toMatchObject({
+      format: "dc+sd-jwt",
+      meta: { vct_values: [DEGREE_SD_JWT_VCT] },
+    });
+    expect((credential.claims as JsonRecord[]).map((claim) => claim.path)).toEqual(
+      DEGREE_SD_JWT_CLAIMS.map((claim) => claim.split(".")),
     );
   });
 

@@ -1,11 +1,13 @@
 import { Kms, type MdocSignOptions, SdJwtVcService, type SdJwtVcSignOptions } from "@credo-ts/core";
 import { createIssuerSigningContext, issuerSigningKeyId, loadIssuerCertificate } from "./config.js";
+import { DEGREE_CREDENTIAL_SUBJECT } from "./configurations/shared/degree-data.js";
 import { encodeMdocPidClaims } from "./configurations/shared/mdoc-encoder.js";
 import { pidSubject } from "./configurations/shared/pid-data.js";
 import { encodeSdJwtPidClaims } from "./configurations/shared/sd-jwt-encoder.js";
 import {
   CREDIMI_LOGO_URL,
   CREDIMI_WEBSITE,
+  DEGREE_SD_JWT_VCT,
   PID_MDOC_DOCTYPE,
   PID_MDOC_NAMESPACE,
   PID_SD_JWT_VCT,
@@ -69,6 +71,29 @@ export function sdJwtCredentialSignOptions(options: {
         "place_of_birth",
         "sex",
       ],
+    },
+  };
+}
+
+export function degreeSdJwtCredentialSignOptions(options: {
+  config: AppConfig;
+  holderJwk: JsonRecord;
+  now?: Date;
+}): SdJwtVcSignOptions {
+  const issuerCertificate = loadIssuerCertificate(options.config);
+  issuerCertificate.keyId = issuerSigningKeyId(options.config);
+  const now = options.now ?? new Date();
+  return {
+    issuer: { method: "x5c", issuer: options.config.issuer_base_url, x5c: [issuerCertificate] },
+    holder: { method: "jwk", jwk: Kms.PublicJwk.fromUnknown(options.holderJwk) },
+    headerType: "dc+sd-jwt",
+    payload: {
+      vct: DEGREE_SD_JWT_VCT,
+      exp: Math.floor(now.getTime() / 1000) + 365 * 24 * 60 * 60,
+      ...DEGREE_CREDENTIAL_SUBJECT,
+    },
+    disclosureFrame: {
+      _sd: Object.keys(DEGREE_CREDENTIAL_SUBJECT),
     },
   };
 }

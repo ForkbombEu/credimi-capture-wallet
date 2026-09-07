@@ -9,6 +9,8 @@ import {
 import type { IssuerConfiguration } from "./configurations/types.js";
 import {
   CREDIMI_LOGO_URL,
+  DEGREE_SD_JWT_CLAIMS,
+  DEGREE_SD_JWT_VCT,
   PID_MDOC_CLAIMS,
   PID_MDOC_DOCTYPE,
   PID_MDOC_NAMESPACE,
@@ -26,6 +28,8 @@ export interface SupportedCredential {
   format: CredentialFormat;
   proofPolicy: CredentialProofPolicy;
   displayName: string;
+  vct?: string;
+  claimPaths: readonly string[];
 }
 
 export { PID_MDOC_DOCTYPE, PID_MDOC_NAMESPACE, PID_SD_JWT_VCT };
@@ -162,6 +166,13 @@ export function mdocCredentialConfigurationId(
   return credentialConfigurationId(config, "mso_mdoc", proofPolicy);
 }
 
+export function degreeSdJwtCredentialConfigurationId(
+  _config: AppConfig,
+  proofPolicy: CredentialProofPolicy,
+): string {
+  return `urn:credimi:degree:1.sd-jwt.${proofPolicy}`;
+}
+
 export function credentialScope(
   config: AppConfig,
   format: CredentialFormat,
@@ -179,6 +190,8 @@ export function supportedCredentials(config: AppConfig): SupportedCredential[] {
       proofPolicy: "key-attestation-required",
       displayName:
         "Credimi Demo PID (SD-JWT VC, JWT or attestation proof, key attestation required)",
+      vct: PID_SD_JWT_VCT,
+      claimPaths: PID_SD_JWT_CLAIMS,
     },
     {
       id: sdJwtCredentialConfigurationId(config, "jwt-proof"),
@@ -186,6 +199,8 @@ export function supportedCredentials(config: AppConfig): SupportedCredential[] {
       format: "dc+sd-jwt",
       proofPolicy: "jwt-proof",
       displayName: "Credimi Demo PID (SD-JWT VC, JWT proof, no key attestation)",
+      vct: PID_SD_JWT_VCT,
+      claimPaths: PID_SD_JWT_CLAIMS,
     },
     {
       id: mdocCredentialConfigurationId(config, "key-attestation-required"),
@@ -193,6 +208,7 @@ export function supportedCredentials(config: AppConfig): SupportedCredential[] {
       format: "mso_mdoc",
       proofPolicy: "key-attestation-required",
       displayName: "Credimi Demo PID (MDOC, JWT or attestation proof, key attestation required)",
+      claimPaths: PID_MDOC_CLAIMS,
     },
     {
       id: mdocCredentialConfigurationId(config, "jwt-proof"),
@@ -200,6 +216,26 @@ export function supportedCredentials(config: AppConfig): SupportedCredential[] {
       format: "mso_mdoc",
       proofPolicy: "jwt-proof",
       displayName: "Credimi Demo PID (MDOC, JWT proof, no key attestation)",
+      claimPaths: PID_MDOC_CLAIMS,
+    },
+    {
+      id: degreeSdJwtCredentialConfigurationId(config, "key-attestation-required"),
+      scope: "urn:credimi:degree:1.sd-jwt.key-attestation-required",
+      format: "dc+sd-jwt",
+      proofPolicy: "key-attestation-required",
+      displayName:
+        "Credimi test degree (SD-JWT VC, JWT or attestation proof, key attestation required)",
+      vct: DEGREE_SD_JWT_VCT,
+      claimPaths: DEGREE_SD_JWT_CLAIMS,
+    },
+    {
+      id: degreeSdJwtCredentialConfigurationId(config, "jwt-proof"),
+      scope: "urn:credimi:degree:1.sd-jwt.jwt-proof",
+      format: "dc+sd-jwt",
+      proofPolicy: "jwt-proof",
+      displayName: "Credimi test degree (SD-JWT VC, JWT proof, no key attestation)",
+      vct: DEGREE_SD_JWT_VCT,
+      claimPaths: DEGREE_SD_JWT_CLAIMS,
     },
   ];
 }
@@ -311,10 +347,10 @@ function credentialConfiguration(
 
   return {
     ...common,
-    vct: PID_SD_JWT_VCT,
+    vct: credential.vct,
     credential_metadata: {
       ...common.credential_metadata,
-      claims: pidClaimDescriptions(PID_SD_JWT_CLAIMS, sdJwtClaimPath),
+      claims: pidClaimDescriptions(credential.claimPaths, sdJwtClaimPath),
     },
   };
 }

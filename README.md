@@ -154,8 +154,9 @@ The legacy root issuer no longer exists.
 > BASE_URL must be the `--services-base-url` you set during the setup, to use our hosted services use `https://capture-wallet.credimi.io`
 
 
-The configured `--credential-configuration-id` is the base for four Credential
-Configuration Identifiers split across the two issuers:
+The configured `--credential-configuration-id` is the base for four PID Credential
+Configuration Identifiers. Each issuer additionally offers a fixed degree test
+credential configuration for DCQL textual-encoding conformance cases:
 
 | Issuer | Format | Configuration ID and scope suffix | Credential type |
 | --- | --- | --- | --- |
@@ -163,12 +164,15 @@ Configuration Identifiers split across the two issuers:
 | `eu-pid-device-bound` | mdoc | `.mdoc.key-attestation-required` | `doctype: eu.europa.ec.eudi.pid.1` |
 | `eu-pid-jwt-proof-only` | SD-JWT VC | `.sd-jwt.jwt-proof` | `vct: urn:eudi:pid:1` |
 | `eu-pid-jwt-proof-only` | mdoc | `.mdoc.jwt-proof` | `doctype: eu.europa.ec.eudi.pid.1` |
+| `eu-pid-device-bound` | SD-JWT VC | `urn:credimi:degree:1.sd-jwt.key-attestation-required` | `vct: urn:credimi:degree:1` |
+| `eu-pid-jwt-proof-only` | SD-JWT VC | `urn:credimi:degree:1.sd-jwt.jwt-proof` | `vct: urn:credimi:degree:1` |
 
-Each configuration has a unique scope formed by appending the same suffix to the
-configured credential scope. The duplicated configurations issue the same credential
-type and claims and retain the same `vct` or `doctype`; only the issuer and proof policy
-differ. The device-bound issuer and its key-attestation-required SD-JWT configuration
-are selected when their request fields are omitted.
+Each PID configuration has a unique scope formed by appending the same suffix to the
+configured credential scope. The degree configurations use the fixed scopes shown in
+the table. The duplicated configurations issue the same credential type and claims and
+retain the same `vct` or `doctype`; only the issuer and proof policy differ. The
+device-bound issuer and its key-attestation-required SD-JWT PID configuration are
+selected when their request fields are omitted.
 
 Start by creating a capture session for a credential configuration:
 
@@ -193,8 +197,13 @@ the Credential Offer JSON directly in the `deeplink`. Set it to
 `credential_offer_uri` to make the `deeplink` refer to the hosted `offer_url` instead;
 this can keep a QR code smaller when the offer is large.
 
-Both issuers issue the same deterministic Mario Rossi PID claims. The removed legacy
-root issuer and its `broken` credential fixture are no longer available.
+Both issuers issue the same deterministic Mario Rossi PID claims for the PID
+configurations. The degree test credential is an SD-JWT VC for Arthur Dent with
+`degrees` (including an entry without `type`) and `academic_programmes`, a nested
+array of awarded programme titles. It supports DCQL paths such as
+`["degrees", null, "type"]` and `["academic_programmes", null, 1]` for the
+FCAF textual-encoding cases. The removed legacy root issuer and its `broken`
+credential fixture are no longer available.
 
 To request an encrypted Credential Response, include `credential_response_encryption`
 with a public JWK whose `alg` is `ECDH-ES` and set `enc` to `A256GCM`. OpenID4VCI 1.0

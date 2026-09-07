@@ -18,7 +18,12 @@ import {
 } from "./configurations/registry.js";
 import { issuerAppConfig } from "./configurations/resolve-urls.js";
 import type { ResolvedIssuerConfiguration } from "./configurations/types.js";
-import { mdocCredentialSignOptions, sdJwtCredentialSignOptions } from "./credential.js";
+import { DEGREE_SD_JWT_VCT } from "./credential-definitions.js";
+import {
+  degreeSdJwtCredentialSignOptions,
+  mdocCredentialSignOptions,
+  sdJwtCredentialSignOptions,
+} from "./credential.js";
 import { InMemoryStorageModule, NodeKmsBackend, nodeAgentDependencies } from "./credo-openid4vp.js";
 import { fakeOAuthServer } from "./fake-oauth-server.js";
 import {
@@ -420,10 +425,9 @@ export class CredoOpenId4VciIssuer {
       type: "credentials" as const,
       format: ClaimFormat.SdJwtDc,
       credentials: holderJwks.map((holderJwk) =>
-        sdJwtCredentialSignOptions({
-          config: signingConfig,
-          holderJwk,
-        }),
+        credential.vct === DEGREE_SD_JWT_VCT
+          ? degreeSdJwtCredentialSignOptions({ config: signingConfig, holderJwk })
+          : sdJwtCredentialSignOptions({ config: signingConfig, holderJwk }),
       ),
     };
   }
