@@ -981,10 +981,14 @@ describe("capture issuer server", () => {
       },
     });
 
-    expect(session.authorization_request.nonce).toEqual(expect.any(String));
+    expect(session.authorization_request.nonce).toBe("external-nonce");
     expect(session.authorization_request.dcql_query).toEqual(customDcql);
     expect(session.authorization_request.state).toEqual(expect.any(String));
     expect(session.authorization_request.response_uri).toBe(session.response_uri);
+    const requestObject = await request(app).get(
+      `/openid4vp/sessions/${session.session_id}/request`,
+    );
+    expect(decodeJwt(requestObject.text).nonce).toBe("external-nonce");
   });
 
   it("sets optional scope, transaction data, and verifier info in OpenID4VP requests", async () => {

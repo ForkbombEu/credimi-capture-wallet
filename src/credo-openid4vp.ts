@@ -164,6 +164,7 @@ export class CredoOpenId4VpVerifier {
     const authorizationRequest: JsonRecord = {
       ...(created.verificationSession.requestPayload as JsonRecord),
       dcql_query: request.dcql_query,
+      ...(request.nonce !== undefined ? { nonce: request.nonce } : {}),
       ...optionalAuthorizationRequestParameters(request),
     };
     const requestUri = `${this.config.issuer_base_url}/openid4vp/sessions/${sessionId}/request`;
@@ -172,6 +173,7 @@ export class CredoOpenId4VpVerifier {
       this.config,
       authorizationRequest,
     );
+    created.verificationSession.authorizationRequestJwt = authorizationRequestJwt;
     const deeplink =
       requestDelivery === "by_value"
         ? presentationRequestByValueDeeplink(
