@@ -34,6 +34,7 @@ export class CaptureStore {
     credentialConfigurationId = defaultCredentialConfigurationId(this.config, issuer),
     flow: SessionCapture["flow"] = "authorization_code",
     credentialOfferMode: CredentialOfferMode = "credential_offer",
+    statusListEnabled = false,
   ): SessionCapture {
     const sessionId = randomUUID();
     const session: SessionCapture = {
@@ -45,6 +46,8 @@ export class CaptureStore {
       credential_configuration_id: credentialConfigurationId,
       flow,
       credential_offer_mode: credentialOfferMode,
+      status_list_enabled: statusListEnabled,
+
       observed: {
         client_id: { value: null, source: null, also_seen_in: [] },
         redirect_uri: { value: null, source: null, also_seen_in: [] },
@@ -85,6 +88,7 @@ export class CaptureStore {
       credential_configuration_id: credentialConfigurationId,
       flow,
       credential_offer_mode: credentialOfferMode,
+      status_list_enabled: statusListEnabled,
     });
     return session;
   }

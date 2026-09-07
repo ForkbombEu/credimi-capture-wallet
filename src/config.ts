@@ -25,6 +25,9 @@ export const DEFAULT_CONFIG: AppConfig = {
   nonce_ttl_seconds: 300,
   permissive_capture: true,
   gui_enabled: true,
+  status_list_base_url: "http://localhost:8000",
+  status_list_api_key: "test",
+  status_list_timeout_ms: 5000,
 };
 
 export const PORT_ENV_VAR = "PORT";

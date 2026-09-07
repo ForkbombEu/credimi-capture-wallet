@@ -33,6 +33,7 @@ import {
 } from "./metadata.js";
 import { captureProofHeaders, decodeDpopHeader } from "./proofs.js";
 import type { CaptureStore } from "./state.js";
+import { allocateStatusListReference } from "./status-list.js";
 import type {
   AppConfig,
   CredentialOfferMode,
@@ -354,7 +355,6 @@ export class CredoOpenId4VciIssuer {
       },
     );
   }
-
   private async mapCredentialRequest(
     options: OpenId4VciCredentialRequestToCredentialMapperOptions,
   ): Promise<OpenId4VciSignCredentials> {
@@ -408,15 +408,29 @@ export class CredoOpenId4VciIssuer {
       ),
     };
 
+    const statusListReferences = captureSession.status_list_enabled
+      ? await Promise.all(
+          holderJwks.map((_, index) =>
+            allocateStatusListReference({
+              config: this.config,
+              allocationId: statusAllocationId(captureSession, index),
+              doctype:
+                credential.format === "mso_mdoc" ? "eu.europa.ec.eudi.pid.1" : "urn:eudi:pid:1",
+            }),
+          ),
+        )
+      : holderJwks.map(() => undefined);
+
     const signingConfig = issuerAppConfig(this.config, issuer);
     if (credential.format === "mso_mdoc") {
       return {
         type: "credentials" as const,
         format: ClaimFormat.MsoMdoc,
-        credentials: holderJwks.map((holderJwk) =>
+        credentials: holderJwks.map((holderJwk, index) =>
           mdocCredentialSignOptions({
             config: signingConfig,
             holderJwk,
+            statusListReference: statusListReferences[index],
           }),
         ),
       };
@@ -424,10 +438,18 @@ export class CredoOpenId4VciIssuer {
     return {
       type: "credentials" as const,
       format: ClaimFormat.SdJwtDc,
-      credentials: holderJwks.map((holderJwk) =>
+      credentials: holderJwks.map((holderJwk, index) =>
         credential.vct === DEGREE_SD_JWT_VCT
-          ? degreeSdJwtCredentialSignOptions({ config: signingConfig, holderJwk })
-          : sdJwtCredentialSignOptions({ config: signingConfig, holderJwk }),
+          ? degreeSdJwtCredentialSignOptions({
+              config: signingConfig,
+              holderJwk,
+              statusListReference: statusListReferences[index],
+            })
+          : sdJwtCredentialSignOptions({
+              config: signingConfig,
+              holderJwk,
+              statusListReference: statusListReferences[index],
+            }),
       ),
     };
   }
@@ -461,6 +483,18 @@ export class CredoOpenId4VciIssuer {
     if (!issuer) throw new Error(`Unknown issuer configuration '${issuerConfigurationId}'`);
     return issuer;
   }
+}
+
+function statusAllocationId(session: SessionCapture, index: number): string {
+  let allocationIds = session.status_list_allocation_ids;
+  if (!allocationIds) {
+    allocationIds = [];
+    session.status_list_allocation_ids = allocationIds;
+  }
+  if (!allocationIds[index]) allocationIds[index] = `${session.session_id}:${index}`;
+  const allocationId = allocationIds[index];
+  if (!allocationId) throw new Error(`Missing status allocation id at index ${index}`);
+  return allocationId;
 }
 
 function credentialOfferByValue(byReference: string, offer: JsonRecord): string {
