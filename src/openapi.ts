@@ -876,6 +876,12 @@ export function openApiDocument(config: AppConfig): JsonRecord {
               type: "string",
               description: "One of the IDs advertised by credential issuer metadata.",
             },
+            status_list_enabled: {
+              type: "boolean",
+              default: false,
+              description:
+                "When true, allocate and embed a Token Status List reference in each issued credential.",
+            },
           },
         },
         IssuanceSessionCreated: {
@@ -888,6 +894,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             "flow",
             "credential_offer_mode",
             "credential_configuration_id",
+            "status_list_enabled",
             "offer_url",
             "deeplink",
             "status",
@@ -906,6 +913,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
               enum: ["credential_offer", "credential_offer_uri"],
             },
             credential_configuration_id: { type: "string" },
+            status_list_enabled: { type: "boolean" },
             offer_url: { type: "string", format: "uri" },
             deeplink: { type: "string" },
             status: { type: "string", const: "created" },

@@ -1562,6 +1562,29 @@ describe("capture issuer server", () => {
     expect(deeplink.searchParams.get("credential_offer_uri")).toBeNull();
     expect(JSON.parse(String(deeplink.searchParams.get("credential_offer")))).toEqual(offer);
   });
+  it("keeps status-list references opt-in per issuance session", async () => {
+    const app = createApp(config);
+
+    const defaultSession = await postJson<SessionCreateResponse>(app, "/sessions", {});
+    expect(defaultSession.status_list_enabled).toBe(false);
+    expect(
+      (await getJson<SessionCapture>(app, `/sessions/${defaultSession.session_id}`))
+        .status_list_enabled,
+    ).toBe(false);
+
+    const enabledSession = await postJson<SessionCreateResponse>(app, "/sessions", {
+      status_list_enabled: true,
+    });
+    expect(enabledSession.status_list_enabled).toBe(true);
+    expect(
+      (await getJson<SessionCapture>(app, `/sessions/${enabledSession.session_id}`))
+        .status_list_enabled,
+    ).toBe(true);
+
+    const invalid = await request(app).post("/sessions").send({ status_list_enabled: "sometimes" });
+    expect(invalid.status).toBe(400);
+    expect(invalid.body).toMatchObject({ error: "invalid_status_list_enabled" });
+  });
 
   it("creates credential-offer URI deeplinks when requested", async () => {
     const app = createApp(config);
@@ -2709,6 +2732,7 @@ interface SessionCreateResponse extends JsonRecord {
   flow: "pre_authorized_code" | "authorization_code";
   credential_offer_mode: "credential_offer" | "credential_offer_uri";
   credential_configuration_id: string;
+  status_list_enabled: boolean;
   offer_url: string;
   deeplink: string;
 }

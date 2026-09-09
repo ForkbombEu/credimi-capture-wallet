@@ -157,12 +157,21 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
             .type("html")
             .send(errorPage("Unsupported credential configuration"));
         }
-
+        const statusListEnabled = statusListEnabledOrNull(body.status_list_enabled);
+        if (body.status_list_enabled !== undefined && statusListEnabled === null) {
+          return res
+            .status(400)
+            .type("html")
+            .send(errorPage("status_list_enabled must be true or false"));
+        }
         const session = await createIssuanceSession(
           config,
           store,
           issuer,
           credentialConfigurationId,
+          "authorization_code",
+          "credential_offer",
+          statusListEnabled ?? false,
         );
         store.addEvent(session, "credential_deeplink_generated", {});
         return res.redirect(303, `/ui/sessions/${encodeURIComponent(session.session_id)}`);
@@ -331,6 +340,13 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
           supported_credential_offer_modes: ["credential_offer", "credential_offer_uri"],
         });
       }
+      const statusListEnabled = statusListEnabledOrNull(body.status_list_enabled);
+      if (body.status_list_enabled !== undefined && statusListEnabled === null) {
+        return res.status(400).json({
+          error: "invalid_status_list_enabled",
+          error_description: "status_list_enabled must be a boolean",
+        });
+      }
       const issuer = issuerFromRequest(config, body.issuer_configuration_id);
       if (!issuer) {
         return res.status(400).json({
@@ -361,6 +377,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         credentialConfigurationId,
         flow ?? "authorization_code",
         credentialOfferMode ?? "credential_offer",
+        statusListEnabled ?? false,
       );
       const offer = store.credoIssuanceOffers.get(session.session_id);
       if (!offer) throw new Error("Credo credential offer was not stored");
@@ -372,6 +389,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         flow: session.flow,
         credential_offer_mode: session.credential_offer_mode,
         credential_configuration_id: session.credential_configuration_id,
+        status_list_enabled: session.status_list_enabled,
         offer_url: offer.credential_offer_uri,
         deeplink: offer.credential_offer,
         status: session.status,
@@ -841,8 +859,16 @@ async function createIssuanceSession(
   credentialConfigurationId: string,
   flow: SessionCapture["flow"] = "authorization_code",
   credentialOfferMode: CredentialOfferMode = "credential_offer",
+  statusListEnabled = false,
 ): Promise<SessionCapture> {
-  const session = store.createSession(issuer, credentialConfigurationId, flow, credentialOfferMode);
+  const session = store.createSession(
+    issuer,
+    credentialConfigurationId,
+    flow,
+    credentialOfferMode,
+    statusListEnabled,
+  );
+
   const offer = await (await credoOpenId4VciIssuer(config, store)).createCredentialOffer({
     issuerConfigurationId: issuer.id,
     captureSessionId: session.session_id,
@@ -875,6 +901,15 @@ function issuanceFlowOrNull(value: unknown): SessionCapture["flow"] | null {
 
 function credentialOfferModeOrNull(value: unknown): CredentialOfferMode | null {
   return value === "credential_offer" || value === "credential_offer_uri" ? value : null;
+}
+
+function statusListEnabledOrNull(value: unknown): boolean | null {
+  if (typeof value === "boolean") return value;
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  if (["true", "1", "yes", "on"].includes(normalized)) return true;
+  if (["false", "0", "no", "off"].includes(normalized)) return false;
+  return null;
 }
 
 async function createVpSession(

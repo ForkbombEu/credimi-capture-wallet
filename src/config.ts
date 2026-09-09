@@ -26,10 +26,15 @@ export const DEFAULT_CONFIG: AppConfig = {
   nonce_ttl_seconds: 300,
   permissive_capture: true,
   gui_enabled: true,
+  status_list_base_url: "http://localhost:8000",
+  status_list_api_key: "test",
+  status_list_timeout_ms: 5000,
 };
 
 export const PORT_ENV_VAR = "PORT";
 export const GUI_ENABLED_ENV_VAR = "GUI_ENABLED";
+export const STATUS_LIST_BASE_URL_ENV_VAR = "STATUS_LIST_BASE_URL";
+export const STATUS_LIST_API_KEY_ENV_VAR = "STATUS_LIST_API_KEY";
 
 export interface InitOptions {
   issuer_base_url?: string;
@@ -242,8 +247,10 @@ export function accessTokenPrivateJwkPath(materialDirectory: string): string {
   return join(materialDirectory, ACCESS_TOKEN_PRIVATE_JWK_FILE);
 }
 
-export function loadConfig(dataDir = DEFAULT_CONFIG.data_dir): AppConfig {
-  const env = loadEnvFile();
+export function loadConfig(
+  dataDir = DEFAULT_CONFIG.data_dir,
+  env: NodeJS.ProcessEnv = loadEnvFile(),
+): AppConfig {
   const path = configPath(dataDir);
   const fileConfig = existsSync(path) ? parseYamlConfig(readFileSync(path, "utf8")) : {};
   return {
@@ -252,6 +259,14 @@ export function loadConfig(dataDir = DEFAULT_CONFIG.data_dir): AppConfig {
     issuer_base_url: normalizeBaseUrl(fileConfig.issuer_base_url ?? DEFAULT_CONFIG.issuer_base_url),
     data_dir: fileConfig.data_dir ?? dataDir,
     gui_enabled: resolveGuiEnabled(env),
+    status_list_base_url:
+      env[STATUS_LIST_BASE_URL_ENV_VAR]?.trim() ||
+      fileConfig.status_list_base_url ||
+      DEFAULT_CONFIG.status_list_base_url,
+    status_list_api_key:
+      env[STATUS_LIST_API_KEY_ENV_VAR]?.trim() ||
+      fileConfig.status_list_api_key ||
+      DEFAULT_CONFIG.status_list_api_key,
   };
 }
 

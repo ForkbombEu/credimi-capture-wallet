@@ -11,6 +11,7 @@ import {
   issuerCertificatePath,
   issuerEncryptionPrivateJwkPath,
   jwksPath,
+  loadConfig,
   loadIssuerEncryptionPublicJwk,
   loadIssuerJwks,
   normalizeBaseUrl,
@@ -81,6 +82,18 @@ QUOTED="value"
     expect(() => resolveGuiEnabled({ GUI_ENABLED: "maybe" })).toThrow(
       "GUI_ENABLED must be true or false",
     );
+  });
+
+  it("overrides Status List configuration from environment variables", () => {
+    expect(
+      loadConfig("/nonexistent-config-directory", {
+        STATUS_LIST_BASE_URL: "https://status.example.test",
+        STATUS_LIST_API_KEY: "environment-api-key",
+      }),
+    ).toMatchObject({
+      status_list_base_url: "https://status.example.test",
+      status_list_api_key: "environment-api-key",
+    });
   });
 
   it("adds the self-signed issuer certificate chain to the issuer JWKS", async () => {

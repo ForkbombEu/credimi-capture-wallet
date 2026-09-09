@@ -12,7 +12,7 @@ import {
   PID_MDOC_NAMESPACE,
   PID_SD_JWT_VCT,
 } from "./credential-definitions.js";
-import type { AppConfig, JsonRecord } from "./types.js";
+import type { AppConfig, JsonRecord, StatusListReference } from "./types.js";
 
 export { CREDIMI_LOGO_URL, CREDIMI_WEBSITE };
 
@@ -20,6 +20,7 @@ export async function issueSdJwtCredential(options: {
   config: AppConfig;
   credentialConfigurationId: string;
   holderJwk: JsonRecord;
+  statusListReference?: StatusListReference;
   now?: Date;
 }): Promise<string> {
   const issuerCertificate = loadIssuerCertificate(options.config);
@@ -35,6 +36,7 @@ export async function issueSdJwtCredential(options: {
 export function sdJwtCredentialSignOptions(options: {
   config: AppConfig;
   holderJwk: JsonRecord;
+  statusListReference?: StatusListReference;
   now?: Date;
 }): SdJwtVcSignOptions {
   const issuerCertificate = loadIssuerCertificate(options.config);
@@ -48,6 +50,9 @@ export function sdJwtCredentialSignOptions(options: {
       vct: PID_SD_JWT_VCT,
       exp: Math.floor(now.getTime() / 1000) + 365 * 24 * 60 * 60,
       ...encodeSdJwtPidClaims(pidSubject()),
+      ...(options.statusListReference
+        ? { status: { status_list: options.statusListReference } }
+        : {}),
     },
     disclosureFrame: {
       _sd: [
@@ -78,6 +83,7 @@ export function sdJwtCredentialSignOptions(options: {
 export function degreeSdJwtCredentialSignOptions(options: {
   config: AppConfig;
   holderJwk: JsonRecord;
+  statusListReference?: StatusListReference;
   now?: Date;
 }): SdJwtVcSignOptions {
   const issuerCertificate = loadIssuerCertificate(options.config);
@@ -91,6 +97,9 @@ export function degreeSdJwtCredentialSignOptions(options: {
       vct: DEGREE_SD_JWT_VCT,
       exp: Math.floor(now.getTime() / 1000) + 365 * 24 * 60 * 60,
       ...DEGREE_CREDENTIAL_SUBJECT,
+      ...(options.statusListReference
+        ? { status: { status_list: options.statusListReference } }
+        : {}),
     },
     disclosureFrame: {
       _sd: Object.keys(DEGREE_CREDENTIAL_SUBJECT),
@@ -101,6 +110,7 @@ export function degreeSdJwtCredentialSignOptions(options: {
 export function mdocCredentialSignOptions(options: {
   config: AppConfig;
   holderJwk: JsonRecord;
+  statusListReference?: StatusListReference;
   now?: Date;
 }): MdocSignOptions {
   const now = options.now ?? new Date();
@@ -118,5 +128,13 @@ export function mdocCredentialSignOptions(options: {
     },
     issuerCertificate,
     holderKey: Kms.PublicJwk.fromUnknown(options.holderJwk),
+    ...(options.statusListReference
+      ? {
+          statusInfo: {
+            index: options.statusListReference.idx,
+            uri: options.statusListReference.uri,
+          },
+        }
+      : {}),
   };
 }

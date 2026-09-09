@@ -1,6 +1,11 @@
 export type JsonRecord = Record<string, unknown>;
 export type CredentialOfferMode = "credential_offer" | "credential_offer_uri";
 
+export interface StatusListReference {
+  uri: string;
+  idx: number;
+}
+
 export interface AppConfig {
   issuer_base_url: string;
   listen_addr: string;
@@ -14,6 +19,9 @@ export interface AppConfig {
   nonce_ttl_seconds: number;
   permissive_capture: boolean;
   gui_enabled: boolean;
+  status_list_base_url: string;
+  status_list_api_key: string;
+  status_list_timeout_ms: number;
 }
 
 export interface ObservedValue<T> {
@@ -102,6 +110,8 @@ export interface SessionCapture {
   flow: "pre_authorized_code" | "authorization_code";
   credential_offer_mode: CredentialOfferMode;
   credential_configuration_id: string;
+  status_list_enabled: boolean;
+  status_list_allocation_ids?: string[];
   observed: {
     client_id: ObservedValue<string>;
     redirect_uri: ObservedValue<string>;
