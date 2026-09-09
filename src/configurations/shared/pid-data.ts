@@ -11,7 +11,9 @@ export interface PidAddress {
 }
 
 export interface PidPlaceOfBirth {
+  readonly country: string;
   readonly locality: string;
+  readonly region: string;
 }
 
 export interface PidSubject {
@@ -66,7 +68,11 @@ const DEFAULT_PID_SUBJECT: PidSubject = {
   personalAdministrativeNumber: "PID-DEMO-001",
   phoneNumber: "+390600000000",
   picture: PID_PORTRAIT_JPEG,
-  placeOfBirth: { locality: "Roma" },
+  placeOfBirth: {
+    country: "IT",
+    locality: "Roma",
+    region: "Lazio",
+  },
   sex: 2,
 };
 

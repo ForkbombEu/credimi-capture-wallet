@@ -74,7 +74,16 @@ describe("always-on issuer configurations", () => {
       given_name: "Mario",
       family_name: "Rossi",
       birthdate: "1990-01-01",
-      place_of_birth: { locality: "Roma" },
+      place_of_birth: {
+        country: "IT",
+        locality: "Roma",
+        region: "Lazio",
+      },
+    });
+    expect(mdoc.place_of_birth).toEqual({
+      country: "IT",
+      locality: "Roma",
+      region: "Lazio",
     });
     expect(mdoc.birth_date).toBeInstanceOf(DateOnly);
     expect(String(mdoc.birth_date)).toBe("1990-01-01");

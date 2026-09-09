@@ -1486,7 +1486,13 @@ describe("capture issuer server", () => {
     expect(String(namespace?.expiry_date)).toBe("2031-01-01");
     expect(namespace?.issuance_date).toBeInstanceOf(DateOnly);
     expect(String(namespace?.issuance_date)).toBe("2026-01-01");
-    expect(namespace?.place_of_birth).toEqual(new Map([["locality", "Roma"]]));
+    expect(namespace?.place_of_birth).toEqual(
+      new Map([
+        ["country", "IT"],
+        ["locality", "Roma"],
+        ["region", "Lazio"],
+      ]),
+    );
     const portrait = namespace?.portrait;
     expect(portrait).toBeInstanceOf(Uint8Array);
     expect(Buffer.from(portrait as Uint8Array).subarray(0, 3)).toEqual(
