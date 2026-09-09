@@ -23,6 +23,8 @@ During the credential verification the service captures:
 - Verifier request object sent to the wallet: `authorization_request`
 - Wallet payload when request_uri_method is post: `request_uri_payload`
 - Wallet presentation response: `wallet_response`
+- Raw wallet presentation HTTP envelope: `raw.presentation_response_http` (method, headers with sensitive values redacted, and exact received body)
+- Raw verifier HTTP response: `raw.presentation_response_verifier_http` (status, headers with sensitive values redacted, and exact response body)
 - Decrypted wallet presentation response: `presentation_response_decrypted` (useful when response_mode is set to `direct_post.jwt`)
 - Decoded claims from verified presentations: `decoded_presentations`
 - Verifier checks for nonce, holder binding, and DCQL matching: `presentation_validation`
@@ -390,9 +392,13 @@ curl -X POST "$BASE_URL/openid4vp/sessions" \
 ```
 Where:
 * `request_uri_method` can be `get` or `post`, default is `get`
-* `request_delivery` can be `by_reference` or `by_value`, default is `by_reference`
+* `client_id_scheme` can be `x509_hash` (default), `x509_san_dns`, `decentralized_identifier`, or `redirect_uri`. `x509_san_dns` uses the verifier certificate and its DNS SAN. `decentralized_identifier` uses the verifier's `did:web` document at `/openid4vp/did.json`. `redirect_uri` creates an unsigned request and therefore requires `request_delivery: "plain"`.
+* `request_delivery` can be `by_reference`, `by_value`, or `plain`, default is `by_reference`. `plain` puts URL-encoded Authorization Request parameters directly in the deeplink, without `request` or `request_uri`; it cannot be combined with `request_uri_method`.
 * `response_type` can be `vp_token` or `vp_token id_token` or `code`, but during presentation verification only `vp_token` is supported, default is `vp_token`
 * `response_mode` can be `direct_post` or `direct_post.jwt`, default is `direct_post.jwt`
+* `dcql_query` may be `null` to omit the parameter entirely from the wallet-facing Authorization Request. The default query remains only in Credo's internal verifier session.
+* `client_metadata` may be an object to replace the generated verifier metadata, or `null` to omit the parameter. Omission is supported only with `direct_post`; an encrypted `direct_post.jwt` response needs the verifier's generated encryption JWK.
+* `redirect_uri` is an optional absolute URI returned to the Wallet after a successful presentation. The service appends a fresh 128-bit `response_code` parameter to it.
 * `scheme` is the complete custom URL-scheme prefix for the deeplink (for example, `eudi-wallet://`); it defaults to `openid4vp://`
 
 Optional `scopes`, `transaction_data`, and `verifier_info` values can be supplied at the top level or within `presentation_request`. `scopes` accepts a string or an array of strings and is emitted as the standard space-delimited `scope` authorization-request parameter. The other two values are included unchanged in the signed request object.

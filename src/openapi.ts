@@ -328,6 +328,19 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           },
         },
       },
+      "/openid4vp/did.json": {
+        get: {
+          tags: ["OpenID4VP"],
+          operationId: "getVerifierDidDocument",
+          summary: "Get the verifier did:web Document",
+          responses: {
+            "200": response("Verifier DID Document.", {
+              type: "object",
+              additionalProperties: true,
+            }),
+          },
+        },
+      },
       "/openid4vp/sessions/{sessionId}": {
         get: {
           tags: ["Presentation sessions"],
@@ -962,10 +975,19 @@ export function openApiDocument(config: AppConfig): JsonRecord {
               description: "Custom URL-scheme prefix for the returned deeplink.",
             },
             request_uri_method: { type: "string", enum: ["get", "post"], default: "get" },
+            client_id_scheme: {
+              type: "string",
+              enum: ["x509_hash", "x509_san_dns", "redirect_uri", "decentralized_identifier"],
+              default: "x509_hash",
+              description:
+                "Verifier client identifier prefix. redirect_uri is delivered only as a plain, unsigned Authorization Request.",
+            },
             request_delivery: {
               type: "string",
-              enum: ["by_reference", "by_value"],
+              enum: ["by_reference", "by_value", "plain"],
               default: "by_reference",
+              description:
+                "Deliver a signed request object by reference or value, or a plain URL-encoded Authorization Request without request or request_uri.",
             },
             response_type: {
               type: "string",
@@ -978,10 +1000,25 @@ export function openApiDocument(config: AppConfig): JsonRecord {
               default: "direct_post.jwt",
             },
             presentation_request: { type: "object", additionalProperties: true },
-            dcql_query: { type: "object", additionalProperties: true },
+            dcql_query: {
+              oneOf: [{ type: "object", additionalProperties: true }, { type: "null" }],
+              description:
+                "DCQL query, or null to omit dcql_query from the wallet-facing Authorization Request.",
+            },
             scopes: { oneOf: [{ type: "string" }, { type: "array", items: { type: "string" } }] },
             transaction_data: {},
             verifier_info: {},
+            client_metadata: {
+              oneOf: [{ type: "object", additionalProperties: true }, { type: "null" }],
+              description:
+                "Override generated verifier metadata, or use null to omit the parameter. Omission is supported only with direct_post; direct_post.jwt requires the generated encryption JWK.",
+            },
+            redirect_uri: {
+              type: "string",
+              format: "uri",
+              description:
+                "Absolute URI returned to the Wallet after a successful presentation. The service appends a fresh response_code parameter.",
+            },
           },
           additionalProperties: true,
         },
@@ -1007,6 +1044,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             response_mode: { type: "string" },
             scheme: { type: "string" },
             response_uri: { type: "string", format: "uri" },
+            redirect_uri: { type: "string", format: "uri" },
             deeplink: { type: "string" },
             authorization_request: { type: "object", additionalProperties: true },
             status: { type: "string", const: "created" },
@@ -1022,7 +1060,43 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             "checks",
             "events",
           ],
+          properties: {
+            raw: {
+              type: "object",
+              properties: {
+                presentation_response_http: {
+                  $ref: "#/components/schemas/PresentationResponseHttpCapture",
+                },
+                presentation_response_verifier_http: {
+                  $ref: "#/components/schemas/VerifierResponseHttpCapture",
+                },
+              },
+              additionalProperties: true,
+            },
+          },
           additionalProperties: true,
+        },
+        PresentationResponseHttpCapture: {
+          type: "object",
+          required: ["method", "headers", "body"],
+          description:
+            "Machine-readable wallet presentation response evidence. Sensitive header values are redacted.",
+          properties: {
+            method: { type: "string" },
+            headers: { type: "object", additionalProperties: true },
+            body: { type: "string" },
+          },
+        },
+        VerifierResponseHttpCapture: {
+          type: "object",
+          required: ["status", "headers", "body"],
+          description:
+            "Machine-readable verifier response to the Wallet. Sensitive header values are redacted.",
+          properties: {
+            status: { type: "integer" },
+            headers: { type: "object", additionalProperties: true },
+            body: { type: "string" },
+          },
         },
         TokenResponse: {
           type: "object",

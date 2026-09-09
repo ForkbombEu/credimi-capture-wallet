@@ -18,6 +18,8 @@ import {
   ClaimFormat,
   ConsoleLogger,
   type DependencyManager,
+  DidDocument,
+  DidsModule,
   type FileSystem,
   InjectionSymbols,
   Kms,
@@ -34,8 +36,16 @@ import {
 import { OpenId4VcModule } from "@credo-ts/openid4vc";
 import express from "express";
 import { type JWK, compactDecrypt, exportJWK, generateKeyPair, importJWK } from "jose";
-import { VERIFIER_KEY_ID, verifierCertificatePath, verifierPrivateJwkPath } from "./config.js";
-import { signPresentationAuthorizationRequest } from "./openid4vp.js";
+import {
+  VERIFIER_DID_KEY_ID,
+  VERIFIER_KEY_ID,
+  verifierCertificatePath,
+  verifierDid,
+  verifierDidDocument,
+  verifierDidPrivateJwkPath,
+  verifierPrivateJwkPath,
+} from "./config.js";
+import { type OpenId4VpClientIdScheme, signPresentationAuthorizationRequest } from "./openid4vp.js";
 import type { AppConfig, JsonRecord, VpSessionCapture } from "./types.js";
 
 const CREDO_VERIFIER_BASE_PATH = "/openid4vp/sessions";
@@ -44,12 +54,14 @@ const CREDO_KMS_BACKEND = "fake-issuer-node";
 export interface CredoVpSession {
   sessionId: string;
   authorizationRequest: JsonRecord;
-  authorizationRequestJwt: string;
+  authorizationRequestJwt?: string;
   verificationSessionId: string;
   requestUri: string;
   responseUri: string;
   deeplink: string;
 }
+
+export class ClientMetadataError extends Error {}
 
 export interface CredoVpVerification {
   valid: boolean;
@@ -107,6 +119,7 @@ export class CredoOpenId4VpVerifier {
       dependencies: nodeAgentDependencies(config),
       modules: {
         storage: new InMemoryStorageModule(),
+        dids: new DidsModule(),
         kms: new Kms.KeyManagementModule({
           backends: [kms],
           defaultBackend: CREDO_KMS_BACKEND,
@@ -130,6 +143,7 @@ export class CredoOpenId4VpVerifier {
 
     const verifier = new CredoOpenId4VpVerifier(config, agent);
     await verifier.importRequestSigningKey();
+    await verifier.importDidSigningKey();
     return verifier;
   }
 
@@ -138,19 +152,18 @@ export class CredoOpenId4VpVerifier {
     request: JsonRecord,
     verifierDcqlQuery: JsonRecord,
     requestUriMethod: "get" | "post",
-    requestDelivery: "by_reference" | "by_value",
+    requestDelivery: "by_reference" | "by_value" | "plain",
     deeplinkScheme: string,
+    clientMetadata: JsonRecord | null | undefined,
+    clientIdScheme: OpenId4VpClientIdScheme,
   ): Promise<CredoVpSession> {
     await this.ensureVerifier(sessionId);
+    if (clientIdScheme === "decentralized_identifier") await this.importDidSigningKey(true);
     const responseMode = responseModeFromRequest(request);
     const createAuthorizationRequest = (dcqlQuery: JsonRecord) =>
       this.verifierApi().createAuthorizationRequest({
         verifierId: sessionId,
-        requestSigner: {
-          method: "x5c",
-          clientIdPrefix: "x509_hash",
-          x5c: [this.verifierCertificate()],
-        },
+        requestSigner: this.requestSigner(clientIdScheme),
         responseMode,
         version: "v1",
         dcql: { query: dcqlQuery as never },
@@ -161,32 +174,54 @@ export class CredoOpenId4VpVerifier {
           createAuthorizationRequest(verifierDcqlQuery),
         )
       : createAuthorizationRequest(verifierDcqlQuery));
+    const { dcql_query: _generatedDcqlQuery, ...createdAuthorizationRequest } = created
+      .verificationSession.requestPayload as JsonRecord;
     const authorizationRequest: JsonRecord = {
-      ...(created.verificationSession.requestPayload as JsonRecord),
-      dcql_query: request.dcql_query,
+      ...createdAuthorizationRequest,
+      ...(request.dcql_query === null ? {} : { dcql_query: request.dcql_query }),
       ...(request.nonce !== undefined ? { nonce: request.nonce } : {}),
       ...optionalAuthorizationRequestParameters(request),
     };
+    if (clientMetadata === null) {
+      authorizationRequest.client_metadata = undefined;
+    } else if (clientMetadata) {
+      if (
+        responseMode === "direct_post.jwt" &&
+        !containsVerifierEncryptionKey(clientMetadata, authorizationRequest.client_metadata)
+      ) {
+        throw new ClientMetadataError(
+          "client_metadata must retain the verifier encryption JWK for direct_post.jwt",
+        );
+      }
+      authorizationRequest.client_metadata = clientMetadata;
+    }
     const requestUri = `${this.config.issuer_base_url}/openid4vp/sessions/${sessionId}/request`;
     const responseUri = String(authorizationRequest.response_uri);
-    const authorizationRequestJwt = await signPresentationAuthorizationRequest(
-      this.config,
-      authorizationRequest,
-    );
-    created.verificationSession.authorizationRequestJwt = authorizationRequestJwt;
-    const deeplink =
-      requestDelivery === "by_value"
-        ? presentationRequestByValueDeeplink(
+    const authorizationRequestJwt =
+      clientIdScheme === "redirect_uri"
+        ? undefined
+        : await signPresentationAuthorizationRequest(
+            this.config,
             authorizationRequest,
-            authorizationRequestJwt,
-            deeplinkScheme,
-          )
-        : presentationRequestByReferenceDeeplink(
+            clientIdScheme,
+          );
+    if (authorizationRequestJwt)
+      created.verificationSession.authorizationRequestJwt = authorizationRequestJwt;
+    const deeplink =
+      requestDelivery === "by_reference"
+        ? presentationRequestByReferenceDeeplink(
             authorizationRequest,
             requestUri,
             requestUriMethod,
             deeplinkScheme,
-          );
+          )
+        : requestDelivery === "by_value"
+          ? presentationRequestByValueDeeplink(
+              authorizationRequest,
+              authorizationRequestJwt ?? "",
+              deeplinkScheme,
+            )
+          : presentationRequestPlainDeeplink(authorizationRequest, deeplinkScheme);
 
     return {
       sessionId,
@@ -259,6 +294,38 @@ export class CredoOpenId4VpVerifier {
     await this.agent.kms.importKey({ privateJwk: privateJwk as never });
   }
 
+  private async importDidSigningKey(overwrite = false): Promise<void> {
+    const privateJwk = JSON.parse(
+      await readFile(verifierDidPrivateJwkPath(this.config.data_dir), "utf8"),
+    ) as JsonRecord;
+    privateJwk.kid = VERIFIER_DID_KEY_ID;
+    await this.agent.kms.importKey({ privateJwk: privateJwk as never });
+    const did = verifierDid(this.config);
+    await this.agent.dids.import({
+      did,
+      didDocument: DidDocument.fromJSON(verifierDidDocument(this.config)),
+      keys: [
+        { kmsKeyId: VERIFIER_DID_KEY_ID, didDocumentRelativeKeyId: `#${VERIFIER_DID_KEY_ID}` },
+      ],
+      overwrite,
+    });
+  }
+
+  private requestSigner(clientIdScheme: OpenId4VpClientIdScheme) {
+    if (clientIdScheme === "redirect_uri") return { method: "none" as const };
+    if (clientIdScheme === "decentralized_identifier") {
+      return {
+        method: "did" as const,
+        didUrl: `${verifierDid(this.config)}#${VERIFIER_DID_KEY_ID}`,
+      };
+    }
+    return {
+      method: "x5c" as const,
+      clientIdPrefix: clientIdScheme,
+      x5c: [this.verifierCertificate()],
+    };
+  }
+
   private verifierApi() {
     const verifier = this.agent.openid4vc?.verifier;
     if (!verifier) throw new Error("Credo OpenID4VC verifier API is not available");
@@ -309,6 +376,42 @@ function presentationRequestByValueDeeplink(
     request: authorizationRequestJwt,
   });
   return `${deeplinkScheme}?${params.toString()}`;
+}
+
+function presentationRequestPlainDeeplink(
+  authorizationRequest: JsonRecord,
+  deeplinkScheme: string,
+): string {
+  const params = new URLSearchParams();
+  for (const [name, value] of Object.entries(authorizationRequest)) {
+    if (name === "aud" || value === undefined) continue;
+    params.set(name, typeof value === "string" ? value : JSON.stringify(value));
+  }
+  return `${deeplinkScheme}?${params.toString()}`;
+}
+
+function containsVerifierEncryptionKey(
+  clientMetadata: JsonRecord,
+  generatedClientMetadata: unknown,
+): boolean {
+  const generatedJwks = asRecord(asRecord(generatedClientMetadata)?.jwks);
+  const clientJwks = asRecord(clientMetadata.jwks);
+  const clientKeys = clientJwks?.keys;
+  if (!generatedJwks || !Array.isArray(clientKeys)) return false;
+  if (!Array.isArray(generatedJwks.keys)) return false;
+  return generatedJwks.keys
+    .map(asRecord)
+    .filter((key): key is JsonRecord => key !== null)
+    .some((generatedKey) => clientKeys.some((key) => jwkMatches(asRecord(key), generatedKey)));
+}
+
+function jwkMatches(candidate: JsonRecord | null, expected: JsonRecord): boolean {
+  return (
+    candidate !== null &&
+    ["kty", "crv", "x", "y", "kid", "alg", "use"].every(
+      (parameter) => candidate[parameter] === expected[parameter],
+    )
+  );
 }
 
 function readCertificate(dataDir: string): string {
@@ -557,6 +660,7 @@ class InMemoryStorage<T extends BaseRecord = BaseRecord> implements StorageServi
 function recordMatchesQuery(record: BaseRecord, query: JsonRecord): boolean {
   const tags = record.getTags();
   return Object.entries(query).every(([key, value]) => {
+    if (value === undefined) return true;
     if (key === "$or") {
       return Array.isArray(value) && value.some((entry) => recordMatchesQuery(record, entry));
     }

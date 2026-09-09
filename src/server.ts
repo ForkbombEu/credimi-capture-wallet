@@ -1,8 +1,8 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import express, { type NextFunction, type Request, type Response } from "express";
 import QRCode from "qrcode";
-import { loadIssuerJwks } from "./config.js";
+import { loadIssuerJwks, verifierDidDocument } from "./config.js";
 import {
   DEFAULT_ISSUER_CONFIGURATION_ID,
   issuerCatalogue,
@@ -18,7 +18,7 @@ import {
   encryptCredentialResponse,
 } from "./credential-encryption.js";
 import { credoOpenId4VciIssuer } from "./credo-openid4vci.js";
-import { credoOpenId4VpVerifier } from "./credo-openid4vp.js";
+import { ClientMetadataError, credoOpenId4VpVerifier } from "./credo-openid4vp.js";
 import { registerFakeOAuthServer } from "./fake-oauth-server.js";
 import {
   jwtVcIssuerMetadata,
@@ -32,10 +32,12 @@ import {
   completeOid4vciRequestCapture,
   createOid4vciRequestCapture,
   isOid4vciProtocolPath,
+  redactHttpHeaders,
   redactOid4vciValue,
 } from "./oid4vci-capture.js";
 import { apiDocsPage, openApiDocument } from "./openapi.js";
 import {
+  type OpenId4VpClientIdScheme,
   type OpenId4VpResponseMode,
   defaultPresentationRequest,
   signPresentationAuthorizationRequest,
@@ -46,7 +48,9 @@ import type {
   CredentialOfferMode,
   JsonRecord,
   Oid4vciHttpRequestCapture,
+  PresentationResponseHttpCapture,
   SessionCapture,
+  VerifierResponseHttpCapture,
   VpSessionCapture,
 } from "./types.js";
 import { errorPage, helpPage, indexPage, sessionPage, vpSessionPage } from "./ui.js";
@@ -61,7 +65,13 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       verify: rawBodyCapture,
     }),
   );
-  app.use(express.urlencoded({ extended: false, type: "application/x-www-form-urlencoded" }));
+  app.use(
+    express.urlencoded({
+      extended: false,
+      type: "application/x-www-form-urlencoded",
+      verify: rawBodyCapture,
+    }),
+  );
   app.use(express.text({ type: "application/jwt" }));
   app.use((req, res, next) => {
     if (!isOid4vciProtocolPath(req.path)) return next();
@@ -232,6 +242,10 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
   }
   app.get("/healthz", (_req, res) => {
     res.json({ status: "ok" });
+  });
+
+  app.get("/openid4vp/did.json", (_req, res) => {
+    res.type("application/did+json").json(verifierDidDocument(config));
   });
 
   app.get("/oid4vci/requests", (_req, res) => {
@@ -442,7 +456,11 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       if (body.request_delivery !== undefined && !requestDelivery) {
         return res.status(400).json({ error: "unsupported_request_delivery" });
       }
-      if (requestDelivery === "by_value" && requestUriMethod) {
+      const clientIdScheme = clientIdSchemeOrNull(body.client_id_scheme);
+      if (body.client_id_scheme !== undefined && !clientIdScheme) {
+        return res.status(400).json({ error: "unsupported_client_id_scheme" });
+      }
+      if (requestDelivery && requestDelivery !== "by_reference" && requestUriMethod) {
         return res.status(400).json({ error: "request_uri_method_requires_by_reference_delivery" });
       }
       const responseMode = responseModeOrNull(body.response_mode);
@@ -452,6 +470,25 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       const deeplinkScheme = deeplinkSchemeOrNull(body.scheme);
       if (body.scheme !== undefined && !deeplinkScheme) {
         return res.status(400).json({ error: "invalid_deeplink_scheme" });
+      }
+      const redirectUri = responseRedirectUriOrNull(body.redirect_uri);
+      if (body.redirect_uri !== undefined && !redirectUri) {
+        return res.status(400).json({ error: "invalid_redirect_uri" });
+      }
+      const clientMetadata = clientMetadataOrNull(body.client_metadata);
+      if (body.client_metadata !== undefined && clientMetadata === undefined) {
+        return res.status(400).json({ error: "invalid_client_metadata" });
+      }
+      const selectedResponseMode = responseMode ?? "direct_post.jwt";
+      const selectedClientIdScheme = clientIdScheme ?? "x509_hash";
+      if (
+        selectedClientIdScheme === "redirect_uri" &&
+        (requestDelivery ?? "by_reference") !== "plain"
+      ) {
+        return res.status(400).json({ error: "redirect_uri_client_id_requires_plain_delivery" });
+      }
+      if (clientMetadata === null && selectedResponseMode === "direct_post.jwt") {
+        return res.status(400).json({ error: "client_metadata_required_for_encrypted_response" });
       }
       const requestOverride = {
         ...(objectOrNull(body.presentation_request) ?? vpRequestBody(body)),
@@ -463,9 +500,12 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         requestOverride,
         undefined,
         requestUriMethod ?? "get",
-        responseMode ?? "direct_post.jwt",
+        selectedResponseMode,
         requestDelivery ?? "by_reference",
         deeplinkScheme ?? "openid4vp://",
+        redirectUri ?? undefined,
+        clientMetadata,
+        selectedClientIdScheme,
       );
       store.addEvent(session, "vp_deeplink_generated", {});
       return res.status(201).json({
@@ -476,11 +516,15 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         response_mode: session.response_mode,
         scheme: session.deeplink_scheme,
         response_uri: session.response_uri,
+        ...(session.redirect_uri ? { redirect_uri: session.redirect_uri } : {}),
         deeplink: session.deeplink,
         authorization_request: session.authorization_request,
         status: session.status,
       });
     } catch (error) {
+      if (error instanceof ClientMetadataError) {
+        return res.status(400).json({ error: "invalid_client_metadata" });
+      }
       return next(error);
     }
   });
@@ -568,13 +612,21 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         store,
         session,
         body,
-        (req as Request & { rawBody?: string }).rawBody,
+        presentationResponseHttpCapture(req, body),
         validation,
       );
       if (!validation.valid) {
-        return res.status(400).json({ error: "invalid_presentation", errors: validation.errors });
+        return sendVpSubmissionResponse(res, session, 400, {
+          error: "invalid_presentation",
+          errors: validation.errors,
+        });
       }
-      return res.json({});
+      return sendVpSubmissionResponse(
+        res,
+        session,
+        200,
+        session.redirect_uri ? { redirect_uri: session.redirect_uri } : {},
+      );
     } catch (error) {
       return next(error);
     }
@@ -596,13 +648,21 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         store,
         session,
         body,
-        (req as Request & { rawBody?: string }).rawBody,
+        presentationResponseHttpCapture(req, body),
         validation,
       );
       if (!validation.valid) {
-        return res.status(400).json({ error: "invalid_presentation", errors: validation.errors });
+        return sendVpSubmissionResponse(res, session, 400, {
+          error: "invalid_presentation",
+          errors: validation.errors,
+        });
       }
-      return res.json({});
+      return sendVpSubmissionResponse(
+        res,
+        session,
+        200,
+        session.redirect_uri ? { redirect_uri: session.redirect_uri } : {},
+      );
     } catch (error) {
       return next(error);
     }
@@ -859,8 +919,11 @@ async function createVpSession(
   credentialConfigurationIds?: string[],
   requestUriMethod: "get" | "post" = "get",
   responseMode: OpenId4VpResponseMode = "direct_post.jwt",
-  requestDelivery: "by_reference" | "by_value" = "by_reference",
+  requestDelivery: "by_reference" | "by_value" | "plain" = "by_reference",
   deeplinkScheme = "openid4vp://",
+  redirectUri?: string,
+  clientMetadata?: JsonRecord | null,
+  clientIdScheme: OpenId4VpClientIdScheme = "x509_hash",
 ): Promise<VpSessionCapture> {
   const sessionId = randomUUID();
   const defaultRequest = defaultPresentationRequest(
@@ -881,6 +944,8 @@ async function createVpSession(
     requestUriMethod,
     requestDelivery,
     deeplinkScheme,
+    clientMetadata,
+    clientIdScheme,
   );
   const session = store.createVpSession(
     sessionId,
@@ -889,13 +954,16 @@ async function createVpSession(
     requestUriMethod,
     responseMode,
     deeplinkScheme,
+    redirectUri ? redirectUriWithResponseCode(redirectUri) : undefined,
     {
       requestUri: credoSession.requestUri,
       responseUri: credoSession.responseUri,
     },
   );
   store.vpCredoVerificationSessionIds.set(sessionId, credoSession.verificationSessionId);
-  store.vpCredoAuthorizationRequestJwts.set(sessionId, credoSession.authorizationRequestJwt);
+  if (credoSession.authorizationRequestJwt) {
+    store.vpCredoAuthorizationRequestJwts.set(sessionId, credoSession.authorizationRequestJwt);
+  }
   session.deeplink = credoSession.deeplink;
   return session;
 }
@@ -904,7 +972,7 @@ function captureVpResponse(
   store: CaptureStore,
   session: VpSessionCapture,
   body: JsonRecord,
-  rawBody: string | undefined,
+  http: PresentationResponseHttpCapture,
   validation: {
     valid: boolean;
     vp_token_format_valid: boolean;
@@ -934,7 +1002,8 @@ function captureVpResponse(
     session.decoded_presentations = validation.decoded_presentations;
     session.raw.decoded_presentations = validation.decoded_presentations;
   }
-  session.raw.presentation_response_raw = rawBody ?? JSON.stringify(body);
+  session.raw.presentation_response_raw = http.body;
+  session.raw.presentation_response_http = http;
   session.observed.wallet_response = {
     value: body,
     source: "presentation_response",
@@ -945,6 +1014,62 @@ function captureVpResponse(
     presentation_valid: validation.valid,
     errors: validation.errors,
   });
+}
+
+function sendVpSubmissionResponse(
+  res: Response,
+  session: VpSessionCapture,
+  status: number,
+  body: JsonRecord,
+): Response {
+  const serializedBody = JSON.stringify(body);
+  res.once("finish", () => {
+    session.raw ??= {};
+    session.raw.presentation_response_verifier_http = {
+      status: res.statusCode,
+      headers: redactHttpHeaders(res.getHeaders()),
+      body: serializedBody,
+    };
+  });
+  return res
+    .status(status)
+    .set("Cache-Control", "no-store")
+    .type("application/json")
+    .send(serializedBody);
+}
+
+function presentationResponseHttpCapture(
+  req: Request,
+  body: JsonRecord,
+): PresentationResponseHttpCapture {
+  return {
+    method: req.method,
+    headers: redactHttpHeaders(req.headers),
+    body: (req as Request & { rawBody?: string }).rawBody ?? JSON.stringify(body),
+  };
+}
+
+function responseRedirectUriOrNull(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  try {
+    const redirectUri = new URL(value);
+    return redirectUri.protocol === "http:" || redirectUri.protocol === "https:"
+      ? redirectUri.toString()
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function clientMetadataOrNull(value: unknown): JsonRecord | null | undefined {
+  if (value === null) return null;
+  return objectOrNull(value) ?? undefined;
+}
+
+function redirectUriWithResponseCode(redirectUri: string): string {
+  const url = new URL(redirectUri);
+  url.searchParams.append("response_code", randomBytes(16).toString("base64url"));
+  return url.toString();
 }
 
 function objectOrNull(value: unknown): JsonRecord | null {
@@ -964,10 +1089,21 @@ function responseModeOrNull(value: unknown): OpenId4VpResponseMode | null {
   return normalized === "direct_post" || normalized === "direct_post.jwt" ? normalized : null;
 }
 
-function requestDeliveryOrNull(value: unknown): "by_reference" | "by_value" | null {
+function requestDeliveryOrNull(value: unknown): "by_reference" | "by_value" | "plain" | null {
   if (typeof value !== "string") return null;
   const normalized = value.toLowerCase();
-  return normalized === "by_reference" || normalized === "by_value" ? normalized : null;
+  return normalized === "by_reference" || normalized === "by_value" || normalized === "plain"
+    ? normalized
+    : null;
+}
+
+function clientIdSchemeOrNull(value: unknown): OpenId4VpClientIdScheme | null {
+  return value === "x509_hash" ||
+    value === "x509_san_dns" ||
+    value === "redirect_uri" ||
+    value === "decentralized_identifier"
+    ? value
+    : null;
 }
 
 function deeplinkSchemeOrNull(value: unknown): string | null {
@@ -980,6 +1116,9 @@ function vpRequestBody(body: JsonRecord): JsonRecord {
     request_delivery: _requestDelivery,
     request_uri_method: _requestUriMethod,
     response_mode: _responseMode,
+    redirect_uri: _redirectUri,
+    client_metadata: _clientMetadata,
+    client_id_scheme: _clientIdScheme,
     scheme: _scheme,
     ...request
   } = body;

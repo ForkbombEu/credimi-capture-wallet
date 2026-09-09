@@ -862,6 +862,68 @@ describe("capture issuer server", () => {
     expect(session.authorization_request.request_uri_method).toBeUndefined();
   });
 
+  it("creates a signed x509_san_dns OpenID4VP request using the verifier certificate", async () => {
+    const app = createApp(config);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      client_id_scheme: "x509_san_dns",
+    });
+
+    expect(session.authorization_request.client_id).toBe("x509_san_dns:issuer.example.test");
+    const requestObject = await request(app).get(
+      `/openid4vp/sessions/${session.session_id}/request`,
+    );
+    expect(decodeJwt(requestObject.text).client_id).toBe("x509_san_dns:issuer.example.test");
+    expect(decodeProtectedHeader(requestObject.text).x5c).toEqual([expect.any(String)]);
+  });
+
+  it("creates an unsigned plain redirect_uri OpenID4VP request", async () => {
+    const app = createApp(config);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      client_id_scheme: "redirect_uri",
+      request_delivery: "plain",
+    });
+
+    expect(session.authorization_request.client_id).toBe(
+      `redirect_uri:${session.authorization_request.response_uri}`,
+    );
+    const deeplink = new URL(session.deeplink);
+    expect(deeplink.searchParams.get("client_id")).toBe(session.authorization_request.client_id);
+    expect(deeplink.searchParams.has("request")).toBe(false);
+    expect(deeplink.searchParams.has("request_uri")).toBe(false);
+  });
+
+  it("creates a decentralized_identifier request signed by the verifier did:web key", async () => {
+    const app = createApp(config);
+    const didDocument = await request(app).get("/openid4vp/did.json");
+    expect(didDocument.status).toBe(200);
+    expect(didDocument.body.id).toBe("did:web:issuer.example.test:openid4vp");
+    const created = await request(app)
+      .post("/openid4vp/sessions")
+      .send({ client_id_scheme: "decentralized_identifier" });
+    expect(created.status).toBe(201);
+    const session = created.body as VpSessionCreateResponse;
+    expect(session.authorization_request.client_id).toBe(
+      "decentralized_identifier:did:web:issuer.example.test:openid4vp",
+    );
+    const requestObject = await request(app).get(
+      `/openid4vp/sessions/${session.session_id}/request`,
+    );
+    expect(decodeProtectedHeader(requestObject.text)).toMatchObject({
+      kid: "did:web:issuer.example.test:openid4vp#credimi-fake-verifier-did-key",
+    });
+    expect(decodeProtectedHeader(requestObject.text).x5c).toBeUndefined();
+  });
+
+  it("rejects signed delivery for redirect_uri OpenID4VP requests", async () => {
+    const app = createApp(config);
+    const response = await request(app)
+      .post("/openid4vp/sessions")
+      .send({ client_id_scheme: "redirect_uri" });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ error: "redirect_uri_client_id_requires_plain_delivery" });
+  });
+
   it("uses the requested custom scheme for a by-reference OpenID4VP deeplink", async () => {
     const app = createApp(config);
     const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
@@ -898,6 +960,121 @@ describe("capture issuer server", () => {
       typ: "oauth-authz-req+jwt",
       x5c: [expect.any(String)],
     });
+  });
+
+  it("creates OpenID4VP sessions with a plain authorization request in the deeplink", async () => {
+    const app = createApp(config);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      request_delivery: "plain",
+      dcql_query: dcqlForClaims(["family_name"]),
+    });
+
+    const deeplink = new URL(session.deeplink);
+    expect(session.request_delivery).toBe("plain");
+    expect(deeplink.searchParams.get("client_id")).toBe(session.authorization_request.client_id);
+    expect(deeplink.searchParams.get("response_type")).toBe("vp_token");
+    expect(deeplink.searchParams.get("response_mode")).toBe("direct_post.jwt");
+    expect(deeplink.searchParams.get("response_uri")).toBe(session.response_uri);
+    expect(deeplink.searchParams.get("state")).toBe(session.authorization_request.state);
+    expect(deeplink.searchParams.get("nonce")).toBe(session.authorization_request.nonce);
+    expect(JSON.parse(String(deeplink.searchParams.get("dcql_query")))).toEqual(
+      session.authorization_request.dcql_query,
+    );
+    expect(JSON.parse(String(deeplink.searchParams.get("client_metadata")))).toEqual(
+      session.authorization_request.client_metadata,
+    );
+    expect(deeplink.searchParams.has("aud")).toBe(false);
+    expect(deeplink.searchParams.has("request")).toBe(false);
+    expect(deeplink.searchParams.has("request_uri")).toBe(false);
+    expect(deeplink.searchParams.has("request_uri_method")).toBe(false);
+  });
+
+  it("omits DCQL from signed and plain authorization requests when requested", async () => {
+    const app = createApp(config);
+    const byReference = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      dcql_query: null,
+    });
+    const requestObject = await request(app).get(
+      `/openid4vp/sessions/${byReference.session_id}/request`,
+    );
+    const plain = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      request_delivery: "plain",
+      dcql_query: null,
+    });
+    const nested = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      presentation_request: { dcql_query: null },
+    });
+
+    expect(byReference.authorization_request.dcql_query).toBeUndefined();
+    expect(decodeJwt(requestObject.text).dcql_query).toBeUndefined();
+    expect(plain.authorization_request.dcql_query).toBeUndefined();
+    expect(new URL(plain.deeplink).searchParams.has("dcql_query")).toBe(false);
+    expect(nested.authorization_request.dcql_query).toBeUndefined();
+  });
+
+  it("uses caller-provided client metadata in the authorization request", async () => {
+    const app = createApp(config);
+    const clientMetadata = {
+      vp_formats_supported: { "dc+sd-jwt": {} },
+      wallet_test_extension: "custom",
+    };
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      response_mode: "direct_post",
+      client_metadata: clientMetadata,
+    });
+
+    expect(session.authorization_request.client_metadata).toEqual(clientMetadata);
+  });
+
+  it("omits client metadata from a plain direct-post authorization request", async () => {
+    const app = createApp(config);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      request_delivery: "plain",
+      response_mode: "direct_post",
+      client_metadata: null,
+    });
+
+    expect(session.authorization_request.client_metadata).toBeUndefined();
+    expect(new URL(session.deeplink).searchParams.has("client_metadata")).toBe(false);
+  });
+
+  it("rejects omitted client metadata for encrypted presentation responses", async () => {
+    const app = createApp(config);
+    const response = await request(app).post("/openid4vp/sessions").send({
+      client_metadata: null,
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({
+      error: "client_metadata_required_for_encrypted_response",
+    });
+  });
+
+  it("rejects encrypted response metadata without the verifier encryption key", async () => {
+    const app = createApp(config);
+    const response = await request(app)
+      .post("/openid4vp/sessions")
+      .send({
+        client_metadata: { vp_formats_supported: {} },
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({ error: "invalid_client_metadata" });
+  });
+
+  it("adds a fresh response code to a post-submission redirect URI", async () => {
+    const app = createApp(config);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      redirect_uri: "https://rp.example.test/complete?flow=wallet",
+    });
+
+    const redirectUri = new URL(String(session.redirect_uri));
+    expect(redirectUri.origin).toBe("https://rp.example.test");
+    expect(redirectUri.pathname).toBe("/complete");
+    expect(redirectUri.searchParams.get("flow")).toBe("wallet");
+    expect(
+      Buffer.from(String(redirectUri.searchParams.get("response_code")), "base64url"),
+    ).toHaveLength(16);
   });
 
   it("uses the requested custom scheme for a by-value OpenID4VP deeplink", async () => {
@@ -955,18 +1132,21 @@ describe("capture issuer server", () => {
     expect(response.body).toMatchObject({ error: "invalid_deeplink_scheme" });
   });
 
-  it("rejects request_uri_method for by-value OpenID4VP request delivery", async () => {
-    const app = createApp(config);
-    const response = await request(app).post("/openid4vp/sessions").send({
-      request_delivery: "by_value",
-      request_uri_method: "post",
-    });
+  it.each(["by_value", "plain"])(
+    "rejects request_uri_method for %s OpenID4VP request delivery",
+    async (requestDelivery) => {
+      const app = createApp(config);
+      const response = await request(app).post("/openid4vp/sessions").send({
+        request_delivery: requestDelivery,
+        request_uri_method: "post",
+      });
 
-    expect(response.status).toBe(400);
-    expect(response.body).toMatchObject({
-      error: "request_uri_method_requires_by_reference_delivery",
-    });
-  });
+      expect(response.status).toBe(400);
+      expect(response.body).toMatchObject({
+        error: "request_uri_method_requires_by_reference_delivery",
+      });
+    },
+  );
 
   it("rejects unsupported OpenID4VP request delivery values", async () => {
     const app = createApp(config);
@@ -1101,6 +1281,8 @@ describe("capture issuer server", () => {
 
     const presentation = await request(app)
       .post(`/openid4vp/sessions/${session.session_id}/response`)
+      .type("form")
+      .set("DPoP", "wallet-response-dpop-proof")
       .send({
         state: session.authorization_request.state,
         vp_token: "presentation-token",
@@ -1119,6 +1301,27 @@ describe("capture issuer server", () => {
     expect(capture.checks.presentation_valid).toBe(false);
     expect(capture.checks.errors.length).toBeGreaterThan(0);
     expect(capture.raw?.presentation_response?.state).toBe(session.authorization_request.state);
+    expect(capture.raw?.presentation_response_http).toMatchObject({
+      method: "POST",
+      headers: {
+        "content-type": expect.stringContaining("application/x-www-form-urlencoded"),
+        dpop: { redacted: true, present: true },
+      },
+    });
+    expect(capture.raw?.presentation_response_http?.body).toContain(
+      `state=${encodeURIComponent(String(session.authorization_request.state))}`,
+    );
+    expect(capture.raw?.presentation_response_http?.body).toContain("vp_token=presentation-token");
+    expect(capture.raw?.presentation_response_verifier_http).toMatchObject({
+      status: 400,
+      headers: {
+        "content-type": expect.stringContaining("application/json"),
+        "cache-control": "no-store",
+      },
+    });
+    expect(capture.raw?.presentation_response_verifier_http?.body).toContain(
+      '"error":"invalid_presentation"',
+    );
   });
 
   it("rejects SD-JWT VC presentations that do not disclose all requested DCQL claims", async () => {
@@ -1160,6 +1363,7 @@ describe("capture issuer server", () => {
   it("accepts SD-JWT VC presentations that satisfy holder binding, nonce, and DCQL", async () => {
     const app = createApp(config);
     const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      redirect_uri: "https://rp.example.test/complete",
       presentation_request: {
         dcql_query: dcqlForClaims(["family_name", "given_name"]),
       },
@@ -1181,7 +1385,7 @@ describe("capture issuer server", () => {
       });
 
     expect(response.status).toBe(200);
-    expect(response.body).toEqual({});
+    expect(response.body).toEqual({ redirect_uri: session.redirect_uri });
 
     const capture = await getJson<VpSessionResponse>(
       app,
@@ -1196,6 +1400,14 @@ describe("capture issuer server", () => {
       errors: [],
     });
     expect(capture.raw?.presentation_response).toEqual({ response: expect.any(String) });
+    expect(capture.raw?.presentation_response_verifier_http).toMatchObject({
+      status: 200,
+      headers: {
+        "content-type": expect.stringContaining("application/json"),
+        "cache-control": "no-store",
+      },
+      body: JSON.stringify({ redirect_uri: session.redirect_uri }),
+    });
     expect(capture.raw?.presentation_response_decrypted).toMatchObject({
       state: session.authorization_request.state,
       vp_token: { query_0: [presentation] },
@@ -1509,7 +1721,13 @@ describe("capture issuer server", () => {
     expect(String(namespace?.expiry_date)).toBe("2031-01-01");
     expect(namespace?.issuance_date).toBeInstanceOf(DateOnly);
     expect(String(namespace?.issuance_date)).toBe("2026-01-01");
-    expect(namespace?.place_of_birth).toEqual(new Map([["locality", "Roma"]]));
+    expect(namespace?.place_of_birth).toEqual(
+      new Map([
+        ["country", "IT"],
+        ["locality", "Roma"],
+        ["region", "Lazio"],
+      ]),
+    );
     const portrait = namespace?.portrait;
     expect(portrait).toBeInstanceOf(Uint8Array);
     expect(Buffer.from(portrait as Uint8Array).subarray(0, 3)).toEqual(
@@ -2541,10 +2759,11 @@ interface CredentialResponse extends JsonRecord {
 
 interface VpSessionCreateResponse extends JsonRecord {
   session_id: string;
-  request_delivery: "by_reference" | "by_value";
+  request_delivery: "by_reference" | "by_value" | "plain";
   request_uri: string;
   request_uri_method: "get" | "post";
   scheme: string;
+  redirect_uri?: string;
   response_uri: string;
   deeplink: string;
   authorization_request: JsonRecord;
@@ -2571,6 +2790,16 @@ interface VpSessionResponse extends JsonRecord {
   };
   raw?: {
     presentation_response?: JsonRecord;
+    presentation_response_http?: {
+      method: string;
+      headers: JsonRecord;
+      body: string;
+    };
+    presentation_response_verifier_http?: {
+      status: number;
+      headers: JsonRecord;
+      body: string;
+    };
     presentation_response_decrypted?: JsonRecord;
     decoded_presentations?: JsonRecord;
   };

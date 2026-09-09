@@ -52,6 +52,18 @@ export interface Oid4vciHttpRequestCapture {
   };
 }
 
+export interface PresentationResponseHttpCapture {
+  method: string;
+  headers: JsonRecord;
+  body: string;
+}
+
+export interface VerifierResponseHttpCapture {
+  status: number;
+  headers: JsonRecord;
+  body: string;
+}
+
 export interface ProofHeaderCapture {
   proof_type?: "jwt" | "attestation";
   typ?: string;
@@ -149,7 +161,7 @@ export interface SessionCapture {
 export interface VpSessionCapture {
   session_id: string;
   status: string;
-  request_delivery: "by_reference" | "by_value";
+  request_delivery: "by_reference" | "by_value" | "plain";
   request_uri_method: "get" | "post";
   response_mode: "direct_post" | "direct_post.jwt";
   authorization_request: JsonRecord;
@@ -158,6 +170,7 @@ export interface VpSessionCapture {
   deeplink_scheme: string;
   deeplink: string;
   response_uri: string;
+  redirect_uri?: string;
   observed: {
     request_uri_payload: ObservedValue<JsonRecord>;
     wallet_response: ObservedValue<JsonRecord>;
@@ -174,6 +187,8 @@ export interface VpSessionCapture {
   raw?: {
     authorization_request?: JsonRecord;
     presentation_response?: JsonRecord;
+    presentation_response_http?: PresentationResponseHttpCapture;
+    presentation_response_verifier_http?: VerifierResponseHttpCapture;
     presentation_response_decrypted?: JsonRecord;
     decoded_presentations?: JsonRecord;
     presentation_response_raw?: string;

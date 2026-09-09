@@ -1,7 +1,14 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { type JWK, SignJWT, exportJWK, generateKeyPair, importJWK } from "jose";
-import { VERIFIER_KEY_ID, verifierCertificatePath, verifierPrivateJwkPath } from "./config.js";
+import {
+  VERIFIER_DID_KEY_ID,
+  VERIFIER_KEY_ID,
+  verifierCertificatePath,
+  verifierDid,
+  verifierDidPrivateJwkPath,
+  verifierPrivateJwkPath,
+} from "./config.js";
 import { PID_MDOC_CLAIMS, PID_MDOC_NAMESPACE, PID_SD_JWT_VCT } from "./credential-definitions.js";
 import {
   PID_MDOC_DOCTYPE,
@@ -13,6 +20,11 @@ import type { AppConfig, JsonRecord } from "./types.js";
 
 const REQUEST_OBJECT_AUDIENCE = "https://self-issued.me/v2";
 export type OpenId4VpResponseMode = "direct_post" | "direct_post.jwt";
+export type OpenId4VpClientIdScheme =
+  | "x509_hash"
+  | "x509_san_dns"
+  | "redirect_uri"
+  | "decentralized_identifier";
 
 export function defaultPresentationRequest(
   config: AppConfig,
@@ -65,18 +77,23 @@ export function buildPresentationAuthorizationRequest(
 export async function signPresentationAuthorizationRequest(
   config: AppConfig,
   request: JsonRecord,
+  clientIdScheme: Exclude<OpenId4VpClientIdScheme, "redirect_uri"> = "x509_hash",
 ): Promise<string> {
+  const isDid = clientIdScheme === "decentralized_identifier";
   const privateJwk = JSON.parse(
-    readFileSync(verifierPrivateJwkPath(config.data_dir), "utf8"),
+    readFileSync(
+      isDid ? verifierDidPrivateJwkPath(config.data_dir) : verifierPrivateJwkPath(config.data_dir),
+      "utf8",
+    ),
   ) as JWK;
   const key = await importJWK(privateJwk, "ES256");
-  const certificate = verifierCertificateBase64Der(config);
   return new SignJWT(request)
     .setProtectedHeader({
       alg: "ES256",
       typ: "oauth-authz-req+jwt",
-      kid: VERIFIER_KEY_ID,
-      x5c: [certificate],
+      ...(isDid
+        ? { kid: `${verifierDid(config)}#${VERIFIER_DID_KEY_ID}` }
+        : { kid: VERIFIER_KEY_ID, x5c: [verifierCertificateBase64Der(config)] }),
     })
     .sign(key);
 }

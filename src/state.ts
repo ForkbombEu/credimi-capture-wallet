@@ -135,10 +135,11 @@ export class CaptureStore {
   createVpSession(
     sessionId: string,
     authorizationRequest: JsonRecord,
-    requestDelivery: "by_reference" | "by_value",
+    requestDelivery: "by_reference" | "by_value" | "plain",
     requestUriMethod: "get" | "post",
     responseMode: "direct_post" | "direct_post.jwt",
     deeplinkScheme: string,
+    redirectUri?: string,
     urls?: {
       requestUri?: string;
       responseUri?: string;
@@ -159,6 +160,7 @@ export class CaptureStore {
       request_uri: requestUri,
       deeplink_scheme: deeplinkScheme,
       response_uri: responseUri,
+      ...(redirectUri ? { redirect_uri: redirectUri } : {}),
       deeplink: "",
       observed: {
         request_uri_payload: { value: null, source: null, also_seen_in: [] },
