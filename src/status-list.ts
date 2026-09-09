@@ -27,6 +27,15 @@ export async function allocateStatusListReference(options: {
     expiry_date: DEFAULT_EXPIRY_DATE,
     allocation_id: options.allocationId,
   });
+  const debugContext = {
+    endpoint: endpoint.toString(),
+    country: DEFAULT_COUNTRY,
+    doctype: options.doctype,
+    expiry_date: DEFAULT_EXPIRY_DATE,
+    allocation_id: options.allocationId,
+    api_key_configured: Boolean(options.config.status_list_api_key),
+  };
+  console.info("Status List allocation request", debugContext);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), options.config.status_list_timeout_ms);
 
@@ -50,6 +59,15 @@ export async function allocateStatusListReference(options: {
   } finally {
     clearTimeout(timeout);
   }
+
+  console.info("Status List allocation response", {
+    ...debugContext,
+    status: response.status,
+    status_text: response.statusText,
+    content_type: response.headers.get("content-type"),
+    server: response.headers.get("server"),
+    cf_ray: response.headers.get("cf-ray"),
+  });
 
   if (!response.ok) {
     throw new Error(`Status List allocation failed with HTTP ${response.status}`);

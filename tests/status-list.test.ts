@@ -9,6 +9,7 @@ const config = {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("status-list allocation", () => {
@@ -91,5 +92,53 @@ describe("status-list allocation", () => {
         doctype: "urn:eudi:pid:1",
       }),
     ).rejects.toThrow("valid status_list reference");
+  });
+
+  it("logs redacted request and response diagnostics when allocation is rejected", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(null, {
+          status: 403,
+          statusText: "Forbidden",
+          headers: {
+            "content-type": "text/html",
+            server: "cloudflare",
+            "cf-ray": "test-ray",
+          },
+        }),
+      ),
+    );
+
+    await expect(
+      allocateStatusListReference({
+        config,
+        allocationId: "session-id:0",
+        doctype: "eu.europa.ec.eudi.pid.1",
+      }),
+    ).rejects.toThrow("HTTP 403");
+
+    expect(info).toHaveBeenNthCalledWith(1, "Status List allocation request", {
+      endpoint: "http://status-list.example.test/token_status_list/take",
+      country: "EU",
+      doctype: "eu.europa.ec.eudi.pid.1",
+      expiry_date: "2099-12-31",
+      allocation_id: "session-id:0",
+      api_key_configured: true,
+    });
+    expect(info).toHaveBeenNthCalledWith(2, "Status List allocation response", {
+      endpoint: "http://status-list.example.test/token_status_list/take",
+      country: "EU",
+      doctype: "eu.europa.ec.eudi.pid.1",
+      expiry_date: "2099-12-31",
+      allocation_id: "session-id:0",
+      api_key_configured: true,
+      status: 403,
+      status_text: "Forbidden",
+      content_type: "text/html",
+      server: "cloudflare",
+      cf_ray: "test-ray",
+    });
   });
 });
