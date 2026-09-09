@@ -954,6 +954,13 @@ export function openApiDocument(config: AppConfig): JsonRecord {
               description: "Custom URL-scheme prefix for the returned deeplink.",
             },
             request_uri_method: { type: "string", enum: ["get", "post"], default: "get" },
+            client_id_scheme: {
+              type: "string",
+              enum: ["x509_hash", "x509_san_dns", "redirect_uri"],
+              default: "x509_hash",
+              description:
+                "Verifier client identifier prefix. redirect_uri is delivered only as a plain, unsigned Authorization Request.",
+            },
             request_delivery: {
               type: "string",
               enum: ["by_reference", "by_value", "plain"],

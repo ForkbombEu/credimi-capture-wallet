@@ -13,6 +13,7 @@ import type { AppConfig, JsonRecord } from "./types.js";
 
 const REQUEST_OBJECT_AUDIENCE = "https://self-issued.me/v2";
 export type OpenId4VpResponseMode = "direct_post" | "direct_post.jwt";
+export type OpenId4VpClientIdScheme = "x509_hash" | "x509_san_dns" | "redirect_uri";
 
 export function defaultPresentationRequest(
   config: AppConfig,

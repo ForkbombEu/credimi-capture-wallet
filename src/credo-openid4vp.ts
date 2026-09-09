@@ -35,7 +35,7 @@ import { OpenId4VcModule } from "@credo-ts/openid4vc";
 import express from "express";
 import { type JWK, compactDecrypt, exportJWK, generateKeyPair, importJWK } from "jose";
 import { VERIFIER_KEY_ID, verifierCertificatePath, verifierPrivateJwkPath } from "./config.js";
-import { signPresentationAuthorizationRequest } from "./openid4vp.js";
+import { type OpenId4VpClientIdScheme, signPresentationAuthorizationRequest } from "./openid4vp.js";
 import type { AppConfig, JsonRecord, VpSessionCapture } from "./types.js";
 
 const CREDO_VERIFIER_BASE_PATH = "/openid4vp/sessions";
@@ -44,7 +44,7 @@ const CREDO_KMS_BACKEND = "fake-issuer-node";
 export interface CredoVpSession {
   sessionId: string;
   authorizationRequest: JsonRecord;
-  authorizationRequestJwt: string;
+  authorizationRequestJwt?: string;
   verificationSessionId: string;
   requestUri: string;
   responseUri: string;
@@ -143,17 +143,17 @@ export class CredoOpenId4VpVerifier {
     requestDelivery: "by_reference" | "by_value" | "plain",
     deeplinkScheme: string,
     clientMetadata: JsonRecord | null | undefined,
+    clientIdScheme: OpenId4VpClientIdScheme,
   ): Promise<CredoVpSession> {
     await this.ensureVerifier(sessionId);
     const responseMode = responseModeFromRequest(request);
     const createAuthorizationRequest = (dcqlQuery: JsonRecord) =>
       this.verifierApi().createAuthorizationRequest({
         verifierId: sessionId,
-        requestSigner: {
-          method: "x5c",
-          clientIdPrefix: "x509_hash",
-          x5c: [this.verifierCertificate()],
-        },
+        requestSigner:
+          clientIdScheme === "redirect_uri"
+            ? { method: "none" }
+            : { method: "x5c", clientIdPrefix: clientIdScheme, x5c: [this.verifierCertificate()] },
         responseMode,
         version: "v1",
         dcql: { query: dcqlQuery as never },
@@ -187,11 +187,12 @@ export class CredoOpenId4VpVerifier {
     }
     const requestUri = `${this.config.issuer_base_url}/openid4vp/sessions/${sessionId}/request`;
     const responseUri = String(authorizationRequest.response_uri);
-    const authorizationRequestJwt = await signPresentationAuthorizationRequest(
-      this.config,
-      authorizationRequest,
-    );
-    created.verificationSession.authorizationRequestJwt = authorizationRequestJwt;
+    const authorizationRequestJwt =
+      clientIdScheme === "redirect_uri"
+        ? undefined
+        : await signPresentationAuthorizationRequest(this.config, authorizationRequest);
+    if (authorizationRequestJwt)
+      created.verificationSession.authorizationRequestJwt = authorizationRequestJwt;
     const deeplink =
       requestDelivery === "by_reference"
         ? presentationRequestByReferenceDeeplink(
@@ -203,7 +204,7 @@ export class CredoOpenId4VpVerifier {
         : requestDelivery === "by_value"
           ? presentationRequestByValueDeeplink(
               authorizationRequest,
-              authorizationRequestJwt,
+              authorizationRequestJwt ?? "",
               deeplinkScheme,
             )
           : presentationRequestPlainDeeplink(authorizationRequest, deeplinkScheme);

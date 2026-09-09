@@ -37,6 +37,7 @@ import {
 } from "./oid4vci-capture.js";
 import { apiDocsPage, openApiDocument } from "./openapi.js";
 import {
+  type OpenId4VpClientIdScheme,
   type OpenId4VpResponseMode,
   defaultPresentationRequest,
   signPresentationAuthorizationRequest,
@@ -433,6 +434,10 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       if (body.request_delivery !== undefined && !requestDelivery) {
         return res.status(400).json({ error: "unsupported_request_delivery" });
       }
+      const clientIdScheme = clientIdSchemeOrNull(body.client_id_scheme);
+      if (body.client_id_scheme !== undefined && !clientIdScheme) {
+        return res.status(400).json({ error: "unsupported_client_id_scheme" });
+      }
       if (requestDelivery && requestDelivery !== "by_reference" && requestUriMethod) {
         return res.status(400).json({ error: "request_uri_method_requires_by_reference_delivery" });
       }
@@ -453,6 +458,13 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         return res.status(400).json({ error: "invalid_client_metadata" });
       }
       const selectedResponseMode = responseMode ?? "direct_post.jwt";
+      const selectedClientIdScheme = clientIdScheme ?? "x509_hash";
+      if (
+        selectedClientIdScheme === "redirect_uri" &&
+        (requestDelivery ?? "by_reference") !== "plain"
+      ) {
+        return res.status(400).json({ error: "redirect_uri_client_id_requires_plain_delivery" });
+      }
       if (clientMetadata === null && selectedResponseMode === "direct_post.jwt") {
         return res.status(400).json({ error: "client_metadata_required_for_encrypted_response" });
       }
@@ -471,6 +483,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         deeplinkScheme ?? "openid4vp://",
         redirectUri ?? undefined,
         clientMetadata,
+        selectedClientIdScheme,
       );
       store.addEvent(session, "vp_deeplink_generated", {});
       return res.status(201).json({
@@ -871,6 +884,7 @@ async function createVpSession(
   deeplinkScheme = "openid4vp://",
   redirectUri?: string,
   clientMetadata?: JsonRecord | null,
+  clientIdScheme: OpenId4VpClientIdScheme = "x509_hash",
 ): Promise<VpSessionCapture> {
   const sessionId = randomUUID();
   const defaultRequest = defaultPresentationRequest(
@@ -892,6 +906,7 @@ async function createVpSession(
     requestDelivery,
     deeplinkScheme,
     clientMetadata,
+    clientIdScheme,
   );
   const session = store.createVpSession(
     sessionId,
@@ -907,7 +922,9 @@ async function createVpSession(
     },
   );
   store.vpCredoVerificationSessionIds.set(sessionId, credoSession.verificationSessionId);
-  store.vpCredoAuthorizationRequestJwts.set(sessionId, credoSession.authorizationRequestJwt);
+  if (credoSession.authorizationRequestJwt) {
+    store.vpCredoAuthorizationRequestJwts.set(sessionId, credoSession.authorizationRequestJwt);
+  }
   session.deeplink = credoSession.deeplink;
   return session;
 }
@@ -1041,6 +1058,12 @@ function requestDeliveryOrNull(value: unknown): "by_reference" | "by_value" | "p
     : null;
 }
 
+function clientIdSchemeOrNull(value: unknown): OpenId4VpClientIdScheme | null {
+  return value === "x509_hash" || value === "x509_san_dns" || value === "redirect_uri"
+    ? value
+    : null;
+}
+
 function deeplinkSchemeOrNull(value: unknown): string | null {
   if (typeof value !== "string") return null;
   return /^[a-z][a-z0-9+.-]*:\/\/$/i.test(value) ? value : null;
@@ -1053,6 +1076,7 @@ function vpRequestBody(body: JsonRecord): JsonRecord {
     response_mode: _responseMode,
     redirect_uri: _redirectUri,
     client_metadata: _clientMetadata,
+    client_id_scheme: _clientIdScheme,
     scheme: _scheme,
     ...request
   } = body;

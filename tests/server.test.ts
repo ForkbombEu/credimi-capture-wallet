@@ -862,6 +862,46 @@ describe("capture issuer server", () => {
     expect(session.authorization_request.request_uri_method).toBeUndefined();
   });
 
+  it("creates a signed x509_san_dns OpenID4VP request using the verifier certificate", async () => {
+    const app = createApp(config);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      client_id_scheme: "x509_san_dns",
+    });
+
+    expect(session.authorization_request.client_id).toBe("x509_san_dns:issuer.example.test");
+    const requestObject = await request(app).get(
+      `/openid4vp/sessions/${session.session_id}/request`,
+    );
+    expect(decodeJwt(requestObject.text).client_id).toBe("x509_san_dns:issuer.example.test");
+    expect(decodeProtectedHeader(requestObject.text).x5c).toEqual([expect.any(String)]);
+  });
+
+  it("creates an unsigned plain redirect_uri OpenID4VP request", async () => {
+    const app = createApp(config);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      client_id_scheme: "redirect_uri",
+      request_delivery: "plain",
+    });
+
+    expect(session.authorization_request.client_id).toBe(
+      `redirect_uri:${session.authorization_request.response_uri}`,
+    );
+    const deeplink = new URL(session.deeplink);
+    expect(deeplink.searchParams.get("client_id")).toBe(session.authorization_request.client_id);
+    expect(deeplink.searchParams.has("request")).toBe(false);
+    expect(deeplink.searchParams.has("request_uri")).toBe(false);
+  });
+
+  it("rejects signed delivery for redirect_uri OpenID4VP requests", async () => {
+    const app = createApp(config);
+    const response = await request(app)
+      .post("/openid4vp/sessions")
+      .send({ client_id_scheme: "redirect_uri" });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ error: "redirect_uri_client_id_requires_plain_delivery" });
+  });
+
   it("uses the requested custom scheme for a by-reference OpenID4VP deeplink", async () => {
     const app = createApp(config);
     const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {

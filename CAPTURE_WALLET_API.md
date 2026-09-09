@@ -87,6 +87,7 @@ The credential request normally uses `application/json` with `credential_configu
 | --- | --- | --- |
 | `scheme` | URL-scheme prefix, such as `openid4vp://` | `openid4vp://` |
 | `request_uri_method` | `get`, `post` | `get` |
+| `client_id_scheme` | `x509_hash`, `x509_san_dns`, `redirect_uri` | `x509_hash` |
 | `request_delivery` | `by_reference`, `by_value`, `plain` | `by_reference` |
 | `response_type` | `vp_token`, `vp_token id_token`, `code` | `vp_token` |
 | `response_mode` | `direct_post`, `direct_post.jwt` | `direct_post.jwt` |
@@ -99,6 +100,8 @@ The credential request normally uses `application/json` with `credential_configu
 | `redirect_uri` | Absolute URI for the Wallet to open after a successful presentation | — |
 
 `request_uri_method` is valid only with `request_delivery: "by_reference"`. `by_value` supplies a signed Request Object in `request`; `plain` supplies the Authorization Request's URL-encoded parameters directly in the deeplink and omits `request`, `request_uri`, and `request_uri_method`. `response_type`, top-level DCQL, scopes, transaction data, and verifier information are used to construct the wallet-facing request. Inspect the returned `authorization_request` to confirm the exact claims.
+
+`client_id_scheme: "x509_san_dns"` signs the request with the existing verifier certificate and uses its DNS Subject Alternative Name as the Client Identifier value. `client_id_scheme: "redirect_uri"` creates an unsigned request and therefore requires `request_delivery: "plain"`; signed and by-reference delivery are rejected. The default remains the certificate hash prefix, `x509_hash`.
 
 When `dcql_query` is `null`, the service omits it from the wallet-facing request. Credo retains the normal default query only as internal verification-session state; a wallet response to this deliberately incomplete request may not validate.
 

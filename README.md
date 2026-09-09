@@ -372,6 +372,7 @@ curl -X POST "$BASE_URL/openid4vp/sessions" \
 ```
 Where:
 * `request_uri_method` can be `get` or `post`, default is `get`
+* `client_id_scheme` can be `x509_hash` (default), `x509_san_dns`, or `redirect_uri`. `x509_san_dns` uses the verifier certificate and its DNS SAN. `redirect_uri` creates an unsigned request and therefore requires `request_delivery: "plain"`.
 * `request_delivery` can be `by_reference`, `by_value`, or `plain`, default is `by_reference`. `plain` puts URL-encoded Authorization Request parameters directly in the deeplink, without `request` or `request_uri`; it cannot be combined with `request_uri_method`.
 * `response_type` can be `vp_token` or `vp_token id_token` or `code`, but during presentation verification only `vp_token` is supported, default is `vp_token`
 * `response_mode` can be `direct_post` or `direct_post.jwt`, default is `direct_post.jwt`
