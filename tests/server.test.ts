@@ -927,6 +927,56 @@ describe("capture issuer server", () => {
     expect(deeplink.searchParams.has("request_uri_method")).toBe(false);
   });
 
+  it("uses caller-provided client metadata in the authorization request", async () => {
+    const app = createApp(config);
+    const clientMetadata = {
+      vp_formats_supported: { "dc+sd-jwt": {} },
+      wallet_test_extension: "custom",
+    };
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      response_mode: "direct_post",
+      client_metadata: clientMetadata,
+    });
+
+    expect(session.authorization_request.client_metadata).toEqual(clientMetadata);
+  });
+
+  it("omits client metadata from a plain direct-post authorization request", async () => {
+    const app = createApp(config);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      request_delivery: "plain",
+      response_mode: "direct_post",
+      client_metadata: null,
+    });
+
+    expect(session.authorization_request.client_metadata).toBeUndefined();
+    expect(new URL(session.deeplink).searchParams.has("client_metadata")).toBe(false);
+  });
+
+  it("rejects omitted client metadata for encrypted presentation responses", async () => {
+    const app = createApp(config);
+    const response = await request(app).post("/openid4vp/sessions").send({
+      client_metadata: null,
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({
+      error: "client_metadata_required_for_encrypted_response",
+    });
+  });
+
+  it("rejects encrypted response metadata without the verifier encryption key", async () => {
+    const app = createApp(config);
+    const response = await request(app)
+      .post("/openid4vp/sessions")
+      .send({
+        client_metadata: { vp_formats_supported: {} },
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({ error: "invalid_client_metadata" });
+  });
+
   it("adds a fresh response code to a post-submission redirect URI", async () => {
     const app = createApp(config);
     const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {

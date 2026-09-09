@@ -51,6 +51,8 @@ export interface CredoVpSession {
   deeplink: string;
 }
 
+export class ClientMetadataError extends Error {}
+
 export interface CredoVpVerification {
   valid: boolean;
   vp_token_format_valid: boolean;
@@ -140,6 +142,7 @@ export class CredoOpenId4VpVerifier {
     requestUriMethod: "get" | "post",
     requestDelivery: "by_reference" | "by_value" | "plain",
     deeplinkScheme: string,
+    clientMetadata: JsonRecord | null | undefined,
   ): Promise<CredoVpSession> {
     await this.ensureVerifier(sessionId);
     const responseMode = responseModeFromRequest(request);
@@ -167,6 +170,19 @@ export class CredoOpenId4VpVerifier {
       ...(request.nonce !== undefined ? { nonce: request.nonce } : {}),
       ...optionalAuthorizationRequestParameters(request),
     };
+    if (clientMetadata === null) {
+      authorizationRequest.client_metadata = undefined;
+    } else if (clientMetadata) {
+      if (
+        responseMode === "direct_post.jwt" &&
+        !containsVerifierEncryptionKey(clientMetadata, authorizationRequest.client_metadata)
+      ) {
+        throw new ClientMetadataError(
+          "client_metadata must retain the verifier encryption JWK for direct_post.jwt",
+        );
+      }
+      authorizationRequest.client_metadata = clientMetadata;
+    }
     const requestUri = `${this.config.issuer_base_url}/openid4vp/sessions/${sessionId}/request`;
     const responseUri = String(authorizationRequest.response_uri);
     const authorizationRequestJwt = await signPresentationAuthorizationRequest(
@@ -323,6 +339,30 @@ function presentationRequestPlainDeeplink(
     params.set(name, typeof value === "string" ? value : JSON.stringify(value));
   }
   return `${deeplinkScheme}?${params.toString()}`;
+}
+
+function containsVerifierEncryptionKey(
+  clientMetadata: JsonRecord,
+  generatedClientMetadata: unknown,
+): boolean {
+  const generatedJwks = asRecord(asRecord(generatedClientMetadata)?.jwks);
+  const clientJwks = asRecord(clientMetadata.jwks);
+  const clientKeys = clientJwks?.keys;
+  if (!generatedJwks || !Array.isArray(clientKeys)) return false;
+  if (!Array.isArray(generatedJwks.keys)) return false;
+  return generatedJwks.keys
+    .map(asRecord)
+    .filter((key): key is JsonRecord => key !== null)
+    .some((generatedKey) => clientKeys.some((key) => jwkMatches(asRecord(key), generatedKey)));
+}
+
+function jwkMatches(candidate: JsonRecord | null, expected: JsonRecord): boolean {
+  return (
+    candidate !== null &&
+    ["kty", "crv", "x", "y", "kid", "alg", "use"].every(
+      (parameter) => candidate[parameter] === expected[parameter],
+    )
+  );
 }
 
 function readCertificate(dataDir: string): string {

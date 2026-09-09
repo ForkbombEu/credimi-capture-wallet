@@ -976,6 +976,11 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             scopes: { oneOf: [{ type: "string" }, { type: "array", items: { type: "string" } }] },
             transaction_data: {},
             verifier_info: {},
+            client_metadata: {
+              oneOf: [{ type: "object", additionalProperties: true }, { type: "null" }],
+              description:
+                "Override generated verifier metadata, or use null to omit the parameter. Omission is supported only with direct_post; direct_post.jwt requires the generated encryption JWK.",
+            },
             redirect_uri: {
               type: "string",
               format: "uri",

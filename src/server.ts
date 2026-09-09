@@ -18,7 +18,7 @@ import {
   encryptCredentialResponse,
 } from "./credential-encryption.js";
 import { credoOpenId4VciIssuer } from "./credo-openid4vci.js";
-import { credoOpenId4VpVerifier } from "./credo-openid4vp.js";
+import { ClientMetadataError, credoOpenId4VpVerifier } from "./credo-openid4vp.js";
 import { registerFakeOAuthServer } from "./fake-oauth-server.js";
 import {
   jwtVcIssuerMetadata,
@@ -448,6 +448,14 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       if (body.redirect_uri !== undefined && !redirectUri) {
         return res.status(400).json({ error: "invalid_redirect_uri" });
       }
+      const clientMetadata = clientMetadataOrNull(body.client_metadata);
+      if (body.client_metadata !== undefined && clientMetadata === undefined) {
+        return res.status(400).json({ error: "invalid_client_metadata" });
+      }
+      const selectedResponseMode = responseMode ?? "direct_post.jwt";
+      if (clientMetadata === null && selectedResponseMode === "direct_post.jwt") {
+        return res.status(400).json({ error: "client_metadata_required_for_encrypted_response" });
+      }
       const requestOverride = {
         ...(objectOrNull(body.presentation_request) ?? vpRequestBody(body)),
         ...(body.response_type !== undefined ? { response_type: body.response_type } : {}),
@@ -458,10 +466,11 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         requestOverride,
         undefined,
         requestUriMethod ?? "get",
-        responseMode ?? "direct_post.jwt",
+        selectedResponseMode,
         requestDelivery ?? "by_reference",
         deeplinkScheme ?? "openid4vp://",
         redirectUri ?? undefined,
+        clientMetadata,
       );
       store.addEvent(session, "vp_deeplink_generated", {});
       return res.status(201).json({
@@ -478,6 +487,9 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         status: session.status,
       });
     } catch (error) {
+      if (error instanceof ClientMetadataError) {
+        return res.status(400).json({ error: "invalid_client_metadata" });
+      }
       return next(error);
     }
   });
@@ -858,6 +870,7 @@ async function createVpSession(
   requestDelivery: "by_reference" | "by_value" | "plain" = "by_reference",
   deeplinkScheme = "openid4vp://",
   redirectUri?: string,
+  clientMetadata?: JsonRecord | null,
 ): Promise<VpSessionCapture> {
   const sessionId = randomUUID();
   const defaultRequest = defaultPresentationRequest(
@@ -878,6 +891,7 @@ async function createVpSession(
     requestUriMethod,
     requestDelivery,
     deeplinkScheme,
+    clientMetadata,
   );
   const session = store.createVpSession(
     sessionId,
@@ -991,6 +1005,11 @@ function responseRedirectUriOrNull(value: unknown): string | null {
   }
 }
 
+function clientMetadataOrNull(value: unknown): JsonRecord | null | undefined {
+  if (value === null) return null;
+  return objectOrNull(value) ?? undefined;
+}
+
 function redirectUriWithResponseCode(redirectUri: string): string {
   const url = new URL(redirectUri);
   url.searchParams.append("response_code", randomBytes(16).toString("base64url"));
@@ -1033,6 +1052,7 @@ function vpRequestBody(body: JsonRecord): JsonRecord {
     request_uri_method: _requestUriMethod,
     response_mode: _responseMode,
     redirect_uri: _redirectUri,
+    client_metadata: _clientMetadata,
     scheme: _scheme,
     ...request
   } = body;
