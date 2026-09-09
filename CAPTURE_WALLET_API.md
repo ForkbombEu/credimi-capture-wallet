@@ -1,0 +1,153 @@
+# Capture Wallet API reference
+
+The Capture Wallet service is a stateful [OpenID4VCI 1.0](https://openid.net/specs/openid-4-verifiable-credential-issuance-1_0.html) credential issuer and [OpenID4VP 1.0](https://openid.net/specs/openid-4-verifiable-presentations-1_0.html) verifier. It issues deterministic PID and degree test credentials and captures wallet protocol evidence per session.
+
+This is a companion to the machine-readable [OpenAPI document](/openapi.json). The OpenAPI document and the applicable OpenID specifications are authoritative for wire-level details. Use the issuer metadata rather than hard-coding credential configuration IDs, endpoints, or keys.
+
+## Base URL and conventions
+
+The base URL is configured by `--issuer-base-url`; production uses `https://capture-wallet.credimi.io`. Paths below are relative to that URL.
+
+- Issuer configuration IDs are `eu-pid-device-bound` and `eu-pid-jwt-proof-only`.
+- `sessionId` is a UUID returned by a session-creation response.
+- JSON is the default representation unless a route states another media type.
+- Unknown session IDs return `404` with an error object. Invalid protocol input normally returns `400`.
+- Session and event responses are evidence records: their `observed`, `checks`, `raw`, and event `detail` members can grow as the service captures more protocol information. Do not rely on undocumented members.
+- Never store access tokens, DPoP proofs, credential offers containing pre-authorized codes, or raw presentation payloads in logs or fixtures.
+
+## Service and discovery
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/healthz` | Readiness response: `{ "status": "ok" }`. |
+| `GET` | `/openapi.json` | OpenAPI 3.1 contract for the public REST and protocol surface. |
+| `GET` | `/docs` | Interactive API documentation. |
+| `GET` | `/issuers` | Lists the always-on issuer configurations, metadata URLs, warnings, and credential configuration IDs. |
+| `GET` | `/oid4vci/requests` | Bounded chronological OpenID4VCI request ledger. Sensitive fields are redacted to presence/length metadata. |
+
+For each `{issuerConfigurationId}`:
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/.well-known/openid-credential-issuer/issuers/{issuerConfigurationId}` | OpenID4VCI credential issuer metadata. Send `Accept: application/jwt` for signed metadata; JSON is the default. |
+| `GET` | `/.well-known/oauth-authorization-server/issuers/{issuerConfigurationId}` | OAuth authorization-server metadata for the issuer. |
+| `GET` | `/.well-known/jwt-vc-issuer/issuers/{issuerConfigurationId}` | JWT VC issuer metadata. |
+| `GET` | `/issuers/{issuerConfigurationId}/jwks.json` | Authorization-server signing JWKS. |
+| `GET` | `/issuers/{issuerConfigurationId}/credential-jwks.json` | Credential-signing JWKS. |
+
+## OpenID4VCI issuance capture
+
+### Create and inspect a session
+
+`POST /sessions` creates an issuance session. Its optional JSON body is:
+
+| Field | Values | Default |
+| --- | --- | --- |
+| `issuer_configuration_id` | `eu-pid-device-bound`, `eu-pid-jwt-proof-only` | `eu-pid-device-bound` |
+| `flow` | `pre_authorized_code`, `authorization_code` | `authorization_code` |
+| `credential_offer_mode` | `credential_offer`, `credential_offer_uri` | `credential_offer` |
+| `credential_configuration_id` | A configuration advertised by the selected issuer metadata | First configuration for the issuer |
+
+It returns `201` with `session_id`, issuer and authorization-server identifiers, the selected flow and configuration, `offer_url`, `deeplink`, and `status: "created"`. A configuration belonging to another issuer is rejected.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/sessions/{sessionId}` | Full current issuance capture, including status, observed information, checks, and events. |
+| `GET` | `/sessions/{sessionId}/offer` | Credential Offer object. Returns `409` while no offer is available. |
+| `GET` | `/sessions/{sessionId}/deeplink` | `{ deeplink, credential_offer }`; records a deeplink-generation event. |
+| `GET` | `/sessions/{sessionId}/jwks` | Verified wallet holder-binding JWKS. Returns `409` until a holder key has been observed. |
+| `GET` | `/sessions/{sessionId}/events` | Chronological issuance events (`at`, `type`, `detail`). |
+
+### Issuer protocol endpoints
+
+| Method | Path | Required input | Result |
+| --- | --- | --- | --- |
+| `GET` | `/issuers/{issuerConfigurationId}/offers/{credentialOfferId}` | Credential-offer ID from an offer-by-reference deeplink | Credential Offer object. |
+| `POST` | `/issuers/{issuerConfigurationId}/par` | DPoP header; form `response_type=code`, `client_id`, `redirect_uri`, `scope`, `code_challenge`, `code_challenge_method=S256`; optional `issuer_state`, `state` | `201` with `request_uri` and `expires_in`. |
+| `GET` | `/issuers/{issuerConfigurationId}/authorize` | Query `client_id` and `request_uri` | Starts the auto-approved authorization-code flow with redirects. |
+| `GET` | `/issuers/{issuerConfigurationId}/redirect` | Chained OAuth callback parameters | Redirects back to the wallet with the issuer authorization code. |
+| `POST` | `/issuers/{issuerConfigurationId}/token` | DPoP header plus either pre-authorized-code or authorization-code form grant | DPoP-bound access token, expiry, credential nonce, and nonce expiry. |
+| `POST` | `/issuers/{issuerConfigurationId}/nonce` | No body | Fresh `c_nonce`. |
+| `POST` | `/issuers/{issuerConfigurationId}/credential` | `Authorization: DPoP …`, DPoP header, and a Credential Request | Credential response containing `credentials[].credential`. |
+
+The token endpoint accepts either:
+
+- `grant_type=urn:ietf:params:oauth:grant-type:pre-authorized_code` and `pre-authorized_code`, with optional `tx_code`; or
+- `grant_type=authorization_code`, `code`, `code_verifier`, and `redirect_uri`, with optional `client_id`.
+
+The credential request normally uses `application/json` with `credential_configuration_id` and one `proofs.jwt` or `proofs.attestation` entry. For encrypted credential requests, send an `application/jwt` compact JWE; the encrypted response is also a compact JWE. The selected issuer's metadata determines supported proof and encryption capabilities.
+
+## OpenID4VP presentation capture
+
+### Create and inspect a session
+
+`POST /openid4vp/sessions` creates a verifier session. Its optional JSON body accepts:
+
+| Field | Values / shape | Default |
+| --- | --- | --- |
+| `scheme` | URL-scheme prefix, such as `openid4vp://` | `openid4vp://` |
+| `request_uri_method` | `get`, `post` | `get` |
+| `request_delivery` | `by_reference`, `by_value` | `by_reference` |
+| `response_type` | `vp_token`, `vp_token id_token`, `code` | `vp_token` |
+| `response_mode` | `direct_post`, `direct_post.jwt` | `direct_post.jwt` |
+| `presentation_request` | Request-object claim overrides | — |
+| `dcql_query` | DCQL query object | — |
+| `scopes` | A string or string array | — |
+| `transaction_data` | JSON value | — |
+| `verifier_info` | JSON value | — |
+
+`request_uri_method` is valid only with `request_delivery: "by_reference"`. `response_type`, top-level DCQL, scopes, transaction data, and verifier information are used to construct the signed request object. Inspect the returned `authorization_request` or retrieved request object to confirm the exact wallet-facing claims.
+
+The `201` response includes `session_id`, delivery and response settings, `request_uri`, `response_uri`, `deeplink`, `authorization_request`, and `status: "created"`.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/openid4vp/sessions/{sessionId}` | Full current presentation capture. |
+| `GET` | `/openid4vp/sessions/{sessionId}/deeplink` | `{ deeplink, authorization_request }`; records a deeplink event. |
+| `GET` | `/openid4vp/sessions/{sessionId}/events` | Chronological presentation events. |
+
+### Wallet-facing request and response endpoints
+
+| Method | Path | Input | Result |
+| --- | --- | --- | --- |
+| `GET` | `/openid4vp/sessions/{sessionId}/request` | — | Signed request object with media type `application/oauth-authz-req+jwt`; marks the request as retrieved. |
+| `POST` | `/openid4vp/sessions/{sessionId}/request` | Form payload; `wallet_nonce` is recognized and other fields are captured | Signed request object. Use only for a session with `request_uri_method: post`. |
+| `POST` | `/openid4vp/sessions/{sessionId}/response` | Form-encoded wallet response | Captures and verifies the response for that session. `200` means valid; `400` returns `invalid_presentation` and verification errors. |
+| `POST` | `/openid4vp/response` | Form-encoded wallet response with required `state` | Alternative direct-post endpoint; `state` selects the session. |
+
+Raw form payloads are preserved in the presentation capture for fidelity. Treat them as sensitive evidence.
+
+## Test-only chained OAuth server
+
+The authorization-code issuance flow uses an internal, auto-approving OAuth server between Credo and the issuer. These are test-service endpoints, not a general-purpose identity provider.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/.well-known/oauth-authorization-server/authorization-servers/{issuerConfigurationId}` | Metadata for the fake OAuth server. |
+| `GET` | `/authorization-servers/{issuerConfigurationId}/authorize` | Validates Credo's authorization request and immediately redirects with a code. |
+| `POST` | `/authorization-servers/{issuerConfigurationId}/token` | Exchanges the chained code. Requires the configured client credentials, PKCE verifier, redirect URI, and client ID. |
+
+## Browser-only routes
+
+These routes support the server-rendered operator UI. They are not a stable programmatic contract; use the API routes above for integrations.
+
+| Method | Path |
+| --- | --- |
+| `GET` | `/` |
+| `GET` | `/ui/help` |
+| `POST` | `/ui/sessions` |
+| `GET` | `/ui/sessions/{sessionId}` |
+| `POST` | `/ui/openid4vp/sessions` |
+| `GET` | `/ui/openid4vp/sessions/{sessionId}` |
+| `GET` | `/favicon.svg` |
+| `GET` | `/assets/style.css` |
+| `GET` | `/assets/credimi_logo.svg` |
+| `GET` | `/assets/credimi_logo_negative.svg` |
+| `GET` | `/assets/credimi_logo-transp.svg` |
+| `GET` | `/assets/credimi_logo-transp_white.svg` |
+
+GUI routes can be disabled with the service configuration; disabling them does not disable API or protocol routes.
+
+## Keeping this reference current
+
+When the public contract changes, update this file and `src/openapi.ts` in the same change. Add or update route-level tests for every changed protocol, metadata, or security boundary. For exact schemas, error objects, and media types, consult `/openapi.json` and the relevant OpenID specification.
