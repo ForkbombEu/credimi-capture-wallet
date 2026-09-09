@@ -138,7 +138,7 @@ export class CredoOpenId4VpVerifier {
     request: JsonRecord,
     verifierDcqlQuery: JsonRecord,
     requestUriMethod: "get" | "post",
-    requestDelivery: "by_reference" | "by_value",
+    requestDelivery: "by_reference" | "by_value" | "plain",
     deeplinkScheme: string,
   ): Promise<CredoVpSession> {
     await this.ensureVerifier(sessionId);
@@ -175,18 +175,20 @@ export class CredoOpenId4VpVerifier {
     );
     created.verificationSession.authorizationRequestJwt = authorizationRequestJwt;
     const deeplink =
-      requestDelivery === "by_value"
-        ? presentationRequestByValueDeeplink(
-            authorizationRequest,
-            authorizationRequestJwt,
-            deeplinkScheme,
-          )
-        : presentationRequestByReferenceDeeplink(
+      requestDelivery === "by_reference"
+        ? presentationRequestByReferenceDeeplink(
             authorizationRequest,
             requestUri,
             requestUriMethod,
             deeplinkScheme,
-          );
+          )
+        : requestDelivery === "by_value"
+          ? presentationRequestByValueDeeplink(
+              authorizationRequest,
+              authorizationRequestJwt,
+              deeplinkScheme,
+            )
+          : presentationRequestPlainDeeplink(authorizationRequest, deeplinkScheme);
 
     return {
       sessionId,
@@ -308,6 +310,18 @@ function presentationRequestByValueDeeplink(
     client_id: String(authorizationRequest.client_id),
     request: authorizationRequestJwt,
   });
+  return `${deeplinkScheme}?${params.toString()}`;
+}
+
+function presentationRequestPlainDeeplink(
+  authorizationRequest: JsonRecord,
+  deeplinkScheme: string,
+): string {
+  const params = new URLSearchParams();
+  for (const [name, value] of Object.entries(authorizationRequest)) {
+    if (name === "aud" || value === undefined) continue;
+    params.set(name, typeof value === "string" ? value : JSON.stringify(value));
+  }
   return `${deeplinkScheme}?${params.toString()}`;
 }
 

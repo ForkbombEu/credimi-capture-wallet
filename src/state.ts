@@ -131,7 +131,7 @@ export class CaptureStore {
   createVpSession(
     sessionId: string,
     authorizationRequest: JsonRecord,
-    requestDelivery: "by_reference" | "by_value",
+    requestDelivery: "by_reference" | "by_value" | "plain",
     requestUriMethod: "get" | "post",
     responseMode: "direct_post" | "direct_post.jwt",
     deeplinkScheme: string,

@@ -424,7 +424,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       if (body.request_delivery !== undefined && !requestDelivery) {
         return res.status(400).json({ error: "unsupported_request_delivery" });
       }
-      if (requestDelivery === "by_value" && requestUriMethod) {
+      if (requestDelivery && requestDelivery !== "by_reference" && requestUriMethod) {
         return res.status(400).json({ error: "request_uri_method_requires_by_reference_delivery" });
       }
       const responseMode = responseModeOrNull(body.response_mode);
@@ -824,7 +824,7 @@ async function createVpSession(
   credentialConfigurationIds?: string[],
   requestUriMethod: "get" | "post" = "get",
   responseMode: OpenId4VpResponseMode = "direct_post.jwt",
-  requestDelivery: "by_reference" | "by_value" = "by_reference",
+  requestDelivery: "by_reference" | "by_value" | "plain" = "by_reference",
   deeplinkScheme = "openid4vp://",
 ): Promise<VpSessionCapture> {
   const sessionId = randomUUID();
@@ -929,10 +929,12 @@ function responseModeOrNull(value: unknown): OpenId4VpResponseMode | null {
   return normalized === "direct_post" || normalized === "direct_post.jwt" ? normalized : null;
 }
 
-function requestDeliveryOrNull(value: unknown): "by_reference" | "by_value" | null {
+function requestDeliveryOrNull(value: unknown): "by_reference" | "by_value" | "plain" | null {
   if (typeof value !== "string") return null;
   const normalized = value.toLowerCase();
-  return normalized === "by_reference" || normalized === "by_value" ? normalized : null;
+  return normalized === "by_reference" || normalized === "by_value" || normalized === "plain"
+    ? normalized
+    : null;
 }
 
 function deeplinkSchemeOrNull(value: unknown): string | null {

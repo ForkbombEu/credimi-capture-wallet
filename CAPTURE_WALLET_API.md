@@ -87,7 +87,7 @@ The credential request normally uses `application/json` with `credential_configu
 | --- | --- | --- |
 | `scheme` | URL-scheme prefix, such as `openid4vp://` | `openid4vp://` |
 | `request_uri_method` | `get`, `post` | `get` |
-| `request_delivery` | `by_reference`, `by_value` | `by_reference` |
+| `request_delivery` | `by_reference`, `by_value`, `plain` | `by_reference` |
 | `response_type` | `vp_token`, `vp_token id_token`, `code` | `vp_token` |
 | `response_mode` | `direct_post`, `direct_post.jwt` | `direct_post.jwt` |
 | `presentation_request` | Request-object claim overrides | — |
@@ -96,7 +96,7 @@ The credential request normally uses `application/json` with `credential_configu
 | `transaction_data` | JSON value | — |
 | `verifier_info` | JSON value | — |
 
-`request_uri_method` is valid only with `request_delivery: "by_reference"`. `response_type`, top-level DCQL, scopes, transaction data, and verifier information are used to construct the signed request object. Inspect the returned `authorization_request` or retrieved request object to confirm the exact wallet-facing claims.
+`request_uri_method` is valid only with `request_delivery: "by_reference"`. `by_value` supplies a signed Request Object in `request`; `plain` supplies the Authorization Request's URL-encoded parameters directly in the deeplink and omits `request`, `request_uri`, and `request_uri_method`. `response_type`, top-level DCQL, scopes, transaction data, and verifier information are used to construct the wallet-facing request. Inspect the returned `authorization_request` to confirm the exact claims.
 
 The `201` response includes `session_id`, delivery and response settings, `request_uri`, `response_uri`, `deeplink`, `authorization_request`, and `status: "created"`.
 

@@ -956,8 +956,10 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             request_uri_method: { type: "string", enum: ["get", "post"], default: "get" },
             request_delivery: {
               type: "string",
-              enum: ["by_reference", "by_value"],
+              enum: ["by_reference", "by_value", "plain"],
               default: "by_reference",
+              description:
+                "Deliver a signed request object by reference or value, or a plain URL-encoded Authorization Request without request or request_uri.",
             },
             response_type: {
               type: "string",
