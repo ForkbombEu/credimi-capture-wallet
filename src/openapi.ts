@@ -1016,7 +1016,29 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             "checks",
             "events",
           ],
+          properties: {
+            raw: {
+              type: "object",
+              properties: {
+                presentation_response_http: {
+                  $ref: "#/components/schemas/PresentationResponseHttpCapture",
+                },
+              },
+              additionalProperties: true,
+            },
+          },
           additionalProperties: true,
+        },
+        PresentationResponseHttpCapture: {
+          type: "object",
+          required: ["method", "headers", "body"],
+          description:
+            "Machine-readable wallet presentation response evidence. Sensitive header values are redacted.",
+          properties: {
+            method: { type: "string" },
+            headers: { type: "object", additionalProperties: true },
+            body: { type: "string" },
+          },
         },
         TokenResponse: {
           type: "object",

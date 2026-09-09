@@ -58,7 +58,7 @@ export function createOid4vciRequestCapture(
     path: req.path,
     session_id: sessionId,
     issuer_configuration_id: issuerConfigurationId,
-    headers: redactHeaders(req.headers),
+    headers: redactHttpHeaders(req.headers),
     query: redactOid4vciValue(queryRecord(req)),
     body:
       (req.is("application/jwt") === "application/jwt"
@@ -92,7 +92,7 @@ export function redactOid4vciValue(value: unknown, key?: string): unknown {
   return value;
 }
 
-function redactHeaders(headers: Request["headers"]): JsonRecord {
+export function redactHttpHeaders(headers: Request["headers"]): JsonRecord {
   return Object.fromEntries(
     Object.entries(headers).map(([name, value]) => [
       name,

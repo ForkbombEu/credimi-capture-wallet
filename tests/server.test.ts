@@ -1131,6 +1131,8 @@ describe("capture issuer server", () => {
 
     const presentation = await request(app)
       .post(`/openid4vp/sessions/${session.session_id}/response`)
+      .type("form")
+      .set("DPoP", "wallet-response-dpop-proof")
       .send({
         state: session.authorization_request.state,
         vp_token: "presentation-token",
@@ -1149,6 +1151,17 @@ describe("capture issuer server", () => {
     expect(capture.checks.presentation_valid).toBe(false);
     expect(capture.checks.errors.length).toBeGreaterThan(0);
     expect(capture.raw?.presentation_response?.state).toBe(session.authorization_request.state);
+    expect(capture.raw?.presentation_response_http).toMatchObject({
+      method: "POST",
+      headers: {
+        "content-type": expect.stringContaining("application/x-www-form-urlencoded"),
+        dpop: { redacted: true, present: true },
+      },
+    });
+    expect(capture.raw?.presentation_response_http?.body).toContain(
+      `state=${encodeURIComponent(String(session.authorization_request.state))}`,
+    );
+    expect(capture.raw?.presentation_response_http?.body).toContain("vp_token=presentation-token");
   });
 
   it("rejects SD-JWT VC presentations that do not disclose all requested DCQL claims", async () => {
@@ -2583,6 +2596,11 @@ interface VpSessionResponse extends JsonRecord {
   };
   raw?: {
     presentation_response?: JsonRecord;
+    presentation_response_http?: {
+      method: string;
+      headers: JsonRecord;
+      body: string;
+    };
     presentation_response_decrypted?: JsonRecord;
     decoded_presentations?: JsonRecord;
   };

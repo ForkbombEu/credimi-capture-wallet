@@ -44,6 +44,12 @@ export interface Oid4vciHttpRequestCapture {
   };
 }
 
+export interface PresentationResponseHttpCapture {
+  method: string;
+  headers: JsonRecord;
+  body: string;
+}
+
 export interface ProofHeaderCapture {
   proof_type?: "jwt" | "attestation";
   typ?: string;
@@ -164,6 +170,7 @@ export interface VpSessionCapture {
   raw?: {
     authorization_request?: JsonRecord;
     presentation_response?: JsonRecord;
+    presentation_response_http?: PresentationResponseHttpCapture;
     presentation_response_decrypted?: JsonRecord;
     decoded_presentations?: JsonRecord;
     presentation_response_raw?: string;

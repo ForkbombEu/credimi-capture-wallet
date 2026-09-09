@@ -32,6 +32,7 @@ import {
   completeOid4vciRequestCapture,
   createOid4vciRequestCapture,
   isOid4vciProtocolPath,
+  redactHttpHeaders,
   redactOid4vciValue,
 } from "./oid4vci-capture.js";
 import { apiDocsPage, openApiDocument } from "./openapi.js";
@@ -46,6 +47,7 @@ import type {
   CredentialOfferMode,
   JsonRecord,
   Oid4vciHttpRequestCapture,
+  PresentationResponseHttpCapture,
   SessionCapture,
   VpSessionCapture,
 } from "./types.js";
@@ -61,7 +63,13 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       verify: rawBodyCapture,
     }),
   );
-  app.use(express.urlencoded({ extended: false, type: "application/x-www-form-urlencoded" }));
+  app.use(
+    express.urlencoded({
+      extended: false,
+      type: "application/x-www-form-urlencoded",
+      verify: rawBodyCapture,
+    }),
+  );
   app.use(express.text({ type: "application/jwt" }));
   app.use((req, res, next) => {
     if (!isOid4vciProtocolPath(req.path)) return next();
@@ -550,7 +558,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         store,
         session,
         body,
-        (req as Request & { rawBody?: string }).rawBody,
+        presentationResponseHttpCapture(req, body),
         validation,
       );
       if (!validation.valid) {
@@ -578,7 +586,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         store,
         session,
         body,
-        (req as Request & { rawBody?: string }).rawBody,
+        presentationResponseHttpCapture(req, body),
         validation,
       );
       if (!validation.valid) {
@@ -869,7 +877,7 @@ function captureVpResponse(
   store: CaptureStore,
   session: VpSessionCapture,
   body: JsonRecord,
-  rawBody: string | undefined,
+  http: PresentationResponseHttpCapture,
   validation: {
     valid: boolean;
     vp_token_format_valid: boolean;
@@ -899,7 +907,8 @@ function captureVpResponse(
     session.decoded_presentations = validation.decoded_presentations;
     session.raw.decoded_presentations = validation.decoded_presentations;
   }
-  session.raw.presentation_response_raw = rawBody ?? JSON.stringify(body);
+  session.raw.presentation_response_raw = http.body;
+  session.raw.presentation_response_http = http;
   session.observed.wallet_response = {
     value: body,
     source: "presentation_response",
@@ -910,6 +919,17 @@ function captureVpResponse(
     presentation_valid: validation.valid,
     errors: validation.errors,
   });
+}
+
+function presentationResponseHttpCapture(
+  req: Request,
+  body: JsonRecord,
+): PresentationResponseHttpCapture {
+  return {
+    method: req.method,
+    headers: redactHttpHeaders(req.headers),
+    body: (req as Request & { rawBody?: string }).rawBody ?? JSON.stringify(body),
+  };
 }
 
 function objectOrNull(value: unknown): JsonRecord | null {

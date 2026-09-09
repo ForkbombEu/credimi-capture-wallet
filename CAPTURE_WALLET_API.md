@@ -117,6 +117,8 @@ The `201` response includes `session_id`, delivery and response settings, `reque
 
 Raw form payloads are preserved in the presentation capture for fidelity. Treat them as sensitive evidence.
 
+The session record additionally exposes `raw.presentation_response_http` for machine processing. It contains the received HTTP `method`, the headers with sensitive values redacted, and the exact received body. It is captured before presentation verification, so it is also available for invalid responses. This evidence is intentionally not shown as a dedicated field in the operator UI.
+
 ## Test-only chained OAuth server
 
 The authorization-code issuance flow uses an internal, auto-approving OAuth server between Credo and the issuer. These are test-service endpoints, not a general-purpose identity provider.

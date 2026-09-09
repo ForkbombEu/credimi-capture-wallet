@@ -23,6 +23,7 @@ During the credential verification the service captures:
 - Verifier request object sent to the wallet: `authorization_request`
 - Wallet payload when request_uri_method is post: `request_uri_payload`
 - Wallet presentation response: `wallet_response`
+- Raw wallet presentation HTTP envelope: `raw.presentation_response_http` (method, headers with sensitive values redacted, and exact received body)
 - Decrypted wallet presentation response: `presentation_response_decrypted` (useful when response_mode is set to `direct_post.jwt`)
 - Decoded claims from verified presentations: `decoded_presentations`
 - Verifier checks for nonce, holder binding, and DCQL matching: `presentation_validation`
