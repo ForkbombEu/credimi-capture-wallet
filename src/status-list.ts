@@ -1,8 +1,16 @@
+import { PID_MDOC_DOCTYPE } from "./credential-definitions.js";
+import type { SupportedCredential } from "./metadata.js";
 import type { AppConfig, StatusListReference } from "./types.js";
 
 const STATUS_LIST_TAKE_PATH = "/token_status_list/take";
 const DEFAULT_COUNTRY = "EU";
 const DEFAULT_EXPIRY_DATE = "2099-12-31";
+
+export function statusListCredentialType(credential: SupportedCredential): string {
+  if (credential.format === "mso_mdoc") return PID_MDOC_DOCTYPE;
+  if (credential.vct) return credential.vct;
+  throw new Error(`SD-JWT credential '${credential.id}' is missing its vct`);
+}
 
 export async function allocateStatusListReference(options: {
   config: AppConfig;

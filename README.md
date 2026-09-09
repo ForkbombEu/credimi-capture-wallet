@@ -204,6 +204,8 @@ credential from the configured debug Status List service. Allocation failure sto
 issuance rather than silently issuing an untracked credential. Configure the
 Status List endpoint in the generated service config with
 `status_list_base_url`, `status_list_api_key`, and `status_list_timeout_ms`.
+`STATUS_LIST_BASE_URL` and `STATUS_LIST_API_KEY` environment variables override the
+configured endpoint and management key at runtime.
 The management API key is server-side only and is never included in a credential,
 offer, browser response, or capture log.
 `issuer_configuration_id` is optional and accepts `eu-pid-device-bound` or
@@ -505,6 +507,8 @@ private JWK.
 From env file `.env`, that is loaded automatically when present, you can set:
 - `GUI_ENABLED`: enables or disables browser GUI routes. Defaults to `true`.
 - `PORT`: overrides the configured listen port.
+- `STATUS_LIST_BASE_URL`: overrides the configured Status List endpoint.
+- `STATUS_LIST_API_KEY`: overrides the configured Status List management API key.
 
 **[🔝 back to top](#toc)**
 

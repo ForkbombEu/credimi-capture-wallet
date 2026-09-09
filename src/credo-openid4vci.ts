@@ -33,7 +33,7 @@ import {
 } from "./metadata.js";
 import { captureProofHeaders, decodeDpopHeader } from "./proofs.js";
 import type { CaptureStore } from "./state.js";
-import { allocateStatusListReference } from "./status-list.js";
+import { allocateStatusListReference, statusListCredentialType } from "./status-list.js";
 import type {
   AppConfig,
   CredentialOfferMode,
@@ -414,8 +414,7 @@ export class CredoOpenId4VciIssuer {
             allocateStatusListReference({
               config: this.config,
               allocationId: statusAllocationId(captureSession, index),
-              doctype:
-                credential.format === "mso_mdoc" ? "eu.europa.ec.eudi.pid.1" : "urn:eudi:pid:1",
+              doctype: statusListCredentialType(credential),
             }),
           ),
         )

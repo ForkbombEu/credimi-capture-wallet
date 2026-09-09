@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_CONFIG } from "../src/config.js";
-import { allocateStatusListReference } from "../src/status-list.js";
+import { allocateStatusListReference, statusListCredentialType } from "../src/status-list.js";
 
 const config = {
   ...DEFAULT_CONFIG,
@@ -12,6 +12,30 @@ afterEach(() => {
 });
 
 describe("status-list allocation", () => {
+  it("uses an mdoc doctype or SD-JWT vct as the allocation type", () => {
+    expect(
+      statusListCredentialType({
+        id: "mdoc",
+        scope: "mdoc",
+        format: "mso_mdoc",
+        proofPolicy: "jwt-proof",
+        displayName: "mdoc",
+        claimPaths: [],
+      }),
+    ).toBe("eu.europa.ec.eudi.pid.1");
+    expect(
+      statusListCredentialType({
+        id: "degree",
+        scope: "degree",
+        format: "dc+sd-jwt",
+        proofPolicy: "jwt-proof",
+        displayName: "degree",
+        vct: "urn:credimi:degree:1",
+        claimPaths: [],
+      }),
+    ).toBe("urn:credimi:degree:1");
+  });
+
   it("sends the management request only when called and parses its public reference", async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(
