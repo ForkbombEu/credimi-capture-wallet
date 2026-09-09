@@ -24,6 +24,7 @@ During the credential verification the service captures:
 - Wallet payload when request_uri_method is post: `request_uri_payload`
 - Wallet presentation response: `wallet_response`
 - Raw wallet presentation HTTP envelope: `raw.presentation_response_http` (method, headers with sensitive values redacted, and exact received body)
+- Raw verifier HTTP response: `raw.presentation_response_verifier_http` (status, headers with sensitive values redacted, and exact response body)
 - Decrypted wallet presentation response: `presentation_response_decrypted` (useful when response_mode is set to `direct_post.jwt`)
 - Decoded claims from verified presentations: `decoded_presentations`
 - Verifier checks for nonce, holder binding, and DCQL matching: `presentation_validation`
@@ -374,6 +375,7 @@ Where:
 * `request_delivery` can be `by_reference`, `by_value`, or `plain`, default is `by_reference`. `plain` puts URL-encoded Authorization Request parameters directly in the deeplink, without `request` or `request_uri`; it cannot be combined with `request_uri_method`.
 * `response_type` can be `vp_token` or `vp_token id_token` or `code`, but during presentation verification only `vp_token` is supported, default is `vp_token`
 * `response_mode` can be `direct_post` or `direct_post.jwt`, default is `direct_post.jwt`
+* `redirect_uri` is an optional absolute URI returned to the Wallet after a successful presentation. The service appends a fresh 128-bit `response_code` parameter to it.
 * `scheme` is the complete custom URL-scheme prefix for the deeplink (for example, `eudi-wallet://`); it defaults to `openid4vp://`
 
 Optional `scopes`, `transaction_data`, and `verifier_info` values can be supplied at the top level or within `presentation_request`. `scopes` accepts a string or an array of strings and is emitted as the standard space-delimited `scope` authorization-request parameter. The other two values are included unchanged in the signed request object.

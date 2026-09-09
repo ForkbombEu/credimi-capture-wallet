@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import express, { type NextFunction, type Request, type Response } from "express";
 import QRCode from "qrcode";
@@ -49,6 +49,7 @@ import type {
   Oid4vciHttpRequestCapture,
   PresentationResponseHttpCapture,
   SessionCapture,
+  VerifierResponseHttpCapture,
   VpSessionCapture,
 } from "./types.js";
 import { errorPage, helpPage, indexPage, sessionPage, vpSessionPage } from "./ui.js";
@@ -443,6 +444,10 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       if (body.scheme !== undefined && !deeplinkScheme) {
         return res.status(400).json({ error: "invalid_deeplink_scheme" });
       }
+      const redirectUri = responseRedirectUriOrNull(body.redirect_uri);
+      if (body.redirect_uri !== undefined && !redirectUri) {
+        return res.status(400).json({ error: "invalid_redirect_uri" });
+      }
       const requestOverride = {
         ...(objectOrNull(body.presentation_request) ?? vpRequestBody(body)),
         ...(body.response_type !== undefined ? { response_type: body.response_type } : {}),
@@ -456,6 +461,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         responseMode ?? "direct_post.jwt",
         requestDelivery ?? "by_reference",
         deeplinkScheme ?? "openid4vp://",
+        redirectUri ?? undefined,
       );
       store.addEvent(session, "vp_deeplink_generated", {});
       return res.status(201).json({
@@ -466,6 +472,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         response_mode: session.response_mode,
         scheme: session.deeplink_scheme,
         response_uri: session.response_uri,
+        ...(session.redirect_uri ? { redirect_uri: session.redirect_uri } : {}),
         deeplink: session.deeplink,
         authorization_request: session.authorization_request,
         status: session.status,
@@ -562,9 +569,17 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         validation,
       );
       if (!validation.valid) {
-        return res.status(400).json({ error: "invalid_presentation", errors: validation.errors });
+        return sendVpSubmissionResponse(res, session, 400, {
+          error: "invalid_presentation",
+          errors: validation.errors,
+        });
       }
-      return res.json({});
+      return sendVpSubmissionResponse(
+        res,
+        session,
+        200,
+        session.redirect_uri ? { redirect_uri: session.redirect_uri } : {},
+      );
     } catch (error) {
       return next(error);
     }
@@ -590,9 +605,17 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         validation,
       );
       if (!validation.valid) {
-        return res.status(400).json({ error: "invalid_presentation", errors: validation.errors });
+        return sendVpSubmissionResponse(res, session, 400, {
+          error: "invalid_presentation",
+          errors: validation.errors,
+        });
       }
-      return res.json({});
+      return sendVpSubmissionResponse(
+        res,
+        session,
+        200,
+        session.redirect_uri ? { redirect_uri: session.redirect_uri } : {},
+      );
     } catch (error) {
       return next(error);
     }
@@ -834,6 +857,7 @@ async function createVpSession(
   responseMode: OpenId4VpResponseMode = "direct_post.jwt",
   requestDelivery: "by_reference" | "by_value" | "plain" = "by_reference",
   deeplinkScheme = "openid4vp://",
+  redirectUri?: string,
 ): Promise<VpSessionCapture> {
   const sessionId = randomUUID();
   const defaultRequest = defaultPresentationRequest(
@@ -862,6 +886,7 @@ async function createVpSession(
     requestUriMethod,
     responseMode,
     deeplinkScheme,
+    redirectUri ? redirectUriWithResponseCode(redirectUri) : undefined,
     {
       requestUri: credoSession.requestUri,
       responseUri: credoSession.responseUri,
@@ -921,6 +946,28 @@ function captureVpResponse(
   });
 }
 
+function sendVpSubmissionResponse(
+  res: Response,
+  session: VpSessionCapture,
+  status: number,
+  body: JsonRecord,
+): Response {
+  const serializedBody = JSON.stringify(body);
+  res.once("finish", () => {
+    session.raw ??= {};
+    session.raw.presentation_response_verifier_http = {
+      status: res.statusCode,
+      headers: redactHttpHeaders(res.getHeaders()),
+      body: serializedBody,
+    };
+  });
+  return res
+    .status(status)
+    .set("Cache-Control", "no-store")
+    .type("application/json")
+    .send(serializedBody);
+}
+
 function presentationResponseHttpCapture(
   req: Request,
   body: JsonRecord,
@@ -930,6 +977,24 @@ function presentationResponseHttpCapture(
     headers: redactHttpHeaders(req.headers),
     body: (req as Request & { rawBody?: string }).rawBody ?? JSON.stringify(body),
   };
+}
+
+function responseRedirectUriOrNull(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  try {
+    const redirectUri = new URL(value);
+    return redirectUri.protocol === "http:" || redirectUri.protocol === "https:"
+      ? redirectUri.toString()
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function redirectUriWithResponseCode(redirectUri: string): string {
+  const url = new URL(redirectUri);
+  url.searchParams.append("response_code", randomBytes(16).toString("base64url"));
+  return url.toString();
 }
 
 function objectOrNull(value: unknown): JsonRecord | null {
@@ -967,6 +1032,7 @@ function vpRequestBody(body: JsonRecord): JsonRecord {
     request_delivery: _requestDelivery,
     request_uri_method: _requestUriMethod,
     response_mode: _responseMode,
+    redirect_uri: _redirectUri,
     scheme: _scheme,
     ...request
   } = body;

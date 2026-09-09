@@ -927,6 +927,21 @@ describe("capture issuer server", () => {
     expect(deeplink.searchParams.has("request_uri_method")).toBe(false);
   });
 
+  it("adds a fresh response code to a post-submission redirect URI", async () => {
+    const app = createApp(config);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      redirect_uri: "https://rp.example.test/complete?flow=wallet",
+    });
+
+    const redirectUri = new URL(String(session.redirect_uri));
+    expect(redirectUri.origin).toBe("https://rp.example.test");
+    expect(redirectUri.pathname).toBe("/complete");
+    expect(redirectUri.searchParams.get("flow")).toBe("wallet");
+    expect(
+      Buffer.from(String(redirectUri.searchParams.get("response_code")), "base64url"),
+    ).toHaveLength(16);
+  });
+
   it("uses the requested custom scheme for a by-value OpenID4VP deeplink", async () => {
     const app = createApp(config);
     const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
@@ -1162,6 +1177,16 @@ describe("capture issuer server", () => {
       `state=${encodeURIComponent(String(session.authorization_request.state))}`,
     );
     expect(capture.raw?.presentation_response_http?.body).toContain("vp_token=presentation-token");
+    expect(capture.raw?.presentation_response_verifier_http).toMatchObject({
+      status: 400,
+      headers: {
+        "content-type": expect.stringContaining("application/json"),
+        "cache-control": "no-store",
+      },
+    });
+    expect(capture.raw?.presentation_response_verifier_http?.body).toContain(
+      '"error":"invalid_presentation"',
+    );
   });
 
   it("rejects SD-JWT VC presentations that do not disclose all requested DCQL claims", async () => {
@@ -1203,6 +1228,7 @@ describe("capture issuer server", () => {
   it("accepts SD-JWT VC presentations that satisfy holder binding, nonce, and DCQL", async () => {
     const app = createApp(config);
     const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      redirect_uri: "https://rp.example.test/complete",
       presentation_request: {
         dcql_query: dcqlForClaims(["family_name", "given_name"]),
       },
@@ -1224,7 +1250,7 @@ describe("capture issuer server", () => {
       });
 
     expect(response.status).toBe(200);
-    expect(response.body).toEqual({});
+    expect(response.body).toEqual({ redirect_uri: session.redirect_uri });
 
     const capture = await getJson<VpSessionResponse>(
       app,
@@ -1239,6 +1265,14 @@ describe("capture issuer server", () => {
       errors: [],
     });
     expect(capture.raw?.presentation_response).toEqual({ response: expect.any(String) });
+    expect(capture.raw?.presentation_response_verifier_http).toMatchObject({
+      status: 200,
+      headers: {
+        "content-type": expect.stringContaining("application/json"),
+        "cache-control": "no-store",
+      },
+      body: JSON.stringify({ redirect_uri: session.redirect_uri }),
+    });
     expect(capture.raw?.presentation_response_decrypted).toMatchObject({
       state: session.authorization_request.state,
       vp_token: { query_0: [presentation] },
@@ -2570,6 +2604,7 @@ interface VpSessionCreateResponse extends JsonRecord {
   request_uri: string;
   request_uri_method: "get" | "post";
   scheme: string;
+  redirect_uri?: string;
   response_uri: string;
   deeplink: string;
   authorization_request: JsonRecord;
@@ -2598,6 +2633,11 @@ interface VpSessionResponse extends JsonRecord {
     presentation_response?: JsonRecord;
     presentation_response_http?: {
       method: string;
+      headers: JsonRecord;
+      body: string;
+    };
+    presentation_response_verifier_http?: {
+      status: number;
       headers: JsonRecord;
       body: string;
     };

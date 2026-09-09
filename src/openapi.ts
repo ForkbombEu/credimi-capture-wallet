@@ -976,6 +976,12 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             scopes: { oneOf: [{ type: "string" }, { type: "array", items: { type: "string" } }] },
             transaction_data: {},
             verifier_info: {},
+            redirect_uri: {
+              type: "string",
+              format: "uri",
+              description:
+                "Absolute URI returned to the Wallet after a successful presentation. The service appends a fresh response_code parameter.",
+            },
           },
           additionalProperties: true,
         },
@@ -1001,6 +1007,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             response_mode: { type: "string" },
             scheme: { type: "string" },
             response_uri: { type: "string", format: "uri" },
+            redirect_uri: { type: "string", format: "uri" },
             deeplink: { type: "string" },
             authorization_request: { type: "object", additionalProperties: true },
             status: { type: "string", const: "created" },
@@ -1023,6 +1030,9 @@ export function openApiDocument(config: AppConfig): JsonRecord {
                 presentation_response_http: {
                   $ref: "#/components/schemas/PresentationResponseHttpCapture",
                 },
+                presentation_response_verifier_http: {
+                  $ref: "#/components/schemas/VerifierResponseHttpCapture",
+                },
               },
               additionalProperties: true,
             },
@@ -1036,6 +1046,17 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             "Machine-readable wallet presentation response evidence. Sensitive header values are redacted.",
           properties: {
             method: { type: "string" },
+            headers: { type: "object", additionalProperties: true },
+            body: { type: "string" },
+          },
+        },
+        VerifierResponseHttpCapture: {
+          type: "object",
+          required: ["status", "headers", "body"],
+          description:
+            "Machine-readable verifier response to the Wallet. Sensitive header values are redacted.",
+          properties: {
+            status: { type: "integer" },
             headers: { type: "object", additionalProperties: true },
             body: { type: "string" },
           },

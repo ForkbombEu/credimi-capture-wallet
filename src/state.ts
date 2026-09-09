@@ -135,6 +135,7 @@ export class CaptureStore {
     requestUriMethod: "get" | "post",
     responseMode: "direct_post" | "direct_post.jwt",
     deeplinkScheme: string,
+    redirectUri?: string,
     urls?: {
       requestUri?: string;
       responseUri?: string;
@@ -155,6 +156,7 @@ export class CaptureStore {
       request_uri: requestUri,
       deeplink_scheme: deeplinkScheme,
       response_uri: responseUri,
+      ...(redirectUri ? { redirect_uri: redirectUri } : {}),
       deeplink: "",
       observed: {
         request_uri_payload: { value: null, source: null, also_seen_in: [] },

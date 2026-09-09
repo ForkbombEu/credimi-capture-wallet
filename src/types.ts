@@ -50,6 +50,12 @@ export interface PresentationResponseHttpCapture {
   body: string;
 }
 
+export interface VerifierResponseHttpCapture {
+  status: number;
+  headers: JsonRecord;
+  body: string;
+}
+
 export interface ProofHeaderCapture {
   proof_type?: "jwt" | "attestation";
   typ?: string;
@@ -154,6 +160,7 @@ export interface VpSessionCapture {
   deeplink_scheme: string;
   deeplink: string;
   response_uri: string;
+  redirect_uri?: string;
   observed: {
     request_uri_payload: ObservedValue<JsonRecord>;
     wallet_response: ObservedValue<JsonRecord>;
@@ -171,6 +178,7 @@ export interface VpSessionCapture {
     authorization_request?: JsonRecord;
     presentation_response?: JsonRecord;
     presentation_response_http?: PresentationResponseHttpCapture;
+    presentation_response_verifier_http?: VerifierResponseHttpCapture;
     presentation_response_decrypted?: JsonRecord;
     decoded_presentations?: JsonRecord;
     presentation_response_raw?: string;

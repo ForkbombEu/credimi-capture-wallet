@@ -92,7 +92,9 @@ export function redactOid4vciValue(value: unknown, key?: string): unknown {
   return value;
 }
 
-export function redactHttpHeaders(headers: Request["headers"]): JsonRecord {
+export function redactHttpHeaders(
+  headers: Request["headers"] | ReturnType<Response["getHeaders"]>,
+): JsonRecord {
   return Object.fromEntries(
     Object.entries(headers).map(([name, value]) => [
       name,

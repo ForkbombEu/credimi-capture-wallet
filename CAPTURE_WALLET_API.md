@@ -95,10 +95,13 @@ The credential request normally uses `application/json` with `credential_configu
 | `scopes` | A string or string array | — |
 | `transaction_data` | JSON value | — |
 | `verifier_info` | JSON value | — |
+| `redirect_uri` | Absolute URI for the Wallet to open after a successful presentation | — |
 
 `request_uri_method` is valid only with `request_delivery: "by_reference"`. `by_value` supplies a signed Request Object in `request`; `plain` supplies the Authorization Request's URL-encoded parameters directly in the deeplink and omits `request`, `request_uri`, and `request_uri_method`. `response_type`, top-level DCQL, scopes, transaction data, and verifier information are used to construct the wallet-facing request. Inspect the returned `authorization_request` to confirm the exact claims.
 
 The `201` response includes `session_id`, delivery and response settings, `request_uri`, `response_uri`, `deeplink`, `authorization_request`, and `status: "created"`.
+
+When `redirect_uri` is supplied, the service appends a fresh 128-bit `response_code` query parameter and returns the resulting URI in the session-creation response. After a successful wallet submission, the response endpoint returns `200`, `Cache-Control: no-store`, and `{ "redirect_uri": "..." }`; the Wallet must redirect the user agent to it. Invalid presentations retain the normal `400` error response.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
@@ -117,7 +120,7 @@ The `201` response includes `session_id`, delivery and response settings, `reque
 
 Raw form payloads are preserved in the presentation capture for fidelity. Treat them as sensitive evidence.
 
-The session record additionally exposes `raw.presentation_response_http` for machine processing. It contains the received HTTP `method`, the headers with sensitive values redacted, and the exact received body. It is captured before presentation verification, so it is also available for invalid responses. This evidence is intentionally not shown as a dedicated field in the operator UI.
+The session record additionally exposes `raw.presentation_response_http` for machine processing. It contains the received HTTP `method`, the headers with sensitive values redacted, and the exact received body. `raw.presentation_response_verifier_http` captures the verifier reply's status, redacted headers, and exact body. Both are retained for valid and invalid responses and are intentionally not shown as dedicated fields in the operator UI.
 
 ## Test-only chained OAuth server
 
