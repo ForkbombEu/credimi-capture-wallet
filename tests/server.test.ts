@@ -892,6 +892,28 @@ describe("capture issuer server", () => {
     expect(deeplink.searchParams.has("request_uri")).toBe(false);
   });
 
+  it("creates a decentralized_identifier request signed by the verifier did:web key", async () => {
+    const app = createApp(config);
+    const didDocument = await request(app).get("/openid4vp/did.json");
+    expect(didDocument.status).toBe(200);
+    expect(didDocument.body.id).toBe("did:web:issuer.example.test:openid4vp");
+    const created = await request(app)
+      .post("/openid4vp/sessions")
+      .send({ client_id_scheme: "decentralized_identifier" });
+    expect(created.status).toBe(201);
+    const session = created.body as VpSessionCreateResponse;
+    expect(session.authorization_request.client_id).toBe(
+      "decentralized_identifier:did:web:issuer.example.test:openid4vp",
+    );
+    const requestObject = await request(app).get(
+      `/openid4vp/sessions/${session.session_id}/request`,
+    );
+    expect(decodeProtectedHeader(requestObject.text)).toMatchObject({
+      kid: "did:web:issuer.example.test:openid4vp#credimi-fake-verifier-did-key",
+    });
+    expect(decodeProtectedHeader(requestObject.text).x5c).toBeUndefined();
+  });
+
   it("rejects signed delivery for redirect_uri OpenID4VP requests", async () => {
     const app = createApp(config);
     const response = await request(app)

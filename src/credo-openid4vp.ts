@@ -18,6 +18,8 @@ import {
   ClaimFormat,
   ConsoleLogger,
   type DependencyManager,
+  DidDocument,
+  DidsModule,
   type FileSystem,
   InjectionSymbols,
   Kms,
@@ -34,7 +36,15 @@ import {
 import { OpenId4VcModule } from "@credo-ts/openid4vc";
 import express from "express";
 import { type JWK, compactDecrypt, exportJWK, generateKeyPair, importJWK } from "jose";
-import { VERIFIER_KEY_ID, verifierCertificatePath, verifierPrivateJwkPath } from "./config.js";
+import {
+  VERIFIER_DID_KEY_ID,
+  VERIFIER_KEY_ID,
+  verifierCertificatePath,
+  verifierDid,
+  verifierDidDocument,
+  verifierDidPrivateJwkPath,
+  verifierPrivateJwkPath,
+} from "./config.js";
 import { type OpenId4VpClientIdScheme, signPresentationAuthorizationRequest } from "./openid4vp.js";
 import type { AppConfig, JsonRecord, VpSessionCapture } from "./types.js";
 
@@ -109,6 +119,7 @@ export class CredoOpenId4VpVerifier {
       dependencies: nodeAgentDependencies(config),
       modules: {
         storage: new InMemoryStorageModule(),
+        dids: new DidsModule(),
         kms: new Kms.KeyManagementModule({
           backends: [kms],
           defaultBackend: CREDO_KMS_BACKEND,
@@ -132,6 +143,7 @@ export class CredoOpenId4VpVerifier {
 
     const verifier = new CredoOpenId4VpVerifier(config, agent);
     await verifier.importRequestSigningKey();
+    await verifier.importDidSigningKey();
     return verifier;
   }
 
@@ -146,14 +158,12 @@ export class CredoOpenId4VpVerifier {
     clientIdScheme: OpenId4VpClientIdScheme,
   ): Promise<CredoVpSession> {
     await this.ensureVerifier(sessionId);
+    if (clientIdScheme === "decentralized_identifier") await this.importDidSigningKey(true);
     const responseMode = responseModeFromRequest(request);
     const createAuthorizationRequest = (dcqlQuery: JsonRecord) =>
       this.verifierApi().createAuthorizationRequest({
         verifierId: sessionId,
-        requestSigner:
-          clientIdScheme === "redirect_uri"
-            ? { method: "none" }
-            : { method: "x5c", clientIdPrefix: clientIdScheme, x5c: [this.verifierCertificate()] },
+        requestSigner: this.requestSigner(clientIdScheme),
         responseMode,
         version: "v1",
         dcql: { query: dcqlQuery as never },
@@ -190,7 +200,11 @@ export class CredoOpenId4VpVerifier {
     const authorizationRequestJwt =
       clientIdScheme === "redirect_uri"
         ? undefined
-        : await signPresentationAuthorizationRequest(this.config, authorizationRequest);
+        : await signPresentationAuthorizationRequest(
+            this.config,
+            authorizationRequest,
+            clientIdScheme,
+          );
     if (authorizationRequestJwt)
       created.verificationSession.authorizationRequestJwt = authorizationRequestJwt;
     const deeplink =
@@ -278,6 +292,38 @@ export class CredoOpenId4VpVerifier {
     ) as JsonRecord;
     privateJwk.kid = VERIFIER_KEY_ID;
     await this.agent.kms.importKey({ privateJwk: privateJwk as never });
+  }
+
+  private async importDidSigningKey(overwrite = false): Promise<void> {
+    const privateJwk = JSON.parse(
+      await readFile(verifierDidPrivateJwkPath(this.config.data_dir), "utf8"),
+    ) as JsonRecord;
+    privateJwk.kid = VERIFIER_DID_KEY_ID;
+    await this.agent.kms.importKey({ privateJwk: privateJwk as never });
+    const did = verifierDid(this.config);
+    await this.agent.dids.import({
+      did,
+      didDocument: DidDocument.fromJSON(verifierDidDocument(this.config)),
+      keys: [
+        { kmsKeyId: VERIFIER_DID_KEY_ID, didDocumentRelativeKeyId: `#${VERIFIER_DID_KEY_ID}` },
+      ],
+      overwrite,
+    });
+  }
+
+  private requestSigner(clientIdScheme: OpenId4VpClientIdScheme) {
+    if (clientIdScheme === "redirect_uri") return { method: "none" as const };
+    if (clientIdScheme === "decentralized_identifier") {
+      return {
+        method: "did" as const,
+        didUrl: `${verifierDid(this.config)}#${VERIFIER_DID_KEY_ID}`,
+      };
+    }
+    return {
+      method: "x5c" as const,
+      clientIdPrefix: clientIdScheme,
+      x5c: [this.verifierCertificate()],
+    };
   }
 
   private verifierApi() {
@@ -614,6 +660,7 @@ class InMemoryStorage<T extends BaseRecord = BaseRecord> implements StorageServi
 function recordMatchesQuery(record: BaseRecord, query: JsonRecord): boolean {
   const tags = record.getTags();
   return Object.entries(query).every(([key, value]) => {
+    if (value === undefined) return true;
     if (key === "$or") {
       return Array.isArray(value) && value.some((entry) => recordMatchesQuery(record, entry));
     }

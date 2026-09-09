@@ -328,6 +328,19 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           },
         },
       },
+      "/openid4vp/did.json": {
+        get: {
+          tags: ["OpenID4VP"],
+          operationId: "getVerifierDidDocument",
+          summary: "Get the verifier did:web Document",
+          responses: {
+            "200": response("Verifier DID Document.", {
+              type: "object",
+              additionalProperties: true,
+            }),
+          },
+        },
+      },
       "/openid4vp/sessions/{sessionId}": {
         get: {
           tags: ["Presentation sessions"],
@@ -956,7 +969,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             request_uri_method: { type: "string", enum: ["get", "post"], default: "get" },
             client_id_scheme: {
               type: "string",
-              enum: ["x509_hash", "x509_san_dns", "redirect_uri"],
+              enum: ["x509_hash", "x509_san_dns", "redirect_uri", "decentralized_identifier"],
               default: "x509_hash",
               description:
                 "Verifier client identifier prefix. redirect_uri is delivered only as a plain, unsigned Authorization Request.",

@@ -10,6 +10,7 @@ import type { ResolvedIssuerConfiguration } from "./configurations/types.js";
 import type { AppConfig, JsonRecord } from "./types.js";
 
 export const VERIFIER_KEY_ID = "credimi-fake-verifier-key";
+export const VERIFIER_DID_KEY_ID = "credimi-fake-verifier-did-key";
 export const ACCESS_TOKEN_PRIVATE_JWK_FILE = "access-token-private-jwk.json";
 
 export const DEFAULT_CONFIG: AppConfig = {
@@ -204,6 +205,39 @@ export function verifierCertificatePath(dataDir: string): string {
   return join(dataDir, "verifier", "verifier-certificate.pem");
 }
 
+export function verifierDidPrivateJwkPath(dataDir: string): string {
+  return join(dataDir, "verifier", "verifier-did-private-jwk.json");
+}
+
+export function verifierDid(config: AppConfig): string {
+  const url = new URL(config.issuer_base_url);
+  const authority = url.port ? `${url.hostname}%3A${url.port}` : url.hostname;
+  return `did:web:${authority}:openid4vp`;
+}
+
+export function verifierDidDocument(config: AppConfig): JsonRecord {
+  const did = verifierDid(config);
+  const privateJwk = JSON.parse(
+    readFileSync(verifierDidPrivateJwkPath(config.data_dir), "utf8"),
+  ) as JsonRecord;
+  const { d: _private, ...publicJwk } = privateJwk;
+  const keyId = `${did}#${VERIFIER_DID_KEY_ID}`;
+  return {
+    "@context": ["https://www.w3.org/ns/did/v1"],
+    id: did,
+    verificationMethod: [
+      {
+        id: keyId,
+        type: "JsonWebKey2020",
+        controller: did,
+        publicKeyJwk: publicJwk,
+      },
+    ],
+    authentication: [keyId],
+    assertionMethod: [keyId],
+  };
+}
+
 export function accessTokenPrivateJwkPath(materialDirectory: string): string {
   return join(materialDirectory, ACCESS_TOKEN_PRIVATE_JWK_FILE);
 }
@@ -255,6 +289,10 @@ export async function initIssuer(options: InitOptions): Promise<AppConfig> {
     publicPath: verifierPublicPath,
     certificatePath: verifierCertPath,
   });
+  const verifierDidSecretPath = verifierDidPrivateJwkPath(dataDir);
+  if (force || !existsSync(verifierDidSecretPath)) {
+    await writeGeneratedPrivateJwk(verifierDidSecretPath, VERIFIER_DID_KEY_ID);
+  }
   validateIssuerMaterial(loadedConfig);
 
   return loadedConfig;

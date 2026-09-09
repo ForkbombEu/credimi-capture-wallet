@@ -21,6 +21,7 @@ import {
   validateIssuerCertificateSubjectAlternativeName,
   validateIssuerMaterial,
   verifierCertificatePath,
+  verifierDidPrivateJwkPath,
   verifierPrivateJwkPath,
 } from "../src/config.js";
 import {
@@ -118,6 +119,7 @@ QUOTED="value"
 
       expect(existsSync(verifierPrivateJwkPath(dataDir))).toBe(true);
       expect(existsSync(verifierCertificatePath(dataDir))).toBe(true);
+      expect(existsSync(verifierDidPrivateJwkPath(dataDir))).toBe(true);
       const issuer = resolvedIssuerConfigurationById(config, "eu-pid-device-bound");
       expect(issuer).not.toBeNull();
       if (!issuer) throw new Error("device-bound issuer unavailable");
@@ -135,6 +137,25 @@ QUOTED="value"
       expect(
         Kms.PublicJwk.fromUnknown(verifierPublicJwk).equals(verifierCertificate.publicJwk),
       ).toBe(true);
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps the verifier did key stable unless init is forced", async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "fake-verifier-did-config-test-"));
+    try {
+      await initIssuer({ issuer_base_url: "https://issuer.example.test", data_dir: dataDir });
+      const keyPath = verifierDidPrivateJwkPath(dataDir);
+      const initial = readFileSync(keyPath, "utf8");
+      await initIssuer({ issuer_base_url: "https://issuer.example.test", data_dir: dataDir });
+      expect(readFileSync(keyPath, "utf8")).toBe(initial);
+      await initIssuer({
+        issuer_base_url: "https://issuer.example.test",
+        data_dir: dataDir,
+        force: true,
+      });
+      expect(readFileSync(keyPath, "utf8")).not.toBe(initial);
     } finally {
       rmSync(dataDir, { recursive: true, force: true });
     }

@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import express, { type NextFunction, type Request, type Response } from "express";
 import QRCode from "qrcode";
-import { loadIssuerJwks } from "./config.js";
+import { loadIssuerJwks, verifierDidDocument } from "./config.js";
 import {
   DEFAULT_ISSUER_CONFIGURATION_ID,
   issuerCatalogue,
@@ -233,6 +233,10 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
   }
   app.get("/healthz", (_req, res) => {
     res.json({ status: "ok" });
+  });
+
+  app.get("/openid4vp/did.json", (_req, res) => {
+    res.type("application/did+json").json(verifierDidDocument(config));
   });
 
   app.get("/oid4vci/requests", (_req, res) => {
@@ -1059,7 +1063,10 @@ function requestDeliveryOrNull(value: unknown): "by_reference" | "by_value" | "p
 }
 
 function clientIdSchemeOrNull(value: unknown): OpenId4VpClientIdScheme | null {
-  return value === "x509_hash" || value === "x509_san_dns" || value === "redirect_uri"
+  return value === "x509_hash" ||
+    value === "x509_san_dns" ||
+    value === "redirect_uri" ||
+    value === "decentralized_identifier"
     ? value
     : null;
 }
