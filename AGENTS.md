@@ -179,5 +179,6 @@ Before committing, run the repository formatter and `task lint`. If either fails
 ## Documentation and handoff
 
 - Update `README.md` when a public endpoint, configuration option, supported credential format, OpenID4VCI/OpenID4VP behaviour, or operational workflow changes.
+- Update `CAPTURE_WALLET_API.md` when a public API endpoint, request parameter, response shape, or API behaviour changes.
 - Keep docs accurate about deliberate limitations and test-only behaviour.
 - In the final handoff, state what changed, which validation ran, and any remaining protocol or interoperability risk.
