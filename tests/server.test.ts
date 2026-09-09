@@ -927,6 +927,29 @@ describe("capture issuer server", () => {
     expect(deeplink.searchParams.has("request_uri_method")).toBe(false);
   });
 
+  it("omits DCQL from signed and plain authorization requests when requested", async () => {
+    const app = createApp(config);
+    const byReference = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      dcql_query: null,
+    });
+    const requestObject = await request(app).get(
+      `/openid4vp/sessions/${byReference.session_id}/request`,
+    );
+    const plain = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      request_delivery: "plain",
+      dcql_query: null,
+    });
+    const nested = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      presentation_request: { dcql_query: null },
+    });
+
+    expect(byReference.authorization_request.dcql_query).toBeUndefined();
+    expect(decodeJwt(requestObject.text).dcql_query).toBeUndefined();
+    expect(plain.authorization_request.dcql_query).toBeUndefined();
+    expect(new URL(plain.deeplink).searchParams.has("dcql_query")).toBe(false);
+    expect(nested.authorization_request.dcql_query).toBeUndefined();
+  });
+
   it("uses caller-provided client metadata in the authorization request", async () => {
     const app = createApp(config);
     const clientMetadata = {

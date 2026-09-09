@@ -972,7 +972,11 @@ export function openApiDocument(config: AppConfig): JsonRecord {
               default: "direct_post.jwt",
             },
             presentation_request: { type: "object", additionalProperties: true },
-            dcql_query: { type: "object", additionalProperties: true },
+            dcql_query: {
+              oneOf: [{ type: "object", additionalProperties: true }, { type: "null" }],
+              description:
+                "DCQL query, or null to omit dcql_query from the wallet-facing Authorization Request.",
+            },
             scopes: { oneOf: [{ type: "string" }, { type: "array", items: { type: "string" } }] },
             transaction_data: {},
             verifier_info: {},

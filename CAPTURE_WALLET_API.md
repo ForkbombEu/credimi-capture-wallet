@@ -91,7 +91,7 @@ The credential request normally uses `application/json` with `credential_configu
 | `response_type` | `vp_token`, `vp_token id_token`, `code` | `vp_token` |
 | `response_mode` | `direct_post`, `direct_post.jwt` | `direct_post.jwt` |
 | `presentation_request` | Request-object claim overrides | — |
-| `dcql_query` | DCQL query object | — |
+| `dcql_query` | DCQL query object, or `null` to omit the parameter | Default query |
 | `scopes` | A string or string array | — |
 | `transaction_data` | JSON value | — |
 | `verifier_info` | JSON value | — |
@@ -99,6 +99,8 @@ The credential request normally uses `application/json` with `credential_configu
 | `redirect_uri` | Absolute URI for the Wallet to open after a successful presentation | — |
 
 `request_uri_method` is valid only with `request_delivery: "by_reference"`. `by_value` supplies a signed Request Object in `request`; `plain` supplies the Authorization Request's URL-encoded parameters directly in the deeplink and omits `request`, `request_uri`, and `request_uri_method`. `response_type`, top-level DCQL, scopes, transaction data, and verifier information are used to construct the wallet-facing request. Inspect the returned `authorization_request` to confirm the exact claims.
+
+When `dcql_query` is `null`, the service omits it from the wallet-facing request. Credo retains the normal default query only as internal verification-session state; a wallet response to this deliberately incomplete request may not validate.
 
 If `client_metadata` is absent, the service uses its generated metadata. An object replaces it; `null` omits the parameter entirely. Omission is intentionally limited to `direct_post`. For `direct_post.jwt`, a replacement must retain the generated verifier encryption JWK so the service can decrypt the response; a replacement without that key is rejected rather than weakening response encryption.
 

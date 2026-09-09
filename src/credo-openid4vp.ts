@@ -164,9 +164,11 @@ export class CredoOpenId4VpVerifier {
           createAuthorizationRequest(verifierDcqlQuery),
         )
       : createAuthorizationRequest(verifierDcqlQuery));
+    const { dcql_query: _generatedDcqlQuery, ...createdAuthorizationRequest } = created
+      .verificationSession.requestPayload as JsonRecord;
     const authorizationRequest: JsonRecord = {
-      ...(created.verificationSession.requestPayload as JsonRecord),
-      dcql_query: request.dcql_query,
+      ...createdAuthorizationRequest,
+      ...(request.dcql_query === null ? {} : { dcql_query: request.dcql_query }),
       ...(request.nonce !== undefined ? { nonce: request.nonce } : {}),
       ...optionalAuthorizationRequestParameters(request),
     };
