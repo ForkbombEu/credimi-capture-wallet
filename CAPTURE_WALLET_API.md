@@ -47,6 +47,7 @@ For each `{issuerConfigurationId}`:
 | `flow` | `pre_authorized_code`, `authorization_code` | `authorization_code` |
 | `credential_offer_mode` | `credential_offer`, `credential_offer_uri` | `credential_offer` |
 | `credential_configuration_id` | A configuration advertised by the selected issuer metadata | First configuration for the issuer |
+| `status_list_enabled` | Boolean; allocate and embed a Token Status List reference in each issued credential | `false` |
 
 It returns `201` with `session_id`, issuer and authorization-server identifiers, the selected flow and configuration, `offer_url`, `deeplink`, and `status: "created"`. A configuration belonging to another issuer is rejected.
 
