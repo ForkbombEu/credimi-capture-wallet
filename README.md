@@ -510,6 +510,17 @@ From env file `.env`, that is loaded automatically when present, you can set:
 - `STATUS_LIST_BASE_URL`: overrides the configured Status List endpoint.
 - `STATUS_LIST_API_KEY`: overrides the configured Status List management API key.
 
+To trust a Status List service that signs with a certificate separate from the credential
+issuer, configure its trust anchor in `config.yaml` as a base64-DER or PEM certificate:
+
+```yaml
+status_list_trusted_certificates: ["MIIB..."]
+```
+
+When configured, the verifier validates a presented Status List JWT `x5c` chain against
+this value. Without it, the verifier requires the Status List signer chain to match the
+credential issuer chain.
+
 **[🔝 back to top](#toc)**
 
 ---

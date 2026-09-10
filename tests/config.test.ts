@@ -96,6 +96,22 @@ QUOTED="value"
     });
   });
 
+  it("loads dedicated Status List trust certificates from configuration", () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "fake-issuer-config-test-"));
+    try {
+      writeFileSync(
+        join(dataDir, "config.yaml"),
+        'status_list_trusted_certificates: ["MIIBPzCB5qADAgECAhQd9JqNCNOQY1CKLGC/8uafAVHZljAKBggqhkjOPQQDAjAgMR4wHAYDVQQDDBVNb2NrIEVVREkgU3RhdHVzIExpc3QwHhcNMjYwOTA5MTAwNjM4WhcNMzYwOTA3MTAwNjM4WjAgMR4wHAYDVQQDDBVNb2NrIEVVREkgU3RhdHVzIExpc3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAARiB1yCm9DuYKT6BOXUS6lBNYBjyZCobUmb7XFJn6hcC4LI9kCkrvrUO/R6Y1mBfHLZWEChzEwyjNg7KaG3bDSkMAoGCCqGSM49BAMCA0gAMEUCIB0NL/HERKLKTVfCPfN2GUufBZvsVp1yYE3QNScv12PlAiEAxPA9b8mVD7cBrVeYPl0+haJxj80bhji34GJ+Oy+loH0="]\n',
+      );
+
+      expect(loadConfig(dataDir).status_list_trusted_certificates).toEqual([
+        "MIIBPzCB5qADAgECAhQd9JqNCNOQY1CKLGC/8uafAVHZljAKBggqhkjOPQQDAjAgMR4wHAYDVQQDDBVNb2NrIEVVREkgU3RhdHVzIExpc3QwHhcNMjYwOTA5MTAwNjM4WhcNMzYwOTA3MTAwNjM4WjAgMR4wHAYDVQQDDBVNb2NrIEVVREkgU3RhdHVzIExpc3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAARiB1yCm9DuYKT6BOXUS6lBNYBjyZCobUmb7XFJn6hcC4LI9kCkrvrUO/R6Y1mBfHLZWEChzEwyjNg7KaG3bDSkMAoGCCqGSM49BAMCA0gAMEUCIB0NL/HERKLKTVfCPfN2GUufBZvsVp1yYE3QNScv12PlAiEAxPA9b8mVD7cBrVeYPl0+haJxj80bhji34GJ+Oy+loH0=",
+      ]);
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+
   it("adds the self-signed issuer certificate chain to the issuer JWKS", async () => {
     const dataDir = mkdtempSync(join(tmpdir(), "fake-issuer-config-test-"));
     try {

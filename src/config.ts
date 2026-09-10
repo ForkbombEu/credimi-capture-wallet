@@ -29,6 +29,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   status_list_base_url: "http://localhost:8000",
   status_list_api_key: "test",
   status_list_timeout_ms: 5000,
+  status_list_trusted_certificates: [],
 };
 
 export const PORT_ENV_VAR = "PORT";
@@ -267,7 +268,26 @@ export function loadConfig(
       env[STATUS_LIST_API_KEY_ENV_VAR]?.trim() ||
       fileConfig.status_list_api_key ||
       DEFAULT_CONFIG.status_list_api_key,
+    status_list_trusted_certificates: statusListTrustedCertificates(
+      fileConfig.status_list_trusted_certificates ??
+        DEFAULT_CONFIG.status_list_trusted_certificates,
+    ),
   };
+}
+
+function statusListTrustedCertificates(value: unknown): string[] {
+  if (!Array.isArray(value) || value.some((certificate) => typeof certificate !== "string")) {
+    throw new Error("status_list_trusted_certificates must be an array of certificates");
+  }
+
+  for (const certificate of value) {
+    try {
+      X509Certificate.fromEncodedCertificate(certificate);
+    } catch {
+      throw new Error("status_list_trusted_certificates must contain valid X.509 certificates");
+    }
+  }
+  return value;
 }
 
 export async function initIssuer(options: InitOptions): Promise<AppConfig> {

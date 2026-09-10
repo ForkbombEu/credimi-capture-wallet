@@ -33,6 +33,7 @@ import {
   X509Certificate,
   X509Module,
 } from "@credo-ts/core";
+import type { TrustedIssuerX509 } from "@credo-ts/core";
 import { OpenId4VcModule } from "@credo-ts/openid4vc";
 import express from "express";
 import { type JWK, compactDecrypt, exportJWK, generateKeyPair, importJWK } from "jose";
@@ -114,6 +115,19 @@ export class CredoOpenId4VpVerifier {
       config: {
         allowInsecureHttpUrls: true,
         autoUpdateStorageOnStartup: false,
+        getTrustedIssuersForVerification: async (_agentContext, context) => {
+          if (context.signer.method !== "x509") return undefined;
+          return {
+            trustedIssuers: [
+              trustedIssuerForX509Credential(
+                config,
+                context.signer.certificateChain.map((certificate) =>
+                  certificate.toString("base64"),
+                ),
+              ),
+            ],
+          };
+        },
         logger: new ConsoleLogger(LogLevel.Error),
       },
       dependencies: nodeAgentDependencies(config),
@@ -507,6 +521,19 @@ function decodedPresentationFromCredo(presentation: unknown): DecodedPresentatio
 
 export function toJsonSafe(value: unknown): unknown {
   return toJsonSafeValue(value, new WeakSet<object>());
+}
+
+export function trustedIssuerForX509Credential(
+  config: AppConfig,
+  credentialCertificateChain: string[],
+): TrustedIssuerX509 {
+  return {
+    method: "x509",
+    issuance: credentialCertificateChain,
+    ...(config.status_list_trusted_certificates.length > 0
+      ? { status: config.status_list_trusted_certificates }
+      : {}),
+  };
 }
 
 function toJsonSafeValue(value: unknown, seen: WeakSet<object>): unknown {

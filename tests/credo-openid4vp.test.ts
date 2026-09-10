@@ -1,7 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { toJsonSafe } from "../src/credo-openid4vp.js";
+import { DEFAULT_CONFIG } from "../src/config.js";
+import { toJsonSafe, trustedIssuerForX509Credential } from "../src/credo-openid4vp.js";
 
 describe("Credo OpenID4VP decoded presentation helpers", () => {
+  it("uses dedicated status certificates without changing credential issuer trust", () => {
+    expect(
+      trustedIssuerForX509Credential(
+        { ...DEFAULT_CONFIG, status_list_trusted_certificates: ["status-certificate"] },
+        ["credential-certificate"],
+      ),
+    ).toEqual({
+      method: "x509",
+      issuance: ["credential-certificate"],
+      status: ["status-certificate"],
+    });
+  });
+
   it("normalizes common JavaScript values to JSON-safe values", () => {
     const circular: Record<string, unknown> = { name: "loop" };
     circular.self = circular;

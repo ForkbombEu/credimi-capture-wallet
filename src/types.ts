@@ -22,6 +22,7 @@ export interface AppConfig {
   status_list_base_url: string;
   status_list_api_key: string;
   status_list_timeout_ms: number;
+  status_list_trusted_certificates: string[];
 }
 
 export interface ObservedValue<T> {
