@@ -974,7 +974,12 @@ export function openApiDocument(config: AppConfig): JsonRecord {
               default: "openid4vp://",
               description: "Custom URL-scheme prefix for the returned deeplink.",
             },
-            request_uri_method: { type: "string", enum: ["get", "post"], default: "get" },
+            request_uri_method: {
+              type: "string",
+              default: "get",
+              description:
+                "HTTP method advertised for request_uri retrieval. OpenID4VP defines case-sensitive get and post; other values are preserved only for wallet negative tests.",
+            },
             client_id_scheme: {
               type: "string",
               enum: ["x509_hash", "x509_san_dns", "redirect_uri", "decentralized_identifier"],

@@ -917,7 +917,7 @@ async function createVpSession(
   store: CaptureStore,
   requestOverride: JsonRecord,
   credentialConfigurationIds?: string[],
-  requestUriMethod: "get" | "post" = "get",
+  requestUriMethod = "get",
   responseMode: OpenId4VpResponseMode = "direct_post.jwt",
   requestDelivery: "by_reference" | "by_value" | "plain" = "by_reference",
   deeplinkScheme = "openid4vp://",
@@ -1077,10 +1077,8 @@ function objectOrNull(value: unknown): JsonRecord | null {
   return value as JsonRecord;
 }
 
-function requestUriMethodOrNull(value: unknown): "get" | "post" | null {
-  if (typeof value !== "string") return null;
-  const normalized = value.toLowerCase();
-  return normalized === "get" || normalized === "post" ? normalized : null;
+function requestUriMethodOrNull(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
 }
 
 function responseModeOrNull(value: unknown): OpenId4VpResponseMode | null {

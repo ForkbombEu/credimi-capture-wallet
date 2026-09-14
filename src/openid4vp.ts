@@ -101,14 +101,14 @@ export async function signPresentationAuthorizationRequest(
 export function presentationRequestByReferenceDeeplink(
   config: AppConfig,
   sessionId: string,
-  requestUriMethod: "get" | "post" = "get",
+  requestUriMethod = "get",
 ): string {
   const requestUri = vpRequestUri(config, sessionId);
   const params = new URLSearchParams({
     client_id: verifierClientId(config),
     request_uri: requestUri,
   });
-  if (requestUriMethod === "post") params.set("request_uri_method", "post");
+  if (requestUriMethod !== "get") params.set("request_uri_method", requestUriMethod);
   return `openid4vp://?${params.toString()}`;
 }
 

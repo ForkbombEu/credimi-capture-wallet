@@ -1114,14 +1114,15 @@ describe("capture issuer server", () => {
     expect(session.authorization_request.response_type).toBe("code");
   });
 
-  it("rejects unsupported OpenID4VP request_uri_method values", async () => {
+  it("creates OpenID4VP sessions with unsupported request_uri_method values for wallet negative tests", async () => {
     const app = createApp(config);
     const response = await request(app)
       .post("/openid4vp/sessions")
       .send({ request_uri_method: "put" });
 
-    expect(response.status).toBe(400);
-    expect(response.body).toMatchObject({ error: "unsupported_request_uri_method" });
+    expect(response.status).toBe(201);
+    expect(response.body.request_uri_method).toBe("put");
+    expect(new URL(response.body.deeplink).searchParams.get("request_uri_method")).toBe("put");
   });
 
   it("rejects invalid OpenID4VP deeplink schemes", async () => {
@@ -2761,7 +2762,7 @@ interface VpSessionCreateResponse extends JsonRecord {
   session_id: string;
   request_delivery: "by_reference" | "by_value" | "plain";
   request_uri: string;
-  request_uri_method: "get" | "post";
+  request_uri_method: string;
   scheme: string;
   redirect_uri?: string;
   response_uri: string;

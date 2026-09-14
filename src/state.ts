@@ -136,7 +136,7 @@ export class CaptureStore {
     sessionId: string,
     authorizationRequest: JsonRecord,
     requestDelivery: "by_reference" | "by_value" | "plain",
-    requestUriMethod: "get" | "post",
+    requestUriMethod: string,
     responseMode: "direct_post" | "direct_post.jwt",
     deeplinkScheme: string,
     redirectUri?: string,

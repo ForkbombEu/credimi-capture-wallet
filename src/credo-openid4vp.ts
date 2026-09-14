@@ -165,7 +165,7 @@ export class CredoOpenId4VpVerifier {
     sessionId: string,
     request: JsonRecord,
     verifierDcqlQuery: JsonRecord,
-    requestUriMethod: "get" | "post",
+    requestUriMethod: string,
     requestDelivery: "by_reference" | "by_value" | "plain",
     deeplinkScheme: string,
     clientMetadata: JsonRecord | null | undefined,
@@ -369,14 +369,14 @@ function normalizeAuthorizationResponse(response: JsonRecord | undefined): JsonR
 function presentationRequestByReferenceDeeplink(
   authorizationRequest: JsonRecord,
   requestUri: string,
-  requestUriMethod: "get" | "post",
+  requestUriMethod: string,
   deeplinkScheme: string,
 ): string {
   const params = new URLSearchParams({
     client_id: String(authorizationRequest.client_id),
     request_uri: requestUri,
   });
-  if (requestUriMethod === "post") params.set("request_uri_method", "post");
+  if (requestUriMethod !== "get") params.set("request_uri_method", requestUriMethod);
   return `${deeplinkScheme}?${params.toString()}`;
 }
 
