@@ -130,7 +130,7 @@ When `redirect_uri` is supplied, the service appends a fresh 128-bit `response_c
 
 Raw form payloads are preserved in the presentation capture for fidelity. Treat them as sensitive evidence.
 
-The session record additionally exposes `raw.presentation_response_http` for machine processing. It contains the received HTTP `method`, the headers with sensitive values redacted, and the exact received body. `raw.presentation_response_verifier_http` captures the verifier reply's status, redacted headers, and exact body. Both are retained for valid and invalid responses and are intentionally not shown as dedicated fields in the operator UI.
+The session record additionally exposes `raw.authorization_request_jwt`, the exact signed Request Object returned to the Wallet, and `raw.request_uri_http`, the Wallet's Request URI retrieval method, headers with sensitive values redacted, and exact POST body when received. `raw.presentation_response_http` contains the received presentation response HTTP `method`, headers with sensitive values redacted, and exact body. `raw.presentation_response_verifier_http` captures the verifier reply's status, redacted headers, and exact body. The HTTP envelopes are retained for valid and invalid responses and are intentionally not shown as dedicated fields in the operator UI.
 
 ## Test-only chained OAuth server
 

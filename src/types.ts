@@ -59,6 +59,12 @@ export interface PresentationResponseHttpCapture {
   body: string;
 }
 
+export interface RequestUriHttpCapture {
+  method: string;
+  headers: JsonRecord;
+  body?: string;
+}
+
 export interface VerifierResponseHttpCapture {
   status: number;
   headers: JsonRecord;
@@ -187,6 +193,8 @@ export interface VpSessionCapture {
   events: CaptureEvent[];
   raw?: {
     authorization_request?: JsonRecord;
+    authorization_request_jwt?: string;
+    request_uri_http?: RequestUriHttpCapture;
     presentation_response?: JsonRecord;
     presentation_response_http?: PresentationResponseHttpCapture;
     presentation_response_verifier_http?: VerifierResponseHttpCapture;

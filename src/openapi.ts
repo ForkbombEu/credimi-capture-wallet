@@ -1069,6 +1069,13 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             raw: {
               type: "object",
               properties: {
+                authorization_request_jwt: {
+                  type: "string",
+                  description: "Exact signed request object returned to the Wallet.",
+                },
+                request_uri_http: {
+                  $ref: "#/components/schemas/RequestUriHttpCapture",
+                },
                 presentation_response_http: {
                   $ref: "#/components/schemas/PresentationResponseHttpCapture",
                 },
@@ -1086,6 +1093,17 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           required: ["method", "headers", "body"],
           description:
             "Machine-readable wallet presentation response evidence. Sensitive header values are redacted.",
+          properties: {
+            method: { type: "string" },
+            headers: { type: "object", additionalProperties: true },
+            body: { type: "string" },
+          },
+        },
+        RequestUriHttpCapture: {
+          type: "object",
+          required: ["method", "headers"],
+          description:
+            "Machine-readable wallet request to retrieve the request object. Sensitive header values are redacted; body is present only when received.",
           properties: {
             method: { type: "string" },
             headers: { type: "object", additionalProperties: true },

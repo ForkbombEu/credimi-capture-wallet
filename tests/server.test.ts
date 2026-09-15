@@ -1510,6 +1510,39 @@ describe("capture issuer server", () => {
     });
     expect(capture.observed.request_uri_payload.source).toBe("request_uri.post");
     expect(capture.authorization_request.wallet_nonce).toBe("wallet-nonce-123");
+    expect(capture.raw?.authorization_request_jwt).toBe(requestObject.text);
+    expect(capture.raw?.request_uri_http).toMatchObject({
+      method: "POST",
+      headers: {
+        "content-type": expect.stringContaining("application/x-www-form-urlencoded"),
+      },
+      body: "wallet_nonce=wallet-nonce-123&wallet_metadata=present",
+    });
+  });
+
+  it("captures the signed authorization request and wallet GET request_uri retrieval", async () => {
+    const app = createApp(config);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {});
+
+    const requestObject = await request(app)
+      .get(`/openid4vp/sessions/${session.session_id}/request`)
+      .set("User-Agent", "wallet-test-agent")
+      .set("DPoP", "wallet-request-dpop-proof");
+
+    expect(requestObject.status).toBe(200);
+    const capture = await getJson<VpSessionResponse>(
+      app,
+      `/openid4vp/sessions/${session.session_id}`,
+    );
+    expect(capture.raw?.authorization_request_jwt).toBe(requestObject.text);
+    expect(capture.raw?.request_uri_http).toMatchObject({
+      method: "GET",
+      headers: {
+        "user-agent": "wallet-test-agent",
+        dpop: { redacted: true, present: true },
+      },
+    });
+    expect(capture.raw?.request_uri_http?.body).toBeUndefined();
   });
 
   it("creates GUI sessions backed by a Credo credential offer", async () => {
@@ -2790,6 +2823,12 @@ interface VpSessionResponse extends JsonRecord {
     presentation_submission?: { value: unknown };
   };
   raw?: {
+    authorization_request_jwt?: string;
+    request_uri_http?: {
+      method: string;
+      headers: JsonRecord;
+      body?: string;
+    };
     presentation_response?: JsonRecord;
     presentation_response_http?: {
       method: string;

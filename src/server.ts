@@ -49,6 +49,7 @@ import type {
   JsonRecord,
   Oid4vciHttpRequestCapture,
   PresentationResponseHttpCapture,
+  RequestUriHttpCapture,
   SessionCapture,
   VerifierResponseHttpCapture,
   VpSessionCapture,
@@ -540,9 +541,12 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       const session = store.getVpSession(req.params.sessionId);
       if (!session) return res.status(404).json({ error: "vp_session_not_found" });
       session.status = "request_retrieved";
+      session.raw ??= {};
+      session.raw.request_uri_http = requestUriHttpCapture(req);
       store.addEvent(session, "vp_request_retrieved", {});
       const requestObject = store.vpCredoAuthorizationRequestJwts.get(session.session_id);
       if (!requestObject) return res.status(404).json({ error: "vp_request_not_found" });
+      session.raw.authorization_request_jwt = requestObject;
       return res.type("application/oauth-authz-req+jwt").send(requestObject);
     } catch (error) {
       return next(error);
@@ -556,6 +560,8 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       const body = requestParams(req);
       const walletNonce = asStringOrNull(body.wallet_nonce);
       session.status = "request_retrieved";
+      session.raw ??= {};
+      session.raw.request_uri_http = requestUriHttpCapture(req);
       session.observed.request_uri_payload = {
         value: body,
         source: "request_uri.post",
@@ -571,7 +577,6 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
           ...session.authorization_request,
           wallet_nonce: walletNonce,
         };
-        session.raw ??= {};
         session.raw.authorization_request = session.authorization_request;
         store.vpCredoAuthorizationRequestJwts.set(
           session.session_id,
@@ -580,6 +585,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       }
       const requestObject = store.vpCredoAuthorizationRequestJwts.get(session.session_id);
       if (!requestObject) return res.status(404).json({ error: "vp_request_not_found" });
+      session.raw.authorization_request_jwt = requestObject;
       return res.type("application/oauth-authz-req+jwt").send(requestObject);
     } catch (error) {
       return next(error);
@@ -1046,6 +1052,15 @@ function presentationResponseHttpCapture(
     method: req.method,
     headers: redactHttpHeaders(req.headers),
     body: (req as Request & { rawBody?: string }).rawBody ?? JSON.stringify(body),
+  };
+}
+
+function requestUriHttpCapture(req: Request): RequestUriHttpCapture {
+  const rawBody = (req as Request & { rawBody?: string }).rawBody;
+  return {
+    method: req.method,
+    headers: redactHttpHeaders(req.headers),
+    ...(rawBody === undefined ? {} : { body: rawBody }),
   };
 }
 
