@@ -1110,16 +1110,15 @@ function responseRedirectUriInputOrNull(
   config: AppConfig,
 ): { value: string; capture?: true } | null {
   if (typeof value !== "string") return null;
-  const redirectUri =
-    value === CAPTURE_REDIRECT_URI_TEMPLATE
-      ? `${config.issuer_base_url}/openid4vp/redirect`
-      : value;
+  const captureRedirectUri = `${config.issuer_base_url}/openid4vp/redirect`;
+  const redirectUri = value === CAPTURE_REDIRECT_URI_TEMPLATE ? captureRedirectUri : value;
   try {
     const url = new URL(redirectUri);
+    const isCaptureRedirect = url.toString() === new URL(captureRedirectUri).toString();
     return url.protocol === "http:" || url.protocol === "https:"
       ? {
           value: url.toString(),
-          ...(value === CAPTURE_REDIRECT_URI_TEMPLATE ? { capture: true } : {}),
+          ...(isCaptureRedirect ? { capture: true } : {}),
         }
       : null;
   } catch {

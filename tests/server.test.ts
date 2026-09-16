@@ -1077,7 +1077,7 @@ describe("capture issuer server", () => {
     ).toHaveLength(16);
   });
 
-  it("records visits to the capture redirect URI template", async () => {
+  it("records visits to the capture redirect URI template and its concrete URI", async () => {
     const app = createApp(config);
     const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
       redirect_uri: "{{base_url}}/openid4vp/redirect",
@@ -1119,6 +1119,15 @@ describe("capture issuer server", () => {
       `/openid4vp/sessions/${session.session_id}`,
     );
     expect(unchangedCapture.redirect_uri_visit_count).toBe(1);
+
+    const concreteSession = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      redirect_uri: `${config.issuer_base_url}/openid4vp/redirect`,
+    });
+    const concreteRedirectUri = new URL(String(concreteSession.redirect_uri));
+    const concreteVisit = await request(app).get(
+      `${concreteRedirectUri.pathname}${concreteRedirectUri.search}`,
+    );
+    expect(concreteVisit.status).toBe(200);
   });
 
   it("uses the requested custom scheme for a by-value OpenID4VP deeplink", async () => {
