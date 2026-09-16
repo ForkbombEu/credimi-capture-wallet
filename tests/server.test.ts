@@ -1094,6 +1094,12 @@ describe("capture issuer server", () => {
     expect(visited.type).toBe("text/html");
     expect(visited.headers["cache-control"]).toBe("no-store");
     expect(visited.text).toContain("Presentation complete");
+    expect(visited.text).toContain(
+      `response_code</dt><dd><code>${redirectUri.searchParams.get("response_code")}</code>`,
+    );
+    expect(visited.text).toContain("This app is part of <strong>Credimi Extras</strong>");
+    expect(visited.text).toContain('<header class="topbar">');
+    expect(visited.text).toContain('<footer class="footer">');
 
     const capture = await getJson<VpSessionResponse>(
       app,
@@ -1114,6 +1120,8 @@ describe("capture issuer server", () => {
 
     const rejected = await request(app).get(`${redirectUri.pathname}?response_code=incorrect`);
     expect(rejected.status).toBe(404);
+    expect(rejected.text).toContain("Redirect page not found");
+    expect(rejected.text).toContain("response_code</dt><dd><code>incorrect</code>");
     const unchangedCapture = await getJson<VpSessionResponse>(
       app,
       `/openid4vp/sessions/${session.session_id}`,

@@ -55,7 +55,14 @@ import type {
   VerifierResponseHttpCapture,
   VpSessionCapture,
 } from "./types.js";
-import { errorPage, helpPage, indexPage, sessionPage, vpSessionPage } from "./ui.js";
+import {
+  errorPage,
+  helpPage,
+  indexPage,
+  sessionPage,
+  vpRedirectPage,
+  vpSessionPage,
+} from "./ui.js";
 
 export function createApp(config: AppConfig, store = new CaptureStore(config)): express.Express {
   const app = express();
@@ -549,7 +556,10 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       !responseCode ||
       !redirectResponseCodeMatches(session.redirect_uri, responseCode)
     ) {
-      return res.status(404).type("html").send(errorPage("Redirect page not found"));
+      return res
+        .status(404)
+        .type("html")
+        .send(vpRedirectPage(responseCode ?? "No response code received", false));
     }
 
     const visitedAt = new Date().toISOString();
@@ -566,7 +576,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       .set("Cache-Control", "no-store")
       .set("Referrer-Policy", "no-referrer")
       .type("html")
-      .send(redirectVisitPage());
+      .send(vpRedirectPage(responseCode, true));
   });
 
   app.get("/openid4vp/sessions/:sessionId/request", async (req, res, next) => {
@@ -1156,16 +1166,6 @@ function redirectUriVisitHttpCapture(req: Request): RedirectUriVisitHttpCapture 
     method: req.method,
     headers: redactHttpHeaders(req.headers),
   };
-}
-
-function redirectVisitPage(): string {
-  return `<!doctype html>
-<html lang="en">
-  <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Presentation complete</title></head>
-  <body style="margin:0;min-height:100vh;display:grid;place-items:center;background:#f5f7fb;color:#18233b;font-family:system-ui,sans-serif">
-    <main style="text-align:center"><svg viewBox="0 0 64 64" width="72" height="72" role="img" aria-label="Success"><circle cx="32" cy="32" r="28" fill="#0d8a67"/><path d="m19 33 8 8 18-19" fill="none" stroke="white" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/></svg><h1>Presentation complete</h1><p>You can return to the application.</p></main>
-  </body>
-</html>`;
 }
 
 function objectOrNull(value: unknown): JsonRecord | null {

@@ -379,6 +379,50 @@ export function errorPage(message: string): string {
   });
 }
 
+export function vpRedirectPage(responseCode: string, found: boolean): string {
+  const title = found ? "Presentation complete" : "Redirect page not found";
+  const eyebrow = found ? "Presentation complete" : "Redirect error";
+  const description = found
+    ? "You can return to the application."
+    : "The response code could not be matched to a presentation session.";
+
+  return htmlPage({
+    title,
+    body: [
+      '<header class="topbar">',
+      '<div class="topbar-inner">',
+      '<a class="brand-lockup" href="/">',
+      '<img class="brand-logo" src="/assets/credimi_logo.svg" alt="" aria-hidden="true">',
+      '<span class="brand-name">Wallet metadata capture</span>',
+      "</a>",
+      "</div>",
+      "</header>",
+      '<main class="page-content">',
+      '<section class="card redirect-result-panel container',
+      found ? "" : " danger-panel",
+      '">',
+      '<p class="eyebrow">',
+      eyebrow,
+      "</p>",
+      "<h1>",
+      title,
+      "</h1>",
+      "<p>",
+      description,
+      "</p>",
+      '<dl class="redirect-response-code">',
+      "<dt>response_code</dt>",
+      "<dd><code>",
+      escapeHtml(responseCode),
+      "</code></dd>",
+      "</dl>",
+      '<a class="btn btn-primary btn-md" href="/">Back to launcher</a>',
+      "</section>",
+      "</main>",
+    ].join(""),
+  });
+}
+
 export function helpPage(readmeMarkdown: string): string {
   return htmlPage({
     title: "Wallet Metadata Capture Help",
@@ -614,6 +658,12 @@ function appCss(): string {
     ".metadata-json { min-height: 280px; max-height: 50vh; overflow: auto; margin: 0; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-muted); color: var(--fg); white-space: pre-wrap; font-size: 13px; line-height: 1.5; }",
     ".danger-panel { display: grid; gap: 20px; border-left: 3px solid var(--destructive); }",
     ".danger-panel h1 { font-size: 28px; }",
+    ".redirect-result-panel { display: grid; gap: 20px; max-width: 680px; }",
+    ".redirect-result-panel h1 { font-size: 28px; }",
+    ".redirect-result-panel > p:not(.eyebrow) { color: var(--fg-muted); font-size: 16px; }",
+    ".redirect-response-code { margin: 0; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-muted); }",
+    ".redirect-response-code dd { margin-top: 8px; overflow-wrap: anywhere; }",
+    ".redirect-response-code code { color: var(--fg); font-size: 13px; }",
     ".readme-card { max-width: 900px; }",
     ".readme-card h1 { margin-bottom: 20px; }",
     ".readme-card h2 { margin-top: 32px; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }",
