@@ -20,7 +20,7 @@ export class CaptureStore {
   readonly oid4vciRequests: Oid4vciHttpRequestCapture[] = [];
   readonly sessions = new Map<string, SessionCapture>();
   readonly vpSessions = new Map<string, VpSessionCapture>();
-  readonly vpSessionIdsByRedirectNonce = new Map<string, string>();
+  readonly vpSessionIdsByRedirectResponseCode = new Map<string, string>();
   readonly vpCredoVerificationSessionIds = new Map<string, string>();
   readonly vpCredoAuthorizationRequestJwts = new Map<string, string>();
   readonly credoIssuanceSessionIds = new Map<string, string>();
@@ -189,8 +189,8 @@ export class CaptureStore {
     return this.vpSessions.get(sessionId);
   }
 
-  linkVpRedirectNonce(sessionId: string, nonce: string): void {
-    this.vpSessionIdsByRedirectNonce.set(nonce, sessionId);
+  linkVpRedirectResponseCode(sessionId: string, responseCode: string): void {
+    this.vpSessionIdsByRedirectResponseCode.set(responseCode, sessionId);
   }
 
   addEvent(

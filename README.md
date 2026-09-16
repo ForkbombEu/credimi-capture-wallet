@@ -402,7 +402,7 @@ Where:
 * `response_mode` can be `direct_post` or `direct_post.jwt`, default is `direct_post.jwt`
 * `dcql_query` may be `null` to omit the parameter entirely from the wallet-facing Authorization Request. The default query remains only in Credo's internal verifier session.
 * `client_metadata` may be an object to replace the generated verifier metadata, or `null` to omit the parameter. Omission is supported only with `direct_post`; an encrypted `direct_post.jwt` response needs the verifier's generated encryption JWK.
-* `redirect_uri` is an optional absolute URI returned to the Wallet after a successful presentation. The service appends a fresh 128-bit `response_code` parameter to it. Use the exact `{{base_url}}/{{nonce}}/redirect` template to create a service-hosted confirmation page; a valid visit is recorded in the VP session capture.
+* `redirect_uri` is an optional absolute URI returned to the Wallet after a successful presentation. The service appends a fresh 128-bit `response_code` parameter to it. Use the exact `{{base_url}}/redirect` template to create a service-hosted confirmation page; a valid visit is recorded in the VP session capture.
 * `scheme` is the complete custom URL-scheme prefix for the deeplink (for example, `eudi-wallet://`); it defaults to `openid4vp://`
 
 Optional `scopes`, `transaction_data`, and `verifier_info` values can be supplied at the top level or within `presentation_request`. `scopes` accepts a string or an array of strings and is emitted as the standard space-delimited `scope` authorization-request parameter. The other two values are included unchanged in the signed request object.

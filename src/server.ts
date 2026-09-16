@@ -506,7 +506,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         requestDelivery ?? "by_reference",
         deeplinkScheme ?? "openid4vp://",
         redirectUri?.value,
-        redirectUri?.nonce,
+        redirectUri?.capture,
         clientMetadata,
         selectedClientIdScheme,
       );
@@ -538,10 +538,12 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     return res.json(session);
   });
 
-  app.get("/:redirectNonce/redirect", (req, res) => {
-    const sessionId = store.vpSessionIdsByRedirectNonce.get(req.params.redirectNonce);
-    const session = sessionId ? store.getVpSession(sessionId) : undefined;
+  app.get("/redirect", (req, res) => {
     const responseCode = asStringOrNull(req.query.response_code);
+    const sessionId = responseCode
+      ? store.vpSessionIdsByRedirectResponseCode.get(responseCode)
+      : undefined;
+    const session = sessionId ? store.getVpSession(sessionId) : undefined;
     if (
       !session ||
       !responseCode ||
@@ -959,7 +961,7 @@ async function createVpSession(
   requestDelivery: "by_reference" | "by_value" | "plain" = "by_reference",
   deeplinkScheme = "openid4vp://",
   redirectUri?: string,
-  redirectNonce?: string,
+  captureRedirect = false,
   clientMetadata?: JsonRecord | null,
   clientIdScheme: OpenId4VpClientIdScheme = "x509_hash",
 ): Promise<VpSessionCapture> {
@@ -985,6 +987,7 @@ async function createVpSession(
     clientMetadata,
     clientIdScheme,
   );
+  const sessionRedirectUri = redirectUri ? redirectUriWithResponseCode(redirectUri) : undefined;
   const session = store.createVpSession(
     sessionId,
     credoSession.authorizationRequest,
@@ -992,13 +995,16 @@ async function createVpSession(
     requestUriMethod,
     responseMode,
     deeplinkScheme,
-    redirectUri ? redirectUriWithResponseCode(redirectUri) : undefined,
+    sessionRedirectUri,
     {
       requestUri: credoSession.requestUri,
       responseUri: credoSession.responseUri,
     },
   );
-  if (redirectNonce) store.linkVpRedirectNonce(sessionId, redirectNonce);
+  const responseCode = sessionRedirectUri ? responseCodeFromRedirectUri(sessionRedirectUri) : null;
+  if (captureRedirect && responseCode) {
+    store.linkVpRedirectResponseCode(sessionId, responseCode);
+  }
   store.vpCredoVerificationSessionIds.set(sessionId, credoSession.verificationSessionId);
   if (credoSession.authorizationRequestJwt) {
     store.vpCredoAuthorizationRequestJwts.set(sessionId, credoSession.authorizationRequestJwt);
@@ -1097,20 +1103,22 @@ function requestUriHttpCapture(req: Request): RequestUriHttpCapture {
   };
 }
 
-const CAPTURE_REDIRECT_URI_TEMPLATE = "{{base_url}}/{{nonce}}/redirect";
+const CAPTURE_REDIRECT_URI_TEMPLATE = "{{base_url}}/redirect";
 
 function responseRedirectUriInputOrNull(
   value: unknown,
   config: AppConfig,
-): { value: string; nonce?: string } | null {
+): { value: string; capture?: true } | null {
   if (typeof value !== "string") return null;
-  const nonce = randomBytes(16).toString("base64url");
   const redirectUri =
-    value === CAPTURE_REDIRECT_URI_TEMPLATE ? `${config.issuer_base_url}/${nonce}/redirect` : value;
+    value === CAPTURE_REDIRECT_URI_TEMPLATE ? `${config.issuer_base_url}/redirect` : value;
   try {
     const url = new URL(redirectUri);
     return url.protocol === "http:" || url.protocol === "https:"
-      ? { value: url.toString(), ...(value === CAPTURE_REDIRECT_URI_TEMPLATE ? { nonce } : {}) }
+      ? {
+          value: url.toString(),
+          ...(value === CAPTURE_REDIRECT_URI_TEMPLATE ? { capture: true } : {}),
+        }
       : null;
   } catch {
     return null;
@@ -1133,9 +1141,13 @@ function redirectResponseCodeMatches(
   responseCode: string,
 ): boolean {
   if (!redirectUri) return false;
-  const expectedResponseCode = new URL(redirectUri).searchParams.get("response_code");
+  const expectedResponseCode = responseCodeFromRedirectUri(redirectUri);
   if (!expectedResponseCode || expectedResponseCode.length !== responseCode.length) return false;
   return timingSafeEqual(Buffer.from(expectedResponseCode), Buffer.from(responseCode));
+}
+
+function responseCodeFromRedirectUri(redirectUri: string): string | null {
+  return new URL(redirectUri).searchParams.get("response_code");
 }
 
 function redirectUriVisitHttpCapture(req: Request): RedirectUriVisitHttpCapture {

@@ -1021,7 +1021,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             redirect_uri: {
               oneOf: [
                 { type: "string", format: "uri" },
-                { type: "string", const: "{{base_url}}/{{nonce}}/redirect" },
+                { type: "string", const: "{{base_url}}/redirect" },
               ],
               description:
                 "Absolute URI returned to the Wallet after a successful presentation. The service appends a fresh response_code parameter. The capture template creates a service-hosted confirmation page and records valid visits.",
