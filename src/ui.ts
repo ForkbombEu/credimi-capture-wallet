@@ -49,16 +49,19 @@ export function indexPage(groups: readonly IssuerCredentialGroup[]): string {
       '<input id="issuer-configuration-id" type="hidden" name="issuer_configuration_id" value="',
       escapeHtml(defaultIssuerId),
       '">',
+      '<div class="credential-row">',
       '<label class="credential-picker">',
       "<span>Credential</span>",
       '<select name="credential_configuration_id">',
       groups.map(issuerCredentialGroupHtml).join(""),
       "</select>",
       "</label>",
-      '<label class="status-list-option">',
-      '<input type="checkbox" name="status_list_enabled" value="true">',
+      '<label class="status-list-toggle">',
+      '<input type="checkbox" role="switch" name="status_list_enabled" value="true">',
+      '<span class="toggle-track" aria-hidden="true"></span>',
       "<span>Include a Token Status List reference</span>",
       "</label>",
+      "</div>",
       '<div class="session-actions">',
       '<button class="btn btn-primary btn-lg" type="submit">New fake-issuance session</button>',
       '<button class="btn btn-outline btn-lg" type="submit" formaction="/ui/openid4vp/sessions">New presentation session</button>',
@@ -586,6 +589,20 @@ function appCss(): string {
     ".credential-picker { display: grid; gap: 8px; width: min(100%, 520px); color: var(--fg); font-size: 13px; font-weight: 700; }",
     ".credential-picker select { width: 100%; min-height: 44px; padding: 0 42px 0 14px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--bg); color: var(--fg); font: inherit; font-size: 14px; font-weight: 600; }",
     ".credential-picker select:focus { outline: 2px solid color-mix(in oklch, var(--brand-primary) 36%, transparent); outline-offset: 2px; }",
+    // The credential select and the status-list switch share one row: the
+    // switch is pushed to the trailing edge and baseline-matched to the select
+    // (the picker carries its own label above, hence flex-end).
+    ".credential-row { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; width: 100%; }",
+    ".credential-row .credential-picker { flex: 1 1 320px; }",
+    ".status-list-toggle { position: relative; display: inline-flex; align-items: center; gap: 10px; min-height: 44px; margin-left: auto; color: var(--fg); font-size: 13px; font-weight: 700; cursor: pointer; }",
+    // The native checkbox stays in the layout for form submission and keyboard
+    // focus; only the track is painted.
+    ".status-list-toggle input { position: absolute; width: 1px; height: 1px; margin: 0; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }",
+    ".toggle-track { position: relative; flex: 0 0 auto; width: 40px; height: 22px; border: 1px solid var(--border-strong); border-radius: var(--radius-pill); background: var(--bg-muted); transition: background 150ms ease-out, border-color 150ms ease-out; }",
+    ".toggle-track::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--bg); box-shadow: var(--shadow-sm); transition: transform 150ms ease-out; }",
+    ".status-list-toggle input:checked + .toggle-track { background: var(--brand-primary); border-color: var(--brand-primary); }",
+    ".status-list-toggle input:checked + .toggle-track::after { transform: translateX(18px); }",
+    ".status-list-toggle input:focus-visible + .toggle-track { outline: 2px solid color-mix(in oklch, var(--brand-primary) 36%, transparent); outline-offset: 2px; }",
     ".issuer-catalogue { display: grid; gap: 12px; width: 100%; margin-top: 8px; }",
     ".issuer-catalogue h2 { font-size: 20px; }",
     ".issuer-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }",
@@ -675,9 +692,9 @@ function appCss(): string {
     ".readme-card pre code { padding: 0; background: transparent; }",
     "@keyframes metadata-spin { to { transform: rotate(360deg); } }",
     "@keyframes metadata-flash { 0% { background: var(--warning-bg); box-shadow: 0 0 0 0 color-mix(in oklch, var(--warning) 32%, transparent); } 30% { background: var(--success-bg); box-shadow: 0 0 0 6px color-mix(in oklch, var(--success) 20%, transparent); } 100% { background: var(--bg); box-shadow: var(--shadow-sm); } }",
-    "@media (prefers-reduced-motion: reduce) { .metadata-state-waiting::before, .metadata-state-receiving::before, .metadata-flash { animation: none; } }",
+    "@media (prefers-reduced-motion: reduce) { .metadata-state-waiting::before, .metadata-state-receiving::before, .metadata-flash { animation: none; } .toggle-track, .toggle-track::after { transition: none; } }",
     "@media (max-width: 860px) { h1 { font-size: 38px; } h2 { font-size: 22px; } .hero-band { padding: 52px 0; } .hero-inner, .session-layout { grid-template-columns: 1fr; } .issuer-cards { grid-template-columns: 1fr; } .session-header, .section-head, .footer-content { flex-direction: column; align-items: stretch; } .session-actions { align-items: stretch; flex-direction: column; } .session-actions .btn { width: 100%; } .footer-links { justify-content: flex-start; } .qr-box { width: 100%; max-width: 336px; } }",
-    "@media (max-width: 560px) { .container, .topbar-inner, .hero-inner, .footer-inner { width: min(100% - 28px, var(--max-width)); } .page-content { padding: 28px 0 52px; } .card, .summary-panel { padding: 18px; } .brand-name { display: none; } .topbar-actions .btn { display: none; } }",
+    "@media (max-width: 560px) { .container, .topbar-inner, .hero-inner, .footer-inner { width: min(100% - 28px, var(--max-width)); } .page-content { padding: 28px 0 52px; } .card, .summary-panel { padding: 18px; } .brand-name { display: none; } .topbar-actions .btn { display: none; } .status-list-toggle { margin-left: 0; } }",
   ].join("\n");
 }
 
