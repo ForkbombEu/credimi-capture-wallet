@@ -538,7 +538,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     return res.json(session);
   });
 
-  app.get("/redirect", (req, res) => {
+  app.get("/openid4vp/redirect", (req, res) => {
     const responseCode = asStringOrNull(req.query.response_code);
     const sessionId = responseCode
       ? store.vpSessionIdsByRedirectResponseCode.get(responseCode)
@@ -1103,7 +1103,7 @@ function requestUriHttpCapture(req: Request): RequestUriHttpCapture {
   };
 }
 
-const CAPTURE_REDIRECT_URI_TEMPLATE = "{{base_url}}/redirect";
+const CAPTURE_REDIRECT_URI_TEMPLATE = "{{base_url}}/openid4vp/redirect";
 
 function responseRedirectUriInputOrNull(
   value: unknown,
@@ -1111,7 +1111,9 @@ function responseRedirectUriInputOrNull(
 ): { value: string; capture?: true } | null {
   if (typeof value !== "string") return null;
   const redirectUri =
-    value === CAPTURE_REDIRECT_URI_TEMPLATE ? `${config.issuer_base_url}/redirect` : value;
+    value === CAPTURE_REDIRECT_URI_TEMPLATE
+      ? `${config.issuer_base_url}/openid4vp/redirect`
+      : value;
   try {
     const url = new URL(redirectUri);
     return url.protocol === "http:" || url.protocol === "https:"

@@ -1080,12 +1080,12 @@ describe("capture issuer server", () => {
   it("records visits to the capture redirect URI template", async () => {
     const app = createApp(config);
     const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
-      redirect_uri: "{{base_url}}/redirect",
+      redirect_uri: "{{base_url}}/openid4vp/redirect",
     });
     const redirectUri = new URL(String(session.redirect_uri));
 
     expect(redirectUri.origin).toBe(config.issuer_base_url);
-    expect(redirectUri.pathname).toBe("/redirect");
+    expect(redirectUri.pathname).toBe("/openid4vp/redirect");
 
     const visited = await request(app)
       .get(`${redirectUri.pathname}${redirectUri.search}`)

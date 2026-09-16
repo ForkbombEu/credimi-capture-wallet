@@ -98,7 +98,7 @@ The credential request normally uses `application/json` with `credential_configu
 | `transaction_data` | JSON value | — |
 | `verifier_info` | JSON value | — |
 | `client_metadata` | Object to replace verifier metadata, or `null` to omit it | Generated verifier metadata |
-| `redirect_uri` | Absolute URI for the Wallet to open after a successful presentation; use `{{base_url}}/redirect` for a capture redirect page | — |
+| `redirect_uri` | Absolute URI for the Wallet to open after a successful presentation; use `{{base_url}}/openid4vp/redirect` for a capture redirect page | — |
 
 `request_uri_method` is valid only with `request_delivery: "by_reference"`. The service preserves any supplied string in the deeplink, including values other than the OpenID4VP-defined, case-sensitive `get` and `post`, exclusively to create malformed requests for wallet negative tests. `by_value` supplies a signed Request Object in `request`; `plain` supplies the Authorization Request's URL-encoded parameters directly in the deeplink and omits `request`, `request_uri`, and `request_uri_method`. `response_type`, top-level DCQL, scopes, transaction data, and verifier information are used to construct the wallet-facing request. Inspect the returned `authorization_request` to confirm the exact claims.
 
@@ -110,7 +110,7 @@ If `client_metadata` is absent, the service uses its generated metadata. An obje
 
 The `201` response includes `session_id`, delivery and response settings, `request_uri`, `response_uri`, `deeplink`, `authorization_request`, and `status: "created"`.
 
-When `redirect_uri` is supplied, the service appends a fresh 128-bit `response_code` query parameter and returns the resulting URI in the session-creation response. After a successful wallet submission, the response endpoint returns `200`, `Cache-Control: no-store`, and `{ "redirect_uri": "..." }`; the Wallet must redirect the user agent to it. Invalid presentations retain the normal `400` error response. The exact template `{{base_url}}/redirect` is expanded into a service-hosted capture page. A valid visit must include the generated `response_code`; it returns a `200` confirmation page and records `redirect_uri_visited_at`, `redirect_uri_visit_count`, a `vp_redirect_uri_visited` event, and redacted request headers in `raw.redirect_uri_visits`.
+When `redirect_uri` is supplied, the service appends a fresh 128-bit `response_code` query parameter and returns the resulting URI in the session-creation response. After a successful wallet submission, the response endpoint returns `200`, `Cache-Control: no-store`, and `{ "redirect_uri": "..." }`; the Wallet must redirect the user agent to it. Invalid presentations retain the normal `400` error response. The exact template `{{base_url}}/openid4vp/redirect` is expanded into a service-hosted capture page. A valid visit must include the generated `response_code`; it returns a `200` confirmation page and records `redirect_uri_visited_at`, `redirect_uri_visit_count`, a `vp_redirect_uri_visited` event, and redacted request headers in `raw.redirect_uri_visits`.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
@@ -118,7 +118,7 @@ When `redirect_uri` is supplied, the service appends a fresh 128-bit `response_c
 | `GET` | `/openid4vp/sessions/{sessionId}` | Full current presentation capture. |
 | `GET` | `/openid4vp/sessions/{sessionId}/deeplink` | `{ deeplink, authorization_request }`; records a deeplink event. |
 | `GET` | `/openid4vp/sessions/{sessionId}/events` | Chronological presentation events. |
-| `GET` | `/redirect?response_code=...` | Service-hosted capture redirect page created from the `redirect_uri` template. |
+| `GET` | `/openid4vp/redirect?response_code=...` | Service-hosted capture redirect page created from the `redirect_uri` template. |
 
 ### Wallet-facing request and response endpoints
 
