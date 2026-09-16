@@ -1077,6 +1077,50 @@ describe("capture issuer server", () => {
     ).toHaveLength(16);
   });
 
+  it("records visits to the capture redirect URI template", async () => {
+    const app = createApp(config);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      redirect_uri: "{{base_url}}/{{nonce}}/redirect",
+    });
+    const redirectUri = new URL(String(session.redirect_uri));
+
+    expect(redirectUri.origin).toBe(config.issuer_base_url);
+    expect(redirectUri.pathname).toMatch(/^\/[A-Za-z0-9_-]{22}\/redirect$/);
+
+    const visited = await request(app)
+      .get(`${redirectUri.pathname}${redirectUri.search}`)
+      .set("User-Agent", "capture-wallet-test");
+    expect(visited.status).toBe(200);
+    expect(visited.type).toBe("text/html");
+    expect(visited.headers["cache-control"]).toBe("no-store");
+    expect(visited.text).toContain("Presentation complete");
+
+    const capture = await getJson<VpSessionResponse>(
+      app,
+      `/openid4vp/sessions/${session.session_id}`,
+    );
+    expect(capture.redirect_uri_visited_at).toEqual(expect.any(String));
+    expect(capture.redirect_uri_visit_count).toBe(1);
+    expect(capture.events.at(-1)).toMatchObject({
+      type: "vp_redirect_uri_visited",
+      detail: { visit_count: 1 },
+    });
+    expect(capture.raw?.redirect_uri_visits).toEqual([
+      {
+        method: "GET",
+        headers: expect.objectContaining({ "user-agent": "capture-wallet-test" }),
+      },
+    ]);
+
+    const rejected = await request(app).get(`${redirectUri.pathname}?response_code=incorrect`);
+    expect(rejected.status).toBe(404);
+    const unchangedCapture = await getJson<VpSessionResponse>(
+      app,
+      `/openid4vp/sessions/${session.session_id}`,
+    );
+    expect(unchangedCapture.redirect_uri_visit_count).toBe(1);
+  });
+
   it("uses the requested custom scheme for a by-value OpenID4VP deeplink", async () => {
     const app = createApp(config);
     const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
@@ -2807,6 +2851,8 @@ interface VpSessionCreateResponse extends JsonRecord {
 interface VpSessionResponse extends JsonRecord {
   session_id: string;
   status: string;
+  redirect_uri_visited_at?: string;
+  redirect_uri_visit_count?: number;
   authorization_request: JsonRecord;
   decoded_presentations?: JsonRecord;
   checks: {
@@ -2822,6 +2868,7 @@ interface VpSessionResponse extends JsonRecord {
     wallet_response: { value: JsonRecord | null };
     presentation_submission?: { value: unknown };
   };
+  events: Array<{ type: string; detail: JsonRecord }>;
   raw?: {
     authorization_request_jwt?: string;
     request_uri_http?: {
@@ -2840,6 +2887,10 @@ interface VpSessionResponse extends JsonRecord {
       headers: JsonRecord;
       body: string;
     };
+    redirect_uri_visits?: Array<{
+      method: string;
+      headers: JsonRecord;
+    }>;
     presentation_response_decrypted?: JsonRecord;
     decoded_presentations?: JsonRecord;
   };

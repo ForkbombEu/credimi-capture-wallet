@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { readFileSync } from "node:fs";
 import express, { type NextFunction, type Request, type Response } from "express";
 import QRCode from "qrcode";
@@ -49,6 +49,7 @@ import type {
   JsonRecord,
   Oid4vciHttpRequestCapture,
   PresentationResponseHttpCapture,
+  RedirectUriVisitHttpCapture,
   RequestUriHttpCapture,
   SessionCapture,
   VerifierResponseHttpCapture,
@@ -472,7 +473,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       if (body.scheme !== undefined && !deeplinkScheme) {
         return res.status(400).json({ error: "invalid_deeplink_scheme" });
       }
-      const redirectUri = responseRedirectUriOrNull(body.redirect_uri);
+      const redirectUri = responseRedirectUriInputOrNull(body.redirect_uri, config);
       if (body.redirect_uri !== undefined && !redirectUri) {
         return res.status(400).json({ error: "invalid_redirect_uri" });
       }
@@ -504,7 +505,8 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         selectedResponseMode,
         requestDelivery ?? "by_reference",
         deeplinkScheme ?? "openid4vp://",
-        redirectUri ?? undefined,
+        redirectUri?.value,
+        redirectUri?.nonce,
         clientMetadata,
         selectedClientIdScheme,
       );
@@ -534,6 +536,35 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     const session = store.getVpSession(req.params.sessionId);
     if (!session) return res.status(404).json({ error: "vp_session_not_found" });
     return res.json(session);
+  });
+
+  app.get("/:redirectNonce/redirect", (req, res) => {
+    const sessionId = store.vpSessionIdsByRedirectNonce.get(req.params.redirectNonce);
+    const session = sessionId ? store.getVpSession(sessionId) : undefined;
+    const responseCode = asStringOrNull(req.query.response_code);
+    if (
+      !session ||
+      !responseCode ||
+      !redirectResponseCodeMatches(session.redirect_uri, responseCode)
+    ) {
+      return res.status(404).type("html").send(errorPage("Redirect page not found"));
+    }
+
+    const visitedAt = new Date().toISOString();
+    session.redirect_uri_visited_at = visitedAt;
+    session.redirect_uri_visit_count = (session.redirect_uri_visit_count ?? 0) + 1;
+    session.raw ??= {};
+    session.raw.redirect_uri_visits ??= [];
+    session.raw.redirect_uri_visits.push(redirectUriVisitHttpCapture(req));
+    store.addEvent(session, "vp_redirect_uri_visited", {
+      visit_count: session.redirect_uri_visit_count,
+    });
+    return res
+      .status(200)
+      .set("Cache-Control", "no-store")
+      .set("Referrer-Policy", "no-referrer")
+      .type("html")
+      .send(redirectVisitPage());
   });
 
   app.get("/openid4vp/sessions/:sessionId/request", async (req, res, next) => {
@@ -928,6 +959,7 @@ async function createVpSession(
   requestDelivery: "by_reference" | "by_value" | "plain" = "by_reference",
   deeplinkScheme = "openid4vp://",
   redirectUri?: string,
+  redirectNonce?: string,
   clientMetadata?: JsonRecord | null,
   clientIdScheme: OpenId4VpClientIdScheme = "x509_hash",
 ): Promise<VpSessionCapture> {
@@ -966,6 +998,7 @@ async function createVpSession(
       responseUri: credoSession.responseUri,
     },
   );
+  if (redirectNonce) store.linkVpRedirectNonce(sessionId, redirectNonce);
   store.vpCredoVerificationSessionIds.set(sessionId, credoSession.verificationSessionId);
   if (credoSession.authorizationRequestJwt) {
     store.vpCredoAuthorizationRequestJwts.set(sessionId, credoSession.authorizationRequestJwt);
@@ -1064,12 +1097,20 @@ function requestUriHttpCapture(req: Request): RequestUriHttpCapture {
   };
 }
 
-function responseRedirectUriOrNull(value: unknown): string | null {
+const CAPTURE_REDIRECT_URI_TEMPLATE = "{{base_url}}/{{nonce}}/redirect";
+
+function responseRedirectUriInputOrNull(
+  value: unknown,
+  config: AppConfig,
+): { value: string; nonce?: string } | null {
   if (typeof value !== "string") return null;
+  const nonce = randomBytes(16).toString("base64url");
+  const redirectUri =
+    value === CAPTURE_REDIRECT_URI_TEMPLATE ? `${config.issuer_base_url}/${nonce}/redirect` : value;
   try {
-    const redirectUri = new URL(value);
-    return redirectUri.protocol === "http:" || redirectUri.protocol === "https:"
-      ? redirectUri.toString()
+    const url = new URL(redirectUri);
+    return url.protocol === "http:" || url.protocol === "https:"
+      ? { value: url.toString(), ...(value === CAPTURE_REDIRECT_URI_TEMPLATE ? { nonce } : {}) }
       : null;
   } catch {
     return null;
@@ -1085,6 +1126,33 @@ function redirectUriWithResponseCode(redirectUri: string): string {
   const url = new URL(redirectUri);
   url.searchParams.append("response_code", randomBytes(16).toString("base64url"));
   return url.toString();
+}
+
+function redirectResponseCodeMatches(
+  redirectUri: string | undefined,
+  responseCode: string,
+): boolean {
+  if (!redirectUri) return false;
+  const expectedResponseCode = new URL(redirectUri).searchParams.get("response_code");
+  if (!expectedResponseCode || expectedResponseCode.length !== responseCode.length) return false;
+  return timingSafeEqual(Buffer.from(expectedResponseCode), Buffer.from(responseCode));
+}
+
+function redirectUriVisitHttpCapture(req: Request): RedirectUriVisitHttpCapture {
+  return {
+    method: req.method,
+    headers: redactHttpHeaders(req.headers),
+  };
+}
+
+function redirectVisitPage(): string {
+  return `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Presentation complete</title></head>
+  <body style="margin:0;min-height:100vh;display:grid;place-items:center;background:#f5f7fb;color:#18233b;font-family:system-ui,sans-serif">
+    <main style="text-align:center"><svg viewBox="0 0 64 64" width="72" height="72" role="img" aria-label="Success"><circle cx="32" cy="32" r="28" fill="#0d8a67"/><path d="m19 33 8 8 18-19" fill="none" stroke="white" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/></svg><h1>Presentation complete</h1><p>You can return to the application.</p></main>
+  </body>
+</html>`;
 }
 
 function objectOrNull(value: unknown): JsonRecord | null {

@@ -1019,10 +1019,12 @@ export function openApiDocument(config: AppConfig): JsonRecord {
                 "Override generated verifier metadata, or use null to omit the parameter. Omission is supported only with direct_post; direct_post.jwt requires the generated encryption JWK.",
             },
             redirect_uri: {
-              type: "string",
-              format: "uri",
+              oneOf: [
+                { type: "string", format: "uri" },
+                { type: "string", const: "{{base_url}}/{{nonce}}/redirect" },
+              ],
               description:
-                "Absolute URI returned to the Wallet after a successful presentation. The service appends a fresh response_code parameter.",
+                "Absolute URI returned to the Wallet after a successful presentation. The service appends a fresh response_code parameter. The capture template creates a service-hosted confirmation page and records valid visits.",
             },
           },
           additionalProperties: true,
@@ -1066,6 +1068,8 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             "events",
           ],
           properties: {
+            redirect_uri_visited_at: { type: "string", format: "date-time" },
+            redirect_uri_visit_count: { type: "integer", minimum: 1 },
             raw: {
               type: "object",
               properties: {
@@ -1081,6 +1085,10 @@ export function openApiDocument(config: AppConfig): JsonRecord {
                 },
                 presentation_response_verifier_http: {
                   $ref: "#/components/schemas/VerifierResponseHttpCapture",
+                },
+                redirect_uri_visits: {
+                  type: "array",
+                  items: { $ref: "#/components/schemas/RedirectUriVisitHttpCapture" },
                 },
               },
               additionalProperties: true,
@@ -1119,6 +1127,15 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             status: { type: "integer" },
             headers: { type: "object", additionalProperties: true },
             body: { type: "string" },
+          },
+        },
+        RedirectUriVisitHttpCapture: {
+          type: "object",
+          required: ["method", "headers"],
+          description: "Redirect-page visit evidence. Sensitive header values are redacted.",
+          properties: {
+            method: { type: "string" },
+            headers: { type: "object", additionalProperties: true },
           },
         },
         TokenResponse: {

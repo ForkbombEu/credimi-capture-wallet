@@ -71,6 +71,11 @@ export interface VerifierResponseHttpCapture {
   body: string;
 }
 
+export interface RedirectUriVisitHttpCapture {
+  method: string;
+  headers: JsonRecord;
+}
+
 export interface ProofHeaderCapture {
   proof_type?: "jwt" | "attestation";
   typ?: string;
@@ -178,6 +183,8 @@ export interface VpSessionCapture {
   deeplink: string;
   response_uri: string;
   redirect_uri?: string;
+  redirect_uri_visited_at?: string;
+  redirect_uri_visit_count?: number;
   observed: {
     request_uri_payload: ObservedValue<JsonRecord>;
     wallet_response: ObservedValue<JsonRecord>;
@@ -198,6 +205,7 @@ export interface VpSessionCapture {
     presentation_response?: JsonRecord;
     presentation_response_http?: PresentationResponseHttpCapture;
     presentation_response_verifier_http?: VerifierResponseHttpCapture;
+    redirect_uri_visits?: RedirectUriVisitHttpCapture[];
     presentation_response_decrypted?: JsonRecord;
     decoded_presentations?: JsonRecord;
     presentation_response_raw?: string;
