@@ -65,6 +65,72 @@ describe("degree SD-JWT VC", () => {
     if (decoded.holder?.method !== "jwk") throw new Error("expected JWK holder binding");
     expect(Kms.PublicJwk.fromUnknown(holderJwk).equals(decoded.holder.jwk)).toBe(true);
   });
+
+  it("discloses degree array interiors element by element", async () => {
+    const holderJwk: JsonRecord = {
+      kty: "EC",
+      crv: "P-256",
+      x: "f83OJ3D2xF4PabXB8yiT4rHXkLExz-b8l2kKj7sKk1g",
+      y: "x_FEzRu9S2Z9ZvRI4fOMrPCvPj0S6TBOA4jI8tKXPjo",
+    };
+    const service = new SdJwtVcService({} as never);
+    const compact = (
+      await service.sign(
+        createIssuerSigningContext(config) as never,
+        degreeSdJwtCredentialSignOptions({ config, holderJwk }),
+      )
+    ).compact;
+    const disclosures = decodeDisclosures(compact);
+    const [issuerJwt] = compact.split("~");
+
+    // Each degree entry is its own disclosure and keeps `type`/`university` separate inside it,
+    // so `degrees[2].university` is withholdable while the other entries disclose `type`. Entry 2
+    // carries a single digest because it has no `type`.
+    const entryDigests = disclosures.flatMap((disclosure) =>
+      disclosure.kind === "selective-element" ? [disclosure.digests] : [],
+    );
+    expect(entryDigests).toEqual([2, 2, 1]);
+    expect(
+      disclosures.filter(
+        (disclosure) => disclosure.kind === "property" && disclosure.name === "university",
+      ),
+    ).toHaveLength(3);
+
+    // Every academic programme string is addressable on its own, including academic_programmes[1][1].
+    expect(
+      disclosures.flatMap((disclosure) =>
+        disclosure.kind === "value-element" ? [disclosure.value] : [],
+      ),
+    ).toEqual(["Bachelor of Science", "Master of Science", "Doctor of Philosophy"]);
+
+    const degreeTypes = disclosures.filter(
+      (disclosure) =>
+        (disclosure.kind === "property" &&
+          (disclosure.name === "degrees" || disclosure.name === "type")) ||
+        (disclosure.kind === "selective-element" && disclosure.digests === 2),
+    );
+    const degreeTypesOnly = service.fromCompact(
+      `${issuerJwt}~${degreeTypes.map((disclosure) => disclosure.raw).join("~")}~`,
+    );
+    expect(degreeTypesOnly.prettyClaims.degrees).toEqual([
+      { type: "Bachelor of Science" },
+      { type: "Master of Science" },
+    ]);
+    expect(JSON.stringify(degreeTypesOnly.prettyClaims)).not.toContain("University of Betelgeuse");
+
+    const lastProgramme = disclosures.filter(
+      (disclosure) =>
+        (disclosure.kind === "property" && disclosure.name === "academic_programmes") ||
+        (disclosure.kind === "array-element" && disclosure.elements === 2) ||
+        (disclosure.kind === "value-element" && disclosure.value === "Doctor of Philosophy"),
+    );
+    const lastProgrammeOnly = service.fromCompact(
+      `${issuerJwt}~${lastProgramme.map((disclosure) => disclosure.raw).join("~")}~`,
+    );
+    expect(lastProgrammeOnly.prettyClaims.academic_programmes).toEqual([["Doctor of Philosophy"]]);
+    expect(JSON.stringify(lastProgrammeOnly.prettyClaims)).not.toContain("Bachelor of Science");
+  });
+
   it("adds status references only when explicitly requested", () => {
     const holderJwk: JsonRecord = {
       kty: "EC",
@@ -86,3 +152,40 @@ describe("degree SD-JWT VC", () => {
     });
   });
 });
+
+/**
+ * A decoded SD-JWT disclosure, classified by what it makes disclosable: an object property, an
+ * array element whose own members stay selectively disclosable, a nested array, or a plain value.
+ */
+type DecodedDisclosure = { raw: string } & (
+  | { kind: "property"; name: string; value: unknown }
+  | { kind: "selective-element"; digests: number }
+  | { kind: "array-element"; elements: number }
+  | { kind: "value-element"; value: unknown }
+);
+
+function decodeDisclosures(compact: string): DecodedDisclosure[] {
+  const [, ...parts] = compact.split("~");
+  return parts
+    .filter((part) => part.length > 0)
+    .map((raw): DecodedDisclosure => {
+      const decoded: unknown = JSON.parse(Buffer.from(raw, "base64url").toString("utf8"));
+      if (!Array.isArray(decoded) || decoded.length < 2) {
+        throw new Error(`malformed disclosure: ${raw}`);
+      }
+      if (decoded.length > 2) {
+        return { raw, kind: "property", name: String(decoded[1]), value: decoded[2] };
+      }
+      const value: unknown = decoded[1];
+      if (Array.isArray(value)) return { raw, kind: "array-element", elements: value.length };
+      if (
+        value !== null &&
+        typeof value === "object" &&
+        "_sd" in value &&
+        Array.isArray(value._sd)
+      ) {
+        return { raw, kind: "selective-element", digests: value._sd.length };
+      }
+      return { raw, kind: "value-element", value };
+    });
+}

@@ -16,6 +16,30 @@ import type { AppConfig, JsonRecord, StatusListReference } from "./types.js";
 
 export { CREDIMI_LOGO_URL, CREDIMI_WEBSITE };
 
+/**
+ * Makes the interiors of the `degrees` and `academic_programmes` arrays individually disclosable,
+ * so a Wallet can reveal one element, and one claim inside it, without revealing its siblings.
+ *
+ * `@sd-jwt/core` selects disclosable array elements with `sd.includes(i)` against the numeric
+ * index, but Credo's `IDisclosureFrame` declares `_sd` as `string[]`. String indices therefore
+ * type-check and are then silently ignored, collapsing each array back into one atomic
+ * disclosure, so the numeric indices are asserted through the too-narrow library type.
+ */
+const DEGREE_DISCLOSURE_FRAME = {
+  _sd: Object.keys(DEGREE_CREDENTIAL_SUBJECT),
+  degrees: {
+    _sd: [0, 1, 2],
+    0: { _sd: ["type", "university"] },
+    1: { _sd: ["type", "university"] },
+    2: { _sd: ["university"] },
+  },
+  academic_programmes: {
+    _sd: [0, 1],
+    0: { _sd: [0] },
+    1: { _sd: [0, 1] },
+  },
+} as unknown as SdJwtVcSignOptions["disclosureFrame"];
+
 export async function issueSdJwtCredential(options: {
   config: AppConfig;
   credentialConfigurationId: string;
@@ -101,9 +125,7 @@ export function degreeSdJwtCredentialSignOptions(options: {
         ? { status: { status_list: options.statusListReference } }
         : {}),
     },
-    disclosureFrame: {
-      _sd: Object.keys(DEGREE_CREDENTIAL_SUBJECT),
-    },
+    disclosureFrame: DEGREE_DISCLOSURE_FRAME,
   };
 }
 
