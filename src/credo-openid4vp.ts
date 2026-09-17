@@ -36,7 +36,14 @@ import {
 import type { TrustedIssuerX509 } from "@credo-ts/core";
 import { OpenId4VcModule } from "@credo-ts/openid4vc";
 import express from "express";
-import { type JWK, compactDecrypt, exportJWK, generateKeyPair, importJWK } from "jose";
+import {
+  type JWK,
+  calculateJwkThumbprint,
+  compactDecrypt,
+  exportJWK,
+  generateKeyPair,
+  importJWK,
+} from "jose";
 import {
   VERIFIER_DID_KEY_ID,
   VERIFIER_KEY_ID,
@@ -170,6 +177,7 @@ export class CredoOpenId4VpVerifier {
     deeplinkScheme: string,
     clientMetadata: JsonRecord | null | undefined,
     clientIdScheme: OpenId4VpClientIdScheme,
+    allowUndecryptableResponse = false,
   ): Promise<CredoVpSession> {
     await this.ensureVerifier(sessionId);
     if (clientIdScheme === "decentralized_identifier") await this.importDidSigningKey(true);
@@ -201,10 +209,11 @@ export class CredoOpenId4VpVerifier {
     } else if (clientMetadata) {
       if (
         responseMode === "direct_post.jwt" &&
-        !containsVerifierEncryptionKey(clientMetadata, authorizationRequest.client_metadata)
+        !allowUndecryptableResponse &&
+        !(await containsVerifierEncryptionKey(clientMetadata, authorizationRequest.client_metadata))
       ) {
         throw new ClientMetadataError(
-          "client_metadata must retain the verifier encryption JWK for direct_post.jwt",
+          "client_metadata must retain the verifier encryption public key for direct_post.jwt",
         );
       }
       authorizationRequest.client_metadata = clientMetadata;
@@ -404,28 +413,36 @@ function presentationRequestPlainDeeplink(
   return `${deeplinkScheme}?${params.toString()}`;
 }
 
-function containsVerifierEncryptionKey(
+/**
+ * A replacement `client_metadata` must still publish the verifier's own encryption public key,
+ * because the service decrypts a `direct_post.jwt` response with the matching private key. Keys
+ * are compared by RFC 7638 thumbprint, which covers the public key material only, so optional
+ * JOSE members such as `alg`, `use`, and `kid` may be altered or omitted to build the malformed
+ * requests that wallet response-encryption negative tests require.
+ */
+async function containsVerifierEncryptionKey(
   clientMetadata: JsonRecord,
   generatedClientMetadata: unknown,
-): boolean {
-  const generatedJwks = asRecord(asRecord(generatedClientMetadata)?.jwks);
-  const clientJwks = asRecord(clientMetadata.jwks);
-  const clientKeys = clientJwks?.keys;
-  if (!generatedJwks || !Array.isArray(clientKeys)) return false;
-  if (!Array.isArray(generatedJwks.keys)) return false;
-  return generatedJwks.keys
-    .map(asRecord)
-    .filter((key): key is JsonRecord => key !== null)
-    .some((generatedKey) => clientKeys.some((key) => jwkMatches(asRecord(key), generatedKey)));
+): Promise<boolean> {
+  const generatedKeys = asRecord(generatedClientMetadata)?.jwks;
+  const clientKeys = asRecord(clientMetadata.jwks)?.keys;
+  const [generated, client] = await Promise.all([
+    jwkThumbprints(asRecord(generatedKeys)?.keys),
+    jwkThumbprints(clientKeys),
+  ]);
+  return client.some((thumbprint) => generated.includes(thumbprint));
 }
 
-function jwkMatches(candidate: JsonRecord | null, expected: JsonRecord): boolean {
-  return (
-    candidate !== null &&
-    ["kty", "crv", "x", "y", "kid", "alg", "use"].every(
-      (parameter) => candidate[parameter] === expected[parameter],
-    )
-  );
+async function jwkThumbprints(keys: unknown): Promise<string[]> {
+  if (!Array.isArray(keys)) return [];
+  const thumbprints = await Promise.all(keys.map(jwkThumbprintOrNull));
+  return thumbprints.filter((thumbprint): thumbprint is string => thumbprint !== null);
+}
+
+async function jwkThumbprintOrNull(key: unknown): Promise<string | null> {
+  const jwk = asRecord(key);
+  if (!jwk) return null;
+  return calculateJwkThumbprint(jwk as unknown as JWK, "sha256").catch(() => null);
 }
 
 function readCertificate(dataDir: string): string {

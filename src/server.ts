@@ -166,7 +166,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
             .type("html")
             .send(errorPage("Unsupported credential configuration"));
         }
-        const statusListEnabled = statusListEnabledOrNull(body.status_list_enabled);
+        const statusListEnabled = booleanOrNull(body.status_list_enabled);
         if (body.status_list_enabled !== undefined && statusListEnabled === null) {
           return res
             .status(400)
@@ -349,7 +349,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
           supported_credential_offer_modes: ["credential_offer", "credential_offer_uri"],
         });
       }
-      const statusListEnabled = statusListEnabledOrNull(body.status_list_enabled);
+      const statusListEnabled = booleanOrNull(body.status_list_enabled);
       if (body.status_list_enabled !== undefined && statusListEnabled === null) {
         return res.status(400).json({
           error: "invalid_status_list_enabled",
@@ -488,6 +488,10 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       if (body.client_metadata !== undefined && clientMetadata === undefined) {
         return res.status(400).json({ error: "invalid_client_metadata" });
       }
+      const allowUndecryptableResponse = booleanOrNull(body.allow_undecryptable_response ?? false);
+      if (allowUndecryptableResponse === null) {
+        return res.status(400).json({ error: "invalid_allow_undecryptable_response" });
+      }
       const selectedResponseMode = responseMode ?? "direct_post.jwt";
       const selectedClientIdScheme = clientIdScheme ?? "x509_hash";
       if (
@@ -498,6 +502,11 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       }
       if (clientMetadata === null && selectedResponseMode === "direct_post.jwt") {
         return res.status(400).json({ error: "client_metadata_required_for_encrypted_response" });
+      }
+      if (allowUndecryptableResponse && !clientMetadata) {
+        return res
+          .status(400)
+          .json({ error: "allow_undecryptable_response_requires_client_metadata" });
       }
       const requestOverride = {
         ...(objectOrNull(body.presentation_request) ?? vpRequestBody(body)),
@@ -516,7 +525,13 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         redirectUri?.capture,
         clientMetadata,
         selectedClientIdScheme,
+        allowUndecryptableResponse,
       );
+      if (allowUndecryptableResponse && selectedResponseMode === "direct_post.jwt") {
+        store.addEvent(session, "vp_undecryptable_response_allowed", {
+          verifier_encryption_key_check_skipped: true,
+        });
+      }
       store.addEvent(session, "vp_deeplink_generated", {});
       return res.status(201).json({
         session_id: session.session_id,
@@ -952,7 +967,7 @@ function credentialOfferModeOrNull(value: unknown): CredentialOfferMode | null {
   return value === "credential_offer" || value === "credential_offer_uri" ? value : null;
 }
 
-function statusListEnabledOrNull(value: unknown): boolean | null {
+function booleanOrNull(value: unknown): boolean | null {
   if (typeof value === "boolean") return value;
   if (typeof value !== "string") return null;
   const normalized = value.trim().toLowerCase();
@@ -974,6 +989,7 @@ async function createVpSession(
   captureRedirect = false,
   clientMetadata?: JsonRecord | null,
   clientIdScheme: OpenId4VpClientIdScheme = "x509_hash",
+  allowUndecryptableResponse = false,
 ): Promise<VpSessionCapture> {
   const sessionId = randomUUID();
   const defaultRequest = defaultPresentationRequest(
@@ -996,6 +1012,7 @@ async function createVpSession(
     deeplinkScheme,
     clientMetadata,
     clientIdScheme,
+    allowUndecryptableResponse,
   );
   const sessionRedirectUri = redirectUri ? redirectUriWithResponseCode(redirectUri) : undefined;
   const session = store.createVpSession(
@@ -1214,6 +1231,7 @@ function vpRequestBody(body: JsonRecord): JsonRecord {
     client_metadata: _clientMetadata,
     client_id_scheme: _clientIdScheme,
     scheme: _scheme,
+    allow_undecryptable_response: _allowUndecryptableResponse,
     ...request
   } = body;
   return request;

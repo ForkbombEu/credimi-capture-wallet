@@ -1004,7 +1004,12 @@ export function openApiDocument(config: AppConfig): JsonRecord {
               enum: ["direct_post", "direct_post.jwt"],
               default: "direct_post.jwt",
             },
-            presentation_request: { type: "object", additionalProperties: true },
+            presentation_request: {
+              type: "object",
+              additionalProperties: true,
+              description:
+                "Request Object claim overrides. Only response_type, dcql_query, nonce, scopes, transaction_data, and verifier_info are honoured here; delivery, response_mode, client_id_scheme, scheme, redirect_uri, and client_metadata are top-level fields and are ignored when nested.",
+            },
             dcql_query: {
               oneOf: [{ type: "object", additionalProperties: true }, { type: "null" }],
               description:
@@ -1016,7 +1021,13 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             client_metadata: {
               oneOf: [{ type: "object", additionalProperties: true }, { type: "null" }],
               description:
-                "Override generated verifier metadata, or use null to omit the parameter. Omission is supported only with direct_post; direct_post.jwt requires the generated encryption JWK.",
+                "Override generated verifier metadata, or use null to omit the parameter. Top-level only; a value inside presentation_request is ignored. Omission is supported only with direct_post. For direct_post.jwt the replacement must publish the session's generated encryption public key, compared by RFC 7638 thumbprint so that alg, use, and kid may be altered or omitted; set allow_undecryptable_response to publish a different key.",
+            },
+            allow_undecryptable_response: {
+              type: "boolean",
+              default: false,
+              description:
+                "Test-only. Publish the supplied client_metadata for direct_post.jwt even when it does not contain the verifier's encryption public key, so the service cannot decrypt a response. Requires a client_metadata object and is recorded as a vp_undecryptable_response_allowed session event.",
             },
             redirect_uri: {
               oneOf: [

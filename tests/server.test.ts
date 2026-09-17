@@ -1062,6 +1062,68 @@ describe("capture issuer server", () => {
     expect(response.body).toMatchObject({ error: "invalid_client_metadata" });
   });
 
+  it("publishes an encryption JWK without alg when undecryptable responses are allowed", async () => {
+    const app = createApp(config);
+    const clientMetadata = {
+      jwks: {
+        keys: [
+          {
+            kty: "EC",
+            crv: "P-256",
+            x: "zX1fqEBuE2Y-hQV4kXeudq4YmvE_k-hYl4Pk0CNBejI",
+            y: "2DvtHPup4y8ob4tGqLGJwigMO5LdDBQ_hfzF8PBQwYQ",
+            use: "enc",
+          },
+        ],
+      },
+      encrypted_response_enc_values_supported: ["A128GCM"],
+    };
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      response_mode: "direct_post.jwt",
+      client_metadata: clientMetadata,
+      allow_undecryptable_response: true,
+    });
+
+    expect(session.authorization_request.client_metadata).toEqual(clientMetadata);
+    const requestObject = await request(app).get(new URL(session.request_uri).pathname);
+    expect(decodeJwt(requestObject.text).client_metadata).toEqual(clientMetadata);
+
+    const capture = await getJson<VpSessionResponse>(
+      app,
+      `/openid4vp/sessions/${session.session_id}`,
+    );
+    expect(capture.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "vp_undecryptable_response_allowed",
+          detail: { verifier_encryption_key_check_skipped: true },
+        }),
+      ]),
+    );
+  });
+
+  it("rejects allowing undecryptable responses without replacement client metadata", async () => {
+    const app = createApp(config);
+    const response = await request(app)
+      .post("/openid4vp/sessions")
+      .send({ allow_undecryptable_response: true });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({
+      error: "allow_undecryptable_response_requires_client_metadata",
+    });
+  });
+
+  it("rejects a non-boolean allow_undecryptable_response value", async () => {
+    const app = createApp(config);
+    const response = await request(app)
+      .post("/openid4vp/sessions")
+      .send({ allow_undecryptable_response: "maybe", client_metadata: { jwks: { keys: [] } } });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({ error: "invalid_allow_undecryptable_response" });
+  });
+
   it("adds a fresh response code to a post-submission redirect URI", async () => {
     const app = createApp(config);
     const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
