@@ -1021,13 +1021,13 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             client_metadata: {
               oneOf: [{ type: "object", additionalProperties: true }, { type: "null" }],
               description:
-                "Override generated verifier metadata, or use null to omit the parameter. Top-level only; a value inside presentation_request is ignored. Omission is supported only with direct_post. For direct_post.jwt the replacement must publish the session's generated encryption public key, compared by RFC 7638 thumbprint so that alg, use, and kid may be altered or omitted; set allow_undecryptable_response to publish a different key.",
+                'Overrides individual members of the generated verifier metadata: a supplied member wins, an omitted member keeps its generated value, and a member set to null is dropped. The merge is one level deep, so supplying jwks replaces the whole key set. Use null for the whole object to omit the parameter, which is supported only with direct_post. Top-level only; a value inside presentation_request is ignored. Narrow the advertised response encryption with {"encrypted_response_enc_values_supported":["A128GCM"]} to give the Wallet a single JWE enc choice. For direct_post.jwt the merged metadata must keep the session\'s generated encryption public key, compared by RFC 7638 thumbprint so that alg, use, and kid may be altered or omitted; replacing or dropping jwks requires allow_undecryptable_response.',
             },
             allow_undecryptable_response: {
               type: "boolean",
               default: false,
               description:
-                "Test-only. Publish the supplied client_metadata for direct_post.jwt even when it does not contain the verifier's encryption public key, so the service cannot decrypt a response. Requires a client_metadata object and is recorded as a vp_undecryptable_response_allowed session event.",
+                "Test-only. Publish a jwks that is not the verifier's encryption public key for direct_post.jwt, so the service cannot decrypt a response. Requires a client_metadata object. Any direct_post.jwt request sent without the verifier encryption key records a vp_undecryptable_response_allowed session event.",
             },
             redirect_uri: {
               oneOf: [

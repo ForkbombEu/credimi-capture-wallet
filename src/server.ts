@@ -527,11 +527,6 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         selectedClientIdScheme,
         allowUndecryptableResponse,
       );
-      if (allowUndecryptableResponse && selectedResponseMode === "direct_post.jwt") {
-        store.addEvent(session, "vp_undecryptable_response_allowed", {
-          verifier_encryption_key_check_skipped: true,
-        });
-      }
       store.addEvent(session, "vp_deeplink_generated", {});
       return res.status(201).json({
         session_id: session.session_id,
@@ -1035,6 +1030,11 @@ async function createVpSession(
   store.vpCredoVerificationSessionIds.set(sessionId, credoSession.verificationSessionId);
   if (credoSession.authorizationRequestJwt) {
     store.vpCredoAuthorizationRequestJwts.set(sessionId, credoSession.authorizationRequestJwt);
+  }
+  if (responseMode === "direct_post.jwt" && !credoSession.verifierEncryptionKeyPublished) {
+    store.addEvent(session, "vp_undecryptable_response_allowed", {
+      verifier_encryption_key_published: false,
+    });
   }
   session.deeplink = credoSession.deeplink;
   return session;

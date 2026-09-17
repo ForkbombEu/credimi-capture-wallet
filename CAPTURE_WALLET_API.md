@@ -97,7 +97,7 @@ The credential request normally uses `application/json` with `credential_configu
 | `scopes` | A string or string array | — |
 | `transaction_data` | JSON value | — |
 | `verifier_info` | JSON value | — |
-| `client_metadata` | Object to replace verifier metadata, or `null` to omit it; top-level only | Generated verifier metadata |
+| `client_metadata` | Object whose members override generated verifier metadata, or `null` to omit the parameter; top-level only | Generated verifier metadata |
 | `redirect_uri` | Absolute URI for the Wallet to open after a successful presentation; use `{{base_url}}/openid4vp/redirect` for a capture redirect page | — |
 | `allow_undecryptable_response` | `true` to publish a `client_metadata` object that omits the verifier encryption key | `false` |
 
@@ -109,11 +109,20 @@ The credential request normally uses `application/json` with `credential_configu
 
 When `dcql_query` is `null`, the service omits it from the wallet-facing request. Credo retains the normal default query only as internal verification-session state; a wallet response to this deliberately incomplete request may not validate.
 
-If `client_metadata` is absent, the service uses its generated metadata. An object replaces it; `null` omits the parameter entirely. Omission is intentionally limited to `direct_post`.
+If `client_metadata` is absent, the service uses its generated metadata. `null` omits the parameter entirely, which is intentionally limited to `direct_post`.
 
-For `direct_post.jwt`, a replacement must still publish the session's generated verifier encryption public key so the service can decrypt the response. Keys are compared by RFC 7638 thumbprint, which covers the public key material only, so optional JOSE members such as `alg`, `use`, and `kid` may be altered or omitted. That key is minted inside the same `POST /openid4vp/sessions` call that returns it, so a caller cannot name it in advance; in practice every `direct_post.jwt` replacement therefore needs `allow_undecryptable_response`.
+An object overrides individual members of the generated metadata rather than replacing the whole object. A member you supply wins, a member you omit keeps its generated value, and a member set to `null` is dropped from the wallet-facing request. The merge is one level deep, so supplying `jwks` replaces the entire key set instead of editing individual JWK members. This is how the advertised response encryption is narrowed for wallet tests that require a specific JWE `enc`:
 
-`allow_undecryptable_response: true` waives that check and publishes the supplied `jwks` verbatim, including a foreign or static key. It exists only to build requests that no wallet should answer, such as advertising a key the Verifier does not hold or reusing one key across sessions. The service can then no longer decrypt a `direct_post.jwt` response, and a wallet that answers anyway is captured as a decryption failure. It requires a `client_metadata` object, is rejected with `allow_undecryptable_response_requires_client_metadata` otherwise, and records a `vp_undecryptable_response_allowed` session event. Without the flag, a replacement lacking the verifier encryption key is rejected with `invalid_client_metadata` rather than silently disabling response decryption.
+```json
+{ "response_mode": "direct_post.jwt",
+  "client_metadata": { "encrypted_response_enc_values_supported": ["A128GCM"] } }
+```
+
+The generated `jwks` and `vp_formats_supported` survive that request untouched, so the Wallet has exactly one content-encryption choice and the service still decrypts the response.
+
+For `direct_post.jwt`, the merged metadata must still publish the session's generated verifier encryption public key. Keys are compared by RFC 7638 thumbprint, which covers the public key material only, so optional JOSE members such as `alg`, `use`, and `kid` may be altered or omitted. Because that key is minted inside the same `POST /openid4vp/sessions` call that returns it, a caller cannot reproduce it: omit `jwks` to keep it, and expect `invalid_client_metadata` when `jwks` is replaced or set to `null` without the flag below.
+
+`allow_undecryptable_response: true` waives that check and publishes the supplied `jwks` verbatim, including a foreign or static key. It exists only to build requests that no wallet should answer, such as advertising a key the Verifier does not hold, omitting the key entirely, or reusing one key across sessions. The service can then no longer decrypt a `direct_post.jwt` response, and a wallet that answers anyway is captured as a decryption failure. It requires a `client_metadata` object and is otherwise rejected with `allow_undecryptable_response_requires_client_metadata`. Whenever a `direct_post.jwt` request goes out without the verifier encryption key, the session records a `vp_undecryptable_response_allowed` event.
 
 The `201` response includes `session_id`, delivery and response settings, `request_uri`, `response_uri`, `deeplink`, `authorization_request`, and `status: "created"`.
 

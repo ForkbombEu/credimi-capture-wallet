@@ -67,6 +67,8 @@ export interface CredoVpSession {
   requestUri: string;
   responseUri: string;
   deeplink: string;
+  /** Whether the wallet-facing `client_metadata` still advertises the verifier's encryption key. */
+  verifierEncryptionKeyPublished: boolean;
 }
 
 export class ClientMetadataError extends Error {}
@@ -204,19 +206,27 @@ export class CredoOpenId4VpVerifier {
       ...(request.nonce !== undefined ? { nonce: request.nonce } : {}),
       ...optionalAuthorizationRequestParameters(request),
     };
+    const generatedClientMetadata = authorizationRequest.client_metadata;
     if (clientMetadata === null) {
       authorizationRequest.client_metadata = undefined;
     } else if (clientMetadata) {
-      if (
-        responseMode === "direct_post.jwt" &&
-        !allowUndecryptableResponse &&
-        !(await containsVerifierEncryptionKey(clientMetadata, authorizationRequest.client_metadata))
-      ) {
-        throw new ClientMetadataError(
-          "client_metadata must retain the verifier encryption public key for direct_post.jwt",
-        );
-      }
-      authorizationRequest.client_metadata = clientMetadata;
+      authorizationRequest.client_metadata = mergeClientMetadata(
+        asRecord(generatedClientMetadata),
+        clientMetadata,
+      );
+    }
+    const verifierEncryptionKeyPublished = await containsVerifierEncryptionKey(
+      asRecord(authorizationRequest.client_metadata),
+      generatedClientMetadata,
+    );
+    if (
+      responseMode === "direct_post.jwt" &&
+      !allowUndecryptableResponse &&
+      !verifierEncryptionKeyPublished
+    ) {
+      throw new ClientMetadataError(
+        "client_metadata must retain the verifier encryption public key for direct_post.jwt",
+      );
     }
     const requestUri = `${this.config.issuer_base_url}/openid4vp/sessions/${sessionId}/request`;
     const responseUri = String(authorizationRequest.response_uri);
@@ -254,6 +264,7 @@ export class CredoOpenId4VpVerifier {
       requestUri,
       responseUri,
       deeplink,
+      verifierEncryptionKeyPublished,
     };
   }
 
@@ -414,18 +425,33 @@ function presentationRequestPlainDeeplink(
 }
 
 /**
- * A replacement `client_metadata` must still publish the verifier's own encryption public key,
+ * Caller-supplied `client_metadata` overrides individual members of the generated verifier
+ * metadata: an omitted member keeps its generated value and a member set to `null` is dropped
+ * from the wallet-facing request. The merge is one level deep, so supplying `jwks` replaces the
+ * whole key set rather than editing individual JWK members.
+ */
+function mergeClientMetadata(generated: JsonRecord | null, overrides: JsonRecord): JsonRecord {
+  const merged: JsonRecord = { ...generated };
+  for (const [member, value] of Object.entries(overrides)) {
+    if (value === null) delete merged[member];
+    else merged[member] = value;
+  }
+  return merged;
+}
+
+/**
+ * The wallet-facing `client_metadata` must still publish the verifier's own encryption public key,
  * because the service decrypts a `direct_post.jwt` response with the matching private key. Keys
  * are compared by RFC 7638 thumbprint, which covers the public key material only, so optional
  * JOSE members such as `alg`, `use`, and `kid` may be altered or omitted to build the malformed
  * requests that wallet response-encryption negative tests require.
  */
 async function containsVerifierEncryptionKey(
-  clientMetadata: JsonRecord,
+  clientMetadata: JsonRecord | null,
   generatedClientMetadata: unknown,
 ): Promise<boolean> {
   const generatedKeys = asRecord(generatedClientMetadata)?.jwks;
-  const clientKeys = asRecord(clientMetadata.jwks)?.keys;
+  const clientKeys = asRecord(clientMetadata?.jwks)?.keys;
   const [generated, client] = await Promise.all([
     jwkThumbprints(asRecord(generatedKeys)?.keys),
     jwkThumbprints(clientKeys),

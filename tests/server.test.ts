@@ -1026,6 +1026,34 @@ describe("capture issuer server", () => {
     expect(session.authorization_request.client_metadata).toEqual(clientMetadata);
   });
 
+  it("merges caller client metadata over the generated verifier metadata", async () => {
+    const app = createApp(config);
+    const generated = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {});
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      client_metadata: { encrypted_response_enc_values_supported: ["A128GCM"] },
+    });
+
+    const metadata = session.authorization_request.client_metadata as JsonRecord;
+    expect(metadata.encrypted_response_enc_values_supported).toEqual(["A128GCM"]);
+    expect(metadata.vp_formats_supported).toEqual(
+      (generated.authorization_request.client_metadata as JsonRecord).vp_formats_supported,
+    );
+    expect(metadata.jwks).toMatchObject({
+      keys: [expect.objectContaining({ kty: "EC", use: "enc", alg: "ECDH-ES" })],
+    });
+  });
+
+  it("drops a client metadata member supplied as null", async () => {
+    const app = createApp(config);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      client_metadata: { encrypted_response_enc_values_supported: null },
+    });
+
+    const metadata = session.authorization_request.client_metadata as JsonRecord;
+    expect(metadata).not.toHaveProperty("encrypted_response_enc_values_supported");
+    expect(metadata.jwks).toMatchObject({ keys: [expect.objectContaining({ use: "enc" })] });
+  });
+
   it("omits client metadata from a plain direct-post authorization request", async () => {
     const app = createApp(config);
     const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
@@ -1050,12 +1078,12 @@ describe("capture issuer server", () => {
     });
   });
 
-  it("rejects encrypted response metadata without the verifier encryption key", async () => {
+  it("rejects encrypted response metadata that drops the verifier encryption key", async () => {
     const app = createApp(config);
     const response = await request(app)
       .post("/openid4vp/sessions")
       .send({
-        client_metadata: { vp_formats_supported: {} },
+        client_metadata: { jwks: null },
       });
 
     expect(response.status).toBe(400);
@@ -1084,9 +1112,12 @@ describe("capture issuer server", () => {
       allow_undecryptable_response: true,
     });
 
-    expect(session.authorization_request.client_metadata).toEqual(clientMetadata);
+    const published = session.authorization_request.client_metadata as JsonRecord;
+    expect(published).toMatchObject(clientMetadata);
+    expect((published.jwks as JsonRecord).keys).toEqual(clientMetadata.jwks.keys);
+    expect(published).toHaveProperty("vp_formats_supported");
     const requestObject = await request(app).get(new URL(session.request_uri).pathname);
-    expect(decodeJwt(requestObject.text).client_metadata).toEqual(clientMetadata);
+    expect(decodeJwt(requestObject.text).client_metadata).toEqual(published);
 
     const capture = await getJson<VpSessionResponse>(
       app,
@@ -1096,7 +1127,7 @@ describe("capture issuer server", () => {
       expect.arrayContaining([
         expect.objectContaining({
           type: "vp_undecryptable_response_allowed",
-          detail: { verifier_encryption_key_check_skipped: true },
+          detail: { verifier_encryption_key_published: false },
         }),
       ]),
     );
@@ -1551,6 +1582,51 @@ describe("capture issuer server", () => {
     expect(capture.raw?.decoded_presentations).toEqual(capture.decoded_presentations);
     expect(JSON.stringify(capture.decoded_presentations)).not.toContain(presentation);
   });
+
+  it.each(["A128GCM", "A256GCM"])(
+    "decrypts a presentation response encrypted with the sole advertised enc value %s",
+    async (enc) => {
+      const app = createApp(config);
+      const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+        client_metadata: { encrypted_response_enc_values_supported: [enc] },
+        presentation_request: { dcql_query: dcqlForClaims(["family_name"]) },
+      });
+      const metadata = session.authorization_request.client_metadata as JsonRecord;
+      expect(metadata.encrypted_response_enc_values_supported).toEqual([enc]);
+
+      const credential = await sdJwtCredential();
+      const presentation = await sdJwtPresentation({
+        credential,
+        authorizationRequest: session.authorization_request,
+        disclosedClaims: ["family_name"],
+      });
+      const response = await request(app)
+        .post(`/openid4vp/sessions/${session.session_id}/response`)
+        .send({
+          response: await encryptedAuthorizationResponse(
+            session.authorization_request,
+            {
+              state: session.authorization_request.state,
+              vp_token: { query_0: [presentation] },
+            },
+            enc,
+          ),
+        });
+
+      expect(response.status).toBe(200);
+      const capture = await getJson<VpSessionResponse>(
+        app,
+        `/openid4vp/sessions/${session.session_id}`,
+      );
+      expect(capture.status).toBe("presentation_validated");
+      expect(capture.raw?.presentation_response_decrypted).toMatchObject({
+        vp_token: { query_0: [presentation] },
+      });
+      expect(capture.events.map((event) => event.type)).not.toContain(
+        "vp_undecryptable_response_allowed",
+      );
+    },
+  );
 
   it("accepts SD-JWT VC presentations that satisfy a required DCQL credential_set option", async () => {
     const app = createApp(config);
@@ -2859,6 +2935,7 @@ async function sdJwtPresentation(options: {
 async function encryptedAuthorizationResponse(
   authorizationRequest: JsonRecord,
   payload: JsonRecord,
+  enc = "A256GCM",
 ): Promise<string> {
   const clientMetadata = authorizationRequest.client_metadata as JsonRecord;
   const jwks = clientMetadata.jwks as { keys: JsonRecord[] };
@@ -2866,7 +2943,7 @@ async function encryptedAuthorizationResponse(
   return new CompactEncrypt(Buffer.from(JSON.stringify(payload), "utf8"))
     .setProtectedHeader({
       alg: "ECDH-ES",
-      enc: "A256GCM",
+      enc,
       kid: publicJwk.kid,
     })
     .encrypt(await importJWK(publicJwk, "ECDH-ES"));
