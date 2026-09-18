@@ -66,7 +66,7 @@ describe("degree SD-JWT VC", () => {
     expect(Kms.PublicJwk.fromUnknown(holderJwk).equals(decoded.holder.jwk)).toBe(true);
   });
 
-  it("discloses degree array interiors element by element", async () => {
+  it("discloses degree object and array interiors claim by claim", async () => {
     const holderJwk: JsonRecord = {
       kty: "EC",
       crv: "P-256",
@@ -102,6 +102,29 @@ describe("degree SD-JWT VC", () => {
         disclosure.kind === "value-element" ? [disclosure.value] : [],
       ),
     ).toEqual(["Bachelor of Science", "Master of Science", "Doctor of Philosophy"]);
+
+    // `address` members are separate disclosures, matching the `address.*` paths advertised in
+    // the credential configuration, so `locality` can be revealed on its own.
+    expect(
+      disclosures
+        .flatMap((disclosure) =>
+          disclosure.kind === "property" &&
+          ["street_address", "locality", "postal_code"].includes(disclosure.name)
+            ? [disclosure.name]
+            : [],
+        )
+        .sort(),
+    ).toEqual(["locality", "postal_code", "street_address"]);
+
+    const addressLocality = disclosures.filter(
+      (disclosure) =>
+        disclosure.kind === "property" &&
+        (disclosure.name === "address" || disclosure.name === "locality"),
+    );
+    const addressLocalityOnly = service.fromCompact(
+      `${issuerJwt}~${addressLocality.map((disclosure) => disclosure.raw).join("~")}~`,
+    );
+    expect(addressLocalityOnly.prettyClaims.address).toEqual({ locality: "Milliways" });
 
     const degreeTypes = disclosures.filter(
       (disclosure) =>

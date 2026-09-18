@@ -226,10 +226,12 @@ this can keep a QR code smaller when the offer is large.
 Both issuers issue the same deterministic Mario Rossi PID claims for the PID
 configurations. The degree test credential is an SD-JWT VC for Arthur Dent with
 `degrees` (including an entry without `type`) and `academic_programmes`, a nested
-array of awarded programme titles. The interiors of both arrays are individually
-disclosable: each `degrees` entry is its own disclosure with `type` and `university`
-separate inside it, and each `academic_programmes` inner array and each string inside
-it is disclosable by index. A Wallet can therefore reveal `degrees[0..1].type` while
+array of awarded programme titles. The interiors of `address` and of both arrays are
+individually disclosable: each `address` member is its own disclosure, each `degrees`
+entry is its own disclosure with `type` and `university` separate inside it, and each
+`academic_programmes` inner array and each string inside
+it is disclosable by index. A Wallet can therefore reveal `address.locality` alone, or
+`degrees[0..1].type` while
 withholding `degrees[2].university`, which is what the FCAF textual-encoding cases
 assert. It supports DCQL paths such as
 `["degrees", null, "type"]` and `["academic_programmes", null, 1]`. The removed legacy root issuer and its `broken`

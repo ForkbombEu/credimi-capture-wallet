@@ -17,8 +17,9 @@ import type { AppConfig, JsonRecord, StatusListReference } from "./types.js";
 export { CREDIMI_LOGO_URL, CREDIMI_WEBSITE };
 
 /**
- * Makes the interiors of the `degrees` and `academic_programmes` arrays individually disclosable,
- * so a Wallet can reveal one element, and one claim inside it, without revealing its siblings.
+ * Makes the interiors of the `address` object and the `degrees` and `academic_programmes` arrays
+ * individually disclosable, so a Wallet can reveal one member, and one claim inside it, without
+ * revealing its siblings. `address` mirrors the `address.*` paths in `DEGREE_SD_JWT_CLAIMS`.
  *
  * `@sd-jwt/core` selects disclosable array elements with `sd.includes(i)` against the numeric
  * index, but Credo's `IDisclosureFrame` declares `_sd` as `string[]`. String indices therefore
@@ -27,6 +28,7 @@ export { CREDIMI_LOGO_URL, CREDIMI_WEBSITE };
  */
 const DEGREE_DISCLOSURE_FRAME = {
   _sd: Object.keys(DEGREE_CREDENTIAL_SUBJECT),
+  address: { _sd: ["street_address", "locality", "postal_code"] },
   degrees: {
     _sd: [0, 1, 2],
     0: { _sd: ["type", "university"] },
