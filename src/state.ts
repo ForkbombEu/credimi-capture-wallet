@@ -14,6 +14,7 @@ import type {
   Oid4vciHttpRequestCapture,
   OpenId4VpResponseMode,
   SessionCapture,
+  StatusReferenceFixture,
   VpDcApiCapture,
   VpSessionCapture,
 } from "./types.js";
@@ -39,6 +40,7 @@ export class CaptureStore {
     credentialOfferMode: CredentialOfferMode = "credential_offer",
     statusListEnabled = false,
     fixtureId?: string,
+    statusReference?: StatusReferenceFixture,
   ): SessionCapture {
     const sessionId = randomUUID();
     const session: SessionCapture = {
@@ -52,6 +54,9 @@ export class CaptureStore {
       credential_offer_mode: credentialOfferMode,
       status_list_enabled: statusListEnabled,
       ...(fixtureId ? { fixture_id: fixtureId } : {}),
+      ...(statusReference && statusReference !== "valid"
+        ? { status_reference: statusReference }
+        : {}),
 
       observed: {
         client_id: { value: null, source: null, also_seen_in: [] },

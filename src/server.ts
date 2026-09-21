@@ -59,6 +59,7 @@ import {
 } from "./request-mutation.js";
 import { responseScenarioOrNull } from "./response-scenario.js";
 import { CaptureStore, asStringOrNull } from "./state.js";
+import { STATUS_REFERENCE_FIXTURES, statusReferenceFixtureOrNull } from "./status-reference.js";
 import type {
   AppConfig,
   CredentialOfferMode,
@@ -68,6 +69,7 @@ import type {
   RedirectUriVisitHttpCapture,
   RequestUriHttpCapture,
   SessionCapture,
+  StatusReferenceFixture,
   VerifierResponseHttpCapture,
   VpDcApiInvocationCapture,
   VpDcApiInvocationOutcome,
@@ -446,6 +448,22 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
           supported_credential_configuration_ids: supportedCredentialIds,
         });
       }
+      const statusReference = statusReferenceFixtureOrNull(body.status_reference ?? "valid");
+      if (!statusReference) {
+        return res.status(400).json({
+          error: "unsupported_status_reference",
+          supported_status_references: STATUS_REFERENCE_FIXTURES,
+        });
+      }
+      if (statusReference !== "valid" && !config.fcaf_scenarios_enabled) {
+        return res.status(400).json({ error: "status_reference_not_enabled" });
+      }
+      if (statusReference !== "valid" && !statusListEnabled) {
+        return res.status(400).json({ error: "status_reference_requires_status_list" });
+      }
+      if (statusReference !== "valid" && credentialConfigurationId.includes("mdoc")) {
+        return res.status(400).json({ error: "status_reference_unsupported_for_mdoc" });
+      }
       const fixtureId = pidFixtureIdOrNull(body.fixture_id ?? "pid_default");
       if (!fixtureId) {
         return res.status(400).json({
@@ -463,6 +481,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         credentialOfferMode ?? "credential_offer",
         statusListEnabled ?? false,
         fixtureId,
+        statusReference,
       );
       const offer = store.credoIssuanceOffers.get(session.session_id);
       if (!offer) throw new Error("Credo credential offer was not stored");
@@ -476,6 +495,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         credential_configuration_id: session.credential_configuration_id,
         status_list_enabled: session.status_list_enabled,
         fixture_id: session.fixture_id,
+        ...(session.status_reference ? { status_reference: session.status_reference } : {}),
         offer_url: offer.credential_offer_uri,
         deeplink: offer.credential_offer,
         status: session.status,
@@ -1121,6 +1141,7 @@ async function createIssuanceSession(
   credentialOfferMode: CredentialOfferMode = "credential_offer",
   statusListEnabled = false,
   fixtureId?: string,
+  statusReference?: StatusReferenceFixture,
 ): Promise<SessionCapture> {
   const session = store.createSession(
     issuer,
@@ -1129,6 +1150,7 @@ async function createIssuanceSession(
     credentialOfferMode,
     statusListEnabled,
     fixtureId,
+    statusReference,
   );
 
   const offer = await (await credoOpenId4VciIssuer(config, store)).createCredentialOffer({

@@ -6,6 +6,19 @@ export interface StatusListReference {
   idx: number;
 }
 
+/**
+ * Shape of the `status` claim in an issued credential. `valid` is the normal Token Status List
+ * reference; the others are the deliberately malformed structures the revocation-metadata tests
+ * require, and are refused unless the deployment enables FCAF scenarios.
+ */
+export type StatusReferenceFixture =
+  | "valid"
+  | "status_without_status_list"
+  | "negative_index"
+  | "missing_index"
+  | "malformed_uri"
+  | "missing_uri";
+
 export interface AppConfig {
   issuer_base_url: string;
   /**
@@ -139,6 +152,11 @@ export interface SessionCapture {
    * is what every session issued before this field existed used.
    */
   fixture_id?: string;
+  /**
+   * Shape of the `status` claim in the issued credential. Absent means the normal reference, so
+   * a session that does not ask for a malformed structure cannot receive one.
+   */
+  status_reference?: StatusReferenceFixture;
   status_list_allocation_ids?: string[];
   observed: {
     client_id: ObservedValue<string>;

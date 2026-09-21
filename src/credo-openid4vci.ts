@@ -446,11 +446,13 @@ export class CredoOpenId4VciIssuer {
               config: signingConfig,
               holderJwk,
               statusListReference: statusListReferences[index],
+              statusReference: captureSession.status_reference,
             })
           : sdJwtCredentialSignOptions({
               config: signingConfig,
               holderJwk,
               statusListReference: statusListReferences[index],
+              statusReference: captureSession.status_reference,
               subject,
             }),
       ),

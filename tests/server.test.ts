@@ -2605,6 +2605,47 @@ describe("capture issuer server", () => {
     });
   });
 
+  it.each([
+    [
+      "an unknown fixture",
+      { status_reference: "revoked", status_list_enabled: true },
+      { error: "unsupported_status_reference" },
+    ],
+    [
+      "a malformed fixture without status-list allocation",
+      { status_reference: "negative_index" },
+      { error: "status_reference_requires_status_list" },
+    ],
+    [
+      "a malformed fixture for an mdoc configuration",
+      {
+        status_reference: "missing_uri",
+        status_list_enabled: true,
+        credential_configuration_id: mdocCredentialConfigurationId(
+          config,
+          "key-attestation-required",
+        ),
+      },
+      { error: "status_reference_unsupported_for_mdoc" },
+    ],
+  ])("rejects %s", async (_label, body, expected) => {
+    const response = await request(createApp({ ...config, fcaf_scenarios_enabled: true }))
+      .post("/sessions")
+      .send(body);
+
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject(expected);
+  });
+
+  it("refuses a malformed status reference unless the deployment enables FCAF scenarios", async () => {
+    const response = await request(createApp(config))
+      .post("/sessions")
+      .send({ status_reference: "negative_index", status_list_enabled: true });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ error: "status_reference_not_enabled" });
+  });
+
   it("runs the default authorization-code flow through the auto-approving OAuth server", async () => {
     const app = createApp(config);
     const walletClientId = "https://wallet.example.test";

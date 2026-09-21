@@ -917,6 +917,20 @@ export function openApiDocument(config: AppConfig): JsonRecord {
               description:
                 "Encode the offer directly in the deeplink or provide its hosted URI by reference.",
             },
+            status_reference: {
+              type: "string",
+              enum: [
+                "valid",
+                "status_without_status_list",
+                "negative_index",
+                "missing_index",
+                "malformed_uri",
+                "missing_uri",
+              ],
+              default: "valid",
+              description:
+                "Shape of the status claim in the issued SD-JWT VC. Anything other than valid is test-only, refused unless the deployment sets FCAF_SCENARIOS_ENABLED, and requires status_list_enabled so the malformed structure reshapes a genuinely allocated reference. Not available for mdoc configurations, where the status claim is built by the COSE library and these structures cannot be produced.",
+            },
             fixture_id: {
               type: "string",
               default: "pid_default",
@@ -966,6 +980,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             credential_configuration_id: { type: "string" },
             status_list_enabled: { type: "boolean" },
             fixture_id: { type: "string" },
+            status_reference: { type: "string" },
             offer_url: { type: "string", format: "uri" },
             deeplink: { type: "string" },
             status: { type: "string", const: "created" },

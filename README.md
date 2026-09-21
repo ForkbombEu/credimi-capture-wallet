@@ -46,6 +46,7 @@ During the credential verification the service captures:
   - [🪪 OpenID4VCI Issuance Flow](#-openid4vci-issuance-flow)
   - [🛂 OpenID4VP Presentation Flow](#-openid4vp-presentation-flow)
 - [⚙️ Configuration](#️-configuration)
+- [🚧 Known limitations](#-known-limitations)
 - [💼 License](#-license)
 
 </div>
@@ -210,6 +211,21 @@ Status List endpoint in the generated service config with
 configured endpoint and management key at runtime.
 The management API key is server-side only and is never included in a credential,
 offer, browser response, or capture log.
+`status_reference` is optional and shapes the `status` claim of an issued SD-JWT VC. `valid`, the
+default, embeds the allocated Token Status List reference. The other values produce the
+deliberately malformed structures the FCAF revocation-metadata tests require — `status` without a
+`status_list` member, a negative or missing `idx`, and a malformed or missing `uri` — and are
+refused unless the deployment sets `FCAF_SCENARIOS_ENABLED=true`. They also require
+`status_list_enabled: true`, because the reference is always allocated normally first and the
+fixture only reshapes that real allocation. A credential with no `status` claim at all is simply
+`status_list_enabled: false`.
+
+The malformed structures are not available for mdoc configurations, and the request is refused
+rather than silently ignored: an mdoc `status` claim is built by `@owf/token-status-list` through
+Credo, whose schema requires a non-negative integer `idx` and a string `uri`, so the COSE variants
+of those tests cannot be produced without a non-Credo COSE implementation. See
+[Known limitations](#known-limitations).
+
 `issuer_configuration_id` is optional and accepts `eu-pid-device-bound` or
 `eu-pid-jwt-proof-only`. A credential configuration must belong to the selected
 issuer; the service rejects cross-issuer combinations.
@@ -737,6 +753,38 @@ this value. Without it, the verifier requires the Status List signer chain to ma
 credential issuer chain.
 
 **[🔝 back to top](#toc)**
+
+---
+
+## 🚧 Known limitations
+
+These are deliberate gaps, not bugs. Each names what is missing and what would close it.
+
+**COSE status-list structures.** The malformed `status_reference` fixtures apply to SD-JWT VC
+only. An mdoc `status` claim is produced by `@owf/token-status-list` through Credo's
+`MdocSignOptions.statusInfo`, whose schema requires a non-negative integer `idx` and a string
+`uri`, so a negative or missing index, a missing or malformed URI, an empty status map, a map
+without a `status_list` entry, and a missing status claim at CBOR label 65535 cannot be produced
+through the library. Emitting them would mean assembling the Mobile Security Object outside
+Credo, which `AGENTS.md` puts behind explicit approval; the service refuses the request instead of
+issuing a silently valid credential. Valid COSE status references work today through
+`status_list_enabled`.
+
+**Credentials without cryptographic holder binding.** Not implemented, pending
+[credo-ts#2936](https://github.com/openwallet-foundation/credo-ts/pull/2936). Every credential
+this service issues is device-bound to the holder key from the wallet's proof.
+
+**SD-JWT VC JSON serialization.** The service issues and verifies the compact serialization only.
+A test requiring a presentation in JSON serialization needs both wallet support and a verifier
+that accepts it; neither is in place.
+
+**Digital Credentials API on iOS and in webviews.** `navigator.credentials.get({ digital: … })`
+is not exposed there, so the DC API presentation page cannot drive those wallets. It also requires
+a secure context, so `PUBLIC_BASE_URL` must be HTTPS outside local testing.
+
+**Wallet refusal versus End-User cancellation.** The browser reports both as a `DOMException`
+with deliberately sparse detail, so the `rejected` invocation outcome records what the browser
+said without asserting which occurred. Deciding between them is an operator judgement.
 
 ---
 

@@ -49,10 +49,26 @@ For each `{issuerConfigurationId}`:
 | `credential_configuration_id` | A configuration advertised by the selected issuer metadata | First configuration for the issuer |
 | `status_list_enabled` | Boolean; allocate and embed a Token Status List reference in each issued credential | `false` |
 | `fixture_id` | Predefined PID claim set the issued credential carries | `pid_default` |
+| `status_reference` | Shape of the `status` claim in the issued SD-JWT VC; anything but `valid` is test-only | `valid` |
 
 It returns `201` with `session_id`, issuer and authorization-server identifiers, the selected flow and configuration, `fixture_id`, `offer_url`, `deeplink`, and `status: "created"`. A configuration belonging to another issuer is rejected.
 
 `fixture_id` names a predefined PID claim set; an unknown value is rejected with `unsupported_fixture_id` and the supported list. Every fixture is a fully valid, normally signed PID and differs from the baseline along one value axis, which is what the DCQL value-matching tests need: `pid_default`, `pid_person_b` (a second complete identity), `pid_under_18` (`age_over_18: false`), `pid_family_name_uppercase`, `pid_family_name_trailing_space`, `pid_locality_diacritics`, `pid_locality_no_diacritics`, `pid_multiple_nationalities`, and `pid_expiry_2032`. Each carries a distinct `document_number`. There is no caller-supplied claim override, so an issued credential always corresponds to a named fixture, and the selected one is recorded as `fixture_id` in the issuance capture.
+
+`status_reference` shapes the `status` claim of an issued SD-JWT VC. `valid` embeds the allocated Token Status List reference and is the default. The other values are the deliberately malformed structures the revocation-metadata tests require, and are refused with `status_reference_not_enabled` unless the deployment sets `FCAF_SCENARIOS_ENABLED`:
+
+| `status_reference` | Issued `status` claim |
+| --- | --- |
+| `valid` | `{"status_list":{"uri":"…","idx":42}}` |
+| `status_without_status_list` | `{}` — the claim is present without a `status_list` member |
+| `negative_index` | `idx` is `-1` |
+| `missing_index` | `status_list` carries only `uri` |
+| `malformed_uri` | `uri` is not a parseable URI |
+| `missing_uri` | `status_list` carries only `idx` |
+
+A malformed fixture requires `status_list_enabled: true`, otherwise it is refused with `status_reference_requires_status_list`: the reference is always allocated from the configured Status List service first, and the fixture only reshapes that real allocation. It is refused with `status_reference_unsupported_for_mdoc` for an mdoc configuration, and the selected value is recorded as `status_reference` in the issuance capture.
+
+An issued credential with no `status` claim at all is `status_list_enabled: false`, which is the default and needs no fixture.
 
 | Method | Path | Purpose |
 | --- | --- | --- |

@@ -12,7 +12,12 @@ import {
   PID_MDOC_NAMESPACE,
   PID_SD_JWT_VCT,
 } from "./credential-definitions.js";
-import type { AppConfig, JsonRecord, StatusListReference } from "./types.js";
+import type {
+  AppConfig,
+  JsonRecord,
+  StatusListReference,
+  StatusReferenceFixture,
+} from "./types.js";
 
 export { CREDIMI_LOGO_URL, CREDIMI_WEBSITE };
 
@@ -64,6 +69,7 @@ export function sdJwtCredentialSignOptions(options: {
   config: AppConfig;
   holderJwk: JsonRecord;
   statusListReference?: StatusListReference;
+  statusReference?: StatusReferenceFixture;
   subject?: PidSubject;
   now?: Date;
 }): SdJwtVcSignOptions {
@@ -78,9 +84,7 @@ export function sdJwtCredentialSignOptions(options: {
       vct: PID_SD_JWT_VCT,
       exp: Math.floor(now.getTime() / 1000) + 365 * 24 * 60 * 60,
       ...encodeSdJwtPidClaims(options.subject ?? pidSubject()),
-      ...(options.statusListReference
-        ? { status: { status_list: options.statusListReference } }
-        : {}),
+      ...sdJwtStatusClaim(options.statusListReference, options.statusReference),
     },
     disclosureFrame: {
       _sd: [
@@ -113,6 +117,7 @@ export function degreeSdJwtCredentialSignOptions(options: {
   config: AppConfig;
   holderJwk: JsonRecord;
   statusListReference?: StatusListReference;
+  statusReference?: StatusReferenceFixture;
   now?: Date;
 }): SdJwtVcSignOptions {
   const issuerCertificate = loadIssuerCertificate(options.config);
@@ -126,12 +131,37 @@ export function degreeSdJwtCredentialSignOptions(options: {
       vct: DEGREE_SD_JWT_VCT,
       exp: Math.floor(now.getTime() / 1000) + 365 * 24 * 60 * 60,
       ...DEGREE_CREDENTIAL_SUBJECT,
-      ...(options.statusListReference
-        ? { status: { status_list: options.statusListReference } }
-        : {}),
+      ...sdJwtStatusClaim(options.statusListReference, options.statusReference),
     },
     disclosureFrame: DEGREE_DISCLOSURE_FRAME,
   };
+}
+
+/**
+ * Builds the `status` claim of an SD-JWT VC. `valid` is the normal Token Status List reference;
+ * the other fixtures deliberately malform it for the revocation-metadata tests, which check that
+ * a Wallet rejects a negative or missing index and a missing or unparseable URI. The reference is
+ * always allocated normally first, so the fixture only reshapes a real allocation.
+ */
+function sdJwtStatusClaim(
+  reference: StatusListReference | undefined,
+  fixture: StatusReferenceFixture = "valid",
+): JsonRecord {
+  if (!reference) return {};
+  switch (fixture) {
+    case "valid":
+      return { status: { status_list: reference } };
+    case "status_without_status_list":
+      return { status: {} };
+    case "negative_index":
+      return { status: { status_list: { uri: reference.uri, idx: -1 } } };
+    case "missing_index":
+      return { status: { status_list: { uri: reference.uri } } };
+    case "malformed_uri":
+      return { status: { status_list: { uri: "not a uri", idx: reference.idx } } };
+    case "missing_uri":
+      return { status: { status_list: { idx: reference.idx } } };
+  }
 }
 
 export function mdocCredentialSignOptions(options: {
