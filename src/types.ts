@@ -210,6 +210,15 @@ export interface VpRequestMutation {
   verification_applies?: boolean;
 }
 
+/**
+ * Test-only request-delivery behaviours that are not payload values, so a JSON Pointer edit
+ * cannot express them.
+ */
+export interface VpRequestBehavior {
+  /** Deliver a Request Object whose signature does not verify. */
+  signature?: "corrupt";
+}
+
 export type VpDcApiProtocol = "openid4vp-v1-signed" | "openid4vp-v1-unsigned";
 
 /** Browser invocation request handed to `navigator.credentials.get({ digital: { requests } })`. */
@@ -268,6 +277,8 @@ export interface VpSessionCapture {
   dc_api?: VpDcApiCapture;
   /** Present when the wallet-facing request was deliberately mutated for an FCAF scenario. */
   request_mutation?: VpRequestMutation;
+  /** Present when a test-only request-delivery behaviour was selected. */
+  request_behavior?: VpRequestBehavior;
   observed: {
     request_uri_payload: ObservedValue<JsonRecord>;
     wallet_response: ObservedValue<JsonRecord>;

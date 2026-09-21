@@ -101,6 +101,7 @@ The credential request normally uses `application/json` with `credential_configu
 | `redirect_uri` | Absolute URI for the Wallet to open after a successful presentation; use `{{base_url}}/openid4vp/redirect` for a capture redirect page | — |
 | `allow_undecryptable_response` | `true` to publish a `client_metadata` object that omits the verifier encryption key | `false` |
 | `request_mutation` | Deliberate JSON Pointer edits to the wallet-facing request; test-only | — |
+| `request_behavior` | Request-delivery behaviour that is not a payload value; test-only | — |
 
 `request_uri_method` is valid only with `request_delivery: "by_reference"`. The service preserves any supplied string in the deeplink, including values other than the OpenID4VP-defined, case-sensitive `get` and `post`, exclusively to create malformed requests for wallet negative tests. `by_value` supplies a signed Request Object in `request`; `plain` supplies the Authorization Request's URL-encoded parameters directly in the deeplink and omits `request`, `request_uri`, and `request_uri_method`. `response_type`, top-level DCQL, scopes, transaction data, and verifier information are used to construct the wallet-facing request. Inspect the returned `authorization_request` to confirm the exact claims.
 
@@ -182,6 +183,17 @@ the copy the verifier reasons about is never the mutated one. Evidence:
 
 `verification_applies` is captured as evidence and never enforced; the verifier keeps its normal
 checks in all cases.
+
+### Request-delivery behaviours
+
+`request_behavior` selects a variation that is not a payload value, so no pointer edit can express
+it. It is gated by the same `FCAF_SCENARIOS_ENABLED` flag, refused with
+`request_behavior_not_enabled` when the flag is off and `invalid_request_behavior` when the shape
+is not valid, recorded under `request_behavior`, and logged as `vp_request_behavior_applied`.
+
+| Behaviour | Effect |
+| --- | --- |
+| `{"signature":"corrupt"}` | The delivered Request Object carries a signature that does not verify. The request is signed by the normal path first and the signature value is then invalidated, so the JWS stays well formed and the Wallet rejects it on the signature. Applies to `request_uri` retrieval, a `by_value` deeplink, the DC API `request` member, and a `wallet_nonce` re-sign. Refused with `signature_behavior_requires_a_signed_request` for the `redirect_uri` client identifier prefix. |
 
 ### Digital Credentials API presentation
 

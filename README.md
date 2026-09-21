@@ -410,6 +410,7 @@ Where:
 * `client_metadata` may be an object whose members override the generated verifier metadata, or `null` to omit the parameter. Omission is supported only with `direct_post`. A supplied member wins, an omitted member keeps its generated value, and a member set to `null` is dropped. The merge is one level deep, so supplying `jwks` replaces the whole key set. Narrow the advertised response encryption with `"client_metadata": {"encrypted_response_enc_values_supported": ["A128GCM"]}` to give the Wallet a single JWE `enc` choice; the generated `jwks` and `vp_formats_supported` are preserved, so the service still decrypts. For `direct_post.jwt` the merged metadata must keep the session's generated encryption public key, compared by RFC 7638 thumbprint so `alg`, `use`, and `kid` may be altered or omitted. That key is minted inside the same call that returns it, so omit `jwks` to keep it.
 * `allow_undecryptable_response` is a test-only flag. With `true` the service publishes a `jwks` that is not the verifier's encryption key, which is what wallet response-encryption negative tests need: a JWK without `alg`, with an `alg` other than `ECDH-ES`, `"jwks": null` to advertise no key at all, or a static key reused across sessions. The service can then no longer decrypt a response, and a wallet that answers anyway is captured as a decryption failure. It requires a `client_metadata` object. Any `direct_post.jwt` request sent without the verifier encryption key records a `vp_undecryptable_response_allowed` event.
 * `request_mutation` is a test-only object that deliberately edits the wallet-facing Authorization Request. It is refused unless the deployment sets `FCAF_SCENARIOS_ENABLED=true`. See [Deliberate request mutations](#deliberate-request-mutations).
+* `request_behavior` is a test-only object selecting a request-delivery behaviour that is not a payload value, currently `{"signature":"corrupt"}`. It is refused unless the deployment sets `FCAF_SCENARIOS_ENABLED=true`.
 * `redirect_uri` is an optional absolute URI returned to the Wallet after a successful presentation. The service appends a fresh 128-bit `response_code` parameter to it. Use `{{base_url}}/openid4vp/redirect`, or its equivalent concrete service URI, to create a service-hosted confirmation page; it displays the received `response_code` for both valid and invalid visits, and a valid visit is recorded in the VP session capture.
 * `scheme` is the complete custom URL-scheme prefix for the deeplink (for example, `eudi-wallet://`); it defaults to `openid4vp://`
 
@@ -497,6 +498,23 @@ A mutation never moves the verifier's own expectations. The request the service 
 So a Wallet that answers with the original nonce still verifies even when the Request Object it
 received advertised a different one. Set `verification_applies` to record whether the caller
 expected verification to succeed; it is captured as evidence and never enforced.
+
+Some variations are not payload values and therefore cannot be a pointer edit. Those are selected
+by name through `request_behavior`, which is gated by the same flag and recorded in the capture
+alongside a `vp_request_behavior_applied` event:
+
+```sh
+curl -X POST "$BASE_URL/openid4vp/sessions" \
+  -H 'Content-Type: application/json' \
+  -d '{"request_behavior":{"signature":"corrupt"}}'
+```
+
+`{"signature":"corrupt"}` delivers a Request Object whose signature does not verify. The request is
+signed by the normal Credo path first and the signature value is then invalidated, so the JWS stays
+well formed and a Wallet rejects it on the signature rather than on the encoding. The invalid
+signature is what the Wallet receives from both `request_uri` retrieval and a `by_value` deeplink,
+including after a `wallet_nonce` re-sign, while the verifier keeps the valid request it generated.
+It requires a signed request, so it is refused with the `redirect_uri` client identifier prefix.
 
 #### Digital Credentials API presentation
 
@@ -644,8 +662,8 @@ From env file `.env`, that is loaded automatically when present, you can set:
   never from a request `Host` header, so a cross-device DC API deployment behind a proxy must set
   it to the HTTPS URL the End-User's browser actually reaches.
 - `FCAF_SCENARIOS_ENABLED`: enables the FCAF scenario inputs that deliberately produce malformed
-  protocol material, currently `request_mutation`. Defaults to `false`, so an ordinary deployment
-  refuses them with `request_mutation_not_enabled`.
+  protocol material, `request_mutation` and `request_behavior`. Defaults to `false`, so an ordinary
+  deployment refuses them with `request_mutation_not_enabled` or `request_behavior_not_enabled`.
 - `STATUS_LIST_BASE_URL`: overrides the configured Status List endpoint.
 - `STATUS_LIST_API_KEY`: overrides the configured Status List management API key.
 

@@ -28,6 +28,7 @@ import {
   jwksPath,
   privateJwkPath,
   verifierCertificatePath,
+  verifierJwksPath,
 } from "../src/config.js";
 import { resolvedIssuerConfigurationById } from "../src/configurations/registry.js";
 import { issuerAppConfig } from "../src/configurations/resolve-urls.js";
@@ -3181,6 +3182,83 @@ describe("FCAF request mutation", () => {
     );
   });
 
+  it("delivers a Request Object whose signature does not verify", async () => {
+    const app = createApp(scenarioConfig);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      response_mode: "direct_post",
+      request_behavior: { signature: "corrupt" },
+    });
+
+    const served = await deliveredRequestObject(app, session);
+    expect(served.split(".")).toHaveLength(3);
+    expect(decodeJwt(served).response_uri).toBe(session.response_uri);
+    await expect(
+      compactVerify(served, await importJWK(verifierPublicJwk(), "ES256")),
+    ).rejects.toThrow();
+
+    const capture = await getJson<VpSessionResponse>(
+      app,
+      `/openid4vp/sessions/${session.session_id}`,
+    );
+    expect(capture.request_behavior).toEqual({ signature: "corrupt" });
+    expect(capture.events.map((event) => event.type)).toContain("vp_request_behavior_applied");
+  });
+
+  it("keeps serving the corrupted signature after a wallet_nonce re-sign", async () => {
+    const app = createApp(scenarioConfig);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      response_mode: "direct_post",
+      request_uri_method: "post",
+      request_behavior: { signature: "corrupt" },
+    });
+
+    const served = await request(app)
+      .post(new URL(String(session.request_uri)).pathname)
+      .type("form")
+      .send({ wallet_nonce: "wallet-supplied-nonce" });
+
+    expect(served.status).toBe(200);
+    expect(decodeJwt(served.text).wallet_nonce).toBe("wallet-supplied-nonce");
+    await expect(
+      compactVerify(served.text, await importJWK(verifierPublicJwk(), "ES256")),
+    ).rejects.toThrow();
+  });
+
+  it.each([
+    ["an unknown behaviour", { unknown: "corrupt" }],
+    ["an unknown signature value", { signature: "invalid" }],
+    ["an empty behaviour", {}],
+  ])("rejects %s", async (_label, behavior) => {
+    const response = await request(createApp(scenarioConfig))
+      .post("/openid4vp/sessions")
+      .send({ request_behavior: behavior });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ error: "invalid_request_behavior" });
+  });
+
+  it("refuses a behaviour unless the deployment enables FCAF scenarios", async () => {
+    const response = await request(createApp(config))
+      .post("/openid4vp/sessions")
+      .send({ request_behavior: { signature: "corrupt" } });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ error: "request_behavior_not_enabled" });
+  });
+
+  it("refuses to corrupt a signature on an unsigned request", async () => {
+    const response = await request(createApp(scenarioConfig))
+      .post("/openid4vp/sessions")
+      .send({
+        client_id_scheme: "redirect_uri",
+        request_delivery: "plain",
+        request_behavior: { signature: "corrupt" },
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ error: "signature_behavior_requires_a_signed_request" });
+  });
+
   it("leaves ordinary sessions unmutated", async () => {
     const app = createApp(scenarioConfig);
     const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
@@ -3245,6 +3323,11 @@ async function getJson<T>(app: Express, path: string): Promise<T> {
   const response = await request(app).get(path);
   expect(response.status).toBeLessThan(400);
   return response.body as T;
+}
+
+function verifierPublicJwk(): JWK {
+  const jwks = JSON.parse(readFileSync(verifierJwksPath(dataDir), "utf8")) as { keys: JWK[] };
+  return jwks.keys[0];
 }
 
 function dcqlForClaims(claims: string[]): JsonRecord {

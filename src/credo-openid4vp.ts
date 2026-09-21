@@ -62,12 +62,14 @@ import {
   signPresentationAuthorizationRequest,
   verifierOrigin,
 } from "./openid4vp.js";
+import { corruptJwsSignature } from "./request-behavior.js";
 import { applyRequestMutationEdits } from "./request-mutation.js";
 import type {
   AppConfig,
   JsonRecord,
   OpenId4VpResponseMode,
   VpDcApiRequest,
+  VpRequestBehavior,
   VpRequestMutation,
   VpSessionCapture,
 } from "./types.js";
@@ -210,6 +212,7 @@ export class CredoOpenId4VpVerifier {
     clientIdScheme: OpenId4VpClientIdScheme,
     allowUndecryptableResponse = false,
     requestMutation?: VpRequestMutation,
+    requestBehavior?: VpRequestBehavior,
   ): Promise<CredoVpSession> {
     await this.ensureVerifier(sessionId);
     if (clientIdScheme === "decentralized_identifier") await this.importDidSigningKey(true);
@@ -294,7 +297,7 @@ export class CredoOpenId4VpVerifier {
     const mutatesRequestObject = Boolean(
       requestMutation?.request_object ?? requestMutation?.request_object_header,
     );
-    const deliveredAuthorizationRequestJwt =
+    const signedDeliveredRequest =
       signRequest && mutatesRequestObject
         ? await signPresentationAuthorizationRequest(
             this.config,
@@ -303,6 +306,10 @@ export class CredoOpenId4VpVerifier {
             requestMutation?.request_object_header,
           )
         : authorizationRequestJwt;
+    const deliveredAuthorizationRequestJwt =
+      signedDeliveredRequest && requestBehavior?.signature === "corrupt"
+        ? corruptJwsSignature(signedDeliveredRequest)
+        : signedDeliveredRequest;
     if (authorizationRequestJwt)
       created.verificationSession.authorizationRequestJwt = authorizationRequestJwt;
     const outerRequest = applyRequestMutationEdits(

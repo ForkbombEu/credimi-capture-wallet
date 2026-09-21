@@ -50,6 +50,7 @@ import {
   isOpenId4VpResponseMode,
   signPresentationAuthorizationRequest,
 } from "./openid4vp.js";
+import { corruptJwsSignature, requestBehaviorOrNull } from "./request-behavior.js";
 import {
   applyRequestMutationEdits,
   requestMutationOrNull,
@@ -68,6 +69,7 @@ import type {
   VerifierResponseHttpCapture,
   VpDcApiInvocationCapture,
   VpDcApiInvocationOutcome,
+  VpRequestBehavior,
   VpRequestMutation,
   VpSessionCapture,
 } from "./types.js";
@@ -562,6 +564,13 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       if (requestMutation && !config.fcaf_scenarios_enabled) {
         return res.status(400).json({ error: "request_mutation_not_enabled" });
       }
+      const requestBehavior = requestBehaviorOrNull(body.request_behavior);
+      if (requestBehavior === null) {
+        return res.status(400).json({ error: "invalid_request_behavior" });
+      }
+      if (requestBehavior && !config.fcaf_scenarios_enabled) {
+        return res.status(400).json({ error: "request_behavior_not_enabled" });
+      }
       const selectedResponseMode = responseMode ?? "direct_post.jwt";
       const selectedClientIdScheme = clientIdScheme ?? "x509_hash";
       const dcApi = isDcApiResponseMode(selectedResponseMode);
@@ -577,6 +586,9 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       }
       if (dcApi && redirectUri) {
         return res.status(400).json({ error: "redirect_uri_unsupported_for_dc_api" });
+      }
+      if (requestBehavior?.signature === "corrupt" && selectedClientIdScheme === "redirect_uri") {
+        return res.status(400).json({ error: "signature_behavior_requires_a_signed_request" });
       }
       if (selectedClientIdScheme === "redirect_uri" && selectedRequestDelivery !== "plain") {
         return res.status(400).json({ error: "redirect_uri_client_id_requires_plain_delivery" });
@@ -608,6 +620,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         selectedClientIdScheme,
         allowUndecryptableResponse,
         requestMutation,
+        requestBehavior,
       );
       store.addEvent(session, "vp_deeplink_generated", {});
       return res.status(201).json({
@@ -733,14 +746,17 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
           session.request_mutation?.request_object,
         );
         if (session.request_mutation) session.raw.authorization_request_delivered = delivered;
+        const resigned = await signPresentationAuthorizationRequest(
+          config,
+          delivered,
+          "x509_hash",
+          session.request_mutation?.request_object_header,
+        );
         store.vpCredoAuthorizationRequestJwts.set(
           session.session_id,
-          await signPresentationAuthorizationRequest(
-            config,
-            delivered,
-            "x509_hash",
-            session.request_mutation?.request_object_header,
-          ),
+          session.request_behavior?.signature === "corrupt"
+            ? corruptJwsSignature(resigned)
+            : resigned,
         );
       }
       const requestObject = store.vpCredoAuthorizationRequestJwts.get(session.session_id);
@@ -1139,6 +1155,7 @@ async function createVpSession(
   clientIdScheme: OpenId4VpClientIdScheme = "x509_hash",
   allowUndecryptableResponse = false,
   requestMutation?: VpRequestMutation,
+  requestBehavior?: VpRequestBehavior,
 ): Promise<VpSessionCapture> {
   const sessionId = randomUUID();
   const defaultRequest = defaultPresentationRequest(
@@ -1163,6 +1180,7 @@ async function createVpSession(
     clientIdScheme,
     allowUndecryptableResponse,
     requestMutation,
+    requestBehavior,
   );
   const sessionRedirectUri = redirectUri ? redirectUriWithResponseCode(redirectUri) : undefined;
   const dcApi =
@@ -1202,6 +1220,10 @@ async function createVpSession(
     store.addEvent(session, "vp_undecryptable_response_allowed", {
       verifier_encryption_key_published: false,
     });
+  }
+  if (requestBehavior) {
+    session.request_behavior = requestBehavior;
+    store.addEvent(session, "vp_request_behavior_applied", { ...requestBehavior });
   }
   session.raw ??= {};
   session.raw.outer_request_delivered = credoSession.outerRequest;
@@ -1449,6 +1471,7 @@ function vpRequestBody(body: JsonRecord): JsonRecord {
     scheme: _scheme,
     allow_undecryptable_response: _allowUndecryptableResponse,
     request_mutation: _requestMutation,
+    request_behavior: _requestBehavior,
     ...request
   } = body;
   return request;

@@ -1085,6 +1085,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
                 "Absolute URI returned to the Wallet after a successful presentation. The service appends a fresh response_code parameter. The capture template creates a service-hosted confirmation page and records valid visits.",
             },
             request_mutation: { $ref: "#/components/schemas/RequestMutation" },
+            request_behavior: { $ref: "#/components/schemas/RequestBehavior" },
           },
           additionalProperties: true,
         },
@@ -1118,6 +1119,20 @@ export function openApiDocument(config: AppConfig): JsonRecord {
               type: "array",
               items: { type: "string" },
               description: "JSON Pointers whose member is removed entirely.",
+            },
+          },
+          additionalProperties: false,
+        },
+        RequestBehavior: {
+          type: "object",
+          description:
+            "Test-only, refused unless the deployment sets FCAF_SCENARIOS_ENABLED. Request-delivery behaviours that are not payload values, so a request_mutation pointer cannot express them.",
+          properties: {
+            signature: {
+              type: "string",
+              enum: ["corrupt"],
+              description:
+                "Deliver a Request Object whose signature does not verify. The request is signed normally first and the signature value is then invalidated, so the JWS stays well formed and the Wallet rejects it on the signature. Requires a signed request, so it is refused with the redirect_uri client identifier prefix.",
             },
           },
           additionalProperties: false,
