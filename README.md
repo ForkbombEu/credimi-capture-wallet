@@ -260,7 +260,8 @@ baseline and withholds the fixture.
 
 Each fixture also carries a distinct `document_number`, so two credentials issued from different
 fixtures are never byte-identical. Issue one session per fixture to give a Wallet several
-credentials of the same type. The PID attribute `age_over_18` exists in both the SD-JWT VC and the
+credentials of the same type. [FCAF_FIXTURES.md](FCAF_FIXTURES.md) catalogues every fixture with
+the conformance tests it serves and the ones that remain unavailable. The PID attribute `age_over_18` exists in both the SD-JWT VC and the
 mdoc encoding so that a DCQL query can constrain it.
 
 Both issuers issue the same deterministic PID claims for the PID

@@ -70,6 +70,8 @@ A malformed fixture requires `status_list_enabled: true`, otherwise it is refuse
 
 An issued credential with no `status` claim at all is `status_list_enabled: false`, which is the default and needs no fixture.
 
+[FCAF_FIXTURES.md](FCAF_FIXTURES.md) catalogues every credential, claim-set fixture, and status-list fixture together with the conformance tests each serves.
+
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/sessions/{sessionId}` | Full current issuance capture, including status, observed information, checks, and events. |
