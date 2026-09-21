@@ -102,6 +102,7 @@ The credential request normally uses `application/json` with `credential_configu
 | `allow_undecryptable_response` | `true` to publish a `client_metadata` object that omits the verifier encryption key | `false` |
 | `request_mutation` | Deliberate JSON Pointer edits to the wallet-facing request; test-only | — |
 | `request_behavior` | Request-delivery behaviour that is not a payload value; test-only | — |
+| `response_scenario` | HTTP response the verifier returns after a presentation; test-only | — |
 
 `request_uri_method` is valid only with `request_delivery: "by_reference"`. The service preserves any supplied string in the deeplink, including values other than the OpenID4VP-defined, case-sensitive `get` and `post`, exclusively to create malformed requests for wallet negative tests. `by_value` supplies a signed Request Object in `request`; `plain` supplies the Authorization Request's URL-encoded parameters directly in the deeplink and omits `request`, `request_uri`, and `request_uri_method`. `response_type`, top-level DCQL, scopes, transaction data, and verifier information are used to construct the wallet-facing request. Inspect the returned `authorization_request` to confirm the exact claims.
 
@@ -196,6 +197,27 @@ is not valid, recorded under `request_behavior`, and logged as `vp_request_behav
 | `{"signature":"corrupt"}` | The delivered Request Object carries a signature that does not verify. The request is signed by the normal path first and the signature value is then invalidated, so the JWS stays well formed and the Wallet rejects it on the signature. Applies to `request_uri` retrieval, a `by_value` deeplink, the DC API `request` member, and a `wallet_nonce` re-sign. Refused with `signature_behavior_requires_a_signed_request` for the `redirect_uri` client identifier prefix. |
 | `{"wallet_nonce":"echo"\|"mismatch"\|"omit"}` | How the POST Request URI flow answers the supplied `wallet_nonce`: echo it, return a fresh unrelated value, or leave the parameter out. `echo` is the default. The `vp_request_retrieved` event records `wallet_nonce_present`, `wallet_nonce_behavior`, and `wallet_nonce_returned`. |
 | `{"request_uri_response":{"status":…,"content_type":"…","body":"…"}}` | Serve the Request URI with a wrong status, media type, or body; each member is optional. The Request Object is still generated and kept in `raw.authorization_request_jwt`, and the response actually delivered is recorded in `raw.request_uri_response_http`. |
+
+### Verifier response scenarios
+
+`response_scenario` controls the HTTP response returned to the Wallet after it submits an
+Authorization Response, at both `POST /openid4vp/sessions/{sessionId}/response` and
+`POST /openid4vp/response`. It is gated by `FCAF_SCENARIOS_ENABLED`, refused with
+`response_scenario_not_enabled` when the flag is off and `invalid_response_scenario` when the shape
+is not valid.
+
+| Member | Effect |
+| --- | --- |
+| `status` | The delivered HTTP status, 100 to 599. |
+| `content_type` | The delivered media type, for example `text/plain`. |
+| `body` | The exact delivered body, replacing the normal JSON body. |
+| `extra_parameters` | Members merged into the normal JSON body, for an unrecognised response parameter or an error member. |
+
+The scenario is applied at the HTTP boundary and nowhere else. The verification result, session
+status, and `checks` are recorded before it and are unaffected: a test-selected `400` does not mark
+a valid presentation invalid, and a test-selected `200` does not mark an invalid one verified. The
+delivered response is recorded in `raw.presentation_response_verifier_http`, the selection in
+`response_scenario`, and a `vp_response_scenario_selected` event is logged at session creation.
 
 ### Digital Credentials API presentation
 

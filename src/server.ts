@@ -56,6 +56,7 @@ import {
   requestMutationOrNull,
   requestMutationPointers,
 } from "./request-mutation.js";
+import { responseScenarioOrNull } from "./response-scenario.js";
 import { CaptureStore, asStringOrNull } from "./state.js";
 import type {
   AppConfig,
@@ -71,6 +72,7 @@ import type {
   VpDcApiInvocationOutcome,
   VpRequestBehavior,
   VpRequestMutation,
+  VpResponseScenario,
   VpSessionCapture,
 } from "./types.js";
 import {
@@ -571,6 +573,13 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       if (requestBehavior && !config.fcaf_scenarios_enabled) {
         return res.status(400).json({ error: "request_behavior_not_enabled" });
       }
+      const responseScenario = responseScenarioOrNull(body.response_scenario);
+      if (responseScenario === null) {
+        return res.status(400).json({ error: "invalid_response_scenario" });
+      }
+      if (responseScenario && !config.fcaf_scenarios_enabled) {
+        return res.status(400).json({ error: "response_scenario_not_enabled" });
+      }
       const selectedResponseMode = responseMode ?? "direct_post.jwt";
       const selectedClientIdScheme = clientIdScheme ?? "x509_hash";
       const dcApi = isDcApiResponseMode(selectedResponseMode);
@@ -621,6 +630,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         allowUndecryptableResponse,
         requestMutation,
         requestBehavior,
+        responseScenario,
       );
       store.addEvent(session, "vp_deeplink_generated", {});
       return res.status(201).json({
@@ -1168,6 +1178,7 @@ async function createVpSession(
   allowUndecryptableResponse = false,
   requestMutation?: VpRequestMutation,
   requestBehavior?: VpRequestBehavior,
+  responseScenario?: VpResponseScenario,
 ): Promise<VpSessionCapture> {
   const sessionId = randomUUID();
   const defaultRequest = defaultPresentationRequest(
@@ -1236,6 +1247,10 @@ async function createVpSession(
   if (requestBehavior) {
     session.request_behavior = requestBehavior;
     store.addEvent(session, "vp_request_behavior_applied", { ...requestBehavior });
+  }
+  if (responseScenario) {
+    session.response_scenario = responseScenario;
+    store.addEvent(session, "vp_response_scenario_selected", { ...responseScenario });
   }
   session.raw ??= {};
   session.raw.outer_request_delivered = credoSession.outerRequest;
@@ -1324,13 +1339,23 @@ function sendRequestUriResponse(
   return res.status(status).type(contentType).send(body);
 }
 
+/**
+ * The single HTTP boundary for a submitted Authorization Response. A session's
+ * `response_scenario` replaces the status, media type, or body delivered to the Wallet. It is
+ * applied here and nowhere else, so the recorded verification outcome written by
+ * `captureVpResponse` cannot move with it: a test-selected 400 never marks a valid presentation
+ * invalid, and a test-selected 200 never marks an invalid one verified.
+ */
 function sendVpSubmissionResponse(
   res: Response,
   session: VpSessionCapture,
   status: number,
   body: JsonRecord,
 ): Response {
-  const serializedBody = JSON.stringify(body);
+  const scenario = session.response_scenario;
+  const deliveredStatus = scenario?.status ?? status;
+  const serializedBody =
+    scenario?.body ?? JSON.stringify({ ...body, ...(scenario?.extra_parameters ?? {}) });
   res.once("finish", () => {
     session.raw ??= {};
     session.raw.presentation_response_verifier_http = {
@@ -1340,9 +1365,9 @@ function sendVpSubmissionResponse(
     };
   });
   return res
-    .status(status)
+    .status(deliveredStatus)
     .set("Cache-Control", "no-store")
-    .type("application/json")
+    .type(scenario?.content_type ?? "application/json")
     .send(serializedBody);
 }
 
@@ -1509,6 +1534,7 @@ function vpRequestBody(body: JsonRecord): JsonRecord {
     allow_undecryptable_response: _allowUndecryptableResponse,
     request_mutation: _requestMutation,
     request_behavior: _requestBehavior,
+    response_scenario: _responseScenario,
     ...request
   } = body;
   return request;

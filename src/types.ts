@@ -233,6 +233,20 @@ export interface VpRequestBehavior {
   request_uri_response?: VpRequestUriResponseBehavior;
 }
 
+/**
+ * Test-only control over the HTTP response the verifier returns after receiving an Authorization
+ * Response. It changes only what the Wallet is told; the recorded verification outcome is
+ * unaffected.
+ */
+export interface VpResponseScenario {
+  status?: number;
+  content_type?: string;
+  /** Exact response body, replacing the normal JSON body. */
+  body?: string;
+  /** Members merged into the normal JSON body, for an unrecognised response parameter. */
+  extra_parameters?: JsonRecord;
+}
+
 export type VpDcApiProtocol = "openid4vp-v1-signed" | "openid4vp-v1-unsigned";
 
 /** Browser invocation request handed to `navigator.credentials.get({ digital: { requests } })`. */
@@ -293,6 +307,8 @@ export interface VpSessionCapture {
   request_mutation?: VpRequestMutation;
   /** Present when a test-only request-delivery behaviour was selected. */
   request_behavior?: VpRequestBehavior;
+  /** Present when the HTTP response returned to the wallet is deliberately test-controlled. */
+  response_scenario?: VpResponseScenario;
   observed: {
     request_uri_payload: ObservedValue<JsonRecord>;
     wallet_response: ObservedValue<JsonRecord>;

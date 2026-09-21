@@ -1086,6 +1086,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             },
             request_mutation: { $ref: "#/components/schemas/RequestMutation" },
             request_behavior: { $ref: "#/components/schemas/RequestBehavior" },
+            response_scenario: { $ref: "#/components/schemas/ResponseScenario" },
           },
           additionalProperties: true,
         },
@@ -1151,6 +1152,26 @@ export function openApiDocument(config: AppConfig): JsonRecord {
               enum: ["corrupt"],
               description:
                 "Deliver a Request Object whose signature does not verify. The request is signed normally first and the signature value is then invalidated, so the JWS stays well formed and the Wallet rejects it on the signature. Requires a signed request, so it is refused with the redirect_uri client identifier prefix.",
+            },
+          },
+          additionalProperties: false,
+        },
+        ResponseScenario: {
+          type: "object",
+          description:
+            "Test-only, refused unless the deployment sets FCAF_SCENARIOS_ENABLED. Controls the HTTP response returned to the Wallet after it submits an Authorization Response. It changes only what the Wallet is told: the recorded verification result, session status, and checks are unaffected, so a test-selected 400 never marks a valid presentation invalid and a test-selected 200 never marks an invalid one verified.",
+          properties: {
+            status: { type: "integer", minimum: 100, maximum: 599 },
+            content_type: { type: "string" },
+            body: {
+              type: "string",
+              description: "Exact response body, replacing the normal JSON body.",
+            },
+            extra_parameters: {
+              type: "object",
+              additionalProperties: true,
+              description:
+                "Members merged into the normal JSON body, for an unrecognised response parameter or an error member.",
             },
           },
           additionalProperties: false,

@@ -528,6 +528,27 @@ the normal one. The signed Request Object is still generated and kept in
 `raw.authorization_request_jwt`; what the endpoint actually returned is recorded in
 `raw.request_uri_response_http`.
 
+#### Verifier response scenarios
+
+Some tests turn on what the verifier answers after the Wallet submits its Authorization Response.
+`response_scenario` controls that response and is gated by the same `FCAF_SCENARIOS_ENABLED` flag:
+
+```sh
+curl -X POST "$BASE_URL/openid4vp/sessions" \
+  -H 'Content-Type: application/json' \
+  -d '{"response_scenario":{"status":400,"extra_parameters":{"error":"invalid_request"}}}'
+```
+
+`status`, `content_type`, and `body` replace the delivered status, media type, and body;
+`extra_parameters` are merged into the normal JSON body, which is how an unrecognised response
+parameter or an error member is added. Every member is optional.
+
+The scenario applies at the HTTP boundary only. The recorded verification result, the session
+status, and `checks` are unaffected, so a test-selected `400` never marks a valid presentation
+invalid and a test-selected `200` never marks an invalid one verified. The response actually
+delivered is recorded in `raw.presentation_response_verifier_http`, and the selection in
+`response_scenario` with a `vp_response_scenario_selected` event.
+
 #### Digital Credentials API presentation
 
 `"response_mode": "dc_api.jwt"` (encrypted response) or `"dc_api"` (unencrypted) present over the
@@ -674,8 +695,9 @@ From env file `.env`, that is loaded automatically when present, you can set:
   never from a request `Host` header, so a cross-device DC API deployment behind a proxy must set
   it to the HTTPS URL the End-User's browser actually reaches.
 - `FCAF_SCENARIOS_ENABLED`: enables the FCAF scenario inputs that deliberately produce malformed
-  protocol material, `request_mutation` and `request_behavior`. Defaults to `false`, so an ordinary
-  deployment refuses them with `request_mutation_not_enabled` or `request_behavior_not_enabled`.
+  protocol material: `request_mutation`, `request_behavior`, and `response_scenario`. Defaults to
+  `false`, so an ordinary deployment refuses them with `request_mutation_not_enabled`,
+  `request_behavior_not_enabled`, or `response_scenario_not_enabled`.
 - `STATUS_LIST_BASE_URL`: overrides the configured Status List endpoint.
 - `STATUS_LIST_API_KEY`: overrides the configured Status List management API key.
 
