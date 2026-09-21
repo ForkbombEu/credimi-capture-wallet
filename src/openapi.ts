@@ -1151,6 +1151,18 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           description:
             "Test-only, refused unless the deployment sets FCAF_SCENARIOS_ENABLED. Request-delivery behaviours that are not payload values, so a request_mutation pointer cannot express them.",
           properties: {
+            signing_key: {
+              type: "string",
+              enum: ["unrelated"],
+              description:
+                "Sign the Request Object with a key that is not the one bound to the advertised client identifier, leaving the certificate or DID document untouched. Requires a signed request.",
+            },
+            certificate_chain: {
+              type: "string",
+              enum: ["unrelated_self_signed", "untrusted_root", "incomplete_chain"],
+              description:
+                "Present a different X.509 chain in x5c, generated through the same Credo X.509 path the service uses for its own material. The request stays validly signed by that chain's leaf key and the x509_hash Client Identifier is recomputed from it, so the chain is the only defect. Requires the x509_hash client identifier prefix.",
+            },
             wallet_nonce: {
               type: "string",
               enum: ["echo", "mismatch", "omit"],

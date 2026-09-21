@@ -21,6 +21,7 @@ import type {
   AppConfig,
   JsonRecord,
   OpenId4VpResponseMode,
+  RequestSigningMaterial,
   VpRequestMutationEdits,
 } from "./types.js";
 
@@ -127,23 +128,30 @@ export function buildPresentationAuthorizationRequest(
 }
 
 /**
- * Signs the Request Object. `headerEdits` deliberately alters the JOSE header for an FCAF
- * scenario — a missing or wrong `typ`, for instance — and is applied after the normal header is
- * built, so a scenario cannot accidentally change the signing key or algorithm selection.
+ * Signs the Request Object.
+ *
+ * `headerEdits` deliberately alters the JOSE header for an FCAF scenario — a missing or wrong
+ * `typ`, for instance — and is applied after the normal header is built, so a scenario cannot
+ * accidentally change the algorithm selection. `material` replaces the signing key, and its
+ * certificate chain when it carries one, which is how a request signed by the wrong key or
+ * presenting an untrusted chain is produced without a second signing implementation.
  */
 export async function signPresentationAuthorizationRequest(
   config: AppConfig,
   request: JsonRecord,
   clientIdScheme: Exclude<OpenId4VpClientIdScheme, "redirect_uri"> = "x509_hash",
-  headerEdits?: VpRequestMutationEdits,
+  options: { headerEdits?: VpRequestMutationEdits; material?: RequestSigningMaterial } = {},
 ): Promise<string> {
   const isDid = clientIdScheme === "decentralized_identifier";
-  const privateJwk = JSON.parse(
-    readFileSync(
-      isDid ? verifierDidPrivateJwkPath(config.data_dir) : verifierPrivateJwkPath(config.data_dir),
-      "utf8",
-    ),
-  ) as JWK;
+  const privateJwk = (options.material?.privateJwk ??
+    JSON.parse(
+      readFileSync(
+        isDid
+          ? verifierDidPrivateJwkPath(config.data_dir)
+          : verifierPrivateJwkPath(config.data_dir),
+        "utf8",
+      ),
+    )) as JWK;
   const key = await importJWK(privateJwk, "ES256");
   const header = applyRequestMutationEdits(
     {
@@ -151,9 +159,12 @@ export async function signPresentationAuthorizationRequest(
       typ: "oauth-authz-req+jwt",
       ...(isDid
         ? { kid: `${verifierDid(config)}#${VERIFIER_DID_KEY_ID}` }
-        : { kid: VERIFIER_KEY_ID, x5c: [verifierCertificateBase64Der(config)] }),
+        : {
+            kid: VERIFIER_KEY_ID,
+            x5c: options.material?.x5c ?? [verifierCertificateBase64Der(config)],
+          }),
     } as JsonRecord,
-    headerEdits,
+    options.headerEdits,
   );
   return new SignJWT(request).setProtectedHeader(header as never).sign(key);
 }

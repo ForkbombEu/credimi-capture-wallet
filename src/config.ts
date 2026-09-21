@@ -688,6 +688,10 @@ function toPublicJwk(privateJwk: JsonRecord): JsonRecord {
   return publicJwk;
 }
 
+export function createJwkSigningContext(privateJwk: JsonRecord, keyId: string): object {
+  return createSigningContext(privateJwk, keyId);
+}
+
 function createSigningContext(privateJwk: JsonRecord, keyId: string): object {
   const publicJwk = toPublicJwk(privateJwk);
   const kms = {

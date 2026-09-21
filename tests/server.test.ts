@@ -3459,6 +3459,119 @@ describe("FCAF request mutation", () => {
     expect(response.body).toEqual({ error: "invalid_request_behavior" });
   });
 
+  it("signs with a key that does not match the certificate in x5c", async () => {
+    const app = createApp(scenarioConfig);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      response_mode: "direct_post",
+      request_behavior: { signing_key: "unrelated" },
+    });
+
+    const served = await deliveredRequestObject(app, session);
+    const header = decodeProtectedHeader(served);
+    const certificate = X509Certificate.fromEncodedCertificate((header.x5c as string[])[0]);
+    expect((header.x5c as string[])[0]).toBe(
+      readFileSync(verifierCertificatePath(dataDir), "utf8")
+        .replace(/-----[^-]+-----/g, "")
+        .replace(/\s+/g, ""),
+    );
+    await expect(
+      compactVerify(served, await importJWK(certificate.publicJwk.toJson() as JWK, "ES256")),
+    ).rejects.toThrow();
+    expect(decodeJwt(served).client_id).toBe(session.authorization_request.client_id);
+  });
+
+  it.each([
+    ["unrelated_self_signed", 1],
+    ["untrusted_root", 2],
+    ["incomplete_chain", 1],
+  ])("presents the %s chain and signs with its leaf key", async (fixture, chainLength) => {
+    const app = createApp(scenarioConfig);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      response_mode: "direct_post",
+      request_behavior: { certificate_chain: fixture },
+    });
+
+    const served = await deliveredRequestObject(app, session);
+    const chain = decodeProtectedHeader(served).x5c as string[];
+    expect(chain).toHaveLength(chainLength);
+    const leaf = X509Certificate.fromEncodedCertificate(chain[0]);
+    expect(leaf.subject).toContain("unrelated-verifier.invalid");
+
+    // The chain is the only defect: the signature verifies against the presented leaf, and the
+    // delivered client_id is the hash of that leaf rather than of the service's own certificate.
+    await expect(
+      compactVerify(served, await importJWK(leaf.publicJwk.toJson() as JWK, "ES256")),
+    ).resolves.toBeDefined();
+    const delivered = decodeJwt(served).client_id as string;
+    expect(delivered).toMatch(/^x509_hash:/);
+    expect(delivered).not.toBe(session.authorization_request.client_id);
+    expect(session.authorization_request.client_id).toMatch(/^x509_hash:/);
+  });
+
+  it("chains the untrusted root to the leaf it issued", async () => {
+    const app = createApp(scenarioConfig);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      response_mode: "direct_post",
+      request_behavior: { certificate_chain: "untrusted_root" },
+    });
+
+    const chain = decodeProtectedHeader(await deliveredRequestObject(app, session)).x5c as string[];
+    const leaf = X509Certificate.fromEncodedCertificate(chain[0]);
+    const root = X509Certificate.fromEncodedCertificate(chain[1]);
+
+    expect(root.subject).toContain("untrusted-test-root.invalid");
+    expect(leaf.issuer).toBe(root.subject);
+    expect(root.issuer).toBe(root.subject);
+  });
+
+  it("keeps the generated request signed by the real certificate for verification", async () => {
+    const app = createApp(scenarioConfig);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      response_mode: "direct_post",
+      presentation_request: { dcql_query: dcqlForClaims(["family_name"]) },
+      request_behavior: { certificate_chain: "unrelated_self_signed" },
+    });
+    const credential = await sdJwtCredential();
+    const presentation = await sdJwtPresentation({
+      credential,
+      authorizationRequest: session.authorization_request,
+      disclosedClaims: ["family_name"],
+    });
+
+    const response = await request(app)
+      .post(`/openid4vp/sessions/${session.session_id}/response`)
+      .send({
+        state: session.authorization_request.state,
+        vp_token: { query_0: [presentation] },
+      });
+
+    expect(response.status).toBe(200);
+  });
+
+  it.each([
+    ["an unknown chain fixture", { certificate_chain: "expired" }],
+    ["an unknown signing key", { signing_key: "rotated" }],
+  ])("rejects %s", async (_label, behavior) => {
+    const response = await request(createApp(scenarioConfig))
+      .post("/openid4vp/sessions")
+      .send({ request_behavior: behavior });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ error: "invalid_request_behavior" });
+  });
+
+  it("refuses a certificate chain fixture for a client identifier that is not x509_hash", async () => {
+    const response = await request(createApp(scenarioConfig))
+      .post("/openid4vp/sessions")
+      .send({
+        client_id_scheme: "decentralized_identifier",
+        request_behavior: { certificate_chain: "untrusted_root" },
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ error: "certificate_chain_requires_x509_hash_client_id" });
+  });
+
   it("leaves ordinary sessions unmutated", async () => {
     const app = createApp(scenarioConfig);
     const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {

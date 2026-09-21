@@ -53,6 +53,10 @@ import {
 } from "./openid4vp.js";
 import { corruptJwsSignature, requestBehaviorOrNull } from "./request-behavior.js";
 import {
+  generateRequestCertificateMaterial,
+  generateUnrelatedSigningKey,
+} from "./request-certificates.js";
+import {
   applyRequestMutationEdits,
   requestMutationOrNull,
   requestMutationPointers,
@@ -67,6 +71,7 @@ import type {
   Oid4vciHttpRequestCapture,
   PresentationResponseHttpCapture,
   RedirectUriVisitHttpCapture,
+  RequestSigningMaterial,
   RequestUriHttpCapture,
   SessionCapture,
   StatusReferenceFixture,
@@ -629,6 +634,15 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       if (requestBehavior?.signature === "corrupt" && selectedClientIdScheme === "redirect_uri") {
         return res.status(400).json({ error: "signature_behavior_requires_a_signed_request" });
       }
+      if (
+        (requestBehavior?.signing_key || requestBehavior?.certificate_chain) &&
+        selectedClientIdScheme === "redirect_uri"
+      ) {
+        return res.status(400).json({ error: "signature_behavior_requires_a_signed_request" });
+      }
+      if (requestBehavior?.certificate_chain && selectedClientIdScheme !== "x509_hash") {
+        return res.status(400).json({ error: "certificate_chain_requires_x509_hash_client_id" });
+      }
       if (selectedClientIdScheme === "redirect_uri" && selectedRequestDelivery !== "plain") {
         return res.status(400).json({ error: "redirect_uri_client_id_requires_plain_delivery" });
       }
@@ -798,11 +812,17 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
           session.request_mutation?.request_object,
         );
         if (session.request_mutation) session.raw.authorization_request_delivered = delivered;
+        const material = store.vpRequestSigningMaterial.get(session.session_id);
         const resigned = await signPresentationAuthorizationRequest(
           config,
           delivered,
           "x509_hash",
-          session.request_mutation?.request_object_header,
+          {
+            ...(session.request_mutation?.request_object_header
+              ? { headerEdits: session.request_mutation.request_object_header }
+              : {}),
+            ...(material ? { material } : {}),
+          },
         );
         store.vpCredoAuthorizationRequestJwts.set(
           session.session_id,
@@ -1225,6 +1245,7 @@ async function createVpSession(
     ...requestOverride,
     response_mode: responseMode,
   };
+  const requestSigningMaterial = await requestSigningMaterialOrUndefined(requestBehavior);
   const credoVerifier = await credoOpenId4VpVerifier(config);
   const credoSession = await credoVerifier.createSession(
     sessionId,
@@ -1238,6 +1259,7 @@ async function createVpSession(
     allowUndecryptableResponse,
     requestMutation,
     requestBehavior,
+    requestSigningMaterial,
   );
   const sessionRedirectUri = redirectUri ? redirectUriWithResponseCode(redirectUri) : undefined;
   const dcApi =
@@ -1282,6 +1304,9 @@ async function createVpSession(
     session.request_behavior = requestBehavior;
     store.addEvent(session, "vp_request_behavior_applied", { ...requestBehavior });
   }
+  if (requestSigningMaterial) {
+    store.vpRequestSigningMaterial.set(sessionId, requestSigningMaterial);
+  }
   if (responseScenario) {
     session.response_scenario = responseScenario;
     store.addEvent(session, "vp_response_scenario_selected", { ...responseScenario });
@@ -1298,6 +1323,21 @@ async function createVpSession(
   }
   session.deeplink = credoSession.deeplink;
   return session;
+}
+
+/**
+ * Resolves the key, and chain, a session's Request Object is signed with. `signing_key` keeps the
+ * real certificate and changes only the key, so the mismatch between them is the single defect;
+ * `certificate_chain` generates a chain and signs with its leaf key, so the chain is.
+ */
+async function requestSigningMaterialOrUndefined(
+  behavior: VpRequestBehavior | undefined,
+): Promise<RequestSigningMaterial | undefined> {
+  if (behavior?.certificate_chain) {
+    return generateRequestCertificateMaterial(behavior.certificate_chain);
+  }
+  if (behavior?.signing_key === "unrelated") return generateUnrelatedSigningKey();
+  return undefined;
 }
 
 function captureVpResponse(

@@ -19,6 +19,18 @@ export type StatusReferenceFixture =
   | "malformed_uri"
   | "missing_uri";
 
+/** X.509 chain presented in the `x5c` header of a signed Request Object for a test scenario. */
+export type RequestCertificateFixture =
+  | "unrelated_self_signed"
+  | "untrusted_root"
+  | "incomplete_chain";
+
+/** Key, and optional certificate chain, a Request Object is signed with. */
+export interface RequestSigningMaterial {
+  privateJwk: JsonRecord;
+  x5c?: string[];
+}
+
 export interface AppConfig {
   issuer_base_url: string;
   /**
@@ -247,6 +259,16 @@ export interface VpRequestUriResponseBehavior {
 export interface VpRequestBehavior {
   /** Deliver a Request Object whose signature does not verify. */
   signature?: "corrupt";
+  /**
+   * Sign the Request Object with a key that is not the one bound to the advertised client
+   * identifier, leaving the certificate or DID document itself untouched.
+   */
+  signing_key?: "unrelated";
+  /**
+   * Present a different X.509 chain in `x5c`. The request stays validly signed by that chain's
+   * leaf key, so the chain is the only defect.
+   */
+  certificate_chain?: RequestCertificateFixture;
   /**
    * How the POST Request URI flow answers the `wallet_nonce` the Wallet supplied. `echo` is the
    * normal behaviour and the default when the member is absent.

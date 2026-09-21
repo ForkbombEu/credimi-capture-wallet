@@ -33,6 +33,22 @@ export function requestBehaviorOrNull(value: unknown): VpRequestBehavior | null 
       behavior.signature = memberValue;
       continue;
     }
+    if (member === "signing_key") {
+      if (memberValue !== "unrelated") return null;
+      behavior.signing_key = memberValue;
+      continue;
+    }
+    if (member === "certificate_chain") {
+      if (
+        memberValue !== "unrelated_self_signed" &&
+        memberValue !== "untrusted_root" &&
+        memberValue !== "incomplete_chain"
+      ) {
+        return null;
+      }
+      behavior.certificate_chain = memberValue;
+      continue;
+    }
     if (member === "wallet_nonce") {
       if (memberValue !== "echo" && memberValue !== "mismatch" && memberValue !== "omit") {
         return null;

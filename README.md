@@ -557,6 +557,26 @@ signature is what the Wallet receives from both `request_uri` retrieval and a `b
 including after a `wallet_nonce` re-sign, while the verifier keeps the valid request it generated.
 It requires a signed request, so it is refused with the `redirect_uri` client identifier prefix.
 
+`{"signing_key":"unrelated"}` signs the Request Object with a key that is not the one bound to the
+advertised client identifier, leaving the certificate in `x5c` and the DID document untouched, so
+the key-to-identifier mismatch is the only defect.
+
+`{"certificate_chain":"…"}` presents a different X.509 chain in `x5c`. The certificates are
+generated through the same Credo X.509 path the service uses for its own material, the request is
+signed by that chain's leaf key, and the `x509_hash` Client Identifier is recomputed from the new
+leaf — so the chain is the only defect rather than also disagreeing with the identifier. It
+requires the `x509_hash` prefix.
+
+| `certificate_chain` | `x5c` |
+| --- | --- |
+| `unrelated_self_signed` | One self-signed leaf for `unrelated-verifier.invalid` |
+| `untrusted_root` | `[leaf, root]` where the root is a generated CA no wallet trusts |
+| `incomplete_chain` | `[leaf]` only, whose issuing CA is absent from the chain |
+
+Because the delivered Client Identifier changes, a wallet that answers anyway produces a
+presentation bound to it, which then fails audience verification. That is expected: these are
+negative scenarios in which no presentation should arrive.
+
 `{"wallet_nonce":"mismatch"}` and `{"wallet_nonce":"omit"}` change how the POST Request URI flow
 answers the `wallet_nonce` the Wallet supplied: `mismatch` returns a fresh unrelated value and
 `omit` leaves the parameter out. `echo` is the normal behaviour and the default. The received and
@@ -774,6 +794,13 @@ issuing a silently valid credential. Valid COSE status references work today thr
 **Credentials without cryptographic holder binding.** Not implemented, pending
 [credo-ts#2936](https://github.com/openwallet-foundation/credo-ts/pull/2936). Every credential
 this service issues is device-bound to the holder key from the wallet's proof.
+
+**The `x509_san_dns` happy path.** Not exercised. A wallet trusts a verifier certificate through
+the [EUDI service-provider registry](https://registry.serviceproviders.eudiw.dev/guide), which
+does not issue a certificate carrying a `dNSName` SAN, so a registry-trusted request cannot use
+the `x509_san_dns` Client Identifier Prefix. The prefix itself is implemented and a request can be
+created with it, but a wallet-accepted `x509_san_dns` request cannot be produced. The negative
+`x509_san_dns` cases do not need it: a mismatching DNS name is a `request_mutation` on `client_id`.
 
 **SD-JWT VC JSON serialization.** The service issues and verifies the compact serialization only.
 A test requiring a presentation in JSON serialization needs both wallet support and a verifier

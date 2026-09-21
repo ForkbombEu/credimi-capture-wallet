@@ -63,11 +63,13 @@ import {
   verifierOrigin,
 } from "./openid4vp.js";
 import { corruptJwsSignature } from "./request-behavior.js";
+import { x509HashClientId } from "./request-certificates.js";
 import { applyRequestMutationEdits } from "./request-mutation.js";
 import type {
   AppConfig,
   JsonRecord,
   OpenId4VpResponseMode,
+  RequestSigningMaterial,
   VpDcApiRequest,
   VpRequestBehavior,
   VpRequestMutation,
@@ -213,6 +215,7 @@ export class CredoOpenId4VpVerifier {
     allowUndecryptableResponse = false,
     requestMutation?: VpRequestMutation,
     requestBehavior?: VpRequestBehavior,
+    requestSigningMaterial?: RequestSigningMaterial,
   ): Promise<CredoVpSession> {
     await this.ensureVerifier(sessionId);
     if (clientIdScheme === "decentralized_identifier") await this.importDidSigningKey(true);
@@ -294,16 +297,28 @@ export class CredoOpenId4VpVerifier {
           clientIdScheme,
         )
       : undefined;
+    // A certificate-chain fixture replaces the leaf the wallet sees, so the `x509_hash` Client
+    // Identifier is recomputed from it: the chain becomes the only defect instead of also
+    // disagreeing with the identifier. Credo keeps the request generated above, so the verifier's
+    // own expectations stay on the real certificate.
+    if (requestSigningMaterial?.x5c && clientIdScheme === "x509_hash") {
+      deliveredRequest.client_id = x509HashClientId(requestSigningMaterial.x5c[0]);
+    }
     const mutatesRequestObject = Boolean(
       requestMutation?.request_object ?? requestMutation?.request_object_header,
     );
     const signedDeliveredRequest =
-      signRequest && mutatesRequestObject
+      signRequest && (mutatesRequestObject || requestSigningMaterial)
         ? await signPresentationAuthorizationRequest(
             this.config,
             deliveredRequest,
             clientIdScheme,
-            requestMutation?.request_object_header,
+            {
+              ...(requestMutation?.request_object_header
+                ? { headerEdits: requestMutation.request_object_header }
+                : {}),
+              ...(requestSigningMaterial ? { material: requestSigningMaterial } : {}),
+            },
           )
         : authorizationRequestJwt;
     const deliveredAuthorizationRequestJwt =

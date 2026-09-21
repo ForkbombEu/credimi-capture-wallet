@@ -5,8 +5,10 @@ const MUTATION_TARGETS = ["outer_request", "request_object", "request_object_hea
 
 /**
  * Applies a set of deliberately malformed edits to a generated protocol message and returns the
- * result. The input document is copied, so the verifier keeps the message it generated and only
- * the wallet-facing copy carries the edits.
+ * result. The input document is always copied, even with no edits: the caller keeps the message
+ * the verifier generated and verifies against, and only the returned copy is delivered to the
+ * wallet. Returning the same object for an empty edit set would let a later change to the
+ * delivered copy move the verifier's own expectations with it.
  *
  * `set` writes a value at a JSON Pointer, including `null` and values of the wrong JSON type.
  * `unset` removes the member entirely, which is a different wire outcome from a `null` value.
@@ -16,12 +18,11 @@ export function applyRequestMutationEdits<T extends JsonRecord>(
   document: T,
   edits: VpRequestMutationEdits | undefined,
 ): T {
-  if (!edits) return document;
   const mutated = structuredClone(document);
-  for (const [pointer, value] of Object.entries(edits.set ?? {})) {
+  for (const [pointer, value] of Object.entries(edits?.set ?? {})) {
     setJsonPointer(mutated, pointer, value);
   }
-  for (const pointer of edits.unset ?? []) {
+  for (const pointer of edits?.unset ?? []) {
     unsetJsonPointer(mutated, pointer);
   }
   return mutated;

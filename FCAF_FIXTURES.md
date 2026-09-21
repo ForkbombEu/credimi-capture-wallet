@@ -77,6 +77,31 @@ while withholding `degrees[2].university`. It supports DCQL claim paths such as
 Serves `WS_RP_SH_Encoding_TextualEncoding002` and `WS_RP_SH_Encoding_TextualEncoding003`. No
 issuer change was needed for these; the structure is asserted in `tests/degree-credential.test.ts`.
 
+## Request-signing and certificate fixtures
+
+Selected with `request_behavior` on `POST /openid4vp/sessions`, gated by `FCAF_SCENARIOS_ENABLED`.
+These are verifier-side request fixtures rather than credential fixtures, and are listed here so
+the whole set is in one place.
+
+| Control | Effect | Serves |
+| --- | --- | --- |
+| `signature: "corrupt"` | Signature does not verify | `WS_RP_SM_RpIntegrity__027` |
+| `signing_key: "unrelated"` | Signed by a key that is not the certificate's or the DID's | `WS_RP_MS_Metadata__132`, `WS_RP_SM_RpIntegrity__015`, `WS_RP_SM_RpIntegrity__007` (with `client_id_scheme: "decentralized_identifier"`) |
+| `certificate_chain: "unrelated_self_signed"` | Self-signed leaf for `unrelated-verifier.invalid` | `WS_RP_SM_RpIntegrity__026` |
+| `certificate_chain: "untrusted_root"` | `[leaf, generated root]` | `WS_RP_SM_RpIntegrity__017`, `__019` |
+| `certificate_chain: "incomplete_chain"` | `[leaf]` with its issuer absent | `WS_RP_SM_RpIntegrity__017`, `__019` |
+
+Three more cases need no new control, because the mechanisms from Phase 2 already express them:
+
+| Case | How |
+| --- | --- |
+| `x5c` header missing — `WS_RP_SM_RpIntegrity__014` | `request_mutation.request_object_header.unset: ["/x5c"]` |
+| Client Identifier does not match the leaf hash — `WS_RP_MS_Metadata__130` | `request_mutation.request_object.set: {"/client_id": "x509_hash:…"}` |
+| DNS name does not match the certificate SAN — `WS_RP_MS_Metadata__126` | `request_mutation.request_object.set` on `/client_id` |
+
+The happy paths `WS_RP_MS_Metadata__129` and `__131` are the service's default behaviour with the
+`x509_hash` prefix and need no fixture.
+
 ## Reference-wallet compatibility
 
 Not established here. Every fixture above is verified against the credential this service actually
@@ -92,3 +117,8 @@ one is a wallet-profile question that the FCAF harness answers by running the te
 | Malformed COSE status structures — `WS_RP_MS_Metadata__092`, `__094`, `__096`, `__097`, `__099`, `__100`, `__102` | `@owf/token-status-list` requires a non-negative integer `idx` and a string `uri`; producing these needs a non-Credo COSE path, which `AGENTS.md` puts behind explicit approval |
 | A presentation in SD-JWT VC JSON serialization — `WS_RP_MS_CredentialFormats__048` | Compact serialization only, on both the issuing and the verifying side |
 | A numeric data-type mismatch — the `kg` axis of `WS_RP_IA_MainInteraction__033` | No issued credential carries a numeric claim |
+| A wallet-accepted `x509_san_dns` request — `WS_RP_MS_Metadata__125`, `__127`, `__128` | The EUDI service-provider registry does not issue a certificate with a `dNSName` SAN, so a registry-trusted request cannot use that prefix |
+| The wallet's configured trust anchor inside `x5c` — `WS_RP_SM_RpIntegrity__025` | `untrusted_root` includes the generated chain's own root, not the anchor the wallet trusts, which this service does not hold |
+| RS384 or PS384 signed requests — `WS_RP_SM_RpIntegrity__032`, `WS_RP_SM_RpIntegrity_CryptographicSignature_002` | The KMS backend generates EC keys only, and an RSA certificate would need a non-Credo path; signing with an RSA key under the existing certificate would add a second defect |
+| COSE algorithm identifiers −7 versus −9 — `WS_RP_SM_RpIntegrity__033`, `__034`, `CryptographicSignature_003`, `_004` | Both describe ECDSA P-256 with SHA-256, which a JOSE `alg` header expresses only as `ES256`; the COSE identifier distinction is not expressible in a JAR request object |
+| An encrypted Request Object — `WS_RP_IA_MainInteraction__024` | Request Object encryption is not implemented; the wallet-metadata cases `WS_RP_MS_Metadata__134`, `__136`, `__137` need only the captured `wallet_metadata`, and `__135` is the service's current unencrypted behaviour |

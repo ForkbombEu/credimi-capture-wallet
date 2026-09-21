@@ -13,6 +13,7 @@ import type {
   JsonRecord,
   Oid4vciHttpRequestCapture,
   OpenId4VpResponseMode,
+  RequestSigningMaterial,
   SessionCapture,
   StatusReferenceFixture,
   VpDcApiCapture,
@@ -26,6 +27,11 @@ export class CaptureStore {
   readonly vpSessionIdsByRedirectResponseCode = new Map<string, string>();
   readonly vpCredoVerificationSessionIds = new Map<string, string>();
   readonly vpCredoAuthorizationRequestJwts = new Map<string, string>();
+  /**
+   * Fixture signing keys, held only in memory and deliberately never part of a session capture:
+   * a capture is evidence that gets exported, and a private key must not travel with it.
+   */
+  readonly vpRequestSigningMaterial = new Map<string, RequestSigningMaterial>();
   readonly credoIssuanceSessionIds = new Map<string, string>();
   readonly captureSessionIdsByCredoSession = new Map<string, string>();
   readonly captureSessionIdsByCredentialOffer = new Map<string, string>();
