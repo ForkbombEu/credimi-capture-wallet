@@ -3259,6 +3259,112 @@ describe("FCAF request mutation", () => {
     expect(response.body).toEqual({ error: "signature_behavior_requires_a_signed_request" });
   });
 
+  it.each([
+    ["mismatch", true],
+    ["omit", false],
+  ])("answers a wallet_nonce with the %s behaviour", async (behavior, expectPresent) => {
+    const app = createApp(scenarioConfig);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      response_mode: "direct_post",
+      request_uri_method: "post",
+      request_behavior: { wallet_nonce: behavior },
+    });
+
+    const served = await request(app)
+      .post(new URL(String(session.request_uri)).pathname)
+      .type("form")
+      .send({ wallet_nonce: "wallet-supplied-nonce" });
+
+    expect(served.status).toBe(200);
+    const returned = decodeJwt(served.text).wallet_nonce;
+    expect(returned === undefined).toBe(!expectPresent);
+    expect(returned).not.toBe("wallet-supplied-nonce");
+
+    const capture = await getJson<VpSessionResponse>(
+      app,
+      `/openid4vp/sessions/${session.session_id}`,
+    );
+    const retrieved = capture.events.find((event) => event.type === "vp_request_retrieved");
+    expect(retrieved?.detail).toMatchObject({
+      wallet_nonce_behavior: behavior,
+      wallet_nonce_returned: returned ?? null,
+    });
+    expect(capture.observed.request_uri_payload.value?.wallet_nonce).toBe("wallet-supplied-nonce");
+  });
+
+  it("echoes the wallet_nonce by default", async () => {
+    const app = createApp(scenarioConfig);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      response_mode: "direct_post",
+      request_uri_method: "post",
+    });
+
+    const served = await request(app)
+      .post(new URL(String(session.request_uri)).pathname)
+      .type("form")
+      .send({ wallet_nonce: "wallet-supplied-nonce" });
+
+    expect(decodeJwt(served.text).wallet_nonce).toBe("wallet-supplied-nonce");
+  });
+
+  it("serves the Request URI with a deliberately wrong status, media type, and body", async () => {
+    const app = createApp(scenarioConfig);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      response_mode: "direct_post",
+      request_behavior: {
+        request_uri_response: {
+          status: 404,
+          content_type: "text/plain",
+          body: "not a request object",
+        },
+      },
+    });
+
+    const served = await request(app).get(new URL(String(session.request_uri)).pathname);
+
+    expect(served.status).toBe(404);
+    expect(served.headers["content-type"]).toContain("text/plain");
+    expect(served.text).toBe("not a request object");
+
+    const capture = await getJson<VpSessionResponse>(
+      app,
+      `/openid4vp/sessions/${session.session_id}`,
+    );
+    expect(capture.raw?.request_uri_response_http).toMatchObject({
+      status: 404,
+      body: "not a request object",
+    });
+    expect(capture.raw?.authorization_request_jwt).toMatch(/^ey/);
+  });
+
+  it("serves the normal Request URI response when no behaviour is selected", async () => {
+    const app = createApp(scenarioConfig);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      response_mode: "direct_post",
+    });
+
+    const served = await request(app).get(new URL(String(session.request_uri)).pathname);
+
+    expect(served.status).toBe(200);
+    expect(served.headers["content-type"]).toContain("application/oauth-authz-req+jwt");
+    expect(decodeJwt(served.text).response_uri).toBe(session.response_uri);
+  });
+
+  it.each([
+    ["an out-of-range status", { request_uri_response: { status: 99 } }],
+    ["a non-integer status", { request_uri_response: { status: 200.5 } }],
+    ["a non-string body", { request_uri_response: { body: 1 } }],
+    ["an empty retrieval response", { request_uri_response: {} }],
+    ["an unknown wallet_nonce behaviour", { wallet_nonce: "rotate" }],
+  ])("rejects %s", async (_label, behavior) => {
+    const response = await request(createApp(scenarioConfig))
+      .post("/openid4vp/sessions")
+      .send({ request_behavior: behavior });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ error: "invalid_request_behavior" });
+  });
+
   it("leaves ordinary sessions unmutated", async () => {
     const app = createApp(scenarioConfig);
     const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
@@ -3627,6 +3733,7 @@ interface VpSessionResponse extends JsonRecord {
     authorization_request_jwt?: string;
     authorization_request_delivered?: JsonRecord;
     outer_request_delivered?: JsonRecord;
+    request_uri_response_http?: { status: number; headers: JsonRecord; body: string };
     request_uri_http?: {
       method: string;
       headers: JsonRecord;

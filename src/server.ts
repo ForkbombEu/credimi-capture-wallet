@@ -704,7 +704,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       const requestObject = store.vpCredoAuthorizationRequestJwts.get(session.session_id);
       if (!requestObject) return res.status(404).json({ error: "vp_request_not_found" });
       session.raw.authorization_request_jwt = requestObject;
-      return res.type("application/oauth-authz-req+jwt").send(requestObject);
+      return sendRequestUriResponse(res, session, requestObject);
     } catch (error) {
       return next(error);
     }
@@ -727,15 +727,27 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         source: "request_uri.post",
         also_seen_in: [],
       };
+      // OpenID4VP 5.10: the signed Request Object echoes the `wallet_nonce` the Wallet supplied.
+      // A scenario may instead return a different one or omit it, which is what the Wallet is
+      // expected to detect, so the value returned is recorded next to the value received.
+      const walletNonceBehavior = session.request_behavior?.wallet_nonce ?? "echo";
+      const returnedWalletNonce =
+        !walletNonce || walletNonceBehavior === "omit"
+          ? undefined
+          : walletNonceBehavior === "mismatch"
+            ? randomBytes(16).toString("base64url")
+            : walletNonce;
       store.addEvent(session, "vp_request_retrieved", {
         request_uri_method: "post",
         wallet_nonce_present: Boolean(walletNonce),
+        wallet_nonce_behavior: walletNonceBehavior,
+        wallet_nonce_returned: returnedWalletNonce ?? null,
         payload: body,
       });
       if (walletNonce) {
         session.authorization_request = {
           ...session.authorization_request,
-          wallet_nonce: walletNonce,
+          wallet_nonce: returnedWalletNonce,
         };
         session.raw.authorization_request = session.authorization_request;
         // Re-signing replaces the Request Object served to the wallet, so a session's mutation
@@ -762,7 +774,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       const requestObject = store.vpCredoAuthorizationRequestJwts.get(session.session_id);
       if (!requestObject) return res.status(404).json({ error: "vp_request_not_found" });
       session.raw.authorization_request_jwt = requestObject;
-      return res.type("application/oauth-authz-req+jwt").send(requestObject);
+      return sendRequestUriResponse(res, session, requestObject);
     } catch (error) {
       return next(error);
     }
@@ -1285,6 +1297,31 @@ function captureVpResponse(
     presentation_valid: validation.valid,
     errors: validation.errors,
   });
+}
+
+/**
+ * Serves the Request Object. A session's `request_uri_response` behaviour replaces the status,
+ * media type, or body so that a Wallet receives the specifically wrong retrieval response a test
+ * requires; the delivered response is recorded either way.
+ */
+function sendRequestUriResponse(
+  res: Response,
+  session: VpSessionCapture,
+  requestObject: string,
+): Response {
+  const behavior = session.request_behavior?.request_uri_response;
+  const status = behavior?.status ?? 200;
+  const contentType = behavior?.content_type ?? "application/oauth-authz-req+jwt";
+  const body = behavior?.body ?? requestObject;
+  res.once("finish", () => {
+    session.raw ??= {};
+    session.raw.request_uri_response_http = {
+      status: res.statusCode,
+      headers: redactHttpHeaders(res.getHeaders()),
+      body,
+    };
+  });
+  return res.status(status).type(contentType).send(body);
 }
 
 function sendVpSubmissionResponse(

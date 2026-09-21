@@ -1,4 +1,4 @@
-import type { VpRequestBehavior } from "./types.js";
+import type { VpRequestBehavior, VpRequestUriResponseBehavior } from "./types.js";
 
 /**
  * Replaces the signature of an already signed Request Object with one that cannot verify, keeping
@@ -28,8 +28,45 @@ export function requestBehaviorOrNull(value: unknown): VpRequestBehavior | null 
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   const behavior: VpRequestBehavior = {};
   for (const [member, memberValue] of Object.entries(value)) {
-    if (member !== "signature" || memberValue !== "corrupt") return null;
-    behavior.signature = memberValue;
+    if (member === "signature") {
+      if (memberValue !== "corrupt") return null;
+      behavior.signature = memberValue;
+      continue;
+    }
+    if (member === "wallet_nonce") {
+      if (memberValue !== "echo" && memberValue !== "mismatch" && memberValue !== "omit") {
+        return null;
+      }
+      behavior.wallet_nonce = memberValue;
+      continue;
+    }
+    if (member === "request_uri_response") {
+      const requestUriResponse = requestUriResponseOrNull(memberValue);
+      if (!requestUriResponse) return null;
+      behavior.request_uri_response = requestUriResponse;
+      continue;
+    }
+    return null;
   }
   return Object.keys(behavior).length === 0 ? null : behavior;
+}
+
+function requestUriResponseOrNull(value: unknown): VpRequestUriResponseBehavior | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const response: VpRequestUriResponseBehavior = {};
+  for (const [member, memberValue] of Object.entries(value)) {
+    if (member === "status") {
+      if (!Number.isInteger(memberValue) || (memberValue as number) < 100) return null;
+      if ((memberValue as number) > 599) return null;
+      response.status = memberValue as number;
+      continue;
+    }
+    if (member === "content_type" || member === "body") {
+      if (typeof memberValue !== "string") return null;
+      response[member] = memberValue;
+      continue;
+    }
+    return null;
+  }
+  return Object.keys(response).length === 0 ? null : response;
 }

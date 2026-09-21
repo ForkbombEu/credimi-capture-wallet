@@ -1128,6 +1128,24 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           description:
             "Test-only, refused unless the deployment sets FCAF_SCENARIOS_ENABLED. Request-delivery behaviours that are not payload values, so a request_mutation pointer cannot express them.",
           properties: {
+            wallet_nonce: {
+              type: "string",
+              enum: ["echo", "mismatch", "omit"],
+              default: "echo",
+              description:
+                "How the POST Request URI flow answers the wallet_nonce the Wallet supplied: echo it, return a different one, or omit it. The received and returned values are both recorded in the vp_request_retrieved event.",
+            },
+            request_uri_response: {
+              type: "object",
+              description:
+                "Serve the Request URI with a deliberately wrong HTTP response. The signed Request Object is still generated and captured; only what the endpoint returns changes.",
+              properties: {
+                status: { type: "integer", minimum: 100, maximum: 599 },
+                content_type: { type: "string" },
+                body: { type: "string" },
+              },
+              additionalProperties: false,
+            },
             signature: {
               type: "string",
               enum: ["corrupt"],

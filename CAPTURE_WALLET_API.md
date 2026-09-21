@@ -194,6 +194,8 @@ is not valid, recorded under `request_behavior`, and logged as `vp_request_behav
 | Behaviour | Effect |
 | --- | --- |
 | `{"signature":"corrupt"}` | The delivered Request Object carries a signature that does not verify. The request is signed by the normal path first and the signature value is then invalidated, so the JWS stays well formed and the Wallet rejects it on the signature. Applies to `request_uri` retrieval, a `by_value` deeplink, the DC API `request` member, and a `wallet_nonce` re-sign. Refused with `signature_behavior_requires_a_signed_request` for the `redirect_uri` client identifier prefix. |
+| `{"wallet_nonce":"echo"\|"mismatch"\|"omit"}` | How the POST Request URI flow answers the supplied `wallet_nonce`: echo it, return a fresh unrelated value, or leave the parameter out. `echo` is the default. The `vp_request_retrieved` event records `wallet_nonce_present`, `wallet_nonce_behavior`, and `wallet_nonce_returned`. |
+| `{"request_uri_response":{"status":…,"content_type":"…","body":"…"}}` | Serve the Request URI with a wrong status, media type, or body; each member is optional. The Request Object is still generated and kept in `raw.authorization_request_jwt`, and the response actually delivered is recorded in `raw.request_uri_response_http`. |
 
 ### Digital Credentials API presentation
 

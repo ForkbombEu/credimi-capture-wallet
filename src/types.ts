@@ -210,6 +210,13 @@ export interface VpRequestMutation {
   verification_applies?: boolean;
 }
 
+/** A deliberately wrong HTTP response from the Request URI endpoint. */
+export interface VpRequestUriResponseBehavior {
+  status?: number;
+  content_type?: string;
+  body?: string;
+}
+
 /**
  * Test-only request-delivery behaviours that are not payload values, so a JSON Pointer edit
  * cannot express them.
@@ -217,6 +224,13 @@ export interface VpRequestMutation {
 export interface VpRequestBehavior {
   /** Deliver a Request Object whose signature does not verify. */
   signature?: "corrupt";
+  /**
+   * How the POST Request URI flow answers the `wallet_nonce` the Wallet supplied. `echo` is the
+   * normal behaviour and the default when the member is absent.
+   */
+  wallet_nonce?: "echo" | "mismatch" | "omit";
+  /** Serve the Request URI with a specific status, media type, or body. */
+  request_uri_response?: VpRequestUriResponseBehavior;
 }
 
 export type VpDcApiProtocol = "openid4vp-v1-signed" | "openid4vp-v1-unsigned";
@@ -300,6 +314,8 @@ export interface VpSessionCapture {
     /** Deeplink query parameters, or DC API `data`, as delivered to the wallet. */
     outer_request_delivered?: JsonRecord;
     request_uri_http?: RequestUriHttpCapture;
+    /** The HTTP response the Request URI endpoint actually served to the wallet. */
+    request_uri_response_http?: VerifierResponseHttpCapture;
     presentation_response?: JsonRecord;
     presentation_response_http?: PresentationResponseHttpCapture;
     presentation_response_verifier_http?: VerifierResponseHttpCapture;

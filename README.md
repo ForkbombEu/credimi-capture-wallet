@@ -516,6 +516,18 @@ signature is what the Wallet receives from both `request_uri` retrieval and a `b
 including after a `wallet_nonce` re-sign, while the verifier keeps the valid request it generated.
 It requires a signed request, so it is refused with the `redirect_uri` client identifier prefix.
 
+`{"wallet_nonce":"mismatch"}` and `{"wallet_nonce":"omit"}` change how the POST Request URI flow
+answers the `wallet_nonce` the Wallet supplied: `mismatch` returns a fresh unrelated value and
+`omit` leaves the parameter out. `echo` is the normal behaviour and the default. The received and
+returned values are both recorded in the `vp_request_retrieved` event, so an assertion can show
+which one the Wallet acted on.
+
+`{"request_uri_response":{"status":404,"content_type":"text/plain","body":"..."}}` serves the
+Request URI with a deliberately wrong retrieval response. Every member is optional and defaults to
+the normal one. The signed Request Object is still generated and kept in
+`raw.authorization_request_jwt`; what the endpoint actually returned is recorded in
+`raw.request_uri_response_http`.
+
 #### Digital Credentials API presentation
 
 `"response_mode": "dc_api.jwt"` (encrypted response) or `"dc_api"` (unencrypted) present over the
