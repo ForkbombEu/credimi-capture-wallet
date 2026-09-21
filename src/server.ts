@@ -50,6 +50,11 @@ import {
   isOpenId4VpResponseMode,
   signPresentationAuthorizationRequest,
 } from "./openid4vp.js";
+import {
+  applyRequestMutationEdits,
+  requestMutationOrNull,
+  requestMutationPointers,
+} from "./request-mutation.js";
 import { CaptureStore, asStringOrNull } from "./state.js";
 import type {
   AppConfig,
@@ -63,6 +68,7 @@ import type {
   VerifierResponseHttpCapture,
   VpDcApiInvocationCapture,
   VpDcApiInvocationOutcome,
+  VpRequestMutation,
   VpSessionCapture,
 } from "./types.js";
 import {
@@ -549,6 +555,13 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       if (allowUndecryptableResponse === null) {
         return res.status(400).json({ error: "invalid_allow_undecryptable_response" });
       }
+      const requestMutation = requestMutationOrNull(body.request_mutation);
+      if (requestMutation === null) {
+        return res.status(400).json({ error: "invalid_request_mutation" });
+      }
+      if (requestMutation && !config.fcaf_scenarios_enabled) {
+        return res.status(400).json({ error: "request_mutation_not_enabled" });
+      }
       const selectedResponseMode = responseMode ?? "direct_post.jwt";
       const selectedClientIdScheme = clientIdScheme ?? "x509_hash";
       const dcApi = isDcApiResponseMode(selectedResponseMode);
@@ -594,6 +607,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         clientMetadata,
         selectedClientIdScheme,
         allowUndecryptableResponse,
+        requestMutation,
       );
       store.addEvent(session, "vp_deeplink_generated", {});
       return res.status(201).json({
@@ -711,9 +725,22 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
           wallet_nonce: walletNonce,
         };
         session.raw.authorization_request = session.authorization_request;
+        // Re-signing replaces the Request Object served to the wallet, so a session's mutation
+        // has to be reapplied here or the wallet would receive an unmutated request from the
+        // POST Request URI flow only.
+        const delivered = applyRequestMutationEdits(
+          session.authorization_request,
+          session.request_mutation?.request_object,
+        );
+        if (session.request_mutation) session.raw.authorization_request_delivered = delivered;
         store.vpCredoAuthorizationRequestJwts.set(
           session.session_id,
-          await signPresentationAuthorizationRequest(config, session.authorization_request),
+          await signPresentationAuthorizationRequest(
+            config,
+            delivered,
+            "x509_hash",
+            session.request_mutation?.request_object_header,
+          ),
         );
       }
       const requestObject = store.vpCredoAuthorizationRequestJwts.get(session.session_id);
@@ -1111,6 +1138,7 @@ async function createVpSession(
   clientMetadata?: JsonRecord | null,
   clientIdScheme: OpenId4VpClientIdScheme = "x509_hash",
   allowUndecryptableResponse = false,
+  requestMutation?: VpRequestMutation,
 ): Promise<VpSessionCapture> {
   const sessionId = randomUUID();
   const defaultRequest = defaultPresentationRequest(
@@ -1134,6 +1162,7 @@ async function createVpSession(
     clientMetadata,
     clientIdScheme,
     allowUndecryptableResponse,
+    requestMutation,
   );
   const sessionRedirectUri = redirectUri ? redirectUriWithResponseCode(redirectUri) : undefined;
   const dcApi =
@@ -1163,12 +1192,25 @@ async function createVpSession(
     store.linkVpRedirectResponseCode(sessionId, responseCode);
   }
   store.vpCredoVerificationSessionIds.set(sessionId, credoSession.verificationSessionId);
-  if (credoSession.authorizationRequestJwt) {
-    store.vpCredoAuthorizationRequestJwts.set(sessionId, credoSession.authorizationRequestJwt);
+  if (credoSession.deliveredAuthorizationRequestJwt) {
+    store.vpCredoAuthorizationRequestJwts.set(
+      sessionId,
+      credoSession.deliveredAuthorizationRequestJwt,
+    );
   }
   if (isEncryptedResponseMode(responseMode) && !credoSession.verifierEncryptionKeyPublished) {
     store.addEvent(session, "vp_undecryptable_response_allowed", {
       verifier_encryption_key_published: false,
+    });
+  }
+  session.raw ??= {};
+  session.raw.outer_request_delivered = credoSession.outerRequest;
+  if (requestMutation) {
+    session.request_mutation = requestMutation;
+    session.raw.authorization_request_delivered = credoSession.deliveredAuthorizationRequest;
+    store.addEvent(session, "vp_request_mutation_applied", {
+      pointers: requestMutationPointers(requestMutation),
+      verification_applies: requestMutation.verification_applies ?? null,
     });
   }
   session.deeplink = credoSession.deeplink;
@@ -1406,6 +1448,7 @@ function vpRequestBody(body: JsonRecord): JsonRecord {
     client_id_scheme: _clientIdScheme,
     scheme: _scheme,
     allow_undecryptable_response: _allowUndecryptableResponse,
+    request_mutation: _requestMutation,
     ...request
   } = body;
   return request;

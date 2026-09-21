@@ -62,11 +62,13 @@ import {
   signPresentationAuthorizationRequest,
   verifierOrigin,
 } from "./openid4vp.js";
+import { applyRequestMutationEdits } from "./request-mutation.js";
 import type {
   AppConfig,
   JsonRecord,
   OpenId4VpResponseMode,
   VpDcApiRequest,
+  VpRequestMutation,
   VpSessionCapture,
 } from "./types.js";
 
@@ -82,6 +84,12 @@ export interface CredoVpSession {
   requestUri?: string;
   responseUri?: string;
   deeplink: string;
+  /** The Request Object payload actually signed and delivered; differs under a mutation. */
+  deliveredAuthorizationRequest: JsonRecord;
+  /** The signed Request Object actually served to the wallet; differs under a mutation. */
+  deliveredAuthorizationRequestJwt?: string;
+  /** Deeplink query parameters, or the DC API `data` member, as delivered. */
+  outerRequest: JsonRecord;
   /** Present for DC API sessions: the payload for `navigator.credentials.get()`. */
   dcApiRequest?: VpDcApiRequest;
   /** Present for DC API sessions: the origin the response is bound to. */
@@ -201,6 +209,7 @@ export class CredoOpenId4VpVerifier {
     clientMetadata: JsonRecord | null | undefined,
     clientIdScheme: OpenId4VpClientIdScheme,
     allowUndecryptableResponse = false,
+    requestMutation?: VpRequestMutation,
   ): Promise<CredoVpSession> {
     await this.ensureVerifier(sessionId);
     if (clientIdScheme === "decentralized_identifier") await this.importDidSigningKey(true);
@@ -265,32 +274,52 @@ export class CredoOpenId4VpVerifier {
       typeof authorizationRequest.response_uri === "string"
         ? authorizationRequest.response_uri
         : undefined;
-    const authorizationRequestJwt =
-      clientIdScheme === "redirect_uri" || unsignedDcApi
-        ? undefined
-        : await signPresentationAuthorizationRequest(
+    // Mutations are applied here, after every internal check: `authorizationRequest` stays the
+    // message this service generated and verifies against, `deliveredRequest` is the copy the
+    // wallet receives. Both are signed separately because Credo derives the nonce, state, and
+    // client identifier it expects in the Authorization Response from the Request Object JWT it
+    // holds — handing it the mutated one would move the verifier's own expectations with it.
+    const deliveredRequest = applyRequestMutationEdits(
+      authorizationRequest,
+      requestMutation?.request_object,
+    );
+    const signRequest = !(clientIdScheme === "redirect_uri" || unsignedDcApi);
+    const authorizationRequestJwt = signRequest
+      ? await signPresentationAuthorizationRequest(
+          this.config,
+          authorizationRequest,
+          clientIdScheme,
+        )
+      : undefined;
+    const mutatesRequestObject = Boolean(
+      requestMutation?.request_object ?? requestMutation?.request_object_header,
+    );
+    const deliveredAuthorizationRequestJwt =
+      signRequest && mutatesRequestObject
+        ? await signPresentationAuthorizationRequest(
             this.config,
-            authorizationRequest,
+            deliveredRequest,
             clientIdScheme,
-          );
+            requestMutation?.request_object_header,
+          )
+        : authorizationRequestJwt;
     if (authorizationRequestJwt)
       created.verificationSession.authorizationRequestJwt = authorizationRequestJwt;
-    const deeplink = dcApi
-      ? dcApiPresentationUrl(this.config, sessionId)
-      : requestDelivery === "by_reference"
-        ? presentationRequestByReferenceDeeplink(
-            authorizationRequest,
+    const outerRequest = applyRequestMutationEdits(
+      dcApi
+        ? dcApiBrowserRequest(deliveredRequest, deliveredAuthorizationRequestJwt).data
+        : outerRequestParameters(
+            deliveredRequest,
+            requestDelivery,
             requestUri ?? "",
             requestUriMethod,
-            deeplinkScheme,
-          )
-        : requestDelivery === "by_value"
-          ? presentationRequestByValueDeeplink(
-              authorizationRequest,
-              authorizationRequestJwt ?? "",
-              deeplinkScheme,
-            )
-          : presentationRequestPlainDeeplink(authorizationRequest, deeplinkScheme);
+            deliveredAuthorizationRequestJwt,
+          ),
+      requestMutation?.outer_request,
+    );
+    const deeplink = dcApi
+      ? dcApiPresentationUrl(this.config, sessionId)
+      : `${deeplinkScheme}?${outerRequestQuery(outerRequest)}`;
 
     return {
       sessionId,
@@ -300,9 +329,15 @@ export class CredoOpenId4VpVerifier {
       ...(requestUri === undefined ? {} : { requestUri }),
       ...(responseUri === undefined ? {} : { responseUri }),
       deeplink,
+      deliveredAuthorizationRequest: deliveredRequest,
+      deliveredAuthorizationRequestJwt,
+      outerRequest,
       ...(dcApi
         ? {
-            dcApiRequest: dcApiBrowserRequest(authorizationRequest, authorizationRequestJwt),
+            dcApiRequest: {
+              ...dcApiBrowserRequest(deliveredRequest, deliveredAuthorizationRequestJwt),
+              data: outerRequest,
+            },
             expectedOrigin,
           }
         : {}),
@@ -435,42 +470,46 @@ function normalizeAuthorizationResponse(response: JsonRecord | undefined): JsonR
   }
 }
 
-function presentationRequestByReferenceDeeplink(
+/**
+ * The outer Authorization Request: the parameters a wallet sees before it opens anything signed.
+ * It is built as an object so that a mutation can address its members, and so a test can make the
+ * outer value of a parameter disagree with the value inside the signed Request Object.
+ */
+function outerRequestParameters(
   authorizationRequest: JsonRecord,
+  requestDelivery: "by_reference" | "by_value" | "plain",
   requestUri: string,
   requestUriMethod: string,
-  deeplinkScheme: string,
-): string {
-  const params = new URLSearchParams({
-    client_id: String(authorizationRequest.client_id),
-    request_uri: requestUri,
-  });
-  if (requestUriMethod !== "get") params.set("request_uri_method", requestUriMethod);
-  return `${deeplinkScheme}?${params.toString()}`;
-}
-
-function presentationRequestByValueDeeplink(
-  authorizationRequest: JsonRecord,
-  authorizationRequestJwt: string,
-  deeplinkScheme: string,
-): string {
-  const params = new URLSearchParams({
-    client_id: String(authorizationRequest.client_id),
-    request: authorizationRequestJwt,
-  });
-  return `${deeplinkScheme}?${params.toString()}`;
-}
-
-function presentationRequestPlainDeeplink(
-  authorizationRequest: JsonRecord,
-  deeplinkScheme: string,
-): string {
-  const params = new URLSearchParams();
+  authorizationRequestJwt: string | undefined,
+): JsonRecord {
+  if (requestDelivery === "by_reference") {
+    return {
+      client_id: String(authorizationRequest.client_id),
+      request_uri: requestUri,
+      ...(requestUriMethod === "get" ? {} : { request_uri_method: requestUriMethod }),
+    };
+  }
+  if (requestDelivery === "by_value") {
+    return {
+      client_id: String(authorizationRequest.client_id),
+      request: authorizationRequestJwt ?? "",
+    };
+  }
+  const parameters: JsonRecord = {};
   for (const [name, value] of Object.entries(authorizationRequest)) {
     if (name === "aud" || value === undefined) continue;
-    params.set(name, typeof value === "string" ? value : JSON.stringify(value));
+    parameters[name] = value;
   }
-  return `${deeplinkScheme}?${params.toString()}`;
+  return parameters;
+}
+
+function outerRequestQuery(parameters: JsonRecord): string {
+  const query = new URLSearchParams();
+  for (const [name, value] of Object.entries(parameters)) {
+    if (value === undefined) continue;
+    query.set(name, typeof value === "string" ? value : JSON.stringify(value));
+  }
+  return query.toString();
 }
 
 /**

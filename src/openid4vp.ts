@@ -16,7 +16,13 @@ import {
   supportedCredentialById,
   supportedCredentials,
 } from "./metadata.js";
-import type { AppConfig, JsonRecord, OpenId4VpResponseMode } from "./types.js";
+import { applyRequestMutationEdits } from "./request-mutation.js";
+import type {
+  AppConfig,
+  JsonRecord,
+  OpenId4VpResponseMode,
+  VpRequestMutationEdits,
+} from "./types.js";
 
 const REQUEST_OBJECT_AUDIENCE = "https://self-issued.me/v2";
 
@@ -120,10 +126,16 @@ export function buildPresentationAuthorizationRequest(
   };
 }
 
+/**
+ * Signs the Request Object. `headerEdits` deliberately alters the JOSE header for an FCAF
+ * scenario — a missing or wrong `typ`, for instance — and is applied after the normal header is
+ * built, so a scenario cannot accidentally change the signing key or algorithm selection.
+ */
 export async function signPresentationAuthorizationRequest(
   config: AppConfig,
   request: JsonRecord,
   clientIdScheme: Exclude<OpenId4VpClientIdScheme, "redirect_uri"> = "x509_hash",
+  headerEdits?: VpRequestMutationEdits,
 ): Promise<string> {
   const isDid = clientIdScheme === "decentralized_identifier";
   const privateJwk = JSON.parse(
@@ -133,15 +145,17 @@ export async function signPresentationAuthorizationRequest(
     ),
   ) as JWK;
   const key = await importJWK(privateJwk, "ES256");
-  return new SignJWT(request)
-    .setProtectedHeader({
+  const header = applyRequestMutationEdits(
+    {
       alg: "ES256",
       typ: "oauth-authz-req+jwt",
       ...(isDid
         ? { kid: `${verifierDid(config)}#${VERIFIER_DID_KEY_ID}` }
         : { kid: VERIFIER_KEY_ID, x5c: [verifierCertificateBase64Der(config)] }),
-    })
-    .sign(key);
+    } as JsonRecord,
+    headerEdits,
+  );
+  return new SignJWT(request).setProtectedHeader(header as never).sign(key);
 }
 
 export function presentationRequestByReferenceDeeplink(

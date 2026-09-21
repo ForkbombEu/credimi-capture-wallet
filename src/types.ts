@@ -14,6 +14,11 @@ export interface AppConfig {
    * header. Defaults to `issuer_base_url`.
    */
   public_base_url: string;
+  /**
+   * Enables the FCAF scenario inputs that deliberately produce malformed protocol material, such
+   * as `request_mutation`. Off by default: an ordinary deployment refuses them.
+   */
+  fcaf_scenarios_enabled: boolean;
   listen_addr: string;
   data_dir: string;
   credential_configuration_id: string;
@@ -178,6 +183,33 @@ export interface SessionCapture {
 
 export type OpenId4VpResponseMode = "direct_post" | "direct_post.jwt" | "dc_api" | "dc_api.jwt";
 
+/** JSON Pointer edits applied to one generated message. Writes first, then removals. */
+export interface VpRequestMutationEdits {
+  /** JSON Pointer to the value written there, including `null` and wrong-typed values. */
+  set?: JsonRecord;
+  /** JSON Pointers whose member is removed entirely, which `set` with `null` does not do. */
+  unset?: string[];
+}
+
+/**
+ * Deliberate, test-only edits to the wallet-facing Authorization Request. The targets are kept
+ * apart because a test may require the same parameter to differ between the outer request and the
+ * signed Request Object.
+ */
+export interface VpRequestMutation {
+  /** Deeplink query parameters, or the DC API `data` member. */
+  outer_request?: VpRequestMutationEdits;
+  /** Signed Request Object payload. */
+  request_object?: VpRequestMutationEdits;
+  /** Signed Request Object JOSE header. */
+  request_object_header?: VpRequestMutationEdits;
+  /**
+   * Whether the caller still expects normal presentation verification to succeed. Recorded as
+   * evidence, never enforced: the verifier keeps verifying against the message it generated.
+   */
+  verification_applies?: boolean;
+}
+
 export type VpDcApiProtocol = "openid4vp-v1-signed" | "openid4vp-v1-unsigned";
 
 /** Browser invocation request handed to `navigator.credentials.get({ digital: { requests } })`. */
@@ -216,6 +248,11 @@ export interface VpSessionCapture {
   status: string;
   request_delivery: "by_reference" | "by_value" | "plain";
   response_mode: OpenId4VpResponseMode;
+  /**
+   * The verifier's own view of the request. When a `request_mutation` is applied this stays the
+   * generated message, and the mutated copy delivered to the wallet is in
+   * `raw.authorization_request_delivered`.
+   */
   authorization_request: JsonRecord;
   decoded_presentations?: JsonRecord;
   deeplink: string;
@@ -229,6 +266,8 @@ export interface VpSessionCapture {
   redirect_uri_visit_count?: number;
   /** Present only for the `dc_api` and `dc_api.jwt` response modes. */
   dc_api?: VpDcApiCapture;
+  /** Present when the wallet-facing request was deliberately mutated for an FCAF scenario. */
+  request_mutation?: VpRequestMutation;
   observed: {
     request_uri_payload: ObservedValue<JsonRecord>;
     wallet_response: ObservedValue<JsonRecord>;
@@ -245,6 +284,10 @@ export interface VpSessionCapture {
   raw?: {
     authorization_request?: JsonRecord;
     authorization_request_jwt?: string;
+    /** The mutated Request Object payload actually signed and delivered, when it differs. */
+    authorization_request_delivered?: JsonRecord;
+    /** Deeplink query parameters, or DC API `data`, as delivered to the wallet. */
+    outer_request_delivered?: JsonRecord;
     request_uri_http?: RequestUriHttpCapture;
     presentation_response?: JsonRecord;
     presentation_response_http?: PresentationResponseHttpCapture;

@@ -3023,6 +3023,184 @@ async function postJson<T>(app: Express, path: string, body: object): Promise<T>
   return response.body as T;
 }
 
+describe("FCAF request mutation", () => {
+  const scenarioConfig = { ...config, fcaf_scenarios_enabled: true };
+
+  async function mutatedSession(
+    app: Express,
+    mutation: JsonRecord,
+    body: JsonRecord = {},
+  ): Promise<VpSessionCreateResponse> {
+    return postJson(app, "/openid4vp/sessions", {
+      response_mode: "direct_post",
+      request_delivery: "by_reference",
+      presentation_request: { dcql_query: dcqlForClaims(["family_name"]) },
+      request_mutation: mutation,
+      ...body,
+    });
+  }
+
+  async function deliveredRequestObject(
+    app: Express,
+    session: VpSessionCreateResponse,
+  ): Promise<string> {
+    const served = await request(app).get(new URL(String(session.request_uri)).pathname);
+    expect(served.status).toBe(200);
+    return served.text;
+  }
+
+  it("refuses mutations unless the deployment enables FCAF scenarios", async () => {
+    const response = await request(createApp(config))
+      .post("/openid4vp/sessions")
+      .send({ request_mutation: { request_object: { unset: ["/response_uri"] } } });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ error: "request_mutation_not_enabled" });
+  });
+
+  it.each([
+    ["an unknown target", { signed_request: { unset: ["/state"] } }],
+    ["a dotted path", { request_object: { unset: ["client_metadata.jwks"] } }],
+    ["a pointer without a leading slash", { request_object: { set: { state: "x" } } }],
+    ["an empty edit set", { request_object: {} }],
+    ["an unknown edit operation", { request_object: { replace: { "/state": "x" } } }],
+    ["a non-boolean verification_applies", { verification_applies: "yes" }],
+  ])("rejects %s", async (_label, mutation) => {
+    const response = await request(createApp(scenarioConfig))
+      .post("/openid4vp/sessions")
+      .send({ request_mutation: mutation });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ error: "invalid_request_mutation" });
+  });
+
+  it("removes a member from the delivered Request Object while keeping the verifier's own view", async () => {
+    const app = createApp(scenarioConfig);
+    const session = await mutatedSession(app, { request_object: { unset: ["/response_uri"] } });
+
+    const payload = decodeJwt(await deliveredRequestObject(app, session)) as JsonRecord;
+    expect(payload).not.toHaveProperty("response_uri");
+    expect(session.authorization_request.response_uri).toBe(session.response_uri);
+
+    const capture = await getJson<VpSessionResponse>(
+      app,
+      `/openid4vp/sessions/${session.session_id}`,
+    );
+    expect(capture.authorization_request.response_uri).toBe(session.response_uri);
+    expect(capture.raw?.authorization_request_delivered).not.toHaveProperty("response_uri");
+    expect(capture.request_mutation).toEqual({ request_object: { unset: ["/response_uri"] } });
+    expect(capture.events.map((event) => event.type)).toContain("vp_request_mutation_applied");
+  });
+
+  it("distinguishes a member set to null from a removed member", async () => {
+    const app = createApp(scenarioConfig);
+    const session = await mutatedSession(app, { request_object: { set: { "/state": null } } });
+
+    const payload = decodeJwt(await deliveredRequestObject(app, session)) as JsonRecord;
+    expect(payload).toHaveProperty("state");
+    expect(payload.state).toBeNull();
+  });
+
+  it("writes nested members and values of the wrong JSON type", async () => {
+    const app = createApp(scenarioConfig);
+    const session = await mutatedSession(app, {
+      request_object: {
+        set: { "/client_metadata/vp_formats_supported/dc+sd-jwt": 42, "/nonce": [] },
+      },
+    });
+
+    const payload = decodeJwt(await deliveredRequestObject(app, session)) as JsonRecord;
+    const metadata = payload.client_metadata as JsonRecord;
+    expect((metadata.vp_formats_supported as JsonRecord)["dc+sd-jwt"]).toBe(42);
+    expect(payload.nonce).toEqual([]);
+  });
+
+  it("mutates the JOSE header of the signed Request Object", async () => {
+    const app = createApp(scenarioConfig);
+    const invalidTyp = await mutatedSession(app, {
+      request_object_header: { set: { "/typ": "jwt" } },
+    });
+    const missingTyp = await mutatedSession(app, { request_object_header: { unset: ["/typ"] } });
+
+    expect(decodeProtectedHeader(await deliveredRequestObject(app, invalidTyp)).typ).toBe("jwt");
+    const header = decodeProtectedHeader(await deliveredRequestObject(app, missingTyp));
+    expect(header).not.toHaveProperty("typ");
+    expect(header.alg).toBe("ES256");
+  });
+
+  it("makes an outer parameter disagree with the signed Request Object", async () => {
+    const app = createApp(scenarioConfig);
+    const session = await mutatedSession(app, {
+      outer_request: { set: { "/client_id": "x509_hash:other", "/unknown_parameter": "present" } },
+    });
+
+    const deeplink = new URL(session.deeplink);
+    expect(deeplink.searchParams.get("client_id")).toBe("x509_hash:other");
+    expect(deeplink.searchParams.get("unknown_parameter")).toBe("present");
+    const payload = decodeJwt(await deliveredRequestObject(app, session)) as JsonRecord;
+    expect(payload.client_id).not.toBe("x509_hash:other");
+
+    const capture = await getJson<VpSessionResponse>(
+      app,
+      `/openid4vp/sessions/${session.session_id}`,
+    );
+    expect(capture.raw?.outer_request_delivered).toMatchObject({
+      client_id: "x509_hash:other",
+      unknown_parameter: "present",
+    });
+  });
+
+  it("keeps verification bound to the generated request, not to the mutated one", async () => {
+    const app = createApp(scenarioConfig);
+    const session = await mutatedSession(app, {
+      request_object: { set: { "/nonce": "nonce-the-wallet-must-not-use" } },
+      verification_applies: true,
+    });
+    const credential = await sdJwtCredential();
+    const presentation = await sdJwtPresentation({
+      credential,
+      authorizationRequest: session.authorization_request,
+      disclosedClaims: ["family_name"],
+    });
+
+    const response = await request(app)
+      .post(`/openid4vp/sessions/${session.session_id}/response`)
+      .send({
+        state: session.authorization_request.state,
+        vp_token: { query_0: [presentation] },
+      });
+
+    expect(response.status).toBe(200);
+    const capture = await getJson<VpSessionResponse>(
+      app,
+      `/openid4vp/sessions/${session.session_id}`,
+    );
+    expect(capture.checks.presentation_valid).toBe(true);
+    expect(capture.raw?.authorization_request_delivered?.nonce).toBe(
+      "nonce-the-wallet-must-not-use",
+    );
+  });
+
+  it("leaves ordinary sessions unmutated", async () => {
+    const app = createApp(scenarioConfig);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      response_mode: "direct_post",
+    });
+
+    const payload = decodeJwt(await deliveredRequestObject(app, session)) as JsonRecord;
+    expect(payload.response_uri).toBe(session.response_uri);
+    expect(payload.state).toBe(session.authorization_request.state);
+
+    const capture = await getJson<VpSessionResponse>(
+      app,
+      `/openid4vp/sessions/${session.session_id}`,
+    );
+    expect(capture).not.toHaveProperty("request_mutation");
+    expect(capture.raw).not.toHaveProperty("authorization_request_delivered");
+    expect(capture.events.map((event) => event.type)).not.toContain("vp_request_mutation_applied");
+  });
+});
+
 async function postForm<T>(app: Express, path: string, body: Record<string, string>): Promise<T> {
   const response = await request(app).post(path).type("form").send(body);
   expect(response.status).toBeLessThan(400);
@@ -3341,6 +3519,7 @@ interface VpSessionResponse extends JsonRecord {
   redirect_uri_visit_count?: number;
   authorization_request: JsonRecord;
   decoded_presentations?: JsonRecord;
+  request_mutation?: JsonRecord;
   dc_api?: {
     request: { protocol: string; data: JsonRecord };
     expected_origin: string;
@@ -3363,6 +3542,8 @@ interface VpSessionResponse extends JsonRecord {
   events: Array<{ type: string; detail: JsonRecord }>;
   raw?: {
     authorization_request_jwt?: string;
+    authorization_request_delivered?: JsonRecord;
+    outer_request_delivered?: JsonRecord;
     request_uri_http?: {
       method: string;
       headers: JsonRecord;

@@ -16,6 +16,7 @@ export const ACCESS_TOKEN_PRIVATE_JWK_FILE = "access-token-private-jwk.json";
 export const DEFAULT_CONFIG: AppConfig = {
   issuer_base_url: "http://localhost:8080",
   public_base_url: "http://localhost:8080",
+  fcaf_scenarios_enabled: false,
   listen_addr: ":8080",
   data_dir: "./data",
   credential_configuration_id: "urn:eu.europa.ec.eudi:pid:1",
@@ -36,6 +37,7 @@ export const DEFAULT_CONFIG: AppConfig = {
 export const PORT_ENV_VAR = "PORT";
 export const GUI_ENABLED_ENV_VAR = "GUI_ENABLED";
 export const PUBLIC_BASE_URL_ENV_VAR = "PUBLIC_BASE_URL";
+export const FCAF_SCENARIOS_ENABLED_ENV_VAR = "FCAF_SCENARIOS_ENABLED";
 export const STATUS_LIST_BASE_URL_ENV_VAR = "STATUS_LIST_BASE_URL";
 export const STATUS_LIST_API_KEY_ENV_VAR = "STATUS_LIST_API_KEY";
 
@@ -142,11 +144,23 @@ export function parseEnvText(text: string): Record<string, string> {
 }
 
 export function resolveGuiEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  const raw = env[GUI_ENABLED_ENV_VAR]?.trim().toLowerCase();
-  if (!raw) return DEFAULT_CONFIG.gui_enabled;
+  return resolveBooleanEnv(env, GUI_ENABLED_ENV_VAR, DEFAULT_CONFIG.gui_enabled);
+}
+
+export function resolveFcafScenariosEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return resolveBooleanEnv(
+    env,
+    FCAF_SCENARIOS_ENABLED_ENV_VAR,
+    DEFAULT_CONFIG.fcaf_scenarios_enabled,
+  );
+}
+
+function resolveBooleanEnv(env: NodeJS.ProcessEnv, variable: string, fallback: boolean): boolean {
+  const raw = env[variable]?.trim().toLowerCase();
+  if (!raw) return fallback;
   if (["1", "true", "yes", "on"].includes(raw)) return true;
   if (["0", "false", "no", "off"].includes(raw)) return false;
-  throw new Error(`${GUI_ENABLED_ENV_VAR} must be true or false`);
+  throw new Error(`${variable} must be true or false`);
 }
 
 export function stringifyYaml(record: JsonRecord): string {
@@ -270,6 +284,7 @@ export function loadConfig(
     ),
     data_dir: fileConfig.data_dir ?? dataDir,
     gui_enabled: resolveGuiEnabled(env),
+    fcaf_scenarios_enabled: resolveFcafScenariosEnabled(env),
     status_list_base_url:
       env[STATUS_LIST_BASE_URL_ENV_VAR]?.trim() ||
       fileConfig.status_list_base_url ||

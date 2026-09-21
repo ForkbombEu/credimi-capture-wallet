@@ -1084,8 +1084,43 @@ export function openApiDocument(config: AppConfig): JsonRecord {
               description:
                 "Absolute URI returned to the Wallet after a successful presentation. The service appends a fresh response_code parameter. The capture template creates a service-hosted confirmation page and records valid visits.",
             },
+            request_mutation: { $ref: "#/components/schemas/RequestMutation" },
           },
           additionalProperties: true,
+        },
+        RequestMutation: {
+          type: "object",
+          description:
+            "Test-only, refused unless the deployment sets FCAF_SCENARIOS_ENABLED. Deliberate edits to the wallet-facing Authorization Request, addressed by RFC 6901 JSON Pointer because protocol object keys contain dots and plus signs. The verifier keeps verifying against the request it generated: a mutation changes only the copy the Wallet receives, and both are recorded in the session capture.",
+          properties: {
+            outer_request: { $ref: "#/components/schemas/RequestMutationEdits" },
+            request_object: { $ref: "#/components/schemas/RequestMutationEdits" },
+            request_object_header: { $ref: "#/components/schemas/RequestMutationEdits" },
+            verification_applies: {
+              type: "boolean",
+              description:
+                "Recorded as evidence, never enforced: whether the caller still expects normal presentation verification to succeed.",
+            },
+          },
+          additionalProperties: false,
+        },
+        RequestMutationEdits: {
+          type: "object",
+          description:
+            "Writes are applied before removals. A member set to null is sent as null, which is a different wire outcome from removing it.",
+          properties: {
+            set: {
+              type: "object",
+              description: "JSON Pointer to the value written there, of any JSON type.",
+              additionalProperties: true,
+            },
+            unset: {
+              type: "array",
+              items: { type: "string" },
+              description: "JSON Pointers whose member is removed entirely.",
+            },
+          },
+          additionalProperties: false,
         },
         PresentationSessionCreated: {
           type: "object",

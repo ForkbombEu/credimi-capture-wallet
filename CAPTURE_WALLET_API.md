@@ -100,6 +100,7 @@ The credential request normally uses `application/json` with `credential_configu
 | `client_metadata` | Object whose members override generated verifier metadata, or `null` to omit the parameter; top-level only | Generated verifier metadata |
 | `redirect_uri` | Absolute URI for the Wallet to open after a successful presentation; use `{{base_url}}/openid4vp/redirect` for a capture redirect page | — |
 | `allow_undecryptable_response` | `true` to publish a `client_metadata` object that omits the verifier encryption key | `false` |
+| `request_mutation` | Deliberate JSON Pointer edits to the wallet-facing request; test-only | — |
 
 `request_uri_method` is valid only with `request_delivery: "by_reference"`. The service preserves any supplied string in the deeplink, including values other than the OpenID4VP-defined, case-sensitive `get` and `post`, exclusively to create malformed requests for wallet negative tests. `by_value` supplies a signed Request Object in `request`; `plain` supplies the Authorization Request's URL-encoded parameters directly in the deeplink and omits `request`, `request_uri`, and `request_uri_method`. `response_type`, top-level DCQL, scopes, transaction data, and verifier information are used to construct the wallet-facing request. Inspect the returned `authorization_request` to confirm the exact claims.
 
@@ -135,6 +136,52 @@ When `redirect_uri` is supplied, the service appends a fresh 128-bit `response_c
 | `GET` | `/openid4vp/sessions/{sessionId}/deeplink` | `{ deeplink, authorization_request }`; records a deeplink event. |
 | `GET` | `/openid4vp/sessions/{sessionId}/events` | Chronological presentation events. |
 | `GET` | `/openid4vp/redirect?response_code=...` | Service-hosted capture redirect page created from the `redirect_uri` template. |
+
+### Deliberate request mutations
+
+`request_mutation` produces the malformed, incomplete, or self-contradicting Authorization
+Requests that FCAF negative tests require, as data rather than as named scenarios. It is refused
+with `request_mutation_not_enabled` unless the deployment sets `FCAF_SCENARIOS_ENABLED=true`, and
+with `invalid_request_mutation` when the shape, a target name, or a pointer is not valid.
+
+```json
+{
+  "request_mutation": {
+    "request_object": { "unset": ["/response_uri"], "set": { "/state": null } },
+    "request_object_header": { "set": { "/typ": "jwt" } },
+    "outer_request": { "set": { "/client_id": "x509_hash:other" } },
+    "verification_applies": false
+  }
+}
+```
+
+| Target | Edits |
+| --- | --- |
+| `request_object` | The signed Request Object payload. |
+| `request_object_header` | The Request Object JOSE header. |
+| `outer_request` | The deeplink query parameters, or the DC API `data` member. |
+
+Members are addressed by RFC 6901 JSON Pointer; dotted paths are rejected, because protocol object
+keys such as the mdoc namespace `eu.europa.ec.eudi.pid.1` and the credential format `dc+sd-jwt`
+contain dots and plus signs. `set` writes any JSON value, including `null` and a wrong type;
+`unset` removes the member, which `null` does not. Writes precede removals.
+
+The mutation applies to the wallet-facing copy only. `authorization_request` keeps the request the
+service generated and remains the basis of presentation verification, including the nonce, state,
+and client identifier it expects; the Request Object is signed twice when a mutation is present, so
+the copy the verifier reasons about is never the mutated one. Evidence:
+
+| Field | Content |
+| --- | --- |
+| `authorization_request` | The generated request, unmutated. |
+| `request_mutation` | The mutation as supplied. |
+| `raw.authorization_request_delivered` | The mutated Request Object payload that was signed and served. |
+| `raw.authorization_request_jwt` | The signed Request Object as served to the Wallet. |
+| `raw.outer_request_delivered` | The delivered outer parameters, recorded for every session. |
+| `vp_request_mutation_applied` event | The pointers touched and the recorded `verification_applies`. |
+
+`verification_applies` is captured as evidence and never enforced; the verifier keeps its normal
+checks in all cases.
 
 ### Digital Credentials API presentation
 

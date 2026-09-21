@@ -409,6 +409,7 @@ Where:
 * `dcql_query` may be `null` to omit the parameter entirely from the wallet-facing Authorization Request. The default query remains only in Credo's internal verifier session.
 * `client_metadata` may be an object whose members override the generated verifier metadata, or `null` to omit the parameter. Omission is supported only with `direct_post`. A supplied member wins, an omitted member keeps its generated value, and a member set to `null` is dropped. The merge is one level deep, so supplying `jwks` replaces the whole key set. Narrow the advertised response encryption with `"client_metadata": {"encrypted_response_enc_values_supported": ["A128GCM"]}` to give the Wallet a single JWE `enc` choice; the generated `jwks` and `vp_formats_supported` are preserved, so the service still decrypts. For `direct_post.jwt` the merged metadata must keep the session's generated encryption public key, compared by RFC 7638 thumbprint so `alg`, `use`, and `kid` may be altered or omitted. That key is minted inside the same call that returns it, so omit `jwks` to keep it.
 * `allow_undecryptable_response` is a test-only flag. With `true` the service publishes a `jwks` that is not the verifier's encryption key, which is what wallet response-encryption negative tests need: a JWK without `alg`, with an `alg` other than `ECDH-ES`, `"jwks": null` to advertise no key at all, or a static key reused across sessions. The service can then no longer decrypt a response, and a wallet that answers anyway is captured as a decryption failure. It requires a `client_metadata` object. Any `direct_post.jwt` request sent without the verifier encryption key records a `vp_undecryptable_response_allowed` event.
+* `request_mutation` is a test-only object that deliberately edits the wallet-facing Authorization Request. It is refused unless the deployment sets `FCAF_SCENARIOS_ENABLED=true`. See [Deliberate request mutations](#deliberate-request-mutations).
 * `redirect_uri` is an optional absolute URI returned to the Wallet after a successful presentation. The service appends a fresh 128-bit `response_code` parameter to it. Use `{{base_url}}/openid4vp/redirect`, or its equivalent concrete service URI, to create a service-hosted confirmation page; it displays the received `response_code` for both valid and invalid visits, and a valid visit is recorded in the VP session capture.
 * `scheme` is the complete custom URL-scheme prefix for the deeplink (for example, `eudi-wallet://`); it defaults to `openid4vp://`
 
@@ -454,6 +455,48 @@ In this case for each session you can get:
   ```sh
   curl "$BASE_URL/openid4vp/sessions/{sessionId}/events"
   ```
+
+#### Deliberate request mutations
+
+FCAF negative tests need Authorization Requests that are missing a parameter, carry a wrong value,
+or contradict themselves. `request_mutation` expresses those variations as data, so a new test
+needs no change to this service. It is refused with `request_mutation_not_enabled` unless the
+deployment sets `FCAF_SCENARIOS_ENABLED=true`.
+
+```sh
+curl -X POST "$BASE_URL/openid4vp/sessions" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "request_mutation": {
+      "request_object": { "unset": ["/response_uri"], "set": { "/state": null } },
+      "request_object_header": { "set": { "/typ": "jwt" } },
+      "outer_request": { "set": { "/client_id": "x509_hash:other" } }
+    }
+  }'
+```
+
+Three targets are addressed separately, so a test can make the outer Authorization Request
+disagree with the signed Request Object:
+
+| Target | What it edits |
+| --- | --- |
+| `request_object` | The signed Request Object payload. |
+| `request_object_header` | The Request Object JOSE header, for example a missing or wrong `typ`. |
+| `outer_request` | The deeplink query parameters, or the DC API `data` member. |
+
+Members are addressed by [RFC 6901](https://www.rfc-editor.org/rfc/rfc6901) JSON Pointer, not by a
+dotted path, because protocol object keys contain dots and plus signs — the mdoc namespace
+`eu.europa.ec.eudi.pid.1` and the credential format `dc+sd-jwt` are both keys. `set` writes a value
+of any JSON type, including `null` and a deliberately wrong type; `unset` removes the member
+entirely, which is a different wire outcome from `null`. Writes are applied before removals.
+
+A mutation never moves the verifier's own expectations. The request the service generated stays in
+`authorization_request` and is what presentation verification uses; the mutated copy is recorded in
+`raw.authorization_request_delivered`, the delivered outer parameters in
+`raw.outer_request_delivered`, and the applied pointers in a `vp_request_mutation_applied` event.
+So a Wallet that answers with the original nonce still verifies even when the Request Object it
+received advertised a different one. Set `verification_applies` to record whether the caller
+expected verification to succeed; it is captured as evidence and never enforced.
 
 #### Digital Credentials API presentation
 
@@ -600,6 +643,9 @@ From env file `.env`, that is loaded automatically when present, you can set:
   presentation page URL and the `expected_origins` of a signed DC API request are derived from it,
   never from a request `Host` header, so a cross-device DC API deployment behind a proxy must set
   it to the HTTPS URL the End-User's browser actually reaches.
+- `FCAF_SCENARIOS_ENABLED`: enables the FCAF scenario inputs that deliberately produce malformed
+  protocol material, currently `request_mutation`. Defaults to `false`, so an ordinary deployment
+  refuses them with `request_mutation_not_enabled`.
 - `STATUS_LIST_BASE_URL`: overrides the configured Status List endpoint.
 - `STATUS_LIST_API_KEY`: overrides the configured Status List management API key.
 
