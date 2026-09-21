@@ -17,6 +17,7 @@ import {
   resolvedIssuerConfigurations,
 } from "./configurations/registry.js";
 import { issuerAppConfig } from "./configurations/resolve-urls.js";
+import { pidFixtureIdOrNull, pidFixtureSubject } from "./configurations/shared/pid-fixtures.js";
 import type { ResolvedIssuerConfiguration } from "./configurations/types.js";
 import { DEGREE_SD_JWT_VCT } from "./credential-definitions.js";
 import {
@@ -421,6 +422,7 @@ export class CredoOpenId4VciIssuer {
       : holderJwks.map(() => undefined);
 
     const signingConfig = issuerAppConfig(this.config, issuer);
+    const subject = pidFixtureSubject(pidFixtureIdOrNull(captureSession.fixture_id) ?? undefined);
     if (credential.format === "mso_mdoc") {
       return {
         type: "credentials" as const,
@@ -430,6 +432,7 @@ export class CredoOpenId4VciIssuer {
             config: signingConfig,
             holderJwk,
             statusListReference: statusListReferences[index],
+            subject,
           }),
         ),
       };
@@ -448,6 +451,7 @@ export class CredoOpenId4VciIssuer {
               config: signingConfig,
               holderJwk,
               statusListReference: statusListReferences[index],
+              subject,
             }),
       ),
     };

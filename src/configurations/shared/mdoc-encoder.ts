@@ -4,6 +4,7 @@ import type { PidSubject } from "./pid-data.js";
 
 export function encodeMdocPidClaims(subject: PidSubject): JsonRecord {
   return {
+    age_over_18: subject.ageOver18,
     birth_date: new DateOnly(subject.birthDate),
     document_number: subject.documentNumber,
     email_address: subject.email,

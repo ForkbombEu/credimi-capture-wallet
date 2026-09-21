@@ -917,6 +917,12 @@ export function openApiDocument(config: AppConfig): JsonRecord {
               description:
                 "Encode the offer directly in the deeplink or provide its hosted URI by reference.",
             },
+            fixture_id: {
+              type: "string",
+              default: "pid_default",
+              description:
+                "Predefined PID claim set the issued credential carries. Fixtures differ from the baseline along one value axis each, so a DCQL value constraint matches one and withholds the others. No caller-supplied claim override exists, so an issued credential always corresponds to a named fixture.",
+            },
             credential_configuration_id: {
               type: "string",
               description: "One of the IDs advertised by credential issuer metadata.",
@@ -959,6 +965,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             },
             credential_configuration_id: { type: "string" },
             status_list_enabled: { type: "boolean" },
+            fixture_id: { type: "string" },
             offer_url: { type: "string", format: "uri" },
             deeplink: { type: "string" },
             status: { type: "string", const: "created" },

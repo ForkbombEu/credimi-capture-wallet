@@ -18,6 +18,11 @@ export interface PidPlaceOfBirth {
 
 export interface PidSubject {
   readonly address: PidAddress;
+  /**
+   * PID rulebook `age_over_18`. Present so a DCQL query can constrain it, which several FCAF
+   * tests do to check that a Wallet withholds a credential failing a value constraint.
+   */
+  readonly ageOver18: boolean;
   readonly birthDate: string;
   readonly birthFamilyName: string;
   readonly birthGivenName: string;
@@ -42,7 +47,7 @@ const PID_PORTRAIT_JPEG = new Uint8Array(
   readFileSync(new URL("../../pid_portrait.jpg", import.meta.url)),
 );
 
-const DEFAULT_PID_SUBJECT: PidSubject = {
+export const DEFAULT_PID_SUBJECT: PidSubject = {
   address: {
     country: "IT",
     formatted: "Via Europa 1, 00100 Roma, IT",
@@ -52,6 +57,7 @@ const DEFAULT_PID_SUBJECT: PidSubject = {
     region: "Lazio",
     street: "Via Europa",
   },
+  ageOver18: true,
   birthDate: "1990-01-01",
   birthFamilyName: "Rossi",
   birthGivenName: "Mario",

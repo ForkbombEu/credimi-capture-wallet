@@ -12,6 +12,7 @@ export function encodeSdJwtPidClaims(subject: PidSubject): JsonRecord {
       region: subject.address.region,
       street_address: subject.address.street,
     },
+    age_over_18: subject.ageOver18,
     birth_family_name: subject.birthFamilyName,
     birth_given_name: subject.birthGivenName,
     birthdate: subject.birthDate,

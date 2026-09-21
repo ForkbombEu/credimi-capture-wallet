@@ -10,6 +10,7 @@ import {
   resolvedIssuerConfigurations,
 } from "./configurations/registry.js";
 import { issuerAppConfig } from "./configurations/resolve-urls.js";
+import { PID_FIXTURE_IDS, pidFixtureIdOrNull } from "./configurations/shared/pid-fixtures.js";
 import type { ResolvedIssuerConfiguration } from "./configurations/types.js";
 import {
   CredentialEncryptionError,
@@ -445,6 +446,13 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
           supported_credential_configuration_ids: supportedCredentialIds,
         });
       }
+      const fixtureId = pidFixtureIdOrNull(body.fixture_id ?? "pid_default");
+      if (!fixtureId) {
+        return res.status(400).json({
+          error: "unsupported_fixture_id",
+          supported_fixture_ids: PID_FIXTURE_IDS,
+        });
+      }
 
       const session = await createIssuanceSession(
         config,
@@ -454,6 +462,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         flow ?? "authorization_code",
         credentialOfferMode ?? "credential_offer",
         statusListEnabled ?? false,
+        fixtureId,
       );
       const offer = store.credoIssuanceOffers.get(session.session_id);
       if (!offer) throw new Error("Credo credential offer was not stored");
@@ -466,6 +475,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         credential_offer_mode: session.credential_offer_mode,
         credential_configuration_id: session.credential_configuration_id,
         status_list_enabled: session.status_list_enabled,
+        fixture_id: session.fixture_id,
         offer_url: offer.credential_offer_uri,
         deeplink: offer.credential_offer,
         status: session.status,
@@ -1110,6 +1120,7 @@ async function createIssuanceSession(
   flow: SessionCapture["flow"] = "authorization_code",
   credentialOfferMode: CredentialOfferMode = "credential_offer",
   statusListEnabled = false,
+  fixtureId?: string,
 ): Promise<SessionCapture> {
   const session = store.createSession(
     issuer,
@@ -1117,6 +1128,7 @@ async function createIssuanceSession(
     flow,
     credentialOfferMode,
     statusListEnabled,
+    fixtureId,
   );
 
   const offer = await (await credoOpenId4VciIssuer(config, store)).createCredentialOffer({

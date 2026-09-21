@@ -223,7 +223,31 @@ the Credential Offer JSON directly in the `deeplink`. Set it to
 `credential_offer_uri` to make the `deeplink` refer to the hosted `offer_url` instead;
 this can keep a QR code smaller when the offer is large.
 
-Both issuers issue the same deterministic Mario Rossi PID claims for the PID
+`fixture_id` is optional and selects which predefined PID claim set the issued credential
+carries; it defaults to `pid_default`. Every fixture is a fully valid, normally signed PID, and
+no caller-supplied claim override exists, so an issued credential always corresponds to a named
+fixture a test can reference. The fixtures differ from the baseline along one value axis each,
+which is what the FCAF DCQL value-matching cases need: a query constraining that axis matches the
+baseline and withholds the fixture.
+
+| `fixture_id` | Differs from the baseline by |
+| --- | --- |
+| `pid_default` | — the baseline Mario Rossi identity, `age_over_18: true` |
+| `pid_person_b` | A second complete identity: Giulia Bianchi, Milano, other document number |
+| `pid_under_18` | `age_over_18: false` and a 2012 `birthdate` |
+| `pid_family_name_uppercase` | `family_name` `"ROSSI"` — letter case |
+| `pid_family_name_trailing_space` | `family_name` `"Rossi "` — trailing whitespace |
+| `pid_locality_diacritics` | Locality `"München"` |
+| `pid_locality_no_diacritics` | Locality `"Munchen"` — the same value without its umlaut |
+| `pid_multiple_nationalities` | `nationalities` `["FR", "DE"]` — array cardinality |
+| `pid_expiry_2032` | `date_of_expiry` `"2032-01-01"` — an upper-bound boundary |
+
+Each fixture also carries a distinct `document_number`, so two credentials issued from different
+fixtures are never byte-identical. Issue one session per fixture to give a Wallet several
+credentials of the same type. The PID attribute `age_over_18` exists in both the SD-JWT VC and the
+mdoc encoding so that a DCQL query can constrain it.
+
+Both issuers issue the same deterministic PID claims for the PID
 configurations. The degree test credential is an SD-JWT VC for Arthur Dent with
 `degrees` (including an entry without `type`) and `academic_programmes`, a nested
 array of awarded programme titles. The interiors of `address` and of both arrays are

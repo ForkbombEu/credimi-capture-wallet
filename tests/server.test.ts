@@ -2552,6 +2552,59 @@ describe("capture issuer server", () => {
     });
   });
 
+  it("issues the claim set named by fixture_id, end to end", async () => {
+    const app = createApp(config);
+    const session = await postJson<SessionCreateResponse>(app, "/sessions", {
+      flow: "pre_authorized_code",
+      fixture_id: "pid_under_18",
+    });
+    expect(session.fixture_id).toBe("pid_under_18");
+
+    const walletKey = await dpopKey();
+    const dpop = await dpopKey();
+    const token = await preAuthorizedToken(app, session, dpop);
+    const proof = await credentialProofJwt(walletKey, token.c_nonce);
+    const credentialPath = issuerProtocolPath(session, "/credential");
+    const credential = await request(app)
+      .post(credentialPath)
+      .set("authorization", `DPoP ${token.access_token}`)
+      .set("DPoP", await dpopProof(dpop, "POST", credentialPath, token.access_token))
+      .send({
+        credential_configuration_id: session.credential_configuration_id,
+        proofs: { jwt: [proof] },
+      });
+
+    expect(credential.status).toBe(200);
+    const compactSdJwt = (credential.body as CredentialResponse).credentials[0].credential;
+    const disclosed = compactSdJwt
+      .split("~")
+      .slice(1)
+      .filter((part) => part.length > 0)
+      .map((part) => JSON.parse(Buffer.from(part, "base64url").toString("utf8")) as unknown[]);
+
+    expect(disclosed).toEqual(
+      expect.arrayContaining([expect.arrayContaining(["age_over_18", false])]),
+    );
+    expect(disclosed).toEqual(
+      expect.arrayContaining([expect.arrayContaining(["birthdate", "2012-03-04"])]),
+    );
+
+    const capture = await getJson<SessionCapture>(app, `/sessions/${session.session_id}`);
+    expect(capture.fixture_id).toBe("pid_under_18");
+  });
+
+  it("rejects an unknown fixture_id", async () => {
+    const response = await request(createApp(config))
+      .post("/sessions")
+      .send({ fixture_id: "pid_person_z" });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({
+      error: "unsupported_fixture_id",
+      supported_fixture_ids: expect.arrayContaining(["pid_default", "pid_under_18"]),
+    });
+  });
+
   it("runs the default authorization-code flow through the auto-approving OAuth server", async () => {
     const app = createApp(config);
     const walletClientId = "https://wallet.example.test";
@@ -3785,6 +3838,7 @@ interface SessionCreateResponse extends JsonRecord {
   credential_offer_mode: "credential_offer" | "credential_offer_uri";
   credential_configuration_id: string;
   status_list_enabled: boolean;
+  fixture_id?: string;
   offer_url: string;
   deeplink: string;
 }

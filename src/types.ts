@@ -134,6 +134,11 @@ export interface SessionCapture {
   credential_offer_mode: CredentialOfferMode;
   credential_configuration_id: string;
   status_list_enabled: boolean;
+  /**
+   * Predefined claim set the issued credential carries. Absent means the baseline identity, which
+   * is what every session issued before this field existed used.
+   */
+  fixture_id?: string;
   status_list_allocation_ids?: string[];
   observed: {
     client_id: ObservedValue<string>;

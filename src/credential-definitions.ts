@@ -15,6 +15,7 @@ export const PID_SD_JWT_CLAIMS = [
   "address.postal_code",
   "address.region",
   "address.street_address",
+  "age_over_18",
   "birth_family_name",
   "birth_given_name",
   "birthdate",
@@ -36,6 +37,7 @@ export const PID_SD_JWT_CLAIMS = [
 ] as const;
 
 export const PID_MDOC_CLAIMS = [
+  "age_over_18",
   "birth_date",
   "document_number",
   "email_address",

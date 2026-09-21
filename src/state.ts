@@ -38,6 +38,7 @@ export class CaptureStore {
     flow: SessionCapture["flow"] = "authorization_code",
     credentialOfferMode: CredentialOfferMode = "credential_offer",
     statusListEnabled = false,
+    fixtureId?: string,
   ): SessionCapture {
     const sessionId = randomUUID();
     const session: SessionCapture = {
@@ -50,6 +51,7 @@ export class CaptureStore {
       flow,
       credential_offer_mode: credentialOfferMode,
       status_list_enabled: statusListEnabled,
+      ...(fixtureId ? { fixture_id: fixtureId } : {}),
 
       observed: {
         client_id: { value: null, source: null, also_seen_in: [] },

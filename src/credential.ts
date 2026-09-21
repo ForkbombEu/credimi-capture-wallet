@@ -2,7 +2,7 @@ import { Kms, type MdocSignOptions, SdJwtVcService, type SdJwtVcSignOptions } fr
 import { createIssuerSigningContext, issuerSigningKeyId, loadIssuerCertificate } from "./config.js";
 import { DEGREE_CREDENTIAL_SUBJECT } from "./configurations/shared/degree-data.js";
 import { encodeMdocPidClaims } from "./configurations/shared/mdoc-encoder.js";
-import { pidSubject } from "./configurations/shared/pid-data.js";
+import { type PidSubject, pidSubject } from "./configurations/shared/pid-data.js";
 import { encodeSdJwtPidClaims } from "./configurations/shared/sd-jwt-encoder.js";
 import {
   CREDIMI_LOGO_URL,
@@ -47,6 +47,7 @@ export async function issueSdJwtCredential(options: {
   credentialConfigurationId: string;
   holderJwk: JsonRecord;
   statusListReference?: StatusListReference;
+  subject?: PidSubject;
   now?: Date;
 }): Promise<string> {
   const issuerCertificate = loadIssuerCertificate(options.config);
@@ -63,6 +64,7 @@ export function sdJwtCredentialSignOptions(options: {
   config: AppConfig;
   holderJwk: JsonRecord;
   statusListReference?: StatusListReference;
+  subject?: PidSubject;
   now?: Date;
 }): SdJwtVcSignOptions {
   const issuerCertificate = loadIssuerCertificate(options.config);
@@ -75,7 +77,7 @@ export function sdJwtCredentialSignOptions(options: {
     payload: {
       vct: PID_SD_JWT_VCT,
       exp: Math.floor(now.getTime() / 1000) + 365 * 24 * 60 * 60,
-      ...encodeSdJwtPidClaims(pidSubject()),
+      ...encodeSdJwtPidClaims(options.subject ?? pidSubject()),
       ...(options.statusListReference
         ? { status: { status_list: options.statusListReference } }
         : {}),
@@ -83,6 +85,7 @@ export function sdJwtCredentialSignOptions(options: {
     disclosureFrame: {
       _sd: [
         "address",
+        "age_over_18",
         "birth_family_name",
         "birth_given_name",
         "birthdate",
@@ -135,6 +138,7 @@ export function mdocCredentialSignOptions(options: {
   config: AppConfig;
   holderJwk: JsonRecord;
   statusListReference?: StatusListReference;
+  subject?: PidSubject;
   now?: Date;
 }): MdocSignOptions {
   const now = options.now ?? new Date();
@@ -148,7 +152,7 @@ export function mdocCredentialSignOptions(options: {
       validUntil: new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000),
     },
     namespaces: {
-      [PID_MDOC_NAMESPACE]: encodeMdocPidClaims(pidSubject()),
+      [PID_MDOC_NAMESPACE]: encodeMdocPidClaims(options.subject ?? pidSubject()),
     },
     issuerCertificate,
     holderKey: Kms.PublicJwk.fromUnknown(options.holderJwk),
