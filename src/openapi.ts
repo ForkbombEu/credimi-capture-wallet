@@ -417,12 +417,57 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           tags: ["OpenID4VP"],
           operationId: "submitPresentationResponse",
           summary: "Submit a presentation response for a session",
+          description:
+            "Accepts the Authorization Response for the addressed session. A DC API presentation is forwarded here by the presentation page and needs no state parameter; such a submission is refused once the session holds a presentation (409), after the presentation window closes (400), or when the browser Origin header disagrees with the session origin (403).",
           parameters: [sessionIdParameter],
           requestBody: { required: true, ...form({ type: "object", additionalProperties: true }) },
           responses: {
             "200": response("Presentation was captured and verified."),
             "400": errorResponses["400"],
+            "403": errorResponses["400"],
             "404": errorResponses["404"],
+            "409": errorResponses["400"],
+          },
+        },
+      },
+      "/openid4vp/sessions/{sessionId}/dc_api_invocation": {
+        post: {
+          tags: ["OpenID4VP"],
+          operationId: "reportDcApiInvocation",
+          summary: "Report a DC API invocation that returned no presentation",
+          description:
+            "Records why a Digital Credentials API invocation produced no Authorization Response. This is the evidence a wallet's refusal leaves behind — for example when a HAIP wallet rejects the unencrypted dc_api response mode — and it is kept distinct from a verification failure over a real response. A wallet refusal and an End-User cancellation are not distinguishable at the browser API, so `rejected` records what the browser reported without asserting which occurred.",
+          parameters: [sessionIdParameter],
+          requestBody: {
+            required: true,
+            ...form({
+              type: "object",
+              required: ["outcome"],
+              properties: {
+                outcome: {
+                  type: "string",
+                  enum: ["api_unavailable", "rejected", "no_vp_token", "failed"],
+                },
+                error_name: {
+                  type: "string",
+                  description: "DOMException name, when there was one.",
+                },
+                error_message: { type: "string" },
+                response_returned: { type: "boolean" },
+                vp_token_present: { type: "boolean" },
+              },
+              additionalProperties: false,
+            }),
+          },
+          responses: {
+            "202": response("Invocation outcome was captured.", {
+              type: "object",
+              required: ["status"],
+              properties: { status: { type: "string", const: "dc_api_invocation_reported" } },
+            }),
+            "400": errorResponses["400"],
+            "404": errorResponses["404"],
+            "409": errorResponses["400"],
           },
         },
       },
@@ -992,7 +1037,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
               enum: ["by_reference", "by_value", "plain"],
               default: "by_reference",
               description:
-                "Deliver a signed request object by reference or value, or a plain URL-encoded Authorization Request without request or request_uri.",
+                "Deliver a signed request object by reference or value, or a plain URL-encoded Authorization Request without request or request_uri. For the dc_api response modes this selects how the request reaches the browser instead: by_value produces a signed openid4vp-v1-signed request, plain an unsigned openid4vp-v1-unsigned one, by_reference is rejected, and the default becomes by_value.",
             },
             response_type: {
               type: "string",
@@ -1001,8 +1046,10 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             },
             response_mode: {
               type: "string",
-              enum: ["direct_post", "direct_post.jwt"],
+              enum: ["direct_post", "direct_post.jwt", "dc_api", "dc_api.jwt"],
               default: "direct_post.jwt",
+              description:
+                "Selects the presentation flow. direct_post and direct_post.jwt are redirect-based and return a wallet deeplink. dc_api and dc_api.jwt travel over the W3C Digital Credentials API: the response carries dc_api_request, deeplink points at the verifier's presentation page instead of a wallet, and request_uri, response_uri, and state are absent. The .jwt modes return the Authorization Response encrypted.",
             },
             presentation_request: {
               type: "object",
@@ -1045,11 +1092,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           required: [
             "session_id",
             "request_delivery",
-            "request_uri",
-            "request_uri_method",
             "response_mode",
-            "scheme",
-            "response_uri",
             "deeplink",
             "authorization_request",
             "status",
@@ -1057,15 +1100,54 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           properties: {
             session_id: { type: "string", format: "uuid" },
             request_delivery: { type: "string" },
-            request_uri: { type: "string", format: "uri" },
-            request_uri_method: { type: "string" },
+            request_uri: {
+              type: "string",
+              format: "uri",
+              description: "Redirect flows only; absent for the dc_api response modes.",
+            },
+            request_uri_method: {
+              type: "string",
+              description: "Redirect flows only; absent for the dc_api response modes.",
+            },
             response_mode: { type: "string" },
-            scheme: { type: "string" },
-            response_uri: { type: "string", format: "uri" },
+            scheme: {
+              type: "string",
+              description: "Redirect flows only; absent for the dc_api response modes.",
+            },
+            response_uri: {
+              type: "string",
+              format: "uri",
+              description: "Redirect flows only; absent for the dc_api response modes.",
+            },
             redirect_uri: { type: "string", format: "uri" },
-            deeplink: { type: "string" },
+            deeplink: {
+              type: "string",
+              description:
+                "Wallet invocation URL for the redirect flows. For the dc_api response modes it is the HTTPS URL of this service's presentation page at /ui/openid4vp/sessions/{sessionId}/dc_api_presentation, built from the configured public base URL. Scanning it opens a webpage, it does not invoke a wallet.",
+            },
+            dc_api_request: {
+              $ref: "#/components/schemas/DcApiRequest",
+            },
             authorization_request: { type: "object", additionalProperties: true },
             status: { type: "string", const: "created" },
+          },
+        },
+        DcApiRequest: {
+          type: "object",
+          required: ["protocol", "data"],
+          description:
+            "Present for the dc_api response modes. Pass as one entry of navigator.credentials.get({ digital: { requests: [ ... ] } }).",
+          properties: {
+            protocol: {
+              type: "string",
+              enum: ["openid4vp-v1-signed", "openid4vp-v1-unsigned"],
+            },
+            data: {
+              type: "object",
+              additionalProperties: true,
+              description:
+                "For openid4vp-v1-signed a single request member holding the signed Request Object. For openid4vp-v1-unsigned the Authorization Request parameters themselves, without client_id or expected_origins.",
+            },
           },
         },
         PresentationSession: {

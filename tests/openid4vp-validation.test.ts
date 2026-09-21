@@ -63,4 +63,85 @@ describe("OpenID4VP 1.0 final mdoc session transcript", () => {
       createHash("sha256").update(handoverInfo).digest(),
     ]);
   });
+
+  it("uses the DC API handover defined by Appendix B.2.6.2 for dc_api", async () => {
+    const authorizationRequest = {
+      client_id: "x509_hash:verifier",
+      nonce: "verifier-nonce",
+      response_mode: "dc_api",
+      expected_origins: ["https://verifier.example"],
+    };
+    const transcript = await mdocSessionTranscript(
+      authorizationRequest,
+      undefined,
+      "https://verifier.example",
+    );
+    const handoverInfo = cborEncode(["https://verifier.example", authorizationRequest.nonce, null]);
+
+    expect(transcript.deviceEngagement).toBeNull();
+    expect(transcript.eReaderKey).toBeNull();
+    expect(transcript.handover.encodedStructure).toEqual([
+      "OpenID4VPDCAPIHandover",
+      createHash("sha256").update(handoverInfo).digest(),
+    ]);
+  });
+
+  it("includes the response encryption JWK thumbprint for dc_api.jwt", async () => {
+    const encryptionJwk = {
+      kty: "EC",
+      crv: "P-256",
+      x: "f83OJ3D2xF4ZcL06bGQmHslUUT4kq27QFT5uO9j6d5w",
+      y: "x_FEzRu9dMQ-Z5n6bTLtJIOtJ8o2B1ye5q6jz1I7E0Y",
+      use: "enc",
+      alg: "ECDH-ES",
+      kid: "verifier-response-key",
+    };
+    const authorizationRequest = {
+      client_id: "x509_hash:verifier",
+      nonce: "verifier-nonce",
+      response_mode: "dc_api.jwt",
+      client_metadata: { jwks: { keys: [encryptionJwk] } },
+    };
+    const transcript = await mdocSessionTranscript(
+      authorizationRequest,
+      undefined,
+      "https://verifier.example",
+    );
+    const handoverInfo = cborEncode([
+      "https://verifier.example",
+      authorizationRequest.nonce,
+      Buffer.from(await calculateJwkThumbprint(encryptionJwk, "sha256"), "base64url"),
+    ]);
+
+    expect(transcript.handover.encodedStructure).toEqual([
+      "OpenID4VPDCAPIHandover",
+      createHash("sha256").update(handoverInfo).digest(),
+    ]);
+  });
+
+  it.each([
+    ["origin", { origin: "https://attacker.example", nonce: "verifier-nonce" }],
+    ["nonce", { origin: "https://verifier.example", nonce: "other-nonce" }],
+  ])("binds the DC API transcript to the %s", async (_label, wallet) => {
+    const verifierTranscript = await mdocSessionTranscript(
+      { nonce: "verifier-nonce", response_mode: "dc_api" },
+      undefined,
+      "https://verifier.example",
+    );
+    const walletTranscript = await mdocSessionTranscript(
+      { nonce: wallet.nonce, response_mode: "dc_api" },
+      undefined,
+      wallet.origin,
+    );
+
+    expect(walletTranscript.handover.encodedStructure).not.toEqual(
+      verifierTranscript.handover.encodedStructure,
+    );
+  });
+
+  it("rejects a DC API transcript without a browser origin", async () => {
+    await expect(
+      mdocSessionTranscript({ nonce: "verifier-nonce", response_mode: "dc_api" }),
+    ).rejects.toThrow("requires the browser origin");
+  });
 });

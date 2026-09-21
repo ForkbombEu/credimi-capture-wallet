@@ -91,7 +91,7 @@ The credential request normally uses `application/json` with `credential_configu
 | `client_id_scheme` | `x509_hash`, `x509_san_dns`, `decentralized_identifier`, `redirect_uri` | `x509_hash` |
 | `request_delivery` | `by_reference`, `by_value`, `plain` | `by_reference` |
 | `response_type` | `vp_token`, `vp_token id_token`, `code` | `vp_token` |
-| `response_mode` | `direct_post`, `direct_post.jwt` | `direct_post.jwt` |
+| `response_mode` | `direct_post`, `direct_post.jwt`, `dc_api`, `dc_api.jwt` | `direct_post.jwt` |
 | `presentation_request` | Request-object claim overrides | — |
 | `dcql_query` | DCQL query object, or `null` to omit the parameter | Default query |
 | `scopes` | A string or string array | — |
@@ -124,7 +124,7 @@ For `direct_post.jwt`, the merged metadata must still publish the session's gene
 
 `allow_undecryptable_response: true` waives that check and publishes the supplied `jwks` verbatim, including a foreign or static key. It exists only to build requests that no wallet should answer, such as advertising a key the Verifier does not hold, omitting the key entirely, or reusing one key across sessions. The service can then no longer decrypt a `direct_post.jwt` response, and a wallet that answers anyway is captured as a decryption failure. It requires a `client_metadata` object and is otherwise rejected with `allow_undecryptable_response_requires_client_metadata`. Whenever a `direct_post.jwt` request goes out without the verifier encryption key, the session records a `vp_undecryptable_response_allowed` event.
 
-The `201` response includes `session_id`, delivery and response settings, `request_uri`, `response_uri`, `deeplink`, `authorization_request`, and `status: "created"`.
+The `201` response includes `session_id`, delivery and response settings, `deeplink`, `authorization_request`, and `status: "created"`. A redirect session also includes `request_uri`, `request_uri_method`, `response_uri`, and `scheme`; a DC API session omits those and includes `dc_api_request` instead.
 
 When `redirect_uri` is supplied, the service appends a fresh 128-bit `response_code` query parameter and returns the resulting URI in the session-creation response. After a successful wallet submission, the response endpoint returns `200`, `Cache-Control: no-store`, and `{ "redirect_uri": "..." }`; the Wallet must redirect the user agent to it. Invalid presentations retain the normal `400` error response. The exact template `{{base_url}}/openid4vp/redirect`, or the equivalent concrete service URI, creates a service-hosted capture page. It displays the received `response_code` for both valid and invalid visits. A valid visit must include the generated `response_code`; it returns a `200` confirmation page and records `redirect_uri_visited_at`, `redirect_uri_visit_count`, a `vp_redirect_uri_visited` event, and redacted request headers in `raw.redirect_uri_visits`.
 
@@ -135,6 +135,71 @@ When `redirect_uri` is supplied, the service appends a fresh 128-bit `response_c
 | `GET` | `/openid4vp/sessions/{sessionId}/deeplink` | `{ deeplink, authorization_request }`; records a deeplink event. |
 | `GET` | `/openid4vp/sessions/{sessionId}/events` | Chronological presentation events. |
 | `GET` | `/openid4vp/redirect?response_code=...` | Service-hosted capture redirect page created from the `redirect_uri` template. |
+
+### Digital Credentials API presentation
+
+`response_mode: "dc_api"` or `"dc_api.jwt"` presents over the W3C Digital Credentials API, as
+defined in OpenID4VP 1.0 Appendix A. The response mode alone selects the flow; there is no
+separate transport field.
+
+`request_delivery` decides how the request reaches the browser rather than how it reaches a
+wallet: `by_value` — the default for DC API — produces a signed Request Object carrying `client_id`
+and `expected_origins`, `plain` produces unsigned request parameters with neither, and
+`by_reference` is rejected with `request_delivery_unsupported_for_dc_api`.
+`client_id_scheme: "redirect_uri"` is rejected with `client_id_scheme_unsupported_for_dc_api`
+because a signed DC API request requires a `client_id`, and `request_uri_method` is rejected with
+`request_uri_method_unsupported_for_dc_api`. A DC API request carries no `request_uri`,
+`request_uri_method`, `response_uri`, `redirect_uri`, `state`, or `aud`.
+
+`dc_api_request` in the `201` response is the browser invocation payload:
+
+```json
+{
+  "deeplink": "https://capture-wallet.credimi.io/ui/openid4vp/sessions/sess_123/dc_api_presentation",
+  "dc_api_request": {
+    "protocol": "openid4vp-v1-signed",
+    "data": { "request": "eyJhbGciOiJFUzI1NiIsInR5cCI6Im9hdXRoLWF1dGh6LXJlcStqd3QiLC..." }
+  }
+}
+```
+
+Pass it as one entry of `navigator.credentials.get({ digital: { requests: [ ... ] } })`. For
+`plain` delivery the protocol is `openid4vp-v1-unsigned` and `data` holds the Authorization
+Request parameters themselves.
+
+`deeplink` keeps its field name and string type, but for DC API it is the HTTPS URL of this
+service's presentation page rather than a wallet invocation URL. It is built from the configured
+public base URL (`PUBLIC_BASE_URL`, defaulting to `issuer_base_url`) and never from a request
+`Host` header. The operator UI renders the usual QR code for it; scanning that code opens a
+webpage, and the wallet is invoked only from the button press on that page.
+
+| Method | Path | Input | Result |
+| --- | --- | --- | --- |
+| `GET` | `/ui/openid4vp/sessions/{sessionId}/dc_api_presentation` | — | Unauthenticated presentation page carrying only this session's `dc_api_request`. Requires `GUI_ENABLED`. |
+| `POST` | `/openid4vp/sessions/{sessionId}/response` | The wallet's Authorization Response as JSON or form | Same endpoint as the redirect flows, with no `state` required. |
+| `POST` | `/openid4vp/sessions/{sessionId}/dc_api_invocation` | `outcome` plus optional `error_name`, `error_message`, `response_returned`, `vp_token_present` | `202` and `{ "status": "dc_api_invocation_reported" }`; records why the invocation produced no Authorization Response. |
+
+`outcome` is one of `api_unavailable`, `rejected`, `no_vp_token`, or `failed`, and is captured
+under `dc_api.invocation` together with the reported `DOMException` name and message, whether a
+response object came back, whether it contained a `vp_token`, and the browser `Origin`. This is
+the evidence a HAIP wallet leaves when it refuses the unencrypted `dc_api` response mode, and it
+is deliberately distinct from a verification failure over a real response: `checks` stays
+untouched and the session status becomes `dc_api_invocation_reported`. A wallet refusal and an
+End-User cancellation are indistinguishable through the browser API, so `rejected` records what
+the browser reported without asserting which occurred.
+
+DC API verification is origin-bound: the expected SD-JWT VC Key Binding JWT audience is
+`origin:<origin>` and the mdoc session transcript uses the `OpenID4VPDCAPIHandover` over the bare
+origin, the request nonce, and — only for `dc_api.jwt` — the thumbprint of the verifier's
+response-encryption key. The origin is the session's configured one; a submission whose `Origin`
+header disagrees is refused with `403 unexpected_dc_api_origin`.
+
+A DC API presentation window lasts 10 minutes. A submission after the first captured presentation
+is refused with `409 vp_session_already_completed`, and one after the window closes with
+`400 vp_session_expired`. `GET` and `POST /openid4vp/sessions/{sessionId}/request` return
+`404 vp_request_uri_not_available_for_dc_api`, so a DC API session never records a request_uri
+retrieval. Redirect sessions keep their existing behaviour, including recording repeated wallet
+submissions.
 
 ### Wallet-facing request and response endpoints
 
@@ -171,6 +236,7 @@ These routes support the server-rendered operator UI. They are not a stable prog
 | `GET` | `/ui/sessions/{sessionId}` |
 | `POST` | `/ui/openid4vp/sessions` |
 | `GET` | `/ui/openid4vp/sessions/{sessionId}` |
+| `GET` | `/ui/openid4vp/sessions/{sessionId}/dc_api_presentation` |
 | `GET` | `/favicon.svg` |
 | `GET` | `/assets/style.css` |
 | `GET` | `/assets/credimi_logo.svg` |

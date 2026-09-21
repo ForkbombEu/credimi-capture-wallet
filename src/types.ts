@@ -8,6 +8,12 @@ export interface StatusListReference {
 
 export interface AppConfig {
   issuer_base_url: string;
+  /**
+   * Public origin the operator UI is served from. The DC API presentation page URL and the
+   * `expected_origins` of a signed DC API request are derived from it, never from a request Host
+   * header. Defaults to `issuer_base_url`.
+   */
+  public_base_url: string;
   listen_addr: string;
   data_dir: string;
   credential_configuration_id: string;
@@ -170,21 +176,59 @@ export interface SessionCapture {
   };
 }
 
+export type OpenId4VpResponseMode = "direct_post" | "direct_post.jwt" | "dc_api" | "dc_api.jwt";
+
+export type VpDcApiProtocol = "openid4vp-v1-signed" | "openid4vp-v1-unsigned";
+
+/** Browser invocation request handed to `navigator.credentials.get({ digital: { requests } })`. */
+export interface VpDcApiRequest {
+  protocol: VpDcApiProtocol;
+  data: JsonRecord;
+}
+
+/**
+ * Why a DC API presentation produced no Authorization Response. A wallet refusal and an End-User
+ * cancellation both surface as a `DOMException` with deliberately sparse detail, so `rejected`
+ * records what the browser reported without claiming which of the two occurred.
+ */
+export type VpDcApiInvocationOutcome = "api_unavailable" | "rejected" | "no_vp_token" | "failed";
+
+export interface VpDcApiInvocationCapture {
+  at: string;
+  outcome: VpDcApiInvocationOutcome;
+  error_name?: string;
+  error_message?: string;
+  response_returned: boolean;
+  vp_token_present: boolean;
+  reported_origin?: string;
+}
+
+export interface VpDcApiCapture {
+  request: VpDcApiRequest;
+  /** Origin the presentation page is served from; the wallet binds its response to it. */
+  expected_origin: string;
+  expires_at: string;
+  invocation?: VpDcApiInvocationCapture;
+}
+
 export interface VpSessionCapture {
   session_id: string;
   status: string;
   request_delivery: "by_reference" | "by_value" | "plain";
-  request_uri_method: string;
-  response_mode: "direct_post" | "direct_post.jwt";
+  response_mode: OpenId4VpResponseMode;
   authorization_request: JsonRecord;
   decoded_presentations?: JsonRecord;
-  request_uri: string;
-  deeplink_scheme: string;
   deeplink: string;
-  response_uri: string;
+  /** Redirect-only members. A DC API session has no request_uri, response_uri, or wallet scheme. */
+  request_uri_method?: string;
+  request_uri?: string;
+  deeplink_scheme?: string;
+  response_uri?: string;
   redirect_uri?: string;
   redirect_uri_visited_at?: string;
   redirect_uri_visit_count?: number;
+  /** Present only for the `dc_api` and `dc_api.jwt` response modes. */
+  dc_api?: VpDcApiCapture;
   observed: {
     request_uri_payload: ObservedValue<JsonRecord>;
     wallet_response: ObservedValue<JsonRecord>;
@@ -209,6 +253,8 @@ export interface VpSessionCapture {
     presentation_response_decrypted?: JsonRecord;
     decoded_presentations?: JsonRecord;
     presentation_response_raw?: string;
+    /** The browser's report that the DC API invocation yielded no Authorization Response. */
+    dc_api_invocation_http?: PresentationResponseHttpCapture;
   };
 }
 

@@ -1,5 +1,6 @@
 import type { ResolvedIssuerConfiguration } from "./configurations/types.js";
 import type { SupportedCredential } from "./metadata.js";
+import type { VpDcApiRequest } from "./types.js";
 
 const REPOSITORY_URL = "https://github.com/ForkbombEu/credimi-capture-wallet";
 const OPENAPI_URL = "/openapi.json";
@@ -105,7 +106,12 @@ export function indexPage(groups: readonly IssuerCredentialGroup[]): string {
   });
 }
 
-export function vpSessionPage(sessionId: string, deeplink: string, qrSvg: string): string {
+export function vpSessionPage(
+  sessionId: string,
+  deeplink: string,
+  qrSvg: string,
+  dcApi = false,
+): string {
   const escapedDeeplink = escapeHtml(deeplink);
   return htmlPage({
     title: "OpenID4VP Session",
@@ -134,8 +140,10 @@ export function vpSessionPage(sessionId: string, deeplink: string, qrSvg: string
       '<section class="session-header container">',
       "<div>",
       '<p class="eyebrow">OpenID4VP session</p>',
-      "<h1>Scan the presentation request</h1>",
-      '<p class="session-intro">Scan the request, select a matching credential in the wallet, and inspect the submitted presentation response.</p>',
+      dcApi ? "<h1>Open the presentation page</h1>" : "<h1>Scan the presentation request</h1>",
+      dcApi
+        ? '<p class="session-intro">Scan the code with the device that holds the wallet. It opens this verifier\'s presentation page in the browser, where the presentation is started through the Digital Credentials API.</p>'
+        : '<p class="session-intro">Scan the request, select a matching credential in the wallet, and inspect the submitted presentation response.</p>',
       "</div>",
       "</section>",
       '<section class="session-layout container">',
@@ -146,9 +154,15 @@ export function vpSessionPage(sessionId: string, deeplink: string, qrSvg: string
       "</div>",
       '<div class="qr-empty" id="qr-empty" hidden></div>',
       "</div>",
-      '<p class="scan-text" id="scan-text">Scan the presentation request with the wallet</p>',
-      '<p class="qr-guidance" id="qr-guidance">The QR points to a request_uri hosted by this service. The wallet response is captured when it posts the presentation.</p>',
-      '<div class="deeplink-panel" aria-label="Presentation request deeplink">',
+      dcApi
+        ? '<p class="scan-text" id="scan-text">Scan the code to open the presentation page</p>'
+        : '<p class="scan-text" id="scan-text">Scan the presentation request with the wallet</p>',
+      dcApi
+        ? '<p class="qr-guidance" id="qr-guidance">The code is an HTTPS page URL, not a wallet deeplink. Scanning it opens the page in a browser; the wallet is invoked only when the End-User presses "Present credential" there.</p>'
+        : '<p class="qr-guidance" id="qr-guidance">The QR points to a request_uri hosted by this service. The wallet response is captured when it posts the presentation.</p>',
+      dcApi
+        ? '<div class="deeplink-panel" aria-label="DC API presentation page URL">'
+        : '<div class="deeplink-panel" aria-label="Presentation request deeplink">',
       '<p class="deeplink-label">Same content as the QR code</p>',
       '<a class="deeplink" href="',
       escapedDeeplink,
@@ -164,7 +178,9 @@ export function vpSessionPage(sessionId: string, deeplink: string, qrSvg: string
       "</div>",
       '<div class="metadata-grid" id="metadata-grid">',
       '<details class="metadata-row"><summary>authorization_request</summary><code>pending</code></details>',
-      '<details class="metadata-row"><summary>request_uri_payload</summary><code>pending</code></details>',
+      dcApi
+        ? '<details class="metadata-row"><summary>dc_api</summary><code>pending</code></details>'
+        : '<details class="metadata-row"><summary>request_uri_payload</summary><code>pending</code></details>',
       '<details class="metadata-row"><summary>wallet_response</summary><code>pending</code></details>',
       '<details class="metadata-row"><summary>presentation_response_decrypted</summary><code>pending</code></details>',
       '<details class="metadata-row"><summary>decoded_presentations</summary><code>pending</code></details>',
@@ -180,6 +196,84 @@ export function vpSessionPage(sessionId: string, deeplink: string, qrSvg: string
       "<script>",
       vpClientScript(),
       "</script>",
+    ].join(""),
+  });
+}
+
+export interface DcApiPresentationPageOptions {
+  sessionId: string;
+  request: VpDcApiRequest;
+  expectedOrigin: string;
+  expiresAt: string;
+  state: "ready" | "expired" | "completed";
+}
+
+/**
+ * The page a DC API session's QR code opens on the End-User's device. It carries the session's
+ * browser invocation request and nothing else from the capture record, and it invokes the wallet
+ * only from the button press: the Digital Credentials API requires user activation, and navigating
+ * to the page is deliberately not enough.
+ */
+export function dcApiPresentationPage(options: DcApiPresentationPageOptions): string {
+  const blocked = options.state !== "ready";
+  const notice =
+    options.state === "completed"
+      ? "This session already holds a presentation. Create a new session to present again."
+      : "This presentation session has expired. Create a new session to present again.";
+  return htmlPage({
+    title: "Present a credential",
+    body: [
+      '<header class="topbar">',
+      '<div class="topbar-inner">',
+      '<a class="brand-lockup" href="/">',
+      '<img class="brand-logo" src="/assets/credimi_logo.svg" alt="" aria-hidden="true">',
+      '<span class="brand-name">Wallet metadata capture</span>',
+      "</a>",
+      '<div class="topbar-actions">',
+      '<span class="status-chip status-wallet">',
+      escapeHtml(options.request.protocol),
+      "</span>",
+      "</div>",
+      "</div>",
+      "</header>",
+      '<main class="page-content session-page">',
+      '<section class="session-header container">',
+      "<div>",
+      '<p class="eyebrow">OpenID4VP over the Digital Credentials API</p>',
+      "<h1>Present a credential</h1>",
+      '<p class="session-intro">This page asks your wallet for a presentation through the browser\'s Digital Credentials API. The request is bound to ',
+      escapeHtml(options.expectedOrigin),
+      " and expires at ",
+      escapeHtml(options.expiresAt),
+      ".</p>",
+      "</div>",
+      "</section>",
+      '<section class="session-layout container">',
+      '<div class="card">',
+      blocked
+        ? `<p class="qr-guidance" id="dc-api-status">${escapeHtml(notice)}</p>`
+        : [
+            '<button class="btn btn-primary btn-lg" id="dc-api-present" type="button">Present credential</button>',
+            '<p class="qr-guidance" id="dc-api-status">Press the button to let your wallet answer the request.</p>',
+            '<pre class="metadata-json" id="dc-api-detail"></pre>',
+          ].join(""),
+      "</div>",
+      "</section>",
+      "</main>",
+      ...(blocked
+        ? []
+        : [
+            "<script>window.__CREDIMI_DC_API__ = ",
+            // `<` is escaped so a value can never terminate the script element early.
+            JSON.stringify({
+              session_id: options.sessionId,
+              request: options.request,
+            }).replaceAll("<", "\\u003c"),
+            ";</script>",
+            "<script>",
+            dcApiPresentationScript(),
+            "</script>",
+          ]),
     ].join(""),
   });
 }
@@ -794,19 +888,29 @@ function vpClientScript(): string {
   let flashTimer = null;
   let pollTimer = null;
 
-  function setQrConsumed(consumed) {
+  function setQrConsumed(session) {
+    const consumed = session.status !== "created";
+    const dcApi = Boolean(session.dc_api);
     qrCode.hidden = consumed;
     qrEmpty.hidden = !consumed;
-    scanText.textContent = consumed ? "Request retrieved by wallet" : "Scan the presentation request with the wallet";
+    scanText.textContent = consumed
+      ? (dcApi ? "Answered from the browser" : "Request retrieved by wallet")
+      : (dcApi ? "Scan the code to open the presentation page" : "Scan the presentation request with the wallet");
     qrGuidance.textContent = consumed
-      ? "The wallet has retrieved the request. Select a matching credential and submit the presentation."
-      : "The QR points to a request_uri hosted by this service. The wallet response is captured when it posts the presentation.";
+      ? (dcApi
+        ? "The presentation page has reported the outcome of the Digital Credentials API invocation."
+        : "The wallet has retrieved the request. Select a matching credential and submit the presentation.")
+      : (dcApi
+        ? "The code is an HTTPS page URL, not a wallet deeplink. Scanning it opens the page in a browser; the wallet is invoked only when the End-User presses the button there."
+        : "The QR points to a request_uri hosted by this service. The wallet response is captured when it posts the presentation.");
   }
 
   function metadataRows(session) {
     return [
       ["authorization_request", session.authorization_request ? formatJsonValue(session.authorization_request) : "pending"],
-      ["request_uri_payload", session.observed.request_uri_payload.value ? JSON.stringify(session.observed.request_uri_payload.value) : "pending"],
+      session.dc_api
+        ? ["dc_api", formatJsonValue(session.dc_api)]
+        : ["request_uri_payload", session.observed.request_uri_payload.value ? JSON.stringify(session.observed.request_uri_payload.value) : "pending"],
       ["wallet_response", session.observed.wallet_response.value ? JSON.stringify(session.observed.wallet_response.value) : "pending"],
       ["presentation_response_decrypted", session.raw && session.raw.presentation_response_decrypted ? formatJsonValue(session.raw.presentation_response_decrypted) : "pending"],
       ["decoded_presentations", session.raw && session.raw.decoded_presentations ? formatJsonValue(session.raw.decoded_presentations) : "pending"],
@@ -821,6 +925,7 @@ function vpClientScript(): string {
 
   function metadataState(session) {
     if (session.status === "presentation_validated" || session.status === "presentation_invalid") return "done";
+    if (session.status === "dc_api_invocation_reported") return "done";
     if (session.status === "request_retrieved") return "receiving";
     return "waiting";
   }
@@ -846,7 +951,7 @@ function vpClientScript(): string {
   }
 
   function render(session) {
-    setQrConsumed(session.status !== "created");
+    setQrConsumed(session);
     statusLabel.textContent = session.status.replaceAll("_", " ");
     const state = metadataState(session);
     setMetadataState(state);
@@ -871,7 +976,8 @@ function vpClientScript(): string {
         session_id: session.session_id,
         status: session.status,
         authorization_request: session.authorization_request,
-        request_uri_payload: session.observed.request_uri_payload,
+        dc_api: session.dc_api,
+        request_uri_payload: session.dc_api ? undefined : session.observed.request_uri_payload,
         wallet_response: session.observed.wallet_response,
         presentation_response_decrypted: session.raw ? session.raw.presentation_response_decrypted : undefined,
         decoded_presentations: session.raw ? session.raw.decoded_presentations : undefined,
@@ -907,6 +1013,116 @@ function vpClientScript(): string {
   pollTimer = setInterval(function () {
     poll().catch(console.error);
   }, 1500);
+})();`;
+}
+
+/**
+ * Drives `navigator.credentials.get()` from the button press and forwards whatever comes back.
+ * An invocation that yields no Authorization Response is reported separately, so a wallet that
+ * refuses the request is captured as a refusal rather than as a verification failure.
+ */
+function dcApiPresentationScript(): string {
+  return `(function () {
+  const config = window.__CREDIMI_DC_API__;
+  const button = document.getElementById("dc-api-present");
+  const status = document.getElementById("dc-api-status");
+  const detail = document.getElementById("dc-api-detail");
+  if (!button || !config) return;
+
+  function show(message, payload) {
+    status.textContent = message;
+    detail.textContent = payload ? JSON.stringify(payload, null, 2) : "";
+  }
+
+  function sessionPath(suffix) {
+    return "/openid4vp/sessions/" + encodeURIComponent(config.session_id) + suffix;
+  }
+
+  async function report(outcome, extra) {
+    try {
+      await fetch(sessionPath("/dc_api_invocation"), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(Object.assign({ outcome: outcome }, extra)),
+      });
+    } catch (error) {
+      console.error(error);
+    }
+  }
+
+  function authorizationResponse(credential) {
+    const data = credential && credential.data !== undefined ? credential.data : credential;
+    if (typeof data !== "string") return data;
+    try {
+      return JSON.parse(data);
+    } catch (error) {
+      return null;
+    }
+  }
+
+  button.addEventListener("click", async function () {
+    button.disabled = true;
+    if (!navigator.credentials || typeof window.DigitalCredential === "undefined") {
+      show("This browser does not expose the Digital Credentials API. Open this page in a browser that supports it.");
+      await report("api_unavailable", { response_returned: false, vp_token_present: false });
+      button.disabled = false;
+      return;
+    }
+
+    show("Waiting for the wallet\\u2026");
+    let credential;
+    try {
+      credential = await navigator.credentials.get({ digital: { requests: [config.request] } });
+    } catch (error) {
+      show("The wallet did not complete the presentation (" + (error && error.name ? error.name : "unknown error") + "). It may have refused the request, or the presentation may have been cancelled.");
+      await report("rejected", {
+        error_name: error && error.name ? String(error.name) : undefined,
+        error_message: error && error.message ? String(error.message) : undefined,
+        response_returned: false,
+        vp_token_present: false,
+      });
+      button.disabled = false;
+      return;
+    }
+
+    const response = authorizationResponse(credential);
+    const presented = Boolean(response && (response.vp_token !== undefined || response.response !== undefined));
+    if (!presented) {
+      show("The wallet answered without a presentation.", response);
+      await report("no_vp_token", { response_returned: true, vp_token_present: false });
+      button.disabled = false;
+      return;
+    }
+
+    show("Submitting the presentation to the verifier\\u2026");
+    let submission;
+    try {
+      submission = await fetch(sessionPath("/response"), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(response),
+      });
+    } catch (error) {
+      show("The presentation could not be submitted to the verifier.");
+      await report("failed", {
+        error_message: error && error.message ? String(error.message) : undefined,
+        response_returned: true,
+        vp_token_present: true,
+      });
+      button.disabled = false;
+      return;
+    }
+
+    const result = await submission.json().catch(function () {
+      return null;
+    });
+    if (submission.ok) {
+      show("Presentation accepted. You can close this page.", result);
+      return;
+    }
+    show("The verifier rejected the presentation.", result);
+    button.disabled = false;
+  });
 })();`;
 }
 

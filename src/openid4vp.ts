@@ -16,15 +16,61 @@ import {
   supportedCredentialById,
   supportedCredentials,
 } from "./metadata.js";
-import type { AppConfig, JsonRecord } from "./types.js";
+import type { AppConfig, JsonRecord, OpenId4VpResponseMode } from "./types.js";
 
 const REQUEST_OBJECT_AUDIENCE = "https://self-issued.me/v2";
-export type OpenId4VpResponseMode = "direct_post" | "direct_post.jwt";
+
+/**
+ * How long a DC API session stays presentable. The browser invocation is user-driven and cannot be
+ * correlated by `state`, so the window is bounded here rather than left open until process exit.
+ */
+export const DC_API_PRESENTATION_TTL_SECONDS = 600;
+
+export type { OpenId4VpResponseMode } from "./types.js";
 export type OpenId4VpClientIdScheme =
   | "x509_hash"
   | "x509_san_dns"
   | "redirect_uri"
   | "decentralized_identifier";
+
+/** Exhaustive over the union, so adding a response mode without handling it fails to compile. */
+const OPENID4VP_RESPONSE_MODES: Record<OpenId4VpResponseMode, true> = {
+  direct_post: true,
+  "direct_post.jwt": true,
+  dc_api: true,
+  "dc_api.jwt": true,
+};
+
+export function isOpenId4VpResponseMode(value: unknown): value is OpenId4VpResponseMode {
+  return typeof value === "string" && Object.hasOwn(OPENID4VP_RESPONSE_MODES, value);
+}
+
+/** Whether the request is delivered through the W3C Digital Credentials API instead of a redirect. */
+export function isDcApiResponseMode(mode: OpenId4VpResponseMode): boolean {
+  return mode === "dc_api" || mode === "dc_api.jwt";
+}
+
+/** Whether the wallet returns the Authorization Response encrypted in a `response` JWE. */
+export function isEncryptedResponseMode(mode: OpenId4VpResponseMode): boolean {
+  return mode === "direct_post.jwt" || mode === "dc_api.jwt";
+}
+
+/**
+ * Origin the wallet binds a DC API presentation to. Derived from trusted configuration: the
+ * presentation page is served from it and a request Host header is never used.
+ */
+export function verifierOrigin(config: AppConfig): string {
+  return new URL(config.public_base_url).origin;
+}
+
+export function dcApiPresentationUrl(config: AppConfig, sessionId: string): string {
+  const base = config.public_base_url.replace(/\/+$/, "");
+  return `${base}/ui/openid4vp/sessions/${encodeURIComponent(sessionId)}/dc_api_presentation`;
+}
+
+export function dcApiPresentationExpiresAt(from: Date = new Date()): string {
+  return new Date(from.getTime() + DC_API_PRESENTATION_TTL_SECONDS * 1000).toISOString();
+}
 
 export function defaultPresentationRequest(
   config: AppConfig,

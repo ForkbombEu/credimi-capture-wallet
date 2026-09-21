@@ -405,7 +405,7 @@ Where:
 * `client_id_scheme` can be `x509_hash` (default), `x509_san_dns`, `decentralized_identifier`, or `redirect_uri`. `x509_san_dns` uses the verifier certificate and its DNS SAN. `decentralized_identifier` uses the verifier's `did:web` document at `/openid4vp/did.json`. `redirect_uri` creates an unsigned request and therefore requires `request_delivery: "plain"`.
 * `request_delivery` can be `by_reference`, `by_value`, or `plain`, default is `by_reference`. `plain` puts URL-encoded Authorization Request parameters directly in the deeplink, without `request` or `request_uri`; it cannot be combined with `request_uri_method`.
 * `response_type` can be `vp_token` or `vp_token id_token` or `code`, but during presentation verification only `vp_token` is supported, default is `vp_token`
-* `response_mode` can be `direct_post` or `direct_post.jwt`, default is `direct_post.jwt`
+* `response_mode` selects the presentation flow. `direct_post` and `direct_post.jwt` are the redirect-based flows, default is `direct_post.jwt`. `dc_api` and `dc_api.jwt` present over the W3C Digital Credentials API instead; see [Digital Credentials API presentation](#digital-credentials-api-presentation).
 * `dcql_query` may be `null` to omit the parameter entirely from the wallet-facing Authorization Request. The default query remains only in Credo's internal verifier session.
 * `client_metadata` may be an object whose members override the generated verifier metadata, or `null` to omit the parameter. Omission is supported only with `direct_post`. A supplied member wins, an omitted member keeps its generated value, and a member set to `null` is dropped. The merge is one level deep, so supplying `jwks` replaces the whole key set. Narrow the advertised response encryption with `"client_metadata": {"encrypted_response_enc_values_supported": ["A128GCM"]}` to give the Wallet a single JWE `enc` choice; the generated `jwks` and `vp_formats_supported` are preserved, so the service still decrypts. For `direct_post.jwt` the merged metadata must keep the session's generated encryption public key, compared by RFC 7638 thumbprint so `alg`, `use`, and `kid` may be altered or omitted. That key is minted inside the same call that returns it, so omit `jwks` to keep it.
 * `allow_undecryptable_response` is a test-only flag. With `true` the service publishes a `jwks` that is not the verifier's encryption key, which is what wallet response-encryption negative tests need: a JWK without `alg`, with an `alg` other than `ECDH-ES`, `"jwks": null` to advertise no key at all, or a static key reused across sessions. The service can then no longer decrypt a response, and a wallet that answers anyway is captured as a decryption failure. It requires a `client_metadata` object. Any `direct_post.jwt` request sent without the verifier encryption key records a `vp_undecryptable_response_allowed` event.
@@ -454,6 +454,83 @@ In this case for each session you can get:
   ```sh
   curl "$BASE_URL/openid4vp/sessions/{sessionId}/events"
   ```
+
+#### Digital Credentials API presentation
+
+`"response_mode": "dc_api.jwt"` (encrypted response) or `"dc_api"` (unencrypted) present over the
+W3C Digital Credentials API, as defined in OpenID4VP 1.0 Appendix A. No new transport parameter
+exists: the response mode alone selects the flow.
+
+A DC API session carries no `request_uri`, `response_uri`, `request_uri_method`, `scheme`, or
+`state`, so those members are absent from the 201 response. `request_delivery` keeps its meaning
+but now decides how the request reaches the browser: `by_value` (the default for DC API) produces a
+signed Request Object, `plain` produces unsigned request parameters, and `by_reference` is
+rejected. The `redirect_uri` client identifier prefix is also rejected, because a signed DC API
+request requires a `client_id`.
+
+```sh
+curl -X POST "$BASE_URL/openid4vp/sessions" \
+  -H 'Content-Type: application/json' \
+  -d '{"response_mode":"dc_api.jwt"}'
+```
+
+```json
+{
+  "session_id": "sess_123",
+  "request_delivery": "by_value",
+  "response_mode": "dc_api.jwt",
+  "deeplink": "https://capture-wallet.credimi.io/ui/openid4vp/sessions/sess_123/dc_api_presentation",
+  "dc_api_request": {
+    "protocol": "openid4vp-v1-signed",
+    "data": { "request": "eyJhbGciOiJFUzI1NiIsInR5cCI6Im9hdXRoLWF1dGh6LXJlcStqd3QiLC..." }
+  },
+  "authorization_request": {
+    "client_id": "x509_hash:...",
+    "response_type": "vp_token",
+    "response_mode": "dc_api.jwt",
+    "expected_origins": ["https://capture-wallet.credimi.io"]
+  },
+  "status": "created"
+}
+```
+
+For `plain` request delivery the protocol is `openid4vp-v1-unsigned` and `data` holds the
+Authorization Request parameters themselves, without `client_id` or `expected_origins`.
+
+`deeplink` keeps its name and type for compatibility, but for DC API it is **not** a wallet
+deeplink: it is the HTTPS URL of this service's presentation page,
+`/ui/openid4vp/sessions/{sessionId}/dc_api_presentation`, built from the configured public base
+URL. The operator UI renders the same QR code for it. Scanning that code with the phone's camera
+opens the page in a browser; the wallet is invoked only when the End-User presses **Present
+credential** there, because the browser API requires user activation. The page then forwards the
+wallet's Authorization Response to `POST /openid4vp/sessions/{sessionId}/response`, which needs no
+`state` for DC API.
+
+An invocation that returns no Authorization Response is reported to
+`POST /openid4vp/sessions/{sessionId}/dc_api_invocation` and captured under `dc_api.invocation`
+with the outcome, the `DOMException` name and message, whether a response object came back at all,
+and whether it contained a `vp_token`. This is the evidence a HAIP wallet leaves when it refuses
+the unencrypted `dc_api` response mode, and it is kept distinct from a verification failure over a
+real response. A wallet refusal and an End-User cancellation are not distinguishable through the
+browser API, so the `rejected` outcome records what the browser reported without asserting which
+of the two happened; deciding that remains an operator judgement.
+
+DC API verification is origin-bound rather than `client_id`-bound: the expected SD-JWT VC Key
+Binding JWT audience is `origin:<origin>` and the mdoc session transcript uses the
+`OpenID4VPDCAPIHandover` over the bare origin, the request nonce, and — for `dc_api.jwt` only —
+the thumbprint of the verifier's response-encryption key. The origin comes from trusted
+configuration, never from a request header or a JSON body member; a submission whose browser
+`Origin` header disagrees with it is refused with HTTP 403.
+
+A DC API presentation window lasts 10 minutes. Once a session holds a presentation, a further
+submission is refused with HTTP 409 and the original capture is kept; after the window closes the
+page stops offering the button and a submission is refused with HTTP 400. Redirect sessions are
+unaffected and still record repeated wallet submissions as evidence.
+
+Two deployment constraints bound this flow: the Digital Credentials API is only available in a
+secure context, so `public_base_url` must be HTTPS for anything but local testing, and in-app
+browsers, webviews, and iOS Safari do not expose `navigator.credentials.get({ digital: ... })`.
+The presentation page is served by the operator UI, so it requires `GUI_ENABLED` to be true.
 
 **[🔝 back to top](#toc)**
 
@@ -518,6 +595,11 @@ private JWK.
 From env file `.env`, that is loaded automatically when present, you can set:
 - `GUI_ENABLED`: enables or disables browser GUI routes. Defaults to `true`.
 - `PORT`: overrides the configured listen port.
+- `PUBLIC_BASE_URL`: public base URL the operator UI is served from. It defaults to the configured
+  `issuer_base_url`, and can also be set as `public_base_url` in `config.yaml`. The DC API
+  presentation page URL and the `expected_origins` of a signed DC API request are derived from it,
+  never from a request `Host` header, so a cross-device DC API deployment behind a proxy must set
+  it to the HTTPS URL the End-User's browser actually reaches.
 - `STATUS_LIST_BASE_URL`: overrides the configured Status List endpoint.
 - `STATUS_LIST_API_KEY`: overrides the configured Status List management API key.
 

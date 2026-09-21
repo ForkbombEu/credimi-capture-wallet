@@ -47,6 +47,7 @@ import {
   sdJwtCredentialConfigurationId,
 } from "../src/metadata.js";
 import { createApp } from "../src/server.js";
+import { CaptureStore } from "../src/state.js";
 import type { JsonRecord, SessionCapture } from "../src/types.js";
 import { unsignedJwt } from "./helpers.js";
 
@@ -812,7 +813,7 @@ describe("capture issuer server", () => {
       ),
     );
     expect(session.deeplink).toContain("openid4vp://");
-    expect(session.deeplink).toContain(encodeURIComponent(session.request_uri));
+    expect(session.deeplink).toContain(encodeURIComponent(String(session.request_uri)));
     const deeplink = new URL(session.deeplink);
     expect(deeplink.searchParams.get("client_id")).toMatch(/^x509_hash:/);
     expect(deeplink.searchParams.get("request_uri")).toBe(session.request_uri);
@@ -1116,7 +1117,7 @@ describe("capture issuer server", () => {
     expect(published).toMatchObject(clientMetadata);
     expect((published.jwks as JsonRecord).keys).toEqual(clientMetadata.jwks.keys);
     expect(published).toHaveProperty("vp_formats_supported");
-    const requestObject = await request(app).get(new URL(session.request_uri).pathname);
+    const requestObject = await request(app).get(new URL(String(session.request_uri)).pathname);
     expect(decodeJwt(requestObject.text).client_metadata).toEqual(published);
 
     const capture = await getJson<VpSessionResponse>(
@@ -2689,6 +2690,333 @@ describe("capture issuer server", () => {
   });
 });
 
+describe("OpenID4VP over the Digital Credentials API", () => {
+  const dcApiOrigin = "https://wallet-capture.example.test";
+  const dcApiConfig = { ...config, public_base_url: `${dcApiOrigin}/` };
+
+  async function dcApiSession(
+    app: Express,
+    body: JsonRecord = {},
+  ): Promise<VpSessionCreateResponse & { dc_api_request: { protocol: string; data: JsonRecord } }> {
+    return postJson(app, "/openid4vp/sessions", {
+      response_mode: "dc_api.jwt",
+      presentation_request: { dcql_query: dcqlForClaims(["family_name"]) },
+      ...body,
+    });
+  }
+
+  it("returns the presentation page URL as the deeplink and omits redirect-only members", async () => {
+    const app = createApp(dcApiConfig);
+    const session = await dcApiSession(app);
+
+    expect(session.deeplink).toBe(
+      `${dcApiOrigin}/ui/openid4vp/sessions/${session.session_id}/dc_api_presentation`,
+    );
+    expect(session.request_delivery).toBe("by_value");
+    expect(session).not.toHaveProperty("request_uri");
+    expect(session).not.toHaveProperty("response_uri");
+    expect(session).not.toHaveProperty("request_uri_method");
+    expect(session).not.toHaveProperty("scheme");
+    expect(JSON.stringify(session)).not.toContain('"undefined"');
+  });
+
+  it("signs a Request Object carrying client_id and the configured expected_origins", async () => {
+    const app = createApp(dcApiConfig);
+    const session = await dcApiSession(app);
+
+    expect(session.dc_api_request.protocol).toBe("openid4vp-v1-signed");
+    const requestObject = session.dc_api_request.data.request as string;
+    expect(decodeProtectedHeader(requestObject).typ).toBe("oauth-authz-req+jwt");
+    const payload = decodeJwt(requestObject) as JsonRecord;
+    expect(payload.client_id).toMatch(/^x509_hash:/);
+    expect(payload.expected_origins).toEqual([dcApiOrigin]);
+    expect(payload.response_mode).toBe("dc_api.jwt");
+    expect(payload).not.toHaveProperty("aud");
+    expect(payload).not.toHaveProperty("state");
+    expect(payload).not.toHaveProperty("response_uri");
+    expect(payload).not.toHaveProperty("request_uri");
+  });
+
+  it("sends unsigned request parameters without client_id for plain request delivery", async () => {
+    const app = createApp(dcApiConfig);
+    const session = await dcApiSession(app, {
+      response_mode: "dc_api",
+      request_delivery: "plain",
+    });
+
+    expect(session.dc_api_request.protocol).toBe("openid4vp-v1-unsigned");
+    expect(session.dc_api_request.data).not.toHaveProperty("client_id");
+    expect(session.dc_api_request.data).not.toHaveProperty("expected_origins");
+    expect(session.dc_api_request.data).not.toHaveProperty("request");
+    expect(session.dc_api_request.data).toMatchObject({
+      response_type: "vp_token",
+      response_mode: "dc_api",
+      nonce: expect.any(String),
+    });
+  });
+
+  it("does not serve a request_uri for a DC API session", async () => {
+    const app = createApp(dcApiConfig);
+    const session = await dcApiSession(app);
+
+    const served = await request(app).get(`/openid4vp/sessions/${session.session_id}/request`);
+    const posted = await request(app).post(`/openid4vp/sessions/${session.session_id}/request`);
+
+    expect(served.status).toBe(404);
+    expect(served.body).toEqual({ error: "vp_request_uri_not_available_for_dc_api" });
+    expect(posted.status).toBe(404);
+
+    const capture = await getJson<VpSessionResponse>(
+      app,
+      `/openid4vp/sessions/${session.session_id}`,
+    );
+    expect(capture.status).toBe("created");
+    expect(capture.observed.request_uri_payload.value).toBeNull();
+  });
+
+  it.each([
+    [
+      "request_delivery",
+      { request_delivery: "by_reference" },
+      "request_delivery_unsupported_for_dc_api",
+    ],
+    [
+      "client_id_scheme",
+      { client_id_scheme: "redirect_uri" },
+      "client_id_scheme_unsupported_for_dc_api",
+    ],
+    [
+      "request_uri_method",
+      { request_uri_method: "post" },
+      "request_uri_method_unsupported_for_dc_api",
+    ],
+  ])("rejects %s inputs that a DC API request cannot carry", async (_label, body, error) => {
+    const app = createApp(dcApiConfig);
+
+    const response = await request(app)
+      .post("/openid4vp/sessions")
+      .send({ response_mode: "dc_api.jwt", ...body });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ error });
+  });
+
+  it("rejects unknown response modes instead of falling back to direct_post.jwt", async () => {
+    const app = createApp(dcApiConfig);
+
+    const response = await request(app)
+      .post("/openid4vp/sessions")
+      .send({ response_mode: "dc-api" });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ error: "unsupported_response_mode" });
+  });
+
+  it("serves a presentation page that invokes the wallet from the button only", async () => {
+    const app = createApp(dcApiConfig);
+    const session = await dcApiSession(app);
+
+    const page = await request(app).get(
+      `/ui/openid4vp/sessions/${session.session_id}/dc_api_presentation`,
+    );
+
+    expect(page.status).toBe(200);
+    expect(page.headers["cache-control"]).toBe("no-store");
+    expect(page.text).toContain(">Present credential</button>");
+    expect(page.text).toContain(session.dc_api_request.data.request as string);
+    expect(page.text).toContain('button.addEventListener("click"');
+    expect(page.text).toContain(
+      "navigator.credentials.get({ digital: { requests: [config.request]",
+    );
+    expect(page.text).not.toContain("presentation_validation");
+  });
+
+  it("accepts an encrypted DC API presentation bound to the browser origin", async () => {
+    const app = createApp(dcApiConfig);
+    const session = await dcApiSession(app);
+    const credential = await sdJwtCredential();
+    const presentation = await sdJwtPresentation({
+      credential,
+      authorizationRequest: session.authorization_request,
+      disclosedClaims: ["family_name"],
+      audience: `origin:${dcApiOrigin}`,
+    });
+
+    const response = await request(app)
+      .post(`/openid4vp/sessions/${session.session_id}/response`)
+      .send({
+        response: await encryptedAuthorizationResponse(session.authorization_request, {
+          vp_token: { query_0: [presentation] },
+        }),
+      });
+
+    expect(response.status).toBe(200);
+    const capture = await getJson<VpSessionResponse>(
+      app,
+      `/openid4vp/sessions/${session.session_id}`,
+    );
+    expect(capture.status).toBe("presentation_validated");
+    expect(capture.checks).toMatchObject({
+      presentation_valid: true,
+      nonce_verified: true,
+      holder_binding_verified: true,
+      dcql_query_matched: true,
+      errors: [],
+    });
+    expect(capture.raw?.presentation_response_decrypted?.vp_token).toEqual({
+      query_0: [presentation],
+    });
+  });
+
+  it("rejects a DC API presentation bound to the client_id instead of the origin", async () => {
+    const app = createApp(dcApiConfig);
+    const session = await dcApiSession(app);
+    const credential = await sdJwtCredential();
+    const presentation = await sdJwtPresentation({
+      credential,
+      authorizationRequest: session.authorization_request,
+      disclosedClaims: ["family_name"],
+    });
+
+    const response = await request(app)
+      .post(`/openid4vp/sessions/${session.session_id}/response`)
+      .send({
+        response: await encryptedAuthorizationResponse(session.authorization_request, {
+          vp_token: { query_0: [presentation] },
+        }),
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toBe("invalid_presentation");
+  });
+
+  it("captures a wallet refusal as a refusal rather than a verification failure", async () => {
+    const app = createApp(dcApiConfig);
+    const session = await dcApiSession(app, { response_mode: "dc_api" });
+
+    const reported = await request(app)
+      .post(`/openid4vp/sessions/${session.session_id}/dc_api_invocation`)
+      .send({
+        outcome: "rejected",
+        error_name: "NotAllowedError",
+        error_message: "The request is not allowed",
+        response_returned: false,
+        vp_token_present: false,
+      });
+
+    expect(reported.status).toBe(202);
+    const capture = await getJson<VpSessionResponse>(
+      app,
+      `/openid4vp/sessions/${session.session_id}`,
+    );
+    expect(capture.status).toBe("dc_api_invocation_reported");
+    expect(capture.dc_api?.invocation).toMatchObject({
+      outcome: "rejected",
+      error_name: "NotAllowedError",
+      response_returned: false,
+      vp_token_present: false,
+    });
+    expect(capture.checks.presentation_valid).toBeNull();
+    expect(capture.events.map((event) => event.type)).toContain("vp_dc_api_invocation_reported");
+  });
+
+  it("rejects invocation reports with an unknown outcome", async () => {
+    const app = createApp(dcApiConfig);
+    const session = await dcApiSession(app);
+
+    const response = await request(app)
+      .post(`/openid4vp/sessions/${session.session_id}/dc_api_invocation`)
+      .send({ outcome: "wallet_exploded" });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ error: "unsupported_dc_api_invocation_outcome" });
+  });
+
+  it("keeps the first presentation when a DC API response is replayed", async () => {
+    const app = createApp(dcApiConfig);
+    const session = await dcApiSession(app);
+    const credential = await sdJwtCredential();
+    const presentation = await sdJwtPresentation({
+      credential,
+      authorizationRequest: session.authorization_request,
+      disclosedClaims: ["family_name"],
+      audience: `origin:${dcApiOrigin}`,
+    });
+    const submit = async () =>
+      request(app)
+        .post(`/openid4vp/sessions/${session.session_id}/response`)
+        .send({
+          response: await encryptedAuthorizationResponse(session.authorization_request, {
+            vp_token: { query_0: [presentation] },
+          }),
+        });
+
+    const first = await submit();
+    const replay = await submit();
+
+    expect(first.status).toBe(200);
+    expect(replay.status).toBe(409);
+    expect(replay.body).toEqual({ error: "vp_session_already_completed" });
+    const capture = await getJson<VpSessionResponse>(
+      app,
+      `/openid4vp/sessions/${session.session_id}`,
+    );
+    expect(capture.status).toBe("presentation_validated");
+  });
+
+  it("refuses a submission whose browser Origin is not the session origin", async () => {
+    const app = createApp(dcApiConfig);
+    const session = await dcApiSession(app);
+
+    const response = await request(app)
+      .post(`/openid4vp/sessions/${session.session_id}/response`)
+      .set("origin", "https://attacker.example.test")
+      .send({ vp_token: { query_0: ["forged"] } });
+
+    expect(response.status).toBe(403);
+    expect(response.body).toEqual({ error: "unexpected_dc_api_origin" });
+  });
+
+  it("closes the presentation window once the session expires", async () => {
+    const store = new CaptureStore(dcApiConfig);
+    const app = createApp(dcApiConfig, store);
+    const session = await dcApiSession(app);
+    const stored = store.getVpSession(session.session_id);
+    if (!stored?.dc_api) throw new Error("DC API session capture missing");
+    stored.dc_api.expires_at = new Date(Date.now() - 1000).toISOString();
+
+    const page = await request(app).get(
+      `/ui/openid4vp/sessions/${session.session_id}/dc_api_presentation`,
+    );
+    const submitted = await request(app)
+      .post(`/openid4vp/sessions/${session.session_id}/response`)
+      .send({ vp_token: { query_0: ["late"] } });
+
+    expect(page.status).toBe(200);
+    expect(page.text).toContain("expired");
+    expect(page.text).not.toContain(">Present credential</button>");
+    expect(submitted.status).toBe(400);
+    expect(submitted.body).toEqual({ error: "vp_session_expired" });
+  });
+
+  it("leaves redirect sessions able to record repeated wallet submissions", async () => {
+    const app = createApp(dcApiConfig);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      response_mode: "direct_post",
+    });
+
+    const first = await request(app)
+      .post(`/openid4vp/sessions/${session.session_id}/response`)
+      .send({ vp_token: "presentation-token" });
+    const second = await request(app)
+      .post(`/openid4vp/sessions/${session.session_id}/response`)
+      .send({ vp_token: "presentation-token" });
+
+    expect(first.status).toBe(400);
+    expect(second.status).toBe(400);
+    expect(second.body.error).toBe("invalid_presentation");
+  });
+});
 async function postJson<T>(app: Express, path: string, body: object): Promise<T> {
   const response = await request(app).post(path).send(body);
   expect(response.status).toBeLessThan(400);
@@ -2915,6 +3243,7 @@ async function sdJwtPresentation(options: {
   credential: { compact: string; privateKey: Parameters<SignJWT["sign"]>[0] };
   authorizationRequest: JsonRecord;
   disclosedClaims: string[];
+  audience?: string;
 }): Promise<string> {
   const [issuerJwt, ...tail] = options.credential.compact.split("~");
   const selected = tail
@@ -2923,7 +3252,7 @@ async function sdJwtPresentation(options: {
   const withoutKeyBinding = `${issuerJwt}~${selected.join("~")}~`;
   const keyBindingJwt = await new SignJWT({
     iat: Math.floor(Date.now() / 1000),
-    aud: String(options.authorizationRequest.client_id),
+    aud: options.audience ?? String(options.authorizationRequest.client_id),
     nonce: String(options.authorizationRequest.nonce),
     sd_hash: createHash("sha256").update(withoutKeyBinding).digest("base64url"),
   })
@@ -2994,12 +3323,13 @@ interface CredentialResponse extends JsonRecord {
 interface VpSessionCreateResponse extends JsonRecord {
   session_id: string;
   request_delivery: "by_reference" | "by_value" | "plain";
-  request_uri: string;
-  request_uri_method: string;
-  scheme: string;
+  request_uri?: string;
+  request_uri_method?: string;
+  scheme?: string;
   redirect_uri?: string;
-  response_uri: string;
+  response_uri?: string;
   deeplink: string;
+  dc_api_request?: { protocol: string; data: JsonRecord };
   authorization_request: JsonRecord;
   status: string;
 }
@@ -3011,6 +3341,12 @@ interface VpSessionResponse extends JsonRecord {
   redirect_uri_visit_count?: number;
   authorization_request: JsonRecord;
   decoded_presentations?: JsonRecord;
+  dc_api?: {
+    request: { protocol: string; data: JsonRecord };
+    expected_origin: string;
+    expires_at: string;
+    invocation?: JsonRecord;
+  };
   checks: {
     presentation_valid: boolean | null;
     nonce_verified: boolean;

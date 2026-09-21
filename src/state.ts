@@ -12,7 +12,9 @@ import type {
   CredoIssuanceOffer,
   JsonRecord,
   Oid4vciHttpRequestCapture,
+  OpenId4VpResponseMode,
   SessionCapture,
+  VpDcApiCapture,
   VpSessionCapture,
 } from "./types.js";
 
@@ -138,29 +140,37 @@ export class CaptureStore {
     authorizationRequest: JsonRecord,
     requestDelivery: "by_reference" | "by_value" | "plain",
     requestUriMethod: string,
-    responseMode: "direct_post" | "direct_post.jwt",
+    responseMode: OpenId4VpResponseMode,
     deeplinkScheme: string,
     redirectUri?: string,
     urls?: {
       requestUri?: string;
       responseUri?: string;
     },
+    dcApi?: VpDcApiCapture,
   ): VpSessionCapture {
-    const requestUri =
-      urls?.requestUri ?? `${this.config.issuer_base_url}/openid4vp/sessions/${sessionId}/request`;
-    const responseUri =
-      urls?.responseUri ??
-      `${this.config.issuer_base_url}/openid4vp/sessions/${sessionId}/response`;
+    const requestUri = dcApi
+      ? undefined
+      : (urls?.requestUri ??
+        `${this.config.issuer_base_url}/openid4vp/sessions/${sessionId}/request`);
+    const responseUri = dcApi
+      ? undefined
+      : (urls?.responseUri ??
+        `${this.config.issuer_base_url}/openid4vp/sessions/${sessionId}/response`);
     const session: VpSessionCapture = {
       session_id: sessionId,
       status: "created",
       request_delivery: requestDelivery,
-      request_uri_method: requestUriMethod,
       response_mode: responseMode,
       authorization_request: authorizationRequest,
-      request_uri: requestUri,
-      deeplink_scheme: deeplinkScheme,
-      response_uri: responseUri,
+      ...(dcApi
+        ? { dc_api: dcApi }
+        : {
+            request_uri_method: requestUriMethod,
+            request_uri: requestUri,
+            deeplink_scheme: deeplinkScheme,
+            response_uri: responseUri,
+          }),
       ...(redirectUri ? { redirect_uri: redirectUri } : {}),
       deeplink: "",
       observed: {

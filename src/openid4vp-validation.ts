@@ -23,6 +23,11 @@ import {
   type DcqlQuery as ParsedDcqlQuery,
 } from "dcql";
 import { type JWK, calculateJwkThumbprint, compactDecrypt, decodeJwt, importJWK } from "jose";
+import {
+  isDcApiResponseMode,
+  isEncryptedResponseMode,
+  isOpenId4VpResponseMode,
+} from "./openid4vp.js";
 import type { AppConfig, JsonRecord, VpSessionCapture } from "./types.js";
 
 interface VpPresentationValidation {
@@ -158,7 +163,7 @@ async function validateSdJwtPresentation(
       {
         compactSdJwtVc: presentation,
         keyBinding: {
-          audience: String(session.authorization_request.client_id),
+          audience: presentationAudience(session),
           nonce: String(session.authorization_request.nonce),
         },
       },
@@ -196,9 +201,11 @@ async function normalizeAuthorizationResponse(
   body: JsonRecord,
   jarmPrivateJwk: JsonRecord | undefined,
 ): Promise<JsonRecord> {
-  if (session.response_mode !== "direct_post.jwt") return normalizeVpToken(body);
+  if (!isEncryptedResponseMode(session.response_mode)) return normalizeVpToken(body);
   const response = asString(body.response);
-  if (!response) throw new Error("direct_post.jwt response must contain a response JWE");
+  if (!response) {
+    throw new Error(`${session.response_mode} response must contain a response JWE`);
+  }
   if (!jarmPrivateJwk) throw new Error("missing verifier JARM decryption key for session");
   const { plaintext } = await compactDecrypt(
     response,
@@ -209,8 +216,9 @@ async function normalizeAuthorizationResponse(
     return decodeJwt(decoded) as JsonRecord;
   }
   const parsed = JSON.parse(decoded) as unknown;
-  if (!isRecord(parsed))
-    throw new Error("direct_post.jwt response did not decrypt to a JSON object");
+  if (!isRecord(parsed)) {
+    throw new Error(`${session.response_mode} response did not decrypt to a JSON object`);
+  }
   return parsed;
 }
 
@@ -321,7 +329,11 @@ async function validateMdocPresentation(
     };
   }
   const context = mdocVerificationContext();
-  const sessionTranscript = await mdocSessionTranscript(session.authorization_request, context);
+  const sessionTranscript = await mdocSessionTranscript(
+    session.authorization_request,
+    context,
+    session.dc_api?.expected_origin,
+  );
   let verified = false;
 
   try {
@@ -405,27 +417,62 @@ function presentationCandidates(
   return candidates;
 }
 
+/**
+ * Appendix B.2.6: a redirect exchange uses the `OpenID4VPHandover`, a DC API exchange the
+ * `OpenID4VPDCAPIHandover` over the bare browser origin — unprefixed, unlike the presentation
+ * audience — the request nonce, and the response-encryption key thumbprint, which is absent for
+ * the unencrypted `dc_api` response mode.
+ */
 export async function mdocSessionTranscript(
   authorizationRequest: JsonRecord,
   context: Pick<MdocContext, "crypto"> = mdocVerificationContext(),
+  origin?: string,
 ): Promise<SessionTranscript> {
-  const clientId = asString(authorizationRequest.client_id) ?? "";
   const nonce = asString(authorizationRequest.nonce) ?? "";
-  const responseUri = asString(authorizationRequest.response_uri) ?? "";
   const jwkThumbprint = await oid4vpJwkThumbprint(authorizationRequest);
+  const responseMode = authorizationRequest.response_mode;
+  if (isOpenId4VpResponseMode(responseMode) && isDcApiResponseMode(responseMode)) {
+    const dcApiOrigin =
+      origin ?? asString(asArray(authorizationRequest.expected_origins)[0]) ?? null;
+    if (!dcApiOrigin) {
+      throw new Error("DC API mdoc session transcript requires the browser origin");
+    }
+    return SessionTranscript.forOid4VpDcApi(
+      {
+        origin: dcApiOrigin,
+        nonce,
+        ...(jwkThumbprint ? { jwkThumbprint } : {}),
+      },
+      context,
+    );
+  }
   return SessionTranscript.forOid4Vp(
     {
-      clientId,
+      clientId: asString(authorizationRequest.client_id) ?? "",
       nonce,
-      responseUri,
+      responseUri: asString(authorizationRequest.response_uri) ?? "",
       ...(jwkThumbprint ? { jwkThumbprint } : {}),
     },
     context,
   );
 }
 
+/**
+ * Appendix A.4: a DC API presentation is bound to the browser origin prefixed with `origin:`,
+ * never to the Client Identifier, which an unsigned DC API request does not even carry.
+ */
+function presentationAudience(session: VpSessionCapture): string {
+  if (!isDcApiResponseMode(session.response_mode)) {
+    return String(session.authorization_request.client_id);
+  }
+  const origin = session.dc_api?.expected_origin;
+  if (!origin) throw new Error("DC API session is missing the expected browser origin");
+  return `origin:${origin}`;
+}
+
 async function oid4vpJwkThumbprint(authorizationRequest: JsonRecord): Promise<Uint8Array | null> {
-  if (authorizationRequest.response_mode !== "direct_post.jwt") return null;
+  const responseMode = authorizationRequest.response_mode;
+  if (!isOpenId4VpResponseMode(responseMode) || !isEncryptedResponseMode(responseMode)) return null;
   const jwks = asRecord(asRecord(authorizationRequest.client_metadata)?.jwks);
   const encryptionJwk = asArray(jwks?.keys)
     .filter(isRecord)

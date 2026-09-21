@@ -15,6 +15,7 @@ export const ACCESS_TOKEN_PRIVATE_JWK_FILE = "access-token-private-jwk.json";
 
 export const DEFAULT_CONFIG: AppConfig = {
   issuer_base_url: "http://localhost:8080",
+  public_base_url: "http://localhost:8080",
   listen_addr: ":8080",
   data_dir: "./data",
   credential_configuration_id: "urn:eu.europa.ec.eudi:pid:1",
@@ -34,11 +35,13 @@ export const DEFAULT_CONFIG: AppConfig = {
 
 export const PORT_ENV_VAR = "PORT";
 export const GUI_ENABLED_ENV_VAR = "GUI_ENABLED";
+export const PUBLIC_BASE_URL_ENV_VAR = "PUBLIC_BASE_URL";
 export const STATUS_LIST_BASE_URL_ENV_VAR = "STATUS_LIST_BASE_URL";
 export const STATUS_LIST_API_KEY_ENV_VAR = "STATUS_LIST_API_KEY";
 
 export interface InitOptions {
   issuer_base_url?: string;
+  public_base_url?: string;
   data_dir?: string;
   credential_configuration_id?: string;
   force?: boolean;
@@ -61,7 +64,7 @@ export function parseArgs(argv: string[]): Record<string, string | boolean> {
   return parsed;
 }
 
-export function normalizeBaseUrl(value: string): string {
+export function normalizeBaseUrl(value: string, field = "issuer_base_url"): string {
   const trimmed = value.trim().replace(/\/+$/, "");
   const normalized = trimmed.includes("://")
     ? trimmed
@@ -69,7 +72,7 @@ export function normalizeBaseUrl(value: string): string {
   try {
     new URL(normalized);
   } catch {
-    throw new Error(`issuer_base_url must be an absolute URL or host, got '${value}'`);
+    throw new Error(`${field} must be an absolute URL or host, got '${value}'`);
   }
   return normalized;
 }
@@ -258,6 +261,13 @@ export function loadConfig(
     ...DEFAULT_CONFIG,
     ...fileConfig,
     issuer_base_url: normalizeBaseUrl(fileConfig.issuer_base_url ?? DEFAULT_CONFIG.issuer_base_url),
+    public_base_url: normalizeBaseUrl(
+      env[PUBLIC_BASE_URL_ENV_VAR]?.trim() ||
+        fileConfig.public_base_url ||
+        fileConfig.issuer_base_url ||
+        DEFAULT_CONFIG.issuer_base_url,
+      "public_base_url",
+    ),
     data_dir: fileConfig.data_dir ?? dataDir,
     gui_enabled: resolveGuiEnabled(env),
     status_list_base_url:
@@ -296,6 +306,10 @@ export async function initIssuer(options: InitOptions): Promise<AppConfig> {
   const config: AppConfig = {
     ...DEFAULT_CONFIG,
     issuer_base_url: normalizeBaseUrl(options.issuer_base_url ?? DEFAULT_CONFIG.issuer_base_url),
+    public_base_url: normalizeBaseUrl(
+      options.public_base_url ?? options.issuer_base_url ?? DEFAULT_CONFIG.issuer_base_url,
+      "public_base_url",
+    ),
     data_dir: dataDir,
     credential_configuration_id:
       options.credential_configuration_id ?? DEFAULT_CONFIG.credential_configuration_id,

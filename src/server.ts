@@ -18,7 +18,11 @@ import {
   encryptCredentialResponse,
 } from "./credential-encryption.js";
 import { credoOpenId4VciIssuer } from "./credo-openid4vci.js";
-import { ClientMetadataError, credoOpenId4VpVerifier } from "./credo-openid4vp.js";
+import {
+  ClientMetadataError,
+  ResponseModeError,
+  credoOpenId4VpVerifier,
+} from "./credo-openid4vp.js";
 import { registerFakeOAuthServer } from "./fake-oauth-server.js";
 import {
   jwtVcIssuerMetadata,
@@ -39,7 +43,11 @@ import { apiDocsPage, openApiDocument } from "./openapi.js";
 import {
   type OpenId4VpClientIdScheme,
   type OpenId4VpResponseMode,
+  dcApiPresentationExpiresAt,
   defaultPresentationRequest,
+  isDcApiResponseMode,
+  isEncryptedResponseMode,
+  isOpenId4VpResponseMode,
   signPresentationAuthorizationRequest,
 } from "./openid4vp.js";
 import { CaptureStore, asStringOrNull } from "./state.js";
@@ -53,9 +61,12 @@ import type {
   RequestUriHttpCapture,
   SessionCapture,
   VerifierResponseHttpCapture,
+  VpDcApiInvocationCapture,
+  VpDcApiInvocationOutcome,
   VpSessionCapture,
 } from "./types.js";
 import {
+  dcApiPresentationPage,
   errorPage,
   helpPage,
   indexPage,
@@ -243,10 +254,56 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
           margin: 1,
           width: 288,
         });
-        return res.type("html").send(vpSessionPage(session.session_id, session.deeplink, qrSvg));
+        return res
+          .type("html")
+          .send(
+            vpSessionPage(
+              session.session_id,
+              session.deeplink,
+              qrSvg,
+              isDcApiResponseMode(session.response_mode),
+            ),
+          );
       } catch (error) {
         return next(error);
       }
+    });
+
+    /**
+     * The page the DC API QR code opens on the End-User's device. It is unauthenticated by
+     * design — the phone has no operator session — so it receives only the browser invocation
+     * request for the addressed session and nothing else from the capture record.
+     */
+    app.get("/ui/openid4vp/sessions/:sessionId/dc_api_presentation", (req, res) => {
+      const session = store.getVpSession(req.params.sessionId);
+      if (!session) return res.status(404).type("html").send(errorPage("VP session not found"));
+      const dcApi = session.dc_api;
+      if (!dcApi) {
+        return res
+          .status(400)
+          .type("html")
+          .send(errorPage("This session does not use the Digital Credentials API"));
+      }
+      const state = vpPresentationCaptured(session)
+        ? "completed"
+        : Date.parse(dcApi.expires_at) <= Date.now()
+          ? "expired"
+          : "ready";
+      store.addEvent(session, "vp_dc_api_presentation_page_opened", { state });
+      return res
+        .status(200)
+        .set("Cache-Control", "no-store")
+        .set("Referrer-Policy", "no-referrer")
+        .type("html")
+        .send(
+          dcApiPresentationPage({
+            sessionId: session.session_id,
+            request: dcApi.request,
+            expectedOrigin: dcApi.expected_origin,
+            expiresAt: dcApi.expires_at,
+            state,
+          }),
+        );
     });
   }
   app.get("/healthz", (_req, res) => {
@@ -494,13 +551,24 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       }
       const selectedResponseMode = responseMode ?? "direct_post.jwt";
       const selectedClientIdScheme = clientIdScheme ?? "x509_hash";
-      if (
-        selectedClientIdScheme === "redirect_uri" &&
-        (requestDelivery ?? "by_reference") !== "plain"
-      ) {
+      const dcApi = isDcApiResponseMode(selectedResponseMode);
+      const selectedRequestDelivery = requestDelivery ?? (dcApi ? "by_value" : "by_reference");
+      if (dcApi && selectedRequestDelivery === "by_reference") {
+        return res.status(400).json({ error: "request_delivery_unsupported_for_dc_api" });
+      }
+      if (dcApi && selectedClientIdScheme === "redirect_uri") {
+        return res.status(400).json({ error: "client_id_scheme_unsupported_for_dc_api" });
+      }
+      if (dcApi && requestUriMethod) {
+        return res.status(400).json({ error: "request_uri_method_unsupported_for_dc_api" });
+      }
+      if (dcApi && redirectUri) {
+        return res.status(400).json({ error: "redirect_uri_unsupported_for_dc_api" });
+      }
+      if (selectedClientIdScheme === "redirect_uri" && selectedRequestDelivery !== "plain") {
         return res.status(400).json({ error: "redirect_uri_client_id_requires_plain_delivery" });
       }
-      if (clientMetadata === null && selectedResponseMode === "direct_post.jwt") {
+      if (clientMetadata === null && isEncryptedResponseMode(selectedResponseMode)) {
         return res.status(400).json({ error: "client_metadata_required_for_encrypted_response" });
       }
       if (allowUndecryptableResponse && !clientMetadata) {
@@ -519,7 +587,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         undefined,
         requestUriMethod ?? "get",
         selectedResponseMode,
-        requestDelivery ?? "by_reference",
+        selectedRequestDelivery,
         deeplinkScheme ?? "openid4vp://",
         redirectUri?.value,
         redirectUri?.capture,
@@ -531,19 +599,25 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       return res.status(201).json({
         session_id: session.session_id,
         request_delivery: session.request_delivery,
-        request_uri: session.request_uri,
-        request_uri_method: session.request_uri_method,
+        ...(session.request_uri === undefined ? {} : { request_uri: session.request_uri }),
+        ...(session.request_uri_method === undefined
+          ? {}
+          : { request_uri_method: session.request_uri_method }),
         response_mode: session.response_mode,
-        scheme: session.deeplink_scheme,
-        response_uri: session.response_uri,
+        ...(session.deeplink_scheme === undefined ? {} : { scheme: session.deeplink_scheme }),
+        ...(session.response_uri === undefined ? {} : { response_uri: session.response_uri }),
         ...(session.redirect_uri ? { redirect_uri: session.redirect_uri } : {}),
         deeplink: session.deeplink,
+        ...(session.dc_api ? { dc_api_request: session.dc_api.request } : {}),
         authorization_request: session.authorization_request,
         status: session.status,
       });
     } catch (error) {
       if (error instanceof ClientMetadataError) {
         return res.status(400).json({ error: "invalid_client_metadata" });
+      }
+      if (error instanceof ResponseModeError) {
+        return res.status(400).json({ error: "unsupported_response_mode" });
       }
       return next(error);
     }
@@ -593,6 +667,9 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     try {
       const session = store.getVpSession(req.params.sessionId);
       if (!session) return res.status(404).json({ error: "vp_session_not_found" });
+      if (isDcApiResponseMode(session.response_mode)) {
+        return res.status(404).json({ error: "vp_request_uri_not_available_for_dc_api" });
+      }
       session.status = "request_retrieved";
       session.raw ??= {};
       session.raw.request_uri_http = requestUriHttpCapture(req);
@@ -610,6 +687,9 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     try {
       const session = store.getVpSession(req.params.sessionId);
       if (!session) return res.status(404).json({ error: "vp_session_not_found" });
+      if (isDcApiResponseMode(session.response_mode)) {
+        return res.status(404).json({ error: "vp_request_uri_not_available_for_dc_api" });
+      }
       const body = requestParams(req);
       const walletNonce = asStringOrNull(body.wallet_nonce);
       session.status = "request_retrieved";
@@ -659,6 +739,10 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     try {
       const session = store.getVpSession(req.params.sessionId);
       if (!session) return res.status(404).json({ error: "vp_session_not_found" });
+      const dcApiRejection = dcApiSubmissionRejectionOrNull(session, req);
+      if (dcApiRejection) {
+        return res.status(dcApiRejection.status).json({ error: dcApiRejection.error });
+      }
       const body = requestParams(req);
       const verificationSessionId = store.vpCredoVerificationSessionIds.get(session.session_id);
       if (!verificationSessionId) return res.status(404).json({ error: "vp_request_not_found" });
@@ -689,6 +773,48 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     } catch (error) {
       return next(error);
     }
+  });
+
+  /**
+   * The browser reports a DC API invocation that yielded no Authorization Response: the API is
+   * unavailable, the wallet refused, the End-User cancelled, or the returned response carried no
+   * `vp_token`. This is the evidence a HAIP wallet's refusal of the unencrypted `dc_api` flow
+   * produces, and it is kept distinct from a verification failure over a real response.
+   */
+  app.post("/openid4vp/sessions/:sessionId/dc_api_invocation", (req, res) => {
+    const session = store.getVpSession(req.params.sessionId);
+    if (!session) return res.status(404).json({ error: "vp_session_not_found" });
+    const dcApi = session.dc_api;
+    if (!dcApi) return res.status(400).json({ error: "vp_session_is_not_dc_api" });
+    if (vpPresentationCaptured(session)) {
+      return res.status(409).json({ error: "vp_session_already_completed" });
+    }
+    const body = requestParams(req);
+    const outcome = dcApiInvocationOutcomeOrNull(body.outcome);
+    if (!outcome) return res.status(400).json({ error: "unsupported_dc_api_invocation_outcome" });
+    const errorName = asStringOrNull(body.error_name);
+    const errorMessage = asStringOrNull(body.error_message);
+    const reportedOrigin = asStringOrNull(req.headers.origin);
+    const invocation: VpDcApiInvocationCapture = {
+      at: new Date().toISOString(),
+      outcome,
+      ...(errorName ? { error_name: errorName } : {}),
+      ...(errorMessage ? { error_message: errorMessage } : {}),
+      response_returned: body.response_returned === true || body.response_returned === "true",
+      vp_token_present: body.vp_token_present === true || body.vp_token_present === "true",
+      ...(reportedOrigin ? { reported_origin: reportedOrigin } : {}),
+    };
+    dcApi.invocation = invocation;
+    session.status = "dc_api_invocation_reported";
+    session.raw ??= {};
+    session.raw.dc_api_invocation_http = presentationResponseHttpCapture(req, body);
+    store.addEvent(session, "vp_dc_api_invocation_reported", {
+      outcome: invocation.outcome,
+      response_returned: invocation.response_returned,
+      vp_token_present: invocation.vp_token_present,
+      ...(invocation.error_name ? { error_name: invocation.error_name } : {}),
+    });
+    return res.status(202).set("Cache-Control", "no-store").json({ status: session.status });
   });
 
   app.post("/openid4vp/response", async (req, res, next) => {
@@ -1010,6 +1136,14 @@ async function createVpSession(
     allowUndecryptableResponse,
   );
   const sessionRedirectUri = redirectUri ? redirectUriWithResponseCode(redirectUri) : undefined;
+  const dcApi =
+    credoSession.dcApiRequest && credoSession.expectedOrigin
+      ? {
+          request: credoSession.dcApiRequest,
+          expected_origin: credoSession.expectedOrigin,
+          expires_at: dcApiPresentationExpiresAt(),
+        }
+      : undefined;
   const session = store.createVpSession(
     sessionId,
     credoSession.authorizationRequest,
@@ -1022,6 +1156,7 @@ async function createVpSession(
       requestUri: credoSession.requestUri,
       responseUri: credoSession.responseUri,
     },
+    dcApi,
   );
   const responseCode = sessionRedirectUri ? responseCodeFromRedirectUri(sessionRedirectUri) : null;
   if (captureRedirect && responseCode) {
@@ -1031,7 +1166,7 @@ async function createVpSession(
   if (credoSession.authorizationRequestJwt) {
     store.vpCredoAuthorizationRequestJwts.set(sessionId, credoSession.authorizationRequestJwt);
   }
-  if (responseMode === "direct_post.jwt" && !credoSession.verifierEncryptionKeyPublished) {
+  if (isEncryptedResponseMode(responseMode) && !credoSession.verifierEncryptionKeyPublished) {
     store.addEvent(session, "vp_undecryptable_response_allowed", {
       verifier_encryption_key_published: false,
     });
@@ -1197,7 +1332,46 @@ function requestUriMethodOrNull(value: unknown): string | null {
 function responseModeOrNull(value: unknown): OpenId4VpResponseMode | null {
   if (typeof value !== "string") return null;
   const normalized = value.toLowerCase();
-  return normalized === "direct_post" || normalized === "direct_post.jwt" ? normalized : null;
+  return isOpenId4VpResponseMode(normalized) ? normalized : null;
+}
+
+function dcApiInvocationOutcomeOrNull(value: unknown): VpDcApiInvocationOutcome | null {
+  return value === "api_unavailable" ||
+    value === "rejected" ||
+    value === "no_vp_token" ||
+    value === "failed"
+    ? value
+    : null;
+}
+
+function vpPresentationCaptured(session: VpSessionCapture): boolean {
+  return session.raw?.presentation_response !== undefined;
+}
+
+/**
+ * DC API submissions carry no `state`, so the session is addressed by path. Correlation is
+ * therefore enforced here instead: a session that already holds a presentation keeps it, an
+ * expired presentation window is closed, and a browser-reported Origin that disagrees with the
+ * session's trusted origin is refused rather than used to pick a different expected audience.
+ * Redirect sessions are untouched, so wallet retries keep being captured as evidence.
+ */
+function dcApiSubmissionRejectionOrNull(
+  session: VpSessionCapture,
+  req: Request,
+): { status: number; error: string } | null {
+  const dcApi = session.dc_api;
+  if (!dcApi) return null;
+  if (vpPresentationCaptured(session)) {
+    return { status: 409, error: "vp_session_already_completed" };
+  }
+  if (Date.parse(dcApi.expires_at) <= Date.now()) {
+    return { status: 400, error: "vp_session_expired" };
+  }
+  const origin = asStringOrNull(req.headers.origin);
+  if (origin && origin !== dcApi.expected_origin) {
+    return { status: 403, error: "unexpected_dc_api_origin" };
+  }
+  return null;
 }
 
 function requestDeliveryOrNull(value: unknown): "by_reference" | "by_value" | "plain" | null {

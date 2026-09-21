@@ -53,8 +53,22 @@ import {
   verifierDidPrivateJwkPath,
   verifierPrivateJwkPath,
 } from "./config.js";
-import { type OpenId4VpClientIdScheme, signPresentationAuthorizationRequest } from "./openid4vp.js";
-import type { AppConfig, JsonRecord, VpSessionCapture } from "./types.js";
+import {
+  type OpenId4VpClientIdScheme,
+  dcApiPresentationUrl,
+  isDcApiResponseMode,
+  isEncryptedResponseMode,
+  isOpenId4VpResponseMode,
+  signPresentationAuthorizationRequest,
+  verifierOrigin,
+} from "./openid4vp.js";
+import type {
+  AppConfig,
+  JsonRecord,
+  OpenId4VpResponseMode,
+  VpDcApiRequest,
+  VpSessionCapture,
+} from "./types.js";
 
 const CREDO_VERIFIER_BASE_PATH = "/openid4vp/sessions";
 const CREDO_KMS_BACKEND = "fake-issuer-node";
@@ -64,12 +78,19 @@ export interface CredoVpSession {
   authorizationRequest: JsonRecord;
   authorizationRequestJwt?: string;
   verificationSessionId: string;
-  requestUri: string;
-  responseUri: string;
+  /** Absent for DC API sessions: the request is not fetched and the response is not posted. */
+  requestUri?: string;
+  responseUri?: string;
   deeplink: string;
+  /** Present for DC API sessions: the payload for `navigator.credentials.get()`. */
+  dcApiRequest?: VpDcApiRequest;
+  /** Present for DC API sessions: the origin the response is bound to. */
+  expectedOrigin?: string;
   /** Whether the wallet-facing `client_metadata` still advertises the verifier's encryption key. */
   verifierEncryptionKeyPublished: boolean;
 }
+
+export class ResponseModeError extends Error {}
 
 export class ClientMetadataError extends Error {}
 
@@ -100,7 +121,7 @@ export type DecodedPresentations = Record<string, DecodedPresentation[]>;
 const verifierPromises = new Map<string, Promise<CredoOpenId4VpVerifier>>();
 
 export async function credoOpenId4VpVerifier(config: AppConfig): Promise<CredoOpenId4VpVerifier> {
-  const key = `${config.issuer_base_url}|${config.data_dir}`;
+  const key = `${config.issuer_base_url}|${config.public_base_url}|${config.data_dir}`;
   let verifierPromise = verifierPromises.get(key);
   if (!verifierPromise) {
     verifierPromise = CredoOpenId4VpVerifier.create(config);
@@ -184,13 +205,17 @@ export class CredoOpenId4VpVerifier {
     await this.ensureVerifier(sessionId);
     if (clientIdScheme === "decentralized_identifier") await this.importDidSigningKey(true);
     const responseMode = responseModeFromRequest(request);
+    const dcApi = isDcApiResponseMode(responseMode);
+    const unsignedDcApi = dcApi && requestDelivery === "plain";
+    const expectedOrigin = verifierOrigin(this.config);
     const createAuthorizationRequest = (dcqlQuery: JsonRecord) =>
       this.verifierApi().createAuthorizationRequest({
         verifierId: sessionId,
-        requestSigner: this.requestSigner(clientIdScheme),
+        requestSigner: unsignedDcApi ? { method: "none" } : this.requestSigner(clientIdScheme),
         responseMode,
         version: "v1",
         dcql: { query: dcqlQuery as never },
+        ...(dcApi && !unsignedDcApi ? { expectedOrigins: [expectedOrigin] } : {}),
       });
     const dcqlQuery = asRecord(request.dcql_query);
     const created = await (dcqlQuery
@@ -206,6 +231,11 @@ export class CredoOpenId4VpVerifier {
       ...(request.nonce !== undefined ? { nonce: request.nonce } : {}),
       ...optionalAuthorizationRequestParameters(request),
     };
+    // The request object Credo produces carries the JAR audience `https://self-issued.me/v2`,
+    // which Section 5.8 defines for discovery-based delivery. Appendix A.2 does not list `aud`
+    // among the parameters supported over the DC API, so it is dropped there rather than sent as
+    // an undefined claim to a HAIP-strict wallet.
+    if (dcApi) authorizationRequest.aud = undefined;
     const generatedClientMetadata = authorizationRequest.client_metadata;
     if (clientMetadata === null) {
       authorizationRequest.client_metadata = undefined;
@@ -220,18 +250,23 @@ export class CredoOpenId4VpVerifier {
       generatedClientMetadata,
     );
     if (
-      responseMode === "direct_post.jwt" &&
+      isEncryptedResponseMode(responseMode) &&
       !allowUndecryptableResponse &&
       !verifierEncryptionKeyPublished
     ) {
       throw new ClientMetadataError(
-        "client_metadata must retain the verifier encryption public key for direct_post.jwt",
+        `client_metadata must retain the verifier encryption public key for ${responseMode}`,
       );
     }
-    const requestUri = `${this.config.issuer_base_url}/openid4vp/sessions/${sessionId}/request`;
-    const responseUri = String(authorizationRequest.response_uri);
+    const requestUri = dcApi
+      ? undefined
+      : `${this.config.issuer_base_url}/openid4vp/sessions/${sessionId}/request`;
+    const responseUri =
+      typeof authorizationRequest.response_uri === "string"
+        ? authorizationRequest.response_uri
+        : undefined;
     const authorizationRequestJwt =
-      clientIdScheme === "redirect_uri"
+      clientIdScheme === "redirect_uri" || unsignedDcApi
         ? undefined
         : await signPresentationAuthorizationRequest(
             this.config,
@@ -240,11 +275,12 @@ export class CredoOpenId4VpVerifier {
           );
     if (authorizationRequestJwt)
       created.verificationSession.authorizationRequestJwt = authorizationRequestJwt;
-    const deeplink =
-      requestDelivery === "by_reference"
+    const deeplink = dcApi
+      ? dcApiPresentationUrl(this.config, sessionId)
+      : requestDelivery === "by_reference"
         ? presentationRequestByReferenceDeeplink(
             authorizationRequest,
-            requestUri,
+            requestUri ?? "",
             requestUriMethod,
             deeplinkScheme,
           )
@@ -261,22 +297,35 @@ export class CredoOpenId4VpVerifier {
       authorizationRequest,
       authorizationRequestJwt,
       verificationSessionId: created.verificationSession.id,
-      requestUri,
-      responseUri,
+      ...(requestUri === undefined ? {} : { requestUri }),
+      ...(responseUri === undefined ? {} : { responseUri }),
       deeplink,
+      ...(dcApi
+        ? {
+            dcApiRequest: dcApiBrowserRequest(authorizationRequest, authorizationRequestJwt),
+            expectedOrigin,
+          }
+        : {}),
       verifierEncryptionKeyPublished,
     };
   }
 
+  /**
+   * Verifies an Authorization Response. DC API responses are bound to the browser origin rather
+   * than to the Client Identifier, so the session's trusted origin is handed to Credo, which
+   * derives the expected `origin:<origin>` presentation audience from it.
+   */
   async verifyResponse(
-    _session: VpSessionCapture,
+    session: VpSessionCapture,
     body: JsonRecord,
     verificationSessionId: string,
   ): Promise<CredoVpVerification> {
+    const origin = session.dc_api?.expected_origin;
     try {
       const verified = await this.verifierApi().verifyAuthorizationResponse({
         verificationSessionId,
         authorizationResponse: body,
+        ...(origin === undefined ? {} : { origin }),
       });
       return {
         valid: true,
@@ -475,8 +524,39 @@ function readCertificate(dataDir: string): string {
   return readFileSync(verifierCertificatePath(dataDir), "utf8");
 }
 
-function responseModeFromRequest(request: JsonRecord): "direct_post" | "direct_post.jwt" {
-  return request.response_mode === "direct_post" ? "direct_post" : "direct_post.jwt";
+/**
+ * An omitted `response_mode` keeps the historical `direct_post.jwt` default. An unrecognised value
+ * is rejected rather than collapsed into that default, so a mode the verifier cannot honour never
+ * reaches the wallet as a different one.
+ */
+function responseModeFromRequest(request: JsonRecord): OpenId4VpResponseMode {
+  if (request.response_mode === undefined) return "direct_post.jwt";
+  if (!isOpenId4VpResponseMode(request.response_mode)) {
+    throw new ResponseModeError(
+      `unsupported OpenID4VP response_mode '${String(request.response_mode)}'`,
+    );
+  }
+  return request.response_mode;
+}
+
+/**
+ * Appendix A.3: a signed request travels as a `request` JWS member, an unsigned one as the
+ * Authorization Request parameters themselves. `client_id` and `expected_origins` are dropped from
+ * the unsigned form, which Appendix A.2 requires a wallet to ignore there.
+ */
+function dcApiBrowserRequest(
+  authorizationRequest: JsonRecord,
+  authorizationRequestJwt: string | undefined,
+): VpDcApiRequest {
+  if (authorizationRequestJwt) {
+    return { protocol: "openid4vp-v1-signed", data: { request: authorizationRequestJwt } };
+  }
+  const data: JsonRecord = {};
+  for (const [name, value] of Object.entries(authorizationRequest)) {
+    if (value === undefined || name === "client_id" || name === "expected_origins") continue;
+    data[name] = value;
+  }
+  return { protocol: "openid4vp-v1-unsigned", data };
 }
 
 function optionalAuthorizationRequestParameters(request: JsonRecord): JsonRecord {
