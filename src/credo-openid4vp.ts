@@ -241,11 +241,16 @@ export class CredoOpenId4VpVerifier {
           createAuthorizationRequest(verifierDcqlQuery),
         )
       : createAuthorizationRequest(verifierDcqlQuery));
-    const { dcql_query: _generatedDcqlQuery, ...createdAuthorizationRequest } = created
+    const { dcql_query: generatedDcqlQuery, ...createdAuthorizationRequest } = created
       .verificationSession.requestPayload as JsonRecord;
+    // Section 5.1 lets a request carry a `scope` representing a DCQL Query instead of the query
+    // itself. The query is dropped from the delivered copy only: the verifier keeps it, because
+    // Credo matches the Authorization Response against the request object this service signs, and
+    // a scope value is resolved by the wallet's profile rather than by anything sent on the wire.
+    const omitDcqlFromDelivery = request.dcql_query === null;
     const authorizationRequest: JsonRecord = {
       ...createdAuthorizationRequest,
-      ...(request.dcql_query === null ? {} : { dcql_query: request.dcql_query }),
+      dcql_query: omitDcqlFromDelivery ? generatedDcqlQuery : request.dcql_query,
       ...(request.nonce !== undefined ? { nonce: request.nonce } : {}),
       ...optionalAuthorizationRequestParameters(request),
     };
@@ -292,6 +297,7 @@ export class CredoOpenId4VpVerifier {
       authorizationRequest,
       requestMutation?.request_object,
     );
+    if (omitDcqlFromDelivery) deliveredRequest.dcql_query = undefined;
     const signRequest = !(clientIdScheme === "redirect_uri" || unsignedDcApi);
     const authorizationRequestJwt = signRequest
       ? await signPresentationAuthorizationRequest(
@@ -311,7 +317,7 @@ export class CredoOpenId4VpVerifier {
       requestMutation?.request_object ?? requestMutation?.request_object_header,
     );
     const signedDeliveredRequest =
-      signRequest && (mutatesRequestObject || requestSigningMaterial)
+      signRequest && (mutatesRequestObject || requestSigningMaterial || omitDcqlFromDelivery)
         ? await signPresentationAuthorizationRequest(
             this.config,
             deliveredRequest,

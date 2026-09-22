@@ -1007,11 +1007,18 @@ describe("capture issuer server", () => {
       presentation_request: { dcql_query: null },
     });
 
-    expect(byReference.authorization_request.dcql_query).toBeUndefined();
+    // The query is omitted from what the wallet receives, not from the verifier's own copy: the
+    // response is matched against the request object this service signs.
     expect(decodeJwt(requestObject.text).dcql_query).toBeUndefined();
-    expect(plain.authorization_request.dcql_query).toBeUndefined();
     expect(new URL(plain.deeplink).searchParams.has("dcql_query")).toBe(false);
-    expect(nested.authorization_request.dcql_query).toBeUndefined();
+    for (const session of [byReference, plain, nested]) {
+      const capture = await getJson<VpSessionResponse>(
+        app,
+        `/openid4vp/sessions/${session.session_id}`,
+      );
+      expect(capture.raw?.authorization_request_delivered?.dcql_query).toBeUndefined();
+      expect(session.authorization_request.dcql_query).toBeDefined();
+    }
   });
 
   it("uses caller-provided client metadata in the authorization request", async () => {
@@ -3645,6 +3652,91 @@ describe("FCAF request mutation", () => {
     expect(capture).not.toHaveProperty("request_mutation");
     expect(capture.raw).not.toHaveProperty("authorization_request_delivered");
     expect(capture.events.map((event) => event.type)).not.toContain("vp_request_mutation_applied");
+  });
+});
+
+describe("scope-based presentation requests", () => {
+  const scope = "eu.europa.ec.eudi.pid.1";
+
+  it("delivers the scope without a dcql_query while keeping the query for verification", async () => {
+    const app = createApp(config);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      presentation_request: { dcql_query: null, scope },
+    });
+
+    const requestObject = await request(app).get(
+      `/openid4vp/sessions/${session.session_id}/request`,
+    );
+    const delivered = decodeJwt(requestObject.text) as JsonRecord;
+    expect(delivered.scope).toBe(scope);
+    expect(delivered.dcql_query).toBeUndefined();
+    // The verifier keeps a query: Credo matches the response against the request it holds, and a
+    // scope value is resolved by the wallet's profile rather than by anything sent on the wire.
+    expect(session.authorization_request.dcql_query).toBeDefined();
+
+    const capture = await getJson<VpSessionResponse>(
+      app,
+      `/openid4vp/sessions/${session.session_id}`,
+    );
+    expect(capture.raw?.authorization_request_delivered?.dcql_query).toBeUndefined();
+  });
+
+  it("omits dcql_query from a plain deeplink while still carrying the scope", async () => {
+    const app = createApp(config);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      request_delivery: "plain",
+      presentation_request: { dcql_query: null, scope },
+    });
+
+    const deeplink = new URL(session.deeplink);
+    expect(deeplink.searchParams.get("scope")).toBe(scope);
+    expect(deeplink.searchParams.has("dcql_query")).toBe(false);
+  });
+
+  it("verifies a presentation returned for a scope-only request", async () => {
+    const app = createApp({ ...config, fcaf_scenarios_enabled: true });
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      response_mode: "direct_post",
+      presentation_request: { dcql_query: dcqlForClaims(["family_name"]), scope },
+      request_mutation: { request_object: { unset: ["/dcql_query"] } },
+    });
+    const requestObject = await request(app).get(
+      `/openid4vp/sessions/${session.session_id}/request`,
+    );
+    expect((decodeJwt(requestObject.text) as JsonRecord).dcql_query).toBeUndefined();
+
+    const credential = await sdJwtCredential();
+    const presentation = await sdJwtPresentation({
+      credential,
+      authorizationRequest: session.authorization_request,
+      disclosedClaims: ["family_name"],
+    });
+    await request(app)
+      .post(`/openid4vp/sessions/${session.session_id}/response`)
+      .send({
+        state: session.authorization_request.state,
+        vp_token: { query_0: [presentation] },
+      });
+
+    const capture = await getJson<VpSessionResponse>(
+      app,
+      `/openid4vp/sessions/${session.session_id}`,
+    );
+    expect(capture.checks.dcql_query_matched).toBe(true);
+    expect(capture.checks.presentation_valid).toBe(true);
+  });
+
+  it("sends a scope alongside dcql_query when both are requested", async () => {
+    const app = createApp(config);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      presentation_request: { dcql_query: dcqlForClaims(["family_name"]), scope },
+    });
+
+    const delivered = decodeJwt(
+      (await request(app).get(`/openid4vp/sessions/${session.session_id}/request`)).text,
+    ) as JsonRecord;
+    expect(delivered.scope).toBe(scope);
+    expect(delivered.dcql_query).toEqual(dcqlForClaims(["family_name"]));
   });
 });
 

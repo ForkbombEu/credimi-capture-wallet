@@ -457,7 +457,15 @@ Where:
 * `redirect_uri` is an optional absolute URI returned to the Wallet after a successful presentation. The service appends a fresh 128-bit `response_code` parameter to it. Use `{{base_url}}/openid4vp/redirect`, or its equivalent concrete service URI, to create a service-hosted confirmation page; it displays the received `response_code` for both valid and invalid visits, and a valid visit is recorded in the VP session capture.
 * `scheme` is the complete custom URL-scheme prefix for the deeplink (for example, `eudi-wallet://`); it defaults to `openid4vp://`
 
-Optional `scopes`, `transaction_data`, and `verifier_info` values can be supplied at the top level or within `presentation_request`. `scopes` accepts a string or an array of strings and is emitted as the standard space-delimited `scope` authorization-request parameter. `verifier_info` is included unchanged in the signed request object.
+Optional `scopes`, `transaction_data`, and `verifier_info` values can be supplied at the top level or within `presentation_request`. `scopes` accepts a string or an array of strings and is emitted as the standard space-delimited `scope` authorization-request parameter.
+
+OpenID4VP Section 5.1 lets a request carry a `scope` value representing a DCQL Query instead of the query itself. Combine `scopes` with `dcql_query: null` to send one:
+
+```json
+{"scopes": "eu.europa.ec.eudi.pid.1", "presentation_request": {"dcql_query": null}}
+```
+
+The scope value is the caller's to choose, because it is resolved by the Wallet's profile rather than by anything the Verifier sends; this service does not define scope values of its own, since an invented one would be recognised by no Wallet. The query is omitted from the wallet-facing request only: the Verifier keeps its query and matches the Authorization Response against it, so a presentation returned for a scope-only request is still verified. `session.authorization_request` shows the query the Verifier kept and `raw.authorization_request_delivered` shows the request the Wallet received without it. Sending `scopes` together with a `dcql_query` delivers both, which is the conflicting-parameter case a Wallet is expected to reject. `verifier_info` is included unchanged in the signed request object.
 
 `transaction_data` is an array whose entries OpenID4VP Section 5.1 carries as base64url-encoded JSON strings. An entry supplied as an object is encoded, so a caller writes the entry it wants a Wallet to read:
 

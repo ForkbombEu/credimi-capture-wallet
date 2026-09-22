@@ -114,7 +114,7 @@ The credential request normally uses `application/json` with `credential_configu
 | `response_type` | `vp_token`, `vp_token id_token`, `code` | `vp_token` |
 | `response_mode` | `direct_post`, `direct_post.jwt`, `dc_api`, `dc_api.jwt` | `direct_post.jwt` |
 | `presentation_request` | Request-object claim overrides | — |
-| `dcql_query` | DCQL query object, or `null` to omit the parameter | Default query |
+| `dcql_query` | DCQL query object, or `null` to omit the parameter from the wallet-facing request | Default query |
 | `scopes` | A string or string array | — |
 | `transaction_data` | Array of transaction data entries, or any other JSON value | — |
 | `verifier_info` | JSON value | — |
@@ -126,6 +126,8 @@ The credential request normally uses `application/json` with `credential_configu
 | `response_scenario` | HTTP response the verifier returns after a presentation; test-only | — |
 
 `request_uri_method` is valid only with `request_delivery: "by_reference"`. The service preserves any supplied string in the deeplink, including values other than the OpenID4VP-defined, case-sensitive `get` and `post`, exclusively to create malformed requests for wallet negative tests. `by_value` supplies a signed Request Object in `request`; `plain` supplies the Authorization Request's URL-encoded parameters directly in the deeplink and omits `request`, `request_uri`, and `request_uri_method`. `response_type`, top-level DCQL, scopes, transaction data, and verifier information are used to construct the wallet-facing request. Inspect the returned `authorization_request` to confirm the exact claims.
+
+`dcql_query: null` omits the query from the request the Wallet receives, which is how a Section 5.1 scope-based request is sent: combine it with `scopes`. The Verifier keeps a query regardless, because the Authorization Response is matched against the request object this service signs, so a presentation returned for a scope-only request still verifies. The kept query appears in `authorization_request` and the delivered request in `raw.authorization_request_delivered`. Scope values are caller-supplied and resolved by the Wallet's profile; this service defines none.
 
 A session that sent transaction data records `checks.transaction_data_verified`: `true` when the presentation was accepted, which includes the Section 8.4 binding Credo-TS verifies from the signed request object; `false` when the presentation was rejected with `invalid_transaction_data`; and `null` when no transaction data was sent, or when the presentation failed for an unrelated reason that says nothing about the binding. The binding requires the Wallet to return, in `transaction_data_hashes`, a hash of each base64url-encoded entry that applies to the presented Credential, using an algorithm the entry offered in `transaction_data_hashes_alg`.
 

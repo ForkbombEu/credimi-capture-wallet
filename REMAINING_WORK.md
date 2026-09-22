@@ -75,7 +75,7 @@ Whether they are in scope at all is an open decision.
 
 | Item | Status | Detail |
 | --- | --- | --- |
-| 6.1 scope-to-DCQL mapping: `WS_RP_UC_Presentation__003`, `WS_RP_MS_ProtocolMessages__020`, `__030`, `__141` | partial | `scope` is forwarded into the Request Object and `dcql_query: null` is supported, so scope-only, scope-plus-`dcql_query` and unknown-scope requests all look constructible. Missing: confirmation that a scope-only request really omits `dcql_query`, given that Credo always generates one and session creation has a fallback path, and at least one documented scope value with its intended credential query |
+| 6.1 scope-based requests: `WS_RP_UC_Presentation__003`, `WS_RP_MS_ProtocolMessages__020`, `__030`, `__141` | done | `dcql_query: null` now omits the query from the delivered request only, so a scope-only request is verifiable: the Verifier keeps its query and matches the Authorization Response against the request object it signs. Previously the query was dropped from both, and any presentation returned for a scope-only request failed with "the authorization request is missing a 'dcql_query'". Scope values stay caller-supplied, because a Wallet resolves them through its own profile and a value invented here would be recognised by none |
 | 6.2 `transaction_data` wire form: `WS_RP_MS_ProtocolMessages__017`, `__018`, `__154`–`__159` | done | Array entries supplied as JSON objects are base64url-encoded as Section 5.1 requires, so a caller writes the entry a Wallet has to decode and reject; entries of any other type are delivered exactly as supplied, a value that is not an array is untouched, and a `request_mutation` on `/transaction_data` bypasses encoding for a container-level defect |
 | 6.2 transaction data binding: `WS_RP_MS_ProtocolMessages__135` | done | Credo-TS verifies the Section 8.4 binding itself, because this service hands it the request object it signed and that object carries the transaction data. The outcome is now recorded as `checks.transaction_data_verified`: true when the presentation was accepted, false when Credo rejected it with `invalid_transaction_data`, null when no transaction data was sent or the failure was unrelated. Credo enforces more than the hash set: every entry must be covered by some presentation, and the hash algorithm must be one the entry offered |
 | 6.3 `WS_RP_SM_DeviceBinding__002`–`__006` | not started | Misnamed in the plan: all five concern key-bound **Verifier Info attestations**, namely `nonce` and `client_id` in the signature object, a valid proof, a failing proof and an unrecognised attestation type. This is the same workstream as 5.5, not credential device binding. `verifier_info` is forwarded raw, so a pre-made attestation can be injected once the 5.5 fixture issuer exists |
@@ -113,11 +113,9 @@ Not yet addressed at all:
 
 ## Suggested order
 
-1. **6.1 scope confirmation and a documented scope value.** Probably no new capability, only proof
-   and documentation.
-2. **5.5 with 6.3, verifier attestation fixtures.** One workstream covering eleven tests, and
+1. **5.5 with 6.3, verifier attestation fixtures.** One workstream covering eleven tests, and
    self-contained if the attestation issuer is a local fixture.
-3. **6.4 credential digest algorithm**, if Credo exposes it.
+2. **6.4 credential digest algorithm**, if Credo exposes it.
 
 Open decisions needed before the remaining items can proceed:
 

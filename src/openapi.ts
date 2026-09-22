@@ -1082,7 +1082,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             dcql_query: {
               oneOf: [{ type: "object", additionalProperties: true }, { type: "null" }],
               description:
-                "DCQL query, or null to omit dcql_query from the wallet-facing Authorization Request.",
+                "DCQL query, or null to omit dcql_query from the wallet-facing Authorization Request. The verifier keeps a query for verification either way, because the Authorization Response is matched against the request object this service signs; use null together with scopes for a Section 5.1 scope-based request.",
             },
             scopes: { oneOf: [{ type: "string" }, { type: "array", items: { type: "string" } }] },
             transaction_data: {
