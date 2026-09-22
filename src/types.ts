@@ -364,6 +364,11 @@ export interface VpSessionCapture {
     nonce_verified: boolean;
     holder_binding_verified: boolean;
     dcql_query_matched: boolean;
+    /**
+     * Section 8.4 transaction data binding. Null when the request sent no transaction data, or
+     * when the presentation format's binding is not checked by this verifier.
+     */
+    transaction_data_verified: boolean | null;
     errors: string[];
   };
   events: CaptureEvent[];

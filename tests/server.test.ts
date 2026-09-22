@@ -3648,6 +3648,136 @@ describe("FCAF request mutation", () => {
   });
 });
 
+describe("transaction data binding", () => {
+  const entry = {
+    type: "qes_authorization",
+    credential_ids: ["query_0"],
+    transaction_data_hashes_alg: ["sha-256"],
+  };
+
+  async function presentWithTransactionData(options: {
+    transactionData: unknown[];
+    hashes: (delivered: string[]) => string[] | undefined;
+    hashesAlg?: string;
+  }) {
+    const app = createApp(config);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      response_mode: "direct_post",
+      presentation_request: {
+        dcql_query: dcqlForClaims(["family_name"]),
+        transaction_data: options.transactionData,
+      },
+    });
+    const delivered = session.authorization_request.transaction_data as string[];
+    const credential = await sdJwtCredential();
+    const presentation = await sdJwtPresentation({
+      credential,
+      authorizationRequest: session.authorization_request,
+      disclosedClaims: ["family_name"],
+      transactionDataHashes: options.hashes(delivered),
+      // Credo rejects a Key Binding JWT that carries hashes without naming their algorithm.
+      transactionDataHashesAlg: options.hashesAlg ?? "sha-256",
+    });
+    await request(app)
+      .post(`/openid4vp/sessions/${session.session_id}/response`)
+      .send({
+        state: session.authorization_request.state,
+        vp_token: { query_0: [presentation] },
+      });
+    const capture = await getJson<VpSessionResponse>(
+      app,
+      `/openid4vp/sessions/${session.session_id}`,
+    );
+    return capture;
+  }
+
+  function hashOf(entry: string, algorithm = "sha256"): string {
+    return createHash(algorithm).update(entry, "ascii").digest("base64url");
+  }
+
+  it("accepts a presentation whose hashes cover the entries sent", async () => {
+    const capture = await presentWithTransactionData({
+      transactionData: [entry],
+      hashes: (delivered) => delivered.map((value) => hashOf(value)),
+    });
+
+    expect(capture.checks.transaction_data_verified).toBe(true);
+    expect(capture.checks.presentation_valid).toBe(true);
+  });
+
+  it("rejects hashes computed with an algorithm the entry did not offer", async () => {
+    const capture = await presentWithTransactionData({
+      transactionData: [entry],
+      hashes: (delivered) => delivered.map((value) => hashOf(value, "sha384")),
+      hashesAlg: "sha-384",
+    });
+
+    expect(capture.checks.transaction_data_verified).toBe(false);
+    expect(capture.checks.presentation_valid).toBe(false);
+    expect(capture.checks.errors.join(" ")).toContain("sha-384");
+  });
+
+  it("rejects a presentation whose hash covers no entry that was sent", async () => {
+    const capture = await presentWithTransactionData({
+      transactionData: [entry],
+      hashes: () => [hashOf("an entry the verifier never sent")],
+    });
+
+    expect(capture.checks.transaction_data_verified).toBe(false);
+    expect(capture.checks.presentation_valid).toBe(false);
+    expect(capture.checks.errors.join(" ")).toContain("invalid_transaction_data");
+  });
+
+  it("rejects a presentation that omits the hashes for transaction data that was sent", async () => {
+    const capture = await presentWithTransactionData({
+      transactionData: [entry],
+      hashes: () => undefined,
+      hashesAlg: undefined,
+    });
+
+    expect(capture.checks.transaction_data_verified).toBe(false);
+    expect(capture.checks.presentation_valid).toBe(false);
+    expect(capture.checks.errors.join(" ")).toContain("invalid_transaction_data");
+  });
+
+  it("rejects a presentation leaving an entry for another credential uncovered", async () => {
+    const capture = await presentWithTransactionData({
+      transactionData: [entry, { ...entry, credential_ids: ["query_1"] }],
+      hashes: (delivered) => [hashOf(delivered[0])],
+    });
+
+    expect(capture.checks.transaction_data_verified).toBe(false);
+    expect(capture.checks.presentation_valid).toBe(false);
+  });
+
+  it("records no transaction data result when the request sent none", async () => {
+    const app = createApp(config);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      response_mode: "direct_post",
+      presentation_request: { dcql_query: dcqlForClaims(["family_name"]) },
+    });
+    const credential = await sdJwtCredential();
+    const presentation = await sdJwtPresentation({
+      credential,
+      authorizationRequest: session.authorization_request,
+      disclosedClaims: ["family_name"],
+    });
+    await request(app)
+      .post(`/openid4vp/sessions/${session.session_id}/response`)
+      .send({
+        state: session.authorization_request.state,
+        vp_token: { query_0: [presentation] },
+      });
+
+    const capture = await getJson<VpSessionResponse>(
+      app,
+      `/openid4vp/sessions/${session.session_id}`,
+    );
+    expect(capture.checks.transaction_data_verified).toBeNull();
+    expect(capture.checks.presentation_valid).toBe(true);
+  });
+});
+
 describe("FCAF verifier response scenarios", () => {
   const scenarioConfig = { ...config, fcaf_scenarios_enabled: true };
 
@@ -3996,6 +4126,8 @@ async function sdJwtPresentation(options: {
   authorizationRequest: JsonRecord;
   disclosedClaims: string[];
   audience?: string;
+  transactionDataHashes?: string[];
+  transactionDataHashesAlg?: string;
 }): Promise<string> {
   const [issuerJwt, ...tail] = options.credential.compact.split("~");
   const selected = tail
@@ -4007,6 +4139,12 @@ async function sdJwtPresentation(options: {
     aud: options.audience ?? String(options.authorizationRequest.client_id),
     nonce: String(options.authorizationRequest.nonce),
     sd_hash: createHash("sha256").update(withoutKeyBinding).digest("base64url"),
+    ...(options.transactionDataHashes
+      ? { transaction_data_hashes: options.transactionDataHashes }
+      : {}),
+    ...(options.transactionDataHashesAlg
+      ? { transaction_data_hashes_alg: options.transactionDataHashesAlg }
+      : {}),
   })
     .setProtectedHeader({ alg: "ES256", typ: "kb+jwt" })
     .sign(options.credential.privateKey);
@@ -4105,6 +4243,7 @@ interface VpSessionResponse extends JsonRecord {
   checks: {
     presentation_valid: boolean | null;
     nonce_verified: boolean;
+    transaction_data_verified: boolean | null;
     holder_binding_verified: boolean;
     dcql_query_matched: boolean;
     errors: string[];

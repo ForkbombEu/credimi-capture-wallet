@@ -113,6 +113,8 @@ export interface CredoVpVerification {
   nonce_verified: boolean;
   holder_binding_verified: boolean;
   dcql_query_matched: boolean;
+  /** Null when the request sent no transaction data, or the format's binding is not checked. */
+  transaction_data_verified: boolean | null;
   authorization_response?: JsonRecord;
   decoded_presentations?: DecodedPresentations;
   errors: string[];
@@ -391,6 +393,10 @@ export class CredoOpenId4VpVerifier {
         nonce_verified: true,
         holder_binding_verified: true,
         dcql_query_matched: Boolean(verified.dcql),
+        // Credo verifies the request object this service signed, transaction data included, so a
+        // successful verification is also a successful Section 8.4 binding check.
+        transaction_data_verified:
+          session.authorization_request.transaction_data === undefined ? null : true,
         authorization_response: normalizeAuthorizationResponse(
           verified.verificationSession.authorizationResponsePayload as JsonRecord | undefined,
         ),
@@ -405,14 +411,18 @@ export class CredoOpenId4VpVerifier {
       const authorizationResponse = verificationSession.authorizationResponsePayload as
         | JsonRecord
         | undefined;
+      const message = credoErrorMessage(error, verificationSession.errorMessage);
       return {
         valid: false,
         vp_token_format_valid: authorizationResponse?.vp_token !== undefined,
         nonce_verified: false,
         holder_binding_verified: false,
         dcql_query_matched: false,
+        // A failure naming invalid_transaction_data is Credo rejecting the Section 8.4 binding;
+        // any other failure says nothing about the binding, so the check stays unanswered.
+        transaction_data_verified: message.includes("invalid_transaction_data") ? false : null,
         authorization_response: normalizeAuthorizationResponse(authorizationResponse),
-        errors: [credoErrorMessage(error, verificationSession.errorMessage)],
+        errors: [message],
       };
     }
   }

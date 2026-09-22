@@ -196,6 +196,7 @@ export class CaptureStore {
         nonce_verified: false,
         holder_binding_verified: false,
         dcql_query_matched: false,
+        transaction_data_verified: null,
         errors: [],
       },
       events: [],

@@ -29,7 +29,7 @@ During the credential verification the service captures:
 - Raw verifier HTTP response: `raw.presentation_response_verifier_http` (status, headers with sensitive values redacted, and exact response body)
 - Decrypted wallet presentation response: `presentation_response_decrypted` (useful when response_mode is set to `direct_post.jwt`)
 - Decoded claims from verified presentations: `decoded_presentations`
-- Verifier checks for nonce, holder binding, and DCQL matching: `presentation_validation`
+- Verifier checks for nonce, holder binding, transaction data binding, and DCQL matching: `presentation_validation`
 
 <br>
 
@@ -464,6 +464,8 @@ Optional `scopes`, `transaction_data`, and `verifier_info` values can be supplie
 ```json
 {"transaction_data": [{"type": "qes_authorization", "credential_ids": ["query_0"], "transaction_data_hashes_alg": ["sha-256"]}]}
 ```
+
+When a Wallet presents, `checks.transaction_data_verified` records the Section 8.4 binding: `true` when the presentation was accepted, `false` when it was rejected with `invalid_transaction_data`, and `null` when the request sent no transaction data or the presentation failed for an unrelated reason. Credo-TS performs the check against the request object this service signed, so a Wallet must return a hash of each base64url-encoded entry that applies to the Credential it presents, computed with an algorithm that entry offered.
 
 Any other entry, a string included, is delivered exactly as supplied, so an entry that is deliberately not decodable stays expressible. The array itself is never rewritten: a `transaction_data` value that is not an array is passed through untouched, and a [request mutation](#deliberate-request-mutations) on `/transaction_data` replaces the whole parameter after encoding. This matters for the conformance tests that expect `invalid_transaction_data`: each of those defects — an unknown field, a field of the wrong type, an invalid value, a missing required field, mismatched `credential_ids` — lives inside an entry the Wallet must still be able to decode.
 

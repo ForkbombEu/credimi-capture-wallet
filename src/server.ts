@@ -1351,6 +1351,7 @@ function captureVpResponse(
     nonce_verified: boolean;
     holder_binding_verified: boolean;
     dcql_query_matched: boolean;
+    transaction_data_verified: boolean | null;
     authorization_response?: JsonRecord;
     decoded_presentations?: JsonRecord;
     errors: string[];
@@ -1363,6 +1364,7 @@ function captureVpResponse(
     nonce_verified: validation.nonce_verified,
     holder_binding_verified: validation.holder_binding_verified,
     dcql_query_matched: validation.dcql_query_matched,
+    transaction_data_verified: validation.transaction_data_verified,
     errors: validation.errors,
   };
   session.raw ??= {};
