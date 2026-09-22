@@ -457,7 +457,15 @@ Where:
 * `redirect_uri` is an optional absolute URI returned to the Wallet after a successful presentation. The service appends a fresh 128-bit `response_code` parameter to it. Use `{{base_url}}/openid4vp/redirect`, or its equivalent concrete service URI, to create a service-hosted confirmation page; it displays the received `response_code` for both valid and invalid visits, and a valid visit is recorded in the VP session capture.
 * `scheme` is the complete custom URL-scheme prefix for the deeplink (for example, `eudi-wallet://`); it defaults to `openid4vp://`
 
-Optional `scopes`, `transaction_data`, and `verifier_info` values can be supplied at the top level or within `presentation_request`. `scopes` accepts a string or an array of strings and is emitted as the standard space-delimited `scope` authorization-request parameter. The other two values are included unchanged in the signed request object.
+Optional `scopes`, `transaction_data`, and `verifier_info` values can be supplied at the top level or within `presentation_request`. `scopes` accepts a string or an array of strings and is emitted as the standard space-delimited `scope` authorization-request parameter. `verifier_info` is included unchanged in the signed request object.
+
+`transaction_data` is an array whose entries OpenID4VP Section 5.1 carries as base64url-encoded JSON strings. An entry supplied as an object is encoded, so a caller writes the entry it wants a Wallet to read:
+
+```json
+{"transaction_data": [{"type": "qes_authorization", "credential_ids": ["query_0"], "transaction_data_hashes_alg": ["sha-256"]}]}
+```
+
+Any other entry, a string included, is delivered exactly as supplied, so an entry that is deliberately not decodable stays expressible. The array itself is never rewritten: a `transaction_data` value that is not an array is passed through untouched, and a [request mutation](#deliberate-request-mutations) on `/transaction_data` replaces the whole parameter after encoding. This matters for the conformance tests that expect `invalid_transaction_data`: each of those defects — an unknown field, a field of the wrong type, an invalid value, a missing required field, mismatched `credential_ids` — lives inside an entry the Wallet must still be able to decode.
 
 `scheme`, `request_uri_method`, `client_id_scheme`, `request_delivery`, `response_mode`, `client_metadata`, `allow_undecryptable_response`, and `redirect_uri` are top-level parameters only. They configure how the service builds, signs, and delivers the request rather than being request-object claims, so they are ignored when nested inside `presentation_request`. Supplying `client_metadata` inside `presentation_request` leaves the generated verifier metadata in place; the service does not report an error. `response_type` is the one exception, and a top-level value overrides a nested one.
 

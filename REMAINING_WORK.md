@@ -76,7 +76,7 @@ Whether they are in scope at all is an open decision.
 | Item | Status | Detail |
 | --- | --- | --- |
 | 6.1 scope-to-DCQL mapping: `WS_RP_UC_Presentation__003`, `WS_RP_MS_ProtocolMessages__020`, `__030`, `__141` | partial | `scope` is forwarded into the Request Object and `dcql_query: null` is supported, so scope-only, scope-plus-`dcql_query` and unknown-scope requests all look constructible. Missing: confirmation that a scope-only request really omits `dcql_query`, given that Credo always generates one and session creation has a fallback path, and at least one documented scope value with its intended credential query |
-| 6.2 `transaction_data` wire form: `WS_RP_MS_ProtocolMessages__017`, `__018`, `__135`, `__154`–`__159` | partial | The service never asks Credo to build transaction data, so nothing generated is being overwritten: a supplied value *is* the wire value, which is the right primitive because every malformed variant has to be verifier-controlled. What is missing is the wire form. OpenID4VP Section 5.1 requires each array entry to be a base64url-encoded JSON string, and the documentation says only that the value is "included unchanged", so a caller that supplies entries as JSON objects produces a request no wallet can decode. That breaks the positive cases `__017`, `__018` and `__135`, and makes `__154`–`__159` fail at decoding rather than on the defect under test, since each of those defects — unknown field, wrong field type, invalid value, missing required field, mismatched `credential_ids`, unavailable credential — lives *inside* the decoded entry and still needs the entry itself to be well formed. Either document the encoding requirement, or encode supplied objects while passing supplied strings through unchanged |
+| 6.2 `transaction_data` wire form: `WS_RP_MS_ProtocolMessages__017`, `__018`, `__154`–`__159` | done | Array entries supplied as JSON objects are base64url-encoded as Section 5.1 requires, so a caller writes the entry a Wallet has to decode and reject; entries of any other type are delivered exactly as supplied, a value that is not an array is untouched, and a `request_mutation` on `/transaction_data` bypasses encoding for a container-level defect |
 | 6.2 transaction data validation: `WS_RP_MS_ProtocolMessages__135` | not started | The evidence is already there for SD-JWT VC: the whole Key Binding JWT payload is captured, so `transaction_data_hashes` appears under `key_binding.payload`. What is missing is the verifier side of the assertion, "the verifier successfully identifies and validates the reference": the hashes are never checked against the entries that were sent. Credo cannot do it either, because the transaction data is added to the request after Credo has built the payload it verifies against. The mdoc path needs checking separately |
 | 6.3 `WS_RP_SM_DeviceBinding__002`–`__006` | not started | Misnamed in the plan: all five concern key-bound **Verifier Info attestations**, namely `nonce` and `client_id` in the signature object, a valid proof, a failing proof and an unrecognised attestation type. This is the same workstream as 5.5, not credential device binding. `verifier_info` is forwarded raw, so a pre-made attestation can be injected once the 5.5 fixture issuer exists |
 | 6.4 `WS_RP_SH_Cryptography_Encryption_002` | done | Expressible today with `client_metadata`, for example `{"encrypted_response_enc_values_supported": ["A128GCM"]}` |
@@ -113,8 +113,9 @@ Not yet addressed at all:
 
 ## Suggested order
 
-1. **6.2 `transaction_data` wire form**, then its validation. Small, and it decides whether nine
-   tests can produce evidence about the defect they name rather than about a decoding failure.
+1. **6.2 transaction data validation.** The entries now reach a Wallet in decodable form; what is
+   left is checking the returned `transaction_data_hashes` against the entries that were sent, which
+   is the assertion `WS_RP_MS_ProtocolMessages__135` actually makes.
 2. **6.1 scope confirmation and a documented scope value.** Probably no new capability, only proof
    and documentation.
 3. **5.5 with 6.3, verifier attestation fixtures.** One workstream covering eleven tests, and
@@ -124,8 +125,5 @@ Not yet addressed at all:
 Open decisions needed before the remaining items can proceed:
 
 - Whether `WS_RP_SM_RpIntegrity__032` and `CryptographicSignature_002` mean PS384 or RS384.
-- Whether supplied `transaction_data` objects should be base64url-encoded by the service, with
-  strings still passed through unchanged for a case that needs a non-encoded entry, or whether the
-  encoding stays entirely the caller's responsibility and is only documented.
 - Whether a non-Credo COSE path is approved for the malformed COSE status structures in 4.3.
 - Whether phases 5.6 to 5.8 are in scope, given that they need external trust infrastructure.

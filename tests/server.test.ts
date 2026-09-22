@@ -1393,6 +1393,62 @@ describe("capture issuer server", () => {
     expect(requestObjectClaims.verifier_info).toEqual(verifierInfo);
   });
 
+  it("encodes transaction data objects and delivers other entries unchanged", async () => {
+    const app = createApp(config);
+    const entry = {
+      type: "qes_authorization",
+      credential_ids: ["query_0"],
+      transaction_data_hashes_alg: ["sha-256"],
+      unknown_field: "kept so the Wallet can reject the decoded entry",
+    };
+
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      transaction_data: [entry, "already.encoded.entry"],
+    });
+
+    const delivered = session.authorization_request.transaction_data as unknown[];
+    expect(typeof delivered[0]).toBe("string");
+    expect(JSON.parse(Buffer.from(delivered[0] as string, "base64url").toString())).toEqual(entry);
+    expect(delivered[1]).toBe("already.encoded.entry");
+
+    const requestObject = await request(app).get(
+      `/openid4vp/sessions/${session.session_id}/request`,
+    );
+    expect((decodeJwt(requestObject.text) as JsonRecord).transaction_data).toEqual(delivered);
+  });
+
+  it("leaves a transaction data parameter that is not an array untouched", async () => {
+    const app = createApp(config);
+
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      transaction_data: { type: "qes_authorization" },
+    });
+
+    expect(session.authorization_request.transaction_data).toEqual({
+      type: "qes_authorization",
+    });
+  });
+
+  it("delivers unencoded transaction data when a request mutation replaces the parameter", async () => {
+    const app = createApp({ ...config, fcaf_scenarios_enabled: true });
+
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      transaction_data: [{ type: "qes_authorization", credential_ids: ["query_0"] }],
+      request_mutation: {
+        request_object: { set: { "/transaction_data": [{ type: "qes_authorization" }] } },
+      },
+    });
+
+    expect(typeof (session.authorization_request.transaction_data as unknown[])[0]).toBe("string");
+
+    const requestObject = await request(app).get(
+      `/openid4vp/sessions/${session.session_id}/request`,
+    );
+    expect((decodeJwt(requestObject.text) as JsonRecord).transaction_data).toEqual([
+      { type: "qes_authorization" },
+    ]);
+  });
+
   it("serves OpenID4VP request_uri objects and captures invalid wallet presentation responses", async () => {
     const app = createApp(config);
     const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {

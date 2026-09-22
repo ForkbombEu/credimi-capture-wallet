@@ -22,6 +22,7 @@ import {
   DidsModule,
   type FileSystem,
   InjectionSymbols,
+  JsonEncoder,
   Kms,
   LogLevel,
   type Module,
@@ -626,10 +627,27 @@ function optionalAuthorizationRequestParameters(request: JsonRecord): JsonRecord
   const scope = authorizationRequestScope(request);
   if (scope !== undefined) parameters.scope = scope;
   if (request.transaction_data !== undefined) {
-    parameters.transaction_data = request.transaction_data;
+    parameters.transaction_data = encodedTransactionData(request.transaction_data);
   }
   if (request.verifier_info !== undefined) parameters.verifier_info = request.verifier_info;
   return parameters;
+}
+
+/**
+ * Section 5.1 carries each transaction data entry as a base64url-encoded JSON string. An entry
+ * supplied as an object is encoded here so that a caller can express the defect a test is about —
+ * an unknown field, a wrong field type, a mismatched `credential_ids` — inside an entry a Wallet
+ * can still decode. Any other entry, a string included, is delivered exactly as supplied, which
+ * keeps a deliberately undecodable entry expressible; `request_mutation` can replace the whole
+ * parameter when even the array has to be malformed.
+ */
+function encodedTransactionData(transactionData: unknown): unknown {
+  if (!Array.isArray(transactionData)) return transactionData;
+  return transactionData.map((entry) =>
+    entry !== null && typeof entry === "object" && !Array.isArray(entry)
+      ? JsonEncoder.toBase64Url(entry)
+      : entry,
+  );
 }
 
 function authorizationRequestScope(request: JsonRecord): unknown {

@@ -1085,7 +1085,10 @@ export function openApiDocument(config: AppConfig): JsonRecord {
                 "DCQL query, or null to omit dcql_query from the wallet-facing Authorization Request.",
             },
             scopes: { oneOf: [{ type: "string" }, { type: "array", items: { type: "string" } }] },
-            transaction_data: {},
+            transaction_data: {
+              description:
+                "Transaction data. Array entries that are JSON objects are base64url-encoded as OpenID4VP Section 5.1 requires; entries of any other type, strings included, are delivered exactly as supplied, and a value that is not an array is passed through untouched.",
+            },
             verifier_info: {},
             client_metadata: {
               oneOf: [{ type: "object", additionalProperties: true }, { type: "null" }],
