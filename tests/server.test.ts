@@ -3740,6 +3740,163 @@ describe("scope-based presentation requests", () => {
   });
 });
 
+describe("verifier attestation requests", () => {
+  async function attestationRequest(app: Express, body: JsonRecord = {}) {
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      response_mode: "direct_post",
+      client_id_scheme: "verifier_attestation",
+      presentation_request: { dcql_query: dcqlForClaims(["family_name"]) },
+      ...body,
+    });
+    const requestObject = await request(app).get(
+      `/openid4vp/sessions/${session.session_id}/request`,
+    );
+    const header = decodeProtectedHeader(requestObject.text) as JsonRecord;
+    const attestation =
+      typeof header.jwt === "string" ? (decodeJwt(header.jwt) as JsonRecord) : undefined;
+    return { session, jwt: requestObject.text, header, attestation };
+  }
+
+  it("carries an attestation bound to the client identifier and the signing key", async () => {
+    const app = createApp(config);
+    const { session, jwt, attestation } = await attestationRequest(app);
+
+    expect(session.authorization_request.client_id).toBe(
+      `verifier_attestation:${attestation?.sub}`,
+    );
+    const confirmationKey = (attestation?.cnf as JsonRecord).jwk as JsonRecord;
+    await expect(
+      compactVerify(jwt, await importJWK(confirmationKey as unknown as JWK, "ES256")),
+    ).resolves.toBeDefined();
+    // A wallet must not be forced into a redirect URI match when the attestation makes no claim.
+    expect(attestation).not.toHaveProperty("redirect_uris");
+    expect(decodeProtectedHeader(jwt).x5c).toBeUndefined();
+  });
+
+  it("publishes the attestation issuer key so a wallet can be configured to trust it", async () => {
+    const app = createApp(config);
+    const { attestation } = await attestationRequest(app);
+    const jwks = await getJson<JwksResponse>(
+      app,
+      "/openid4vp/verifier-attestation-issuer/jwks.json",
+    );
+    expect(attestation?.iss).toBe(
+      `${config.issuer_base_url}/openid4vp/verifier-attestation-issuer`,
+    );
+    expect(jwks.keys).toHaveLength(1);
+    expect(jwks.keys[0]).not.toHaveProperty("d");
+  });
+
+  it("attests a subject that differs from the client identifier when asked", async () => {
+    const app = createApp(config);
+    const { session, attestation } = await attestationRequest(app, {
+      verifier_attestation: { subject: "someone-else.example" },
+    });
+
+    expect(attestation?.sub).toBe("someone-else.example");
+    expect(session.authorization_request.client_id).not.toBe(
+      "verifier_attestation:someone-else.example",
+    );
+  });
+
+  it("names an issuer outside the wallet's trusted list when asked", async () => {
+    const app = createApp(config);
+    const { attestation } = await attestationRequest(app, {
+      verifier_attestation: { issuer: "https://untrusted-attestation-issuer.invalid" },
+    });
+
+    expect(attestation?.iss).toBe("https://untrusted-attestation-issuer.invalid");
+  });
+
+  it("breaks only the attestation signature, leaving the request object signed", async () => {
+    const app = createApp({ ...config, fcaf_scenarios_enabled: true });
+    const { jwt, header, attestation } = await attestationRequest(app, {
+      verifier_attestation: { signature: "corrupt" },
+    });
+
+    const issuerJwks = await getJson<JwksResponse>(
+      app,
+      "/openid4vp/verifier-attestation-issuer/jwks.json",
+    );
+    await expect(
+      compactVerify(String(header.jwt), await importJWK(issuerJwks.keys[0] as unknown as JWK, "ES256")),
+    ).rejects.toThrow();
+    const confirmationKey = (attestation?.cnf as JsonRecord).jwk as JsonRecord;
+    await expect(
+      compactVerify(jwt, await importJWK(confirmationKey as unknown as JWK, "ES256")),
+    ).resolves.toBeDefined();
+  });
+
+  it("signs with a key that does not match the confirmation claim when asked", async () => {
+    const app = createApp({ ...config, fcaf_scenarios_enabled: true });
+    const { jwt, attestation } = await attestationRequest(app, {
+      request_behavior: { signing_key: "unrelated" },
+    });
+
+    const confirmationKey = (attestation?.cnf as JsonRecord).jwk as JsonRecord;
+    await expect(
+      compactVerify(jwt, await importJWK(confirmationKey as unknown as JWK, "ES256")),
+    ).rejects.toThrow();
+  });
+
+  it("includes redirect_uris in the attestation when asked", async () => {
+    const app = createApp(config);
+    const { attestation } = await attestationRequest(app, {
+      verifier_attestation: { redirect_uris: ["https://relying-party.example/callback"] },
+    });
+
+    expect(attestation?.redirect_uris).toEqual(["https://relying-party.example/callback"]);
+  });
+
+  it("refuses attestation content without the matching client identifier prefix", async () => {
+    const app = createApp(config);
+    const response = await request(app)
+      .post("/openid4vp/sessions")
+      .send({ verifier_attestation: { subject: "someone-else.example" } });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({
+      error: "verifier_attestation_requires_verifier_attestation_client_id",
+    });
+  });
+
+  it("refuses a corrupt attestation signature when scenarios are disabled", async () => {
+    const app = createApp(config);
+    const response = await request(app)
+      .post("/openid4vp/sessions")
+      .send({
+        client_id_scheme: "verifier_attestation",
+        verifier_attestation: { signature: "corrupt" },
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ error: "request_behavior_not_enabled" });
+  });
+
+  it("verifies a presentation returned for an attestation-based request", async () => {
+    const app = createApp(config);
+    const { session } = await attestationRequest(app);
+    const credential = await sdJwtCredential();
+    const presentation = await sdJwtPresentation({
+      credential,
+      authorizationRequest: session.authorization_request,
+      disclosedClaims: ["family_name"],
+    });
+    await request(app)
+      .post(`/openid4vp/sessions/${session.session_id}/response`)
+      .send({
+        state: session.authorization_request.state,
+        vp_token: { query_0: [presentation] },
+      });
+
+    const capture = await getJson<VpSessionResponse>(
+      app,
+      `/openid4vp/sessions/${session.session_id}`,
+    );
+    expect(capture.checks.presentation_valid).toBe(true);
+  });
+});
+
 describe("transaction data binding", () => {
   const entry = {
     type: "qes_authorization",

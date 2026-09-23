@@ -2,7 +2,11 @@ import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { readFileSync } from "node:fs";
 import express, { type NextFunction, type Request, type Response } from "express";
 import QRCode from "qrcode";
-import { loadIssuerJwks, verifierDidDocument } from "./config.js";
+import {
+  loadIssuerJwks,
+  verifierAttestationIssuerPublicJwk,
+  verifierDidDocument,
+} from "./config.js";
 import {
   DEFAULT_ISSUER_CONFIGURATION_ID,
   issuerCatalogue,
@@ -82,6 +86,7 @@ import type {
   VpRequestMutation,
   VpResponseScenario,
   VpSessionCapture,
+  VpVerifierAttestation,
 } from "./types.js";
 import {
   dcApiPresentationPage,
@@ -330,6 +335,12 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
 
   app.get("/openid4vp/did.json", (_req, res) => {
     res.type("application/did+json").json(verifierDidDocument(config));
+  });
+
+  // The key of the fixture issuer of Verifier Attestation JWTs. A wallet resolves attestation
+  // issuers out of band, so this is published for an operator to configure as a trusted issuer.
+  app.get("/openid4vp/verifier-attestation-issuer/jwks.json", (_req, res) => {
+    res.json({ keys: [verifierAttestationIssuerPublicJwk(config)] });
   });
 
   app.get("/oid4vci/requests", (_req, res) => {
@@ -608,6 +619,13 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       if (requestBehavior && !config.fcaf_scenarios_enabled) {
         return res.status(400).json({ error: "request_behavior_not_enabled" });
       }
+      const verifierAttestation = verifierAttestationOrNull(body.verifier_attestation);
+      if (verifierAttestation === null) {
+        return res.status(400).json({ error: "invalid_verifier_attestation" });
+      }
+      if (verifierAttestation?.signature && !config.fcaf_scenarios_enabled) {
+        return res.status(400).json({ error: "request_behavior_not_enabled" });
+      }
       const responseScenario = responseScenarioOrNull(body.response_scenario);
       if (responseScenario === null) {
         return res.status(400).json({ error: "invalid_response_scenario" });
@@ -643,6 +661,11 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       if (requestBehavior?.certificate_chain && selectedClientIdScheme !== "x509_hash") {
         return res.status(400).json({ error: "certificate_chain_requires_x509_hash_client_id" });
       }
+      if (verifierAttestation && selectedClientIdScheme !== "verifier_attestation") {
+        return res
+          .status(400)
+          .json({ error: "verifier_attestation_requires_verifier_attestation_client_id" });
+      }
       if (selectedClientIdScheme === "redirect_uri" && selectedRequestDelivery !== "plain") {
         return res.status(400).json({ error: "redirect_uri_client_id_requires_plain_delivery" });
       }
@@ -675,6 +698,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         requestMutation,
         requestBehavior,
         responseScenario,
+        verifierAttestation,
       );
       store.addEvent(session, "vp_deeplink_generated", {});
       return res.status(201).json({
@@ -1233,6 +1257,7 @@ async function createVpSession(
   requestMutation?: VpRequestMutation,
   requestBehavior?: VpRequestBehavior,
   responseScenario?: VpResponseScenario,
+  verifierAttestation?: VpVerifierAttestation,
 ): Promise<VpSessionCapture> {
   const sessionId = randomUUID();
   const defaultRequest = defaultPresentationRequest(
@@ -1260,6 +1285,7 @@ async function createVpSession(
     requestMutation,
     requestBehavior,
     requestSigningMaterial,
+    verifierAttestation,
   );
   const sessionRedirectUri = redirectUri ? redirectUriWithResponseCode(redirectUri) : undefined;
   const dcApi =
@@ -1588,9 +1614,39 @@ function clientIdSchemeOrNull(value: unknown): OpenId4VpClientIdScheme | null {
   return value === "x509_hash" ||
     value === "x509_san_dns" ||
     value === "redirect_uri" ||
-    value === "decentralized_identifier"
+    value === "decentralized_identifier" ||
+    value === "verifier_attestation"
     ? value
     : null;
+}
+
+/**
+ * Parses the Verifier Attestation content. Returning null refuses the request rather than signing
+ * an attestation whose defect is not the one the caller asked for.
+ */
+function verifierAttestationOrNull(value: unknown): VpVerifierAttestation | null | undefined {
+  if (value === undefined) return undefined;
+  const attestation = objectOrNull(value);
+  if (!attestation) return null;
+  const { subject, issuer, redirect_uris, claims, signature, ...rest } = attestation;
+  if (Object.keys(rest).length > 0) return null;
+  if (subject !== undefined && typeof subject !== "string") return null;
+  if (issuer !== undefined && typeof issuer !== "string") return null;
+  if (
+    redirect_uris !== undefined &&
+    (!Array.isArray(redirect_uris) || redirect_uris.some((uri) => typeof uri !== "string"))
+  ) {
+    return null;
+  }
+  if (claims !== undefined && !objectOrNull(claims)) return null;
+  if (signature !== undefined && signature !== "corrupt") return null;
+  return {
+    ...(subject === undefined ? {} : { subject }),
+    ...(issuer === undefined ? {} : { issuer }),
+    ...(redirect_uris === undefined ? {} : { redirect_uris: redirect_uris as string[] }),
+    ...(claims === undefined ? {} : { claims: claims as JsonRecord }),
+    ...(signature === undefined ? {} : { signature: "corrupt" as const }),
+  };
 }
 
 function deeplinkSchemeOrNull(value: unknown): string | null {

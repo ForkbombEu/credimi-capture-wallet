@@ -445,7 +445,23 @@ curl -X POST "$BASE_URL/openid4vp/sessions" \
 ```
 Where:
 * `request_uri_method` defaults to `get`. OpenID4VP defines case-sensitive `get` and `post`; any supplied string is preserved in a by-reference deeplink only for wallet negative tests, allowing deliberately malformed requests.
-* `client_id_scheme` can be `x509_hash` (default), `x509_san_dns`, `decentralized_identifier`, or `redirect_uri`. `x509_san_dns` uses the verifier certificate and its DNS SAN. `decentralized_identifier` uses the verifier's `did:web` document at `/openid4vp/did.json`. `redirect_uri` creates an unsigned request and therefore requires `request_delivery: "plain"`.
+* `client_id_scheme` can be `x509_hash` (default), `x509_san_dns`, `decentralized_identifier`, `verifier_attestation`, or `redirect_uri`. `x509_san_dns` uses the verifier certificate and its DNS SAN. `decentralized_identifier` uses the verifier's `did:web` document at `/openid4vp/did.json`. `verifier_attestation` signs with the same request key but publishes no certificate, carrying instead a Verifier Attestation JWT in the request object's `jwt` JOSE header. `redirect_uri` creates an unsigned request and therefore requires `request_delivery: "plain"`.
+
+#### Verifier attestations
+
+With `client_id_scheme: "verifier_attestation"`, the Client Identifier is `verifier_attestation:<subject>` and the attestation JWT in the `jwt` header binds three things a Wallet checks separately: its `sub` equals the Client Identifier after the prefix, its `cnf.jwk` is the key that signed the request object, and its `iss` names the attestation issuer. The issuer is a fixture key generated beside the other verifier material, and its public key is served at `/openid4vp/verifier-attestation-issuer/jwks.json` so an operator can configure a Wallet to trust it. By default the attestation carries no `redirect_uris` claim, which is the case where a Wallet must not enforce a redirect URI match.
+
+The optional `verifier_attestation` object changes the attestation content, one binding at a time:
+
+| Member | Effect |
+| --- | --- |
+| `subject` | Attestation `sub`. The Client Identifier keeps the real subject, so the two disagree. |
+| `issuer` | Attestation `iss`, for an issuer outside the Wallet's trusted list. |
+| `redirect_uris` | Adds the `redirect_uris` claim, matching or not matching the request's redirect URI. |
+| `claims` | Additional attestation claims, merged last. |
+| `signature: "corrupt"` | Breaks the attestation signature, leaving the request object validly signed. Requires `FCAF_SCENARIOS_ENABLED`. |
+
+Two related cases need nothing new: a request object signed with a key that does not match `cnf` is `request_behavior: {"signing_key": "unrelated"}`, and a missing attestation is `request_mutation` unsetting `/jwt` in the request object header.
 * `request_delivery` can be `by_reference`, `by_value`, or `plain`, default is `by_reference`. `plain` puts URL-encoded Authorization Request parameters directly in the deeplink, without `request` or `request_uri`; it cannot be combined with `request_uri_method`.
 * `response_type` can be `vp_token` or `vp_token id_token` or `code`, but during presentation verification only `vp_token` is supported, default is `vp_token`
 * `response_mode` selects the presentation flow. `direct_post` and `direct_post.jwt` are the redirect-based flows, default is `direct_post.jwt`. `dc_api` and `dc_api.jwt` present over the W3C Digital Credentials API instead; see [Digital Credentials API presentation](#digital-credentials-api-presentation).

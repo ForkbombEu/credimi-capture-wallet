@@ -11,6 +11,7 @@ import type { AppConfig, JsonRecord } from "./types.js";
 
 export const VERIFIER_KEY_ID = "credimi-fake-verifier-key";
 export const VERIFIER_DID_KEY_ID = "credimi-fake-verifier-did-key";
+export const VERIFIER_ATTESTATION_ISSUER_KEY_ID = "credimi-fake-verifier-attestation-issuer-key";
 export const ACCESS_TOKEN_PRIVATE_JWK_FILE = "access-token-private-jwk.json";
 
 export const DEFAULT_CONFIG: AppConfig = {
@@ -232,6 +233,31 @@ export function verifierDidPrivateJwkPath(dataDir: string): string {
   return join(dataDir, "verifier", "verifier-did-private-jwk.json");
 }
 
+/**
+ * The key of the fixture issuer of Verifier Attestation JWTs. It is a separate key from the request
+ * signing key on purpose: the attestation is a statement made *about* this verifier by a third
+ * party, and a wallet is expected to trust the issuer, not the verifier it attests to.
+ */
+export function verifierAttestationIssuerPrivateJwkPath(dataDir: string): string {
+  return join(dataDir, "verifier", "verifier-attestation-issuer-private-jwk.json");
+}
+
+export function verifierAttestationIssuerPublicJwk(config: AppConfig): JsonRecord {
+  const { d: _private, ...publicJwk } = JSON.parse(
+    readFileSync(verifierAttestationIssuerPrivateJwkPath(config.data_dir), "utf8"),
+  ) as JsonRecord;
+  return publicJwk;
+}
+
+/** The identifier this service attests to, and the part of `verifier_attestation:<sub>`. */
+export function verifierAttestationSubject(config: AppConfig): string {
+  return new URL(config.issuer_base_url).host;
+}
+
+export function verifierAttestationIssuer(config: AppConfig): string {
+  return `${config.issuer_base_url}/openid4vp/verifier-attestation-issuer`;
+}
+
 export function verifierDid(config: AppConfig): string {
   const url = new URL(config.issuer_base_url);
   const authority = url.port ? `${url.hostname}%3A${url.port}` : url.hostname;
@@ -356,6 +382,10 @@ export async function initIssuer(options: InitOptions): Promise<AppConfig> {
   const verifierDidSecretPath = verifierDidPrivateJwkPath(dataDir);
   if (force || !existsSync(verifierDidSecretPath)) {
     await writeGeneratedPrivateJwk(verifierDidSecretPath, VERIFIER_DID_KEY_ID);
+  }
+  const attestationIssuerSecretPath = verifierAttestationIssuerPrivateJwkPath(dataDir);
+  if (force || !existsSync(attestationIssuerSecretPath)) {
+    await writeGeneratedPrivateJwk(attestationIssuerSecretPath, VERIFIER_ATTESTATION_ISSUER_KEY_ID);
   }
   validateIssuerMaterial(loadedConfig);
 

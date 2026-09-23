@@ -38,7 +38,8 @@ export type OpenId4VpClientIdScheme =
   | "x509_hash"
   | "x509_san_dns"
   | "redirect_uri"
-  | "decentralized_identifier";
+  | "decentralized_identifier"
+  | "verifier_attestation";
 
 /** Exhaustive over the union, so adding a response mode without handling it fails to compile. */
 const OPENID4VP_RESPONSE_MODES: Record<OpenId4VpResponseMode, true> = {
@@ -140,9 +141,14 @@ export async function signPresentationAuthorizationRequest(
   config: AppConfig,
   request: JsonRecord,
   clientIdScheme: Exclude<OpenId4VpClientIdScheme, "redirect_uri"> = "x509_hash",
-  options: { headerEdits?: VpRequestMutationEdits; material?: RequestSigningMaterial } = {},
+  options: {
+    headerEdits?: VpRequestMutationEdits;
+    material?: RequestSigningMaterial;
+    verifierAttestationJwt?: string;
+  } = {},
 ): Promise<string> {
   const isDid = clientIdScheme === "decentralized_identifier";
+  const isVerifierAttestation = clientIdScheme === "verifier_attestation";
   const privateJwk = (options.material?.privateJwk ??
     JSON.parse(
       readFileSync(
@@ -157,8 +163,12 @@ export async function signPresentationAuthorizationRequest(
     {
       alg: "ES256",
       typ: "oauth-authz-req+jwt",
-      ...(isDid
-        ? { kid: `${verifierDid(config)}#${VERIFIER_DID_KEY_ID}` }
+      ...(isDid ? { kid: `${verifierDid(config)}#${VERIFIER_DID_KEY_ID}` } : {}),
+      // Section 5.10 carries the attestation in the `jwt` header, and the key it confirms is the
+      // one that signs the request, so no certificate or key identifier is published beside it.
+      ...(isVerifierAttestation ? { jwt: options.verifierAttestationJwt } : {}),
+      ...(isDid || isVerifierAttestation
+        ? {}
         : {
             kid: VERIFIER_KEY_ID,
             x5c: options.material?.x5c ?? [verifierCertificateBase64Der(config)],

@@ -109,7 +109,8 @@ The credential request normally uses `application/json` with `credential_configu
 | --- | --- | --- |
 | `scheme` | URL-scheme prefix, such as `openid4vp://` | `openid4vp://` |
 | `request_uri_method` | Any string; OpenID4VP defines case-sensitive `get`, `post` | `get` |
-| `client_id_scheme` | `x509_hash`, `x509_san_dns`, `decentralized_identifier`, `redirect_uri` | `x509_hash` |
+| `client_id_scheme` | `x509_hash`, `x509_san_dns`, `decentralized_identifier`, `verifier_attestation`, `redirect_uri` | `x509_hash` |
+| `verifier_attestation` | Object; requires `client_id_scheme: "verifier_attestation"` | Attestation with the real subject, the fixture issuer, and no `redirect_uris` |
 | `request_delivery` | `by_reference`, `by_value`, `plain` | `by_reference` |
 | `response_type` | `vp_token`, `vp_token id_token`, `code` | `vp_token` |
 | `response_mode` | `direct_post`, `direct_post.jwt`, `dc_api`, `dc_api.jwt` | `direct_post.jwt` |
@@ -135,7 +136,7 @@ Entries of a `transaction_data` array that are JSON objects are base64url-encode
 
 `scheme`, `request_uri_method`, `client_id_scheme`, `request_delivery`, `response_mode`, `client_metadata`, and `redirect_uri` are top-level fields only. They select how the service builds, signs, and delivers the request instead of being request-object claims, so nesting any of them inside `presentation_request` has no effect and is not reported as an error. In particular, a `client_metadata` value inside `presentation_request` is discarded and the generated verifier metadata is used. Only `response_type`, `dcql_query`, `nonce`, `scopes`, `transaction_data`, and `verifier_info` are honoured in both positions, and a top-level `response_type` wins over a nested one.
 
-`client_id_scheme: "x509_san_dns"` signs the request with the existing verifier certificate and uses its DNS Subject Alternative Name as the Client Identifier value. `client_id_scheme: "decentralized_identifier"` signs with a separate `did:web` key and publishes its DID Document at `/openid4vp/did.json`. `client_id_scheme: "redirect_uri"` creates an unsigned request and therefore requires `request_delivery: "plain"`; signed and by-reference delivery are rejected. The default remains the certificate hash prefix, `x509_hash`.
+`client_id_scheme: "x509_san_dns"` signs the request with the existing verifier certificate and uses its DNS Subject Alternative Name as the Client Identifier value. `client_id_scheme: "decentralized_identifier"` signs with a separate `did:web` key and publishes its DID Document at `/openid4vp/did.json`. `client_id_scheme: "verifier_attestation"` signs with the request key but publishes no certificate: the request object's `jwt` JOSE header carries a Verifier Attestation JWT whose `sub` is the Client Identifier after the prefix, whose `cnf.jwk` is the request signing key, and whose `iss` is the fixture attestation issuer published at `/openid4vp/verifier-attestation-issuer/jwks.json`. The optional `verifier_attestation` object sets `subject`, `issuer`, `redirect_uris`, extra `claims`, or `signature: "corrupt"`; the last requires `FCAF_SCENARIOS_ENABLED`, and supplying the object under any other client identifier prefix is refused with `verifier_attestation_requires_verifier_attestation_client_id`. `client_id_scheme: "redirect_uri"` creates an unsigned request and therefore requires `request_delivery: "plain"`; signed and by-reference delivery are rejected. The default remains the certificate hash prefix, `x509_hash`.
 
 When `dcql_query` is `null`, the service omits it from the wallet-facing request. Credo retains the normal default query only as internal verification-session state; a wallet response to this deliberately incomplete request may not validate.
 
@@ -161,6 +162,7 @@ When `redirect_uri` is supplied, the service appends a fresh 128-bit `response_c
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/openid4vp/did.json` | Verifier `did:web` Document used by `client_id_scheme: "decentralized_identifier"`. |
+| `GET` | `/openid4vp/verifier-attestation-issuer/jwks.json` | Public key of the fixture issuer of Verifier Attestation JWTs, for configuring a Wallet to trust it. |
 | `GET` | `/openid4vp/sessions/{sessionId}` | Full current presentation capture. |
 | `GET` | `/openid4vp/sessions/{sessionId}/deeplink` | `{ deeplink, authorization_request }`; records a deeplink event. |
 | `GET` | `/openid4vp/sessions/{sessionId}/events` | Chronological presentation events. |

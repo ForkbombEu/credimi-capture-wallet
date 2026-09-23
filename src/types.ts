@@ -256,6 +256,24 @@ export interface VpRequestUriResponseBehavior {
  * Test-only request-delivery behaviours that are not payload values, so a JSON Pointer edit
  * cannot express them.
  */
+/**
+ * Content of the Verifier Attestation JWT delivered in the Request Object's `jwt` JOSE header.
+ * Each member breaks one of the bindings a wallet checks, so a test can present an attestation
+ * whose only defect is the one it is about.
+ */
+export interface VpVerifierAttestation {
+  /** Attestation `sub`. Differs from the Client Identifier only to test that binding. */
+  subject?: string;
+  /** Attestation `iss`, for an issuer outside the wallet's trusted list. */
+  issuer?: string;
+  /** `redirect_uris` claim. Omitted entirely when absent, which a wallet must not enforce. */
+  redirect_uris?: string[];
+  /** Additional attestation claims, merged last. */
+  claims?: JsonRecord;
+  /** Breaks the attestation signature while leaving its content intact. */
+  signature?: "corrupt";
+}
+
 export interface VpRequestBehavior {
   /** Deliver a Request Object whose signature does not verify. */
   signature?: "corrupt";

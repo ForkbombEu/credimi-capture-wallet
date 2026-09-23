@@ -75,7 +75,9 @@ import type {
   VpRequestBehavior,
   VpRequestMutation,
   VpSessionCapture,
+  VpVerifierAttestation,
 } from "./types.js";
+import { createVerifierAttestation, verifierAttestationClientId } from "./verifier-attestation.js";
 
 const CREDO_VERIFIER_BASE_PATH = "/openid4vp/sessions";
 const CREDO_KMS_BACKEND = "fake-issuer-node";
@@ -219,6 +221,7 @@ export class CredoOpenId4VpVerifier {
     requestMutation?: VpRequestMutation,
     requestBehavior?: VpRequestBehavior,
     requestSigningMaterial?: RequestSigningMaterial,
+    verifierAttestation?: VpVerifierAttestation,
   ): Promise<CredoVpSession> {
     await this.ensureVerifier(sessionId);
     if (clientIdScheme === "decentralized_identifier") await this.importDidSigningKey(true);
@@ -299,11 +302,25 @@ export class CredoOpenId4VpVerifier {
     );
     if (omitDcqlFromDelivery) deliveredRequest.dcql_query = undefined;
     const signRequest = !(clientIdScheme === "redirect_uri" || unsignedDcApi);
+    // Credo has no signer for Section 5.10, so the attestation request is built here: the Client
+    // Identifier names the attested subject and the attestation itself rides in the JOSE header.
+    const verifierAttestationJwt =
+      clientIdScheme === "verifier_attestation"
+        ? await createVerifierAttestation(this.config, verifierAttestation)
+        : undefined;
+    if (verifierAttestationJwt) {
+      authorizationRequest.client_id = verifierAttestationClientId(
+        this.config,
+        verifierAttestation,
+      );
+      deliveredRequest.client_id = authorizationRequest.client_id;
+    }
     const authorizationRequestJwt = signRequest
       ? await signPresentationAuthorizationRequest(
           this.config,
           authorizationRequest,
           clientIdScheme,
+          verifierAttestationJwt ? { verifierAttestationJwt } : {},
         )
       : undefined;
     // A certificate-chain fixture replaces the leaf the wallet sees, so the `x509_hash` Client
@@ -327,6 +344,7 @@ export class CredoOpenId4VpVerifier {
                 ? { headerEdits: requestMutation.request_object_header }
                 : {}),
               ...(requestSigningMaterial ? { material: requestSigningMaterial } : {}),
+              ...(verifierAttestationJwt ? { verifierAttestationJwt } : {}),
             },
           )
         : authorizationRequestJwt;

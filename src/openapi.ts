@@ -1049,7 +1049,13 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             },
             client_id_scheme: {
               type: "string",
-              enum: ["x509_hash", "x509_san_dns", "redirect_uri", "decentralized_identifier"],
+              enum: [
+                "x509_hash",
+                "x509_san_dns",
+                "redirect_uri",
+                "decentralized_identifier",
+                "verifier_attestation",
+              ],
               default: "x509_hash",
               description:
                 "Verifier client identifier prefix. redirect_uri is delivered only as a plain, unsigned Authorization Request.",
@@ -1085,6 +1091,35 @@ export function openApiDocument(config: AppConfig): JsonRecord {
                 "DCQL query, or null to omit dcql_query from the wallet-facing Authorization Request. The verifier keeps a query for verification either way, because the Authorization Response is matched against the request object this service signs; use null together with scopes for a Section 5.1 scope-based request.",
             },
             scopes: { oneOf: [{ type: "string" }, { type: "array", items: { type: "string" } }] },
+            verifier_attestation: {
+              type: "object",
+              additionalProperties: false,
+              description:
+                "Content of the Verifier Attestation JWT delivered in the request object's jwt JOSE header. Requires client_id_scheme: \"verifier_attestation\". The attestation is signed by a fixture issuer whose public key is published at /openid4vp/verifier-attestation-issuer/jwks.json, confirms the request signing key in cnf, and by default carries no redirect_uris claim.",
+              properties: {
+                subject: {
+                  type: "string",
+                  description:
+                    "Attestation sub. The Client Identifier keeps the real subject, so setting this makes the two disagree.",
+                },
+                issuer: {
+                  type: "string",
+                  description: "Attestation iss, for an issuer outside a wallet's trusted list.",
+                },
+                redirect_uris: {
+                  type: "array",
+                  items: { type: "string" },
+                  description: "redirect_uris claim. Omitted from the attestation when absent.",
+                },
+                claims: { type: "object", additionalProperties: true },
+                signature: {
+                  type: "string",
+                  enum: ["corrupt"],
+                  description:
+                    "Breaks the attestation signature while leaving the request object validly signed. Gated by FCAF_SCENARIOS_ENABLED.",
+                },
+              },
+            },
             transaction_data: {
               description:
                 "Transaction data. Array entries that are JSON objects are base64url-encoded as OpenID4VP Section 5.1 requires; entries of any other type, strings included, are delivered exactly as supplied, and a value that is not an array is passed through untouched.",
