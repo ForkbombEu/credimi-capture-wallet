@@ -3897,6 +3897,59 @@ describe("verifier attestation requests", () => {
   });
 });
 
+describe("caller-supplied verifier info", () => {
+  it("publishes the client identifier for every supported prefix", async () => {
+    const app = createApp(config);
+    const identifiers = await getJson<JsonRecord>(app, "/openid4vp/client-identifiers");
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {});
+
+    expect(identifiers.x509_hash).toBe(session.authorization_request.client_id);
+    expect(identifiers.decentralized_identifier).toMatch(/^decentralized_identifier:did:web:/);
+    expect(identifiers.verifier_attestation).toMatch(/^verifier_attestation:/);
+  });
+
+  it("delivers a caller-signed attestation bound to the caller's own nonce", async () => {
+    const app = createApp(config);
+    const identifiers = await getJson<JsonRecord>(app, "/openid4vp/client-identifiers");
+    const nonce = "caller-chosen-nonce";
+    const { privateKey } = await generateKeyPair("ES256", { extractable: true });
+    // The harness signs the attestation and its proof of possession, because the structure is
+    // defined by the profile under test rather than by this service.
+    const attestation = await new SignJWT({ sub: String(identifiers.x509_hash) })
+      .setProtectedHeader({ alg: "ES256", typ: "jwt" })
+      .sign(privateKey);
+    const proofOfPossession = await new SignJWT({
+      nonce,
+      client_id: identifiers.x509_hash,
+    })
+      .setProtectedHeader({ alg: "ES256" })
+      .sign(privateKey);
+    const verifierInfo = [
+      {
+        format: "jwt",
+        data: attestation,
+        proof_of_possession: proofOfPossession,
+        credential_ids: ["query_0"],
+      },
+    ];
+
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      presentation_request: { nonce, verifier_info: verifierInfo },
+    });
+
+    expect(session.authorization_request.nonce).toBe(nonce);
+    const delivered = decodeJwt(
+      (await request(app).get(`/openid4vp/sessions/${session.session_id}/request`)).text,
+    ) as JsonRecord;
+    expect(delivered.verifier_info).toEqual(verifierInfo);
+    const deliveredProof = decodeJwt(
+      (delivered.verifier_info as JsonRecord[])[0].proof_of_possession as string,
+    );
+    expect(deliveredProof.nonce).toBe(nonce);
+    expect(deliveredProof.client_id).toBe(identifiers.x509_hash);
+  });
+});
+
 describe("transaction data binding", () => {
   const entry = {
     type: "qes_authorization",

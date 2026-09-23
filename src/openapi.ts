@@ -1124,7 +1124,10 @@ export function openApiDocument(config: AppConfig): JsonRecord {
               description:
                 "Transaction data. Array entries that are JSON objects are base64url-encoded as OpenID4VP Section 5.1 requires; entries of any other type, strings included, are delivered exactly as supplied, and a value that is not an array is passed through untouched.",
             },
-            verifier_info: {},
+            verifier_info: {
+              description:
+                "Verifier Info array, delivered exactly as supplied. OpenID4VP Section 5.11 leaves the format and semantics to ecosystems and profiles, so this service signs no attestation of its own; bind a key-bound attestation by choosing the nonce and reading the Client Identifier from /openid4vp/client-identifiers.",
+            },
             client_metadata: {
               oneOf: [{ type: "object", additionalProperties: true }, { type: "null" }],
               description:

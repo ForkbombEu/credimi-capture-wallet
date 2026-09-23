@@ -102,6 +102,35 @@ Three more cases need no new control, because the mechanisms from Phase 2 alread
 The happy paths `WS_RP_MS_Metadata__129` and `__131` are the service's default behaviour with the
 `x509_hash` prefix and need no fixture.
 
+## Verifier attestation and verifier info
+
+`client_id_scheme: "verifier_attestation"` signs the request under the Section 5.10 prefix, with the
+attestation JWT in the `jwt` JOSE header. The `verifier_attestation` object changes one binding at a
+time, and two cases reuse mechanisms that already existed.
+
+| Control | Effect | Serves |
+| --- | --- | --- |
+| `client_id_scheme: "verifier_attestation"` | Valid attestation: `sub` equal to the Client Identifier, `cnf` holding the request signing key, no `redirect_uris` | `WS_RP_MS_Metadata__116`, `__118`, `__122`, `__124`, `WS_RP_SM_RpIntegrity__008` |
+| `verifier_attestation.subject` | Attestation `sub` disagrees with the Client Identifier | `WS_RP_MS_Metadata__117` |
+| `verifier_attestation.issuer` | Attestation `iss` outside the wallet's trusted list | `WS_RP_SM_RpIntegrity__011` |
+| `verifier_attestation.redirect_uris` | Adds the claim, matching or not matching the request | `WS_RP_MS_Metadata__120`, `__121` |
+| `verifier_attestation.signature: "corrupt"` | Attestation signature invalid, request object still validly signed | `WS_RP_SM_RpIntegrity__012` |
+| `request_behavior.signing_key: "unrelated"` | Request object signed by a key that is not the one in `cnf` | `WS_RP_SM_RpIntegrity__009` |
+| `request_mutation.request_object_header.unset: ["/jwt"]` | No attestation in the JOSE header | `WS_RP_MS_Metadata__119` |
+
+`WS_RP_MS_Metadata__123` adds non-key verifier metadata outside `client_metadata`, which is a
+`request_mutation` on the request object rather than a new control.
+
+Verifier info attestations — `WS_RP_SM_RpIntegrity__001` and `WS_RP_SM_DeviceBinding__002` through
+`__006` — are caller-supplied. OpenID4VP Section 5.11 leaves their format and semantics to
+ecosystems and profiles, and in the EUDI ecosystem the concrete type is the Relying Party
+Registration Certificate, whose attachment structure TS5 does not define; this service therefore
+signs no verifier info attestation of its own. A caller reads the Client Identifier from
+`/openid4vp/client-identifiers`, chooses the request `nonce`, signs the attestation and its proof of
+possession over both, and supplies the whole `verifier_info` array, which is delivered verbatim.
+Dropping the `nonce` or `client_id` from the proof, breaking a signature, and declaring an
+unrecognised format are all differences in what the caller signs.
+
 ## Reference-wallet compatibility
 
 Not established here. Every fixture above is verified against the credential this service actually
@@ -117,6 +146,7 @@ one is a wallet-profile question that the FCAF harness answers by running the te
 | Malformed COSE status structures — `WS_RP_MS_Metadata__092`, `__094`, `__096`, `__097`, `__099`, `__100`, `__102` | `@owf/token-status-list` requires a non-negative integer `idx` and a string `uri`; producing these needs a non-Credo COSE path, which `AGENTS.md` puts behind explicit approval |
 | A presentation in SD-JWT VC JSON serialization — `WS_RP_MS_CredentialFormats__048` | Compact serialization only, on both the issuing and the verifying side |
 | A numeric data-type mismatch — the `kg` axis of `WS_RP_IA_MainInteraction__033` | No issued credential carries a numeric claim |
+| A wallet-accepted verifier attestation — `WS_RP_SM_RpIntegrity__010` | The attestation issuer is a fixture key published at `/openid4vp/verifier-attestation-issuer/jwks.json`; a wallet accepts it only once an operator configures that key as a trusted attestation issuer |
 | A wallet-accepted `x509_san_dns` request — `WS_RP_MS_Metadata__125`, `__127`, `__128` | The EUDI service-provider registry does not issue a certificate with a `dNSName` SAN, so a registry-trusted request cannot use that prefix |
 | The wallet's configured trust anchor inside `x5c` — `WS_RP_SM_RpIntegrity__025` | `untrusted_root` includes the generated chain's own root, not the anchor the wallet trusts, which this service does not hold |
 | RS384 or PS384 signed requests — `WS_RP_SM_RpIntegrity__032`, `WS_RP_SM_RpIntegrity_CryptographicSignature_002` | The KMS backend generates EC keys only, and an RSA certificate would need a non-Credo path; signing with an RSA key under the existing certificate would add a second defect |

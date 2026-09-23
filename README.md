@@ -461,6 +461,22 @@ The optional `verifier_attestation` object changes the attestation content, one 
 | `claims` | Additional attestation claims, merged last. |
 | `signature: "corrupt"` | Breaks the attestation signature, leaving the request object validly signed. Requires `FCAF_SCENARIOS_ENABLED`. |
 
+#### Verifier info attestations
+
+`verifier_info` is delivered exactly as supplied. OpenID4VP Section 5.11 leaves the format and semantics of these attestations to ecosystems and profiles — in the EUDI ecosystem the concrete type is the Relying Party Registration Certificate — so this service signs none of its own and delivers what the caller provides.
+
+A key-bound attestation has to bind its proof of possession to the request's `nonce` and `client_id`, both of which a caller can fix in advance:
+
+1. `GET /openid4vp/client-identifiers` returns the Client Identifier this verifier presents under each prefix.
+2. Choose the `nonce` and sign the attestation and its proof of possession over that `nonce` and the Client Identifier, in the structure the profile under test defines.
+3. Create the session with the same `nonce` and the whole `verifier_info` array:
+
+```json
+{"presentation_request": {"nonce": "<chosen nonce>", "verifier_info": [{"format": "jwt", "data": "<attestation>", "proof_of_possession": "<proof over nonce and client_id>"}]}}
+```
+
+Omitting the `nonce` or the `client_id` from the proof, breaking either signature, or declaring a format no profile defines are all differences in what the caller signs, so each is a change to that payload rather than a control on this service.
+
 Two related cases need nothing new: a request object signed with a key that does not match `cnf` is `request_behavior: {"signing_key": "unrelated"}`, and a missing attestation is `request_mutation` unsetting `/jwt` in the request object header.
 * `request_delivery` can be `by_reference`, `by_value`, or `plain`, default is `by_reference`. `plain` puts URL-encoded Authorization Request parameters directly in the deeplink, without `request` or `request_uri`; it cannot be combined with `request_uri_method`.
 * `response_type` can be `vp_token` or `vp_token id_token` or `code`, but during presentation verification only `vp_token` is supported, default is `vp_token`

@@ -130,6 +130,8 @@ The credential request normally uses `application/json` with `credential_configu
 
 `dcql_query: null` omits the query from the request the Wallet receives, which is how a Section 5.1 scope-based request is sent: combine it with `scopes`. The Verifier keeps a query regardless, because the Authorization Response is matched against the request object this service signs, so a presentation returned for a scope-only request still verifies. The kept query appears in `authorization_request` and the delivered request in `raw.authorization_request_delivered`. Scope values are caller-supplied and resolved by the Wallet's profile; this service defines none.
 
+`verifier_info` is delivered exactly as supplied. OpenID4VP Section 5.11 leaves the format and semantics of these attestations to ecosystems and profiles, so this service signs none of its own. To bind a key-bound attestation to the request, read the Client Identifier from `/openid4vp/client-identifiers`, choose the `nonce`, sign the attestation and its proof of possession over that `nonce` and Client Identifier in the structure the profile defines, then create the session with the same `nonce` and the whole `verifier_info` array. A missing `nonce` or `client_id` in the proof, a broken signature, and an unrecognised format are all differences in what the caller signs.
+
 A session that sent transaction data records `checks.transaction_data_verified`: `true` when the presentation was accepted, which includes the Section 8.4 binding Credo-TS verifies from the signed request object; `false` when the presentation was rejected with `invalid_transaction_data`; and `null` when no transaction data was sent, or when the presentation failed for an unrelated reason that says nothing about the binding. The binding requires the Wallet to return, in `transaction_data_hashes`, a hash of each base64url-encoded entry that applies to the presented Credential, using an algorithm the entry offered in `transaction_data_hashes_alg`.
 
 Entries of a `transaction_data` array that are JSON objects are base64url-encoded as OpenID4VP Section 5.1 requires, so a caller supplies the entry it wants the Wallet to decode; entries of any other type, strings included, are delivered exactly as supplied, and a `transaction_data` value that is not an array is passed through untouched. Use `request_mutation` on `/transaction_data` to deliver a parameter that bypasses encoding entirely.
@@ -162,6 +164,7 @@ When `redirect_uri` is supplied, the service appends a fresh 128-bit `response_c
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/openid4vp/did.json` | Verifier `did:web` Document used by `client_id_scheme: "decentralized_identifier"`. |
+| `GET` | `/openid4vp/client-identifiers` | Client Identifier presented under each supported prefix, for binding a caller-signed `verifier_info` attestation. |
 | `GET` | `/openid4vp/verifier-attestation-issuer/jwks.json` | Public key of the fixture issuer of Verifier Attestation JWTs, for configuring a Wallet to trust it. |
 | `GET` | `/openid4vp/sessions/{sessionId}` | Full current presentation capture. |
 | `GET` | `/openid4vp/sessions/{sessionId}/deeplink` | `{ deeplink, authorization_request }`; records a deeplink event. |

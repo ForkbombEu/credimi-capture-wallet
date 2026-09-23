@@ -1,9 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { X509Certificate } from "@credo-ts/core";
 import { type JWK, SignJWT, exportJWK, generateKeyPair, importJWK } from "jose";
 import {
   VERIFIER_DID_KEY_ID,
   VERIFIER_KEY_ID,
+  verifierAttestationSubject,
   verifierCertificatePath,
   verifierDid,
   verifierDidPrivateJwkPath,
@@ -195,6 +197,22 @@ export function presentationRequestByReferenceDeeplink(
 
 export function verifierClientId(config: AppConfig): string {
   return `x509_hash:${verifierCertificateSha256(config)}`;
+}
+
+/**
+ * The Client Identifier this verifier presents under each prefix it supports. A caller that signs
+ * its own `verifier_info` attestation has to bind it to the Client Identifier, and learning that
+ * value should not require creating a throwaway session first.
+ */
+export function verifierClientIdentifiers(config: AppConfig): JsonRecord {
+  const certificate = X509Certificate.fromEncodedCertificate(verifierCertificateBase64Der(config));
+  const dnsName = certificate.sanDnsNames[0];
+  return {
+    x509_hash: verifierClientId(config),
+    ...(dnsName === undefined ? {} : { x509_san_dns: `x509_san_dns:${dnsName}` }),
+    decentralized_identifier: `decentralized_identifier:${verifierDid(config)}`,
+    verifier_attestation: `verifier_attestation:${verifierAttestationSubject(config)}`,
+  };
 }
 
 export function verifierCertificateBase64Der(config: AppConfig): string {

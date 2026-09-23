@@ -54,6 +54,7 @@ import {
   isEncryptedResponseMode,
   isOpenId4VpResponseMode,
   signPresentationAuthorizationRequest,
+  verifierClientIdentifiers,
 } from "./openid4vp.js";
 import { corruptJwsSignature, requestBehaviorOrNull } from "./request-behavior.js";
 import {
@@ -335,6 +336,12 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
 
   app.get("/openid4vp/did.json", (_req, res) => {
     res.type("application/did+json").json(verifierDidDocument(config));
+  });
+
+  // A caller that signs its own verifier_info attestation binds it to the Client Identifier, so
+  // the identifiers are published rather than learned from a throwaway session.
+  app.get("/openid4vp/client-identifiers", (_req, res) => {
+    res.json(verifierClientIdentifiers(config));
   });
 
   // The key of the fixture issuer of Verifier Attestation JWTs. A wallet resolves attestation
