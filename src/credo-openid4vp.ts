@@ -129,6 +129,8 @@ export type DecodedPresentation = {
   device_claims?: unknown;
   claims?: unknown;
   key_binding?: JsonRecord;
+  /** SD-JWT VC `_sd_alg`, defaulted to sha-256 when the issuer omitted it. */
+  digest_algorithm?: string;
   decoded?: unknown;
   warning?: string;
 };
@@ -727,6 +729,10 @@ function decodedPresentationFromCredo(presentation: unknown): DecodedPresentatio
     const decoded: DecodedPresentation = {
       format,
       claims: toJsonSafe(presentationRecord?.prettyClaims),
+      // SD-JWT VC Section 4.1.1 defaults `_sd_alg` to sha-256 when the issuer omits it. The value
+      // is captured because it is the digest algorithm a wallet had to support to present this
+      // credential at all, and it is absent from the pretty claims.
+      digest_algorithm: String(asRecord(presentationRecord?.payload)?._sd_alg ?? "sha-256"),
     };
     const keyBinding = asRecord(presentationRecord?.kbJwt);
     const keyBindingPayload = asRecord(keyBinding?.payload);

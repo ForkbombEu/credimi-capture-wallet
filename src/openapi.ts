@@ -1095,7 +1095,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
               type: "object",
               additionalProperties: false,
               description:
-                "Content of the Verifier Attestation JWT delivered in the request object's jwt JOSE header. Requires client_id_scheme: \"verifier_attestation\". The attestation is signed by a fixture issuer whose public key is published at /openid4vp/verifier-attestation-issuer/jwks.json, confirms the request signing key in cnf, and by default carries no redirect_uris claim.",
+                'Content of the Verifier Attestation JWT delivered in the request object\'s jwt JOSE header. Requires client_id_scheme: "verifier_attestation". The attestation is signed by a fixture issuer whose public key is published at /openid4vp/verifier-attestation-issuer/jwks.json, confirms the request signing key in cnf, and by default carries no redirect_uris claim.',
               properties: {
                 subject: {
                   type: "string",

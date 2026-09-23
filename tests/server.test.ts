@@ -3897,6 +3897,34 @@ describe("verifier attestation requests", () => {
   });
 });
 
+describe("presentation digest algorithms", () => {
+  it("records the digest algorithm the presented credential used", async () => {
+    const app = createApp(config);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      response_mode: "direct_post",
+      presentation_request: { dcql_query: dcqlForClaims(["family_name"]) },
+    });
+    const credential = await sdJwtCredential();
+    const presentation = await sdJwtPresentation({
+      credential,
+      authorizationRequest: session.authorization_request,
+      disclosedClaims: ["family_name"],
+    });
+    await request(app)
+      .post(`/openid4vp/sessions/${session.session_id}/response`)
+      .send({ state: session.authorization_request.state, vp_token: { query_0: [presentation] } });
+
+    const capture = await getJson<VpSessionResponse>(
+      app,
+      `/openid4vp/sessions/${session.session_id}`,
+    );
+    const presented = (capture.decoded_presentations?.query_0 as JsonRecord[])[0];
+    // Section 4.1.1 defaults an absent _sd_alg to sha-256, so the evidence states it either way.
+    expect(presented.digest_algorithm).toBe("sha-256");
+    expect(presented.claims).not.toHaveProperty("_sd_alg");
+  });
+});
+
 describe("caller-supplied verifier info", () => {
   it("publishes the client identifier for every supported prefix", async () => {
     const app = createApp(config);

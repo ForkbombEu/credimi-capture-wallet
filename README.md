@@ -505,6 +505,8 @@ The scope value is the caller's to choose, because it is resolved by the Wallet'
 {"transaction_data": [{"type": "qes_authorization", "credential_ids": ["query_0"], "transaction_data_hashes_alg": ["sha-256"]}]}
 ```
 
+Each decoded SD-JWT VC presentation records `digest_algorithm`, the credential's `_sd_alg` defaulted to `sha-256` when the issuer omitted it. That is the digest algorithm a Wallet had to support to present the credential at all, and it does not appear among the disclosed claims. A Verifier that wants to use a hash function other than SHA-256 without advertising it declares one in a transaction data entry's `transaction_data_hashes_alg`.
+
 When a Wallet presents, `checks.transaction_data_verified` records the Section 8.4 binding: `true` when the presentation was accepted, `false` when it was rejected with `invalid_transaction_data`, and `null` when the request sent no transaction data or the presentation failed for an unrelated reason. Credo-TS performs the check against the request object this service signed, so a Wallet must return a hash of each base64url-encoded entry that applies to the Credential it presents, computed with an algorithm that entry offered.
 
 Any other entry, a string included, is delivered exactly as supplied, so an entry that is deliberately not decodable stays expressible. The array itself is never rewritten: a `transaction_data` value that is not an array is passed through untouched, and a [request mutation](#deliberate-request-mutations) on `/transaction_data` replaces the whole parameter after encoding. This matters for the conformance tests that expect `invalid_transaction_data`: each of those defects — an unknown field, a field of the wrong type, an invalid value, a missing required field, mismatched `credential_ids` — lives inside an entry the Wallet must still be able to decode.
@@ -846,6 +848,10 @@ issuing a silently valid credential. Valid COSE status references work today thr
 **Credentials without cryptographic holder binding.** Not implemented, pending
 [credo-ts#2936](https://github.com/openwallet-foundation/credo-ts/pull/2936). Every credential
 this service issues is device-bound to the holder key from the wallet's proof.
+
+**Credentials digested with an algorithm other than SHA-256.** Not issuable. Credo's
+`SdJwtVcService.sign` accepts a `hashingAlgorithm` option but rejects every value other than
+`sha-256`, so an SD-JWT VC carrying `_sd_alg: "sha-512"` would need a non-Credo signing path.
 
 **The `x509_san_dns` happy path.** Not exercised. A wallet trusts a verifier certificate through
 the [EUDI service-provider registry](https://registry.serviceproviders.eudiw.dev/guide), which

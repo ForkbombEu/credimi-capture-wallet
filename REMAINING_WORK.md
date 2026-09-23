@@ -82,8 +82,8 @@ Whether they are in scope at all is an open decision.
 | 6.3 `WS_RP_SM_DeviceBinding__002`–`__006` | done | Misnamed in the plan: all five concern key-bound **Verifier Info attestations**, not credential device binding. Section 5.11 leaves their format and semantics to profiles, and the EUDI type is the Relying Party Registration Certificate whose attachment structure TS5 does not define, so the caller signs them: `/openid4vp/client-identifiers` publishes the Client Identifier, the caller fixes the request `nonce`, and the whole `verifier_info` array is delivered verbatim |
 | 6.4 `WS_RP_SH_Cryptography_Encryption_002` | done | Expressible today with `client_metadata`, for example `{"encrypted_response_enc_values_supported": ["A128GCM"]}` |
 | 6.4 `WS_RP_SH_Cryptography_CryptographicHash_006` | done | Capture-only: the wallet metadata recorded by the POST `request_uri` flow |
-| 6.4 `WS_RP_SH_Cryptography_CryptographicHash_007`, `_008` | not started | Needs the verifier to advertise, or use, a hash algorithm other than SHA-256. Determine which client-metadata member expresses this before implementing |
-| 6.4 `WS_RP_SH_Cryptography_CryptographicHash_010` | not started | Needs an issuer fixture whose credential uses a digest hash algorithm other than SHA-256 (`_sd_alg`). Check whether Credo's SD-JWT VC signing options expose the digest algorithm |
+| 6.4 `WS_RP_SH_Cryptography_CryptographicHash_007`, `_008` | done | `_007` is the default: the generated client metadata advertises SHA-256 only, and each decoded presentation now records the `digest_algorithm` the wallet used, which is the assertion's subject. `_008` is a transaction data entry declaring `transaction_data_hashes_alg: ["sha-512"]`, since transaction data hashing is the hash function a verifier chooses |
+| 6.4 `WS_RP_SH_Cryptography_CryptographicHash_010` | blocked | Credo's `SdJwtVcService.sign` takes a `hashingAlgorithm` option and then rejects every value other than `sha-256`, so an SD-JWT VC with `_sd_alg: "sha-512"` needs a non-Credo signing path. The plumbing is a few lines once that is resolved: the option is already threaded through Credo's own signing call |
 
 ## Phase 7 — blocked-test register — partial
 
@@ -112,12 +112,16 @@ Not yet addressed at all:
 - **Required developer tools.** No new tool is needed so far; `mise.toml` still declares only
   `node`, `pnpm` and `task`.
 
-## Suggested order
+## Status
 
-1. **6.4 credential digest algorithm**, if Credo exposes it.
+Every phase item that this repository can close on its own is now closed. What remains is the
+blocked list above, which needs either an upstream change, external trust infrastructure, or a
+decision below.
 
 Open decisions needed before the remaining items can proceed:
 
+- Whether a non-Credo SD-JWT signing path is approved for credentials digested with an algorithm
+  other than SHA-256.
 - Whether `WS_RP_SM_RpIntegrity__032` and `CryptographicSignature_002` mean PS384 or RS384.
 - Whether a non-Credo COSE path is approved for the malformed COSE status structures in 4.3.
 - Whether phases 5.6 to 5.8 are in scope, given that they need external trust infrastructure.

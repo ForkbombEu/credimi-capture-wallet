@@ -131,6 +131,15 @@ possession over both, and supplies the whole `verifier_info` array, which is del
 Dropping the `nonce` or `client_id` from the proof, breaking a signature, and declaring an
 unrecognised format are all differences in what the caller signs.
 
+## Hash algorithms
+
+| Test | How |
+| --- | --- |
+| `WS_RP_SH_Cryptography_CryptographicHash_006` | Capture only: the wallet metadata recorded by the POST `request_uri` flow |
+| `WS_RP_SH_Cryptography_CryptographicHash_007` | Default behaviour: the generated client metadata advertises SHA-256 only, and each decoded presentation records the `digest_algorithm` the wallet actually used |
+| `WS_RP_SH_Cryptography_CryptographicHash_008` | A transaction data entry declaring `transaction_data_hashes_alg: ["sha-512"]` while the client metadata advertises nothing else |
+| `WS_RP_SH_Cryptography_Encryption_002` | `client_metadata: {"encrypted_response_enc_values_supported": ["A128GCM"]}` |
+
 ## Reference-wallet compatibility
 
 Not established here. Every fixture above is verified against the credential this service actually
@@ -146,6 +155,7 @@ one is a wallet-profile question that the FCAF harness answers by running the te
 | Malformed COSE status structures — `WS_RP_MS_Metadata__092`, `__094`, `__096`, `__097`, `__099`, `__100`, `__102` | `@owf/token-status-list` requires a non-negative integer `idx` and a string `uri`; producing these needs a non-Credo COSE path, which `AGENTS.md` puts behind explicit approval |
 | A presentation in SD-JWT VC JSON serialization — `WS_RP_MS_CredentialFormats__048` | Compact serialization only, on both the issuing and the verifying side |
 | A numeric data-type mismatch — the `kg` axis of `WS_RP_IA_MainInteraction__033` | No issued credential carries a numeric claim |
+| A credential digested with an algorithm other than SHA-256 — `WS_RP_SH_Cryptography_CryptographicHash_010` | Credo's `SdJwtVcService.sign` rejects every `hashingAlgorithm` other than `sha-256`, so the credential would need a non-Credo signing path |
 | A wallet-accepted verifier attestation — `WS_RP_SM_RpIntegrity__010` | The attestation issuer is a fixture key published at `/openid4vp/verifier-attestation-issuer/jwks.json`; a wallet accepts it only once an operator configures that key as a trusted attestation issuer |
 | A wallet-accepted `x509_san_dns` request — `WS_RP_MS_Metadata__125`, `__127`, `__128` | The EUDI service-provider registry does not issue a certificate with a `dNSName` SAN, so a registry-trusted request cannot use that prefix |
 | The wallet's configured trust anchor inside `x5c` — `WS_RP_SM_RpIntegrity__025` | `untrusted_root` includes the generated chain's own root, not the anchor the wallet trusts, which this service does not hold |
