@@ -19,6 +19,15 @@ export type StatusReferenceFixture =
   | "malformed_uri"
   | "missing_uri";
 
+/**
+ * Hash function an issued SD-JWT VC digests its disclosures with, placed in the `_sd_alg` claim.
+ * SD-JWT VC Section 4.1.1 defaults an absent `_sd_alg` to `sha-256`; the other values produce a
+ * credential a Wallet can only present if it supports that hash function, which is what the
+ * cryptographic-hash tests check. `sha-1` is excluded: SD-JWT requires a hash function that is
+ * secure at the time of issuance.
+ */
+export type SdJwtDigestAlgorithm = "sha-256" | "sha-384" | "sha-512";
+
 /** X.509 chain presented in the `x5c` header of a signed Request Object for a test scenario. */
 export type RequestCertificateFixture =
   | "unrelated_self_signed"
@@ -169,6 +178,11 @@ export interface SessionCapture {
    * a session that does not ask for a malformed structure cannot receive one.
    */
   status_reference?: StatusReferenceFixture;
+  /**
+   * Hash function the issued SD-JWT VC digests its disclosures with. Absent means `sha-256`, the
+   * Section 4.1.1 default, which is what every session issued before this field existed used.
+   */
+  digest_algorithm?: SdJwtDigestAlgorithm;
   status_list_allocation_ids?: string[];
   observed: {
     client_id: ObservedValue<string>;

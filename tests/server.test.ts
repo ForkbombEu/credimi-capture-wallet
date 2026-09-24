@@ -2656,6 +2656,53 @@ describe("capture issuer server", () => {
     expect(capture.fixture_id).toBe("pid_under_18");
   });
 
+  it("digests the disclosures with the algorithm named by digest_algorithm, end to end", async () => {
+    const app = createApp(config);
+    const session = await postJson<SessionCreateResponse>(app, "/sessions", {
+      flow: "pre_authorized_code",
+      digest_algorithm: "sha-512",
+    });
+    expect(session.digest_algorithm).toBe("sha-512");
+
+    const walletKey = await dpopKey();
+    const dpop = await dpopKey();
+    const token = await preAuthorizedToken(app, session, dpop);
+    const proof = await credentialProofJwt(walletKey, token.c_nonce);
+    const credentialPath = issuerProtocolPath(session, "/credential");
+    const credential = await request(app)
+      .post(credentialPath)
+      .set("authorization", `DPoP ${token.access_token}`)
+      .set("DPoP", await dpopProof(dpop, "POST", credentialPath, token.access_token))
+      .send({
+        credential_configuration_id: session.credential_configuration_id,
+        proofs: { jwt: [proof] },
+      });
+
+    expect(credential.status).toBe(200);
+    const compactSdJwt = (credential.body as CredentialResponse).credentials[0].credential;
+    const payload = JSON.parse(
+      Buffer.from(compactSdJwt.split(".")[1] as string, "base64url").toString("utf8"),
+    ) as JsonRecord;
+    expect(payload._sd_alg).toBe("sha-512");
+
+    // The claim alone proves nothing: a wallet recomputes every digest, so the entries of `_sd`
+    // must actually be SHA-512 over the base64url disclosure.
+    const digests = payload._sd as string[];
+    const disclosures = compactSdJwt
+      .split("~")
+      .slice(1)
+      .filter((part) => part.length > 0);
+    expect(disclosures.length).toBeGreaterThan(0);
+    for (const disclosure of disclosures) {
+      expect(digests).toContain(
+        createHash("sha512").update(disclosure, "ascii").digest("base64url"),
+      );
+    }
+
+    const capture = await getJson<SessionCapture>(app, `/sessions/${session.session_id}`);
+    expect(capture.digest_algorithm).toBe("sha-512");
+  });
+
   it("rejects an unknown fixture_id", async () => {
     const response = await request(createApp(config))
       .post("/sessions")
@@ -2690,6 +2737,22 @@ describe("capture issuer server", () => {
         ),
       },
       { error: "status_reference_unsupported_for_mdoc" },
+    ],
+    [
+      "a digest algorithm SD-JWT VC does not allow",
+      { digest_algorithm: "sha-1" },
+      { error: "unsupported_digest_algorithm" },
+    ],
+    [
+      "a digest algorithm for an mdoc configuration",
+      {
+        digest_algorithm: "sha-512",
+        credential_configuration_id: mdocCredentialConfigurationId(
+          config,
+          "key-attestation-required",
+        ),
+      },
+      { error: "digest_algorithm_unsupported_for_mdoc" },
     ],
   ])("rejects %s", async (_label, body, expected) => {
     const response = await request(createApp({ ...config, fcaf_scenarios_enabled: true }))
@@ -3819,7 +3882,10 @@ describe("verifier attestation requests", () => {
       "/openid4vp/verifier-attestation-issuer/jwks.json",
     );
     await expect(
-      compactVerify(String(header.jwt), await importJWK(issuerJwks.keys[0] as unknown as JWK, "ES256")),
+      compactVerify(
+        String(header.jwt),
+        await importJWK(issuerJwks.keys[0] as unknown as JWK, "ES256"),
+      ),
     ).rejects.toThrow();
     const confirmationKey = (attestation?.cnf as JsonRecord).jwk as JsonRecord;
     await expect(
@@ -4517,6 +4583,7 @@ interface SessionCreateResponse extends JsonRecord {
   credential_configuration_id: string;
   status_list_enabled: boolean;
   fixture_id?: string;
+  digest_algorithm?: string;
   offer_url: string;
   deeplink: string;
 }

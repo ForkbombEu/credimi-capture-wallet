@@ -72,7 +72,7 @@ implemented, documented and tested.
 Phases 5.6 to 5.8 depend on external trust infrastructure that this repository does not stand up.
 Whether they are in scope at all is an open decision.
 
-## Phase 6 — scope mapping, transaction data, remaining capabilities — partial
+## Phase 6 — scope mapping, transaction data, remaining capabilities — done
 
 | Item | Status | Detail |
 | --- | --- | --- |
@@ -83,7 +83,7 @@ Whether they are in scope at all is an open decision.
 | 6.4 `WS_RP_SH_Cryptography_Encryption_002` | done | Expressible today with `client_metadata`, for example `{"encrypted_response_enc_values_supported": ["A128GCM"]}` |
 | 6.4 `WS_RP_SH_Cryptography_CryptographicHash_006` | done | Capture-only: the wallet metadata recorded by the POST `request_uri` flow |
 | 6.4 `WS_RP_SH_Cryptography_CryptographicHash_007`, `_008` | done | `_007` is the default: the generated client metadata advertises SHA-256 only, and each decoded presentation now records the `digest_algorithm` the wallet used, which is the assertion's subject. `_008` is a transaction data entry declaring `transaction_data_hashes_alg: ["sha-512"]`, since transaction data hashing is the hash function a verifier chooses |
-| 6.4 `WS_RP_SH_Cryptography_CryptographicHash_010` | not started | Unblocked by Credo `0.7.2-alpha-20260924150946`: `SdJwtVcService.sign` now accepts `sha-256`, `sha-384` and `sha-512` for the disclosure digests, and the verifier already records the `_sd_alg` of a presented credential. What is left is local: a session parameter selecting the algorithm, threaded into `sdJwtCredentialSignOptions`, plus the capture field, the OpenAPI schema and the docs. Issuer metadata must keep advertising SHA-256 only, which is the test's first precondition |
+| 6.4 `WS_RP_SH_Cryptography_CryptographicHash_010` | done | `digest_algorithm` on `POST /sessions` selects the `_sd_alg` of the issued SD-JWT VC: `sha-256`, `sha-384` or `sha-512`, threaded into Credo's own signing call, which accepts all three since `0.7.2-alpha-20260924150946`. Credential Issuer Metadata still advertises SHA-256 only, which is the test's first precondition, and the selected value is recorded in the issuance capture. Refused for an mdoc configuration, whose digests belong to the Mobile Security Object |
 
 ## Phase 7 — blocked-test register — partial
 
@@ -120,8 +120,6 @@ decision below.
 
 Open decisions needed before the remaining items can proceed:
 
-- Whether the public session API gains a digest-algorithm parameter for
-  `WS_RP_SH_Cryptography_CryptographicHash_010`, now that Credo signs `sha-384` and `sha-512`.
 - Whether `WS_RP_SM_RpIntegrity__032` and `CryptographicSignature_002` mean PS384 or RS384.
 - Whether a non-Credo COSE path is approved for the malformed COSE status structures in 4.3.
 - Whether phases 5.6 to 5.8 are in scope, given that they need external trust infrastructure.

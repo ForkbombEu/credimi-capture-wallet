@@ -28,6 +28,11 @@ import {
   ResponseModeError,
   credoOpenId4VpVerifier,
 } from "./credo-openid4vp.js";
+import {
+  DEFAULT_SD_JWT_DIGEST_ALGORITHM,
+  SD_JWT_DIGEST_ALGORITHMS,
+  sdJwtDigestAlgorithmOrNull,
+} from "./digest-algorithm.js";
 import { registerFakeOAuthServer } from "./fake-oauth-server.js";
 import {
   jwtVcIssuerMetadata,
@@ -78,6 +83,7 @@ import type {
   RedirectUriVisitHttpCapture,
   RequestSigningMaterial,
   RequestUriHttpCapture,
+  SdJwtDigestAlgorithm,
   SessionCapture,
   StatusReferenceFixture,
   VerifierResponseHttpCapture,
@@ -494,6 +500,21 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
           supported_fixture_ids: PID_FIXTURE_IDS,
         });
       }
+      const digestAlgorithm = sdJwtDigestAlgorithmOrNull(
+        body.digest_algorithm ?? DEFAULT_SD_JWT_DIGEST_ALGORITHM,
+      );
+      if (!digestAlgorithm) {
+        return res.status(400).json({
+          error: "unsupported_digest_algorithm",
+          supported_digest_algorithms: SD_JWT_DIGEST_ALGORITHMS,
+        });
+      }
+      if (
+        digestAlgorithm !== DEFAULT_SD_JWT_DIGEST_ALGORITHM &&
+        credentialConfigurationId.includes("mdoc")
+      ) {
+        return res.status(400).json({ error: "digest_algorithm_unsupported_for_mdoc" });
+      }
 
       const session = await createIssuanceSession(
         config,
@@ -505,6 +526,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         statusListEnabled ?? false,
         fixtureId,
         statusReference,
+        digestAlgorithm,
       );
       const offer = store.credoIssuanceOffers.get(session.session_id);
       if (!offer) throw new Error("Credo credential offer was not stored");
@@ -519,6 +541,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         status_list_enabled: session.status_list_enabled,
         fixture_id: session.fixture_id,
         ...(session.status_reference ? { status_reference: session.status_reference } : {}),
+        ...(session.digest_algorithm ? { digest_algorithm: session.digest_algorithm } : {}),
         offer_url: offer.credential_offer_uri,
         deeplink: offer.credential_offer,
         status: session.status,
@@ -1193,6 +1216,7 @@ async function createIssuanceSession(
   statusListEnabled = false,
   fixtureId?: string,
   statusReference?: StatusReferenceFixture,
+  digestAlgorithm?: SdJwtDigestAlgorithm,
 ): Promise<SessionCapture> {
   const session = store.createSession(
     issuer,
@@ -1202,6 +1226,7 @@ async function createIssuanceSession(
     statusListEnabled,
     fixtureId,
     statusReference,
+    digestAlgorithm,
   );
 
   const offer = await (await credoOpenId4VciIssuer(config, store)).createCredentialOffer({

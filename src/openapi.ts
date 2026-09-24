@@ -931,6 +931,13 @@ export function openApiDocument(config: AppConfig): JsonRecord {
               description:
                 "Shape of the status claim in the issued SD-JWT VC. Anything other than valid is test-only, refused unless the deployment sets FCAF_SCENARIOS_ENABLED, and requires status_list_enabled so the malformed structure reshapes a genuinely allocated reference. Not available for mdoc configurations, where the status claim is built by the COSE library and these structures cannot be produced.",
             },
+            digest_algorithm: {
+              type: "string",
+              enum: ["sha-256", "sha-384", "sha-512"],
+              default: "sha-256",
+              description:
+                "Hash function the issued SD-JWT VC digests its disclosures with, placed in the _sd_alg claim. Credential Issuer Metadata keeps advertising SHA-256 only, so a value other than sha-256 produces a credential a Wallet can present only if it supports that hash function. Not available for mdoc configurations, where the digests belong to the Mobile Security Object.",
+            },
             fixture_id: {
               type: "string",
               default: "pid_default",
@@ -981,6 +988,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             status_list_enabled: { type: "boolean" },
             fixture_id: { type: "string" },
             status_reference: { type: "string" },
+            digest_algorithm: { type: "string" },
             offer_url: { type: "string", format: "uri" },
             deeplink: { type: "string" },
             status: { type: "string", const: "created" },

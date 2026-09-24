@@ -50,6 +50,7 @@ For each `{issuerConfigurationId}`:
 | `status_list_enabled` | Boolean; allocate and embed a Token Status List reference in each issued credential | `false` |
 | `fixture_id` | Predefined PID claim set the issued credential carries | `pid_default` |
 | `status_reference` | Shape of the `status` claim in the issued SD-JWT VC; anything but `valid` is test-only | `valid` |
+| `digest_algorithm` | Hash function the issued SD-JWT VC digests its disclosures with: `sha-256`, `sha-384`, `sha-512` | `sha-256` |
 
 It returns `201` with `session_id`, issuer and authorization-server identifiers, the selected flow and configuration, `fixture_id`, `offer_url`, `deeplink`, and `status: "created"`. A configuration belonging to another issuer is rejected.
 
@@ -69,6 +70,8 @@ It returns `201` with `session_id`, issuer and authorization-server identifiers,
 A malformed fixture requires `status_list_enabled: true`, otherwise it is refused with `status_reference_requires_status_list`: the reference is always allocated from the configured Status List service first, and the fixture only reshapes that real allocation. It is refused with `status_reference_unsupported_for_mdoc` for an mdoc configuration, and the selected value is recorded as `status_reference` in the issuance capture.
 
 An issued credential with no `status` claim at all is `status_list_enabled: false`, which is the default and needs no fixture.
+
+`digest_algorithm` sets the `_sd_alg` of an issued SD-JWT VC. `sha-256` is the Section 4.1.1 default and is omitted from the response and the capture; `sha-384` and `sha-512` are recorded as `digest_algorithm` in both. Credential Issuer Metadata keeps advertising SHA-256 only, so a credential digested with anything else is one a Wallet can present only if it supports that hash function, which is what `WS_RP_SH_Cryptography_CryptographicHash_010` asks for. An unsupported value is refused with `unsupported_digest_algorithm` and the supported list; `sha-1` is not offered, because SD-JWT requires a hash function that is secure at issuance. An mdoc configuration is refused with `digest_algorithm_unsupported_for_mdoc`: those digests belong to the Mobile Security Object, not to `_sd_alg`.
 
 [FCAF_FIXTURES.md](FCAF_FIXTURES.md) catalogues every credential, claim-set fixture, and status-list fixture together with the conformance tests each serves.
 

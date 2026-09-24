@@ -266,6 +266,15 @@ the conformance tests it serves and the ones that remain unavailable, and
 The PID attribute `age_over_18` exists in both the SD-JWT VC and the
 mdoc encoding so that a DCQL query can constrain it.
 
+`digest_algorithm` is optional, defaults to `sha-256`, and sets the `_sd_alg` of an issued SD-JWT
+VC: `sha-256`, `sha-384`, or `sha-512`. Credential Issuer Metadata keeps advertising SHA-256 only,
+so `sha-384` and `sha-512` produce a credential a Wallet can present only if it supports that hash
+function, which is what the FCAF cryptographic-hash cases check. `sha-1` is not offered: SD-JWT
+requires a hash function that is secure at the time of issuance. The value is refused with
+`digest_algorithm_unsupported_for_mdoc` for an mdoc configuration, whose digests belong to the
+Mobile Security Object rather than to `_sd_alg`, and is recorded as `digest_algorithm` in the
+issuance capture when it is not the default.
+
 Both issuers issue the same deterministic PID claims for the PID
 configurations. The degree test credential is an SD-JWT VC for Arthur Dent with
 `degrees` (including an entry without `type`) and `academic_programmes`, a nested
@@ -848,11 +857,6 @@ issuing a silently valid credential. Valid COSE status references work today thr
 **Credentials without cryptographic holder binding.** Not implemented, pending
 [credo-ts#2936](https://github.com/openwallet-foundation/credo-ts/pull/2936). Every credential
 this service issues is device-bound to the holder key from the wallet's proof.
-
-**Credentials digested with an algorithm other than SHA-256.** Not exposed. Credo's
-`SdJwtVcService.sign` accepts `sha-256`, `sha-384`, and `sha-512` for the disclosure digests, and
-the verifier already reports whichever `_sd_alg` a presented credential carries, but no request
-parameter selects the algorithm, so every issued SD-JWT VC carries `_sd_alg: "sha-256"`.
 
 **The `x509_san_dns` happy path.** Not exercised. A wallet trusts a verifier certificate through
 the [EUDI service-provider registry](https://registry.serviceproviders.eudiw.dev/guide), which

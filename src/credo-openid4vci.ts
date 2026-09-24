@@ -447,12 +447,14 @@ export class CredoOpenId4VciIssuer {
               holderJwk,
               statusListReference: statusListReferences[index],
               statusReference: captureSession.status_reference,
+              digestAlgorithm: captureSession.digest_algorithm,
             })
           : sdJwtCredentialSignOptions({
               config: signingConfig,
               holderJwk,
               statusListReference: statusListReferences[index],
               statusReference: captureSession.status_reference,
+              digestAlgorithm: captureSession.digest_algorithm,
               subject,
             }),
       ),

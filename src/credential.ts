@@ -15,6 +15,7 @@ import {
 import type {
   AppConfig,
   JsonRecord,
+  SdJwtDigestAlgorithm,
   StatusListReference,
   StatusReferenceFixture,
 } from "./types.js";
@@ -70,6 +71,7 @@ export function sdJwtCredentialSignOptions(options: {
   holderJwk: JsonRecord;
   statusListReference?: StatusListReference;
   statusReference?: StatusReferenceFixture;
+  digestAlgorithm?: SdJwtDigestAlgorithm;
   subject?: PidSubject;
   now?: Date;
 }): SdJwtVcSignOptions {
@@ -80,6 +82,7 @@ export function sdJwtCredentialSignOptions(options: {
     issuer: { method: "x5c", issuer: options.config.issuer_base_url, x5c: [issuerCertificate] },
     holder: { method: "jwk", jwk: Kms.PublicJwk.fromUnknown(options.holderJwk) },
     headerType: "dc+sd-jwt",
+    ...(options.digestAlgorithm ? { hashingAlgorithm: options.digestAlgorithm } : {}),
     payload: {
       vct: PID_SD_JWT_VCT,
       exp: Math.floor(now.getTime() / 1000) + 365 * 24 * 60 * 60,
@@ -118,6 +121,7 @@ export function degreeSdJwtCredentialSignOptions(options: {
   holderJwk: JsonRecord;
   statusListReference?: StatusListReference;
   statusReference?: StatusReferenceFixture;
+  digestAlgorithm?: SdJwtDigestAlgorithm;
   now?: Date;
 }): SdJwtVcSignOptions {
   const issuerCertificate = loadIssuerCertificate(options.config);
@@ -127,6 +131,7 @@ export function degreeSdJwtCredentialSignOptions(options: {
     issuer: { method: "x5c", issuer: options.config.issuer_base_url, x5c: [issuerCertificate] },
     holder: { method: "jwk", jwk: Kms.PublicJwk.fromUnknown(options.holderJwk) },
     headerType: "dc+sd-jwt",
+    ...(options.digestAlgorithm ? { hashingAlgorithm: options.digestAlgorithm } : {}),
     payload: {
       vct: DEGREE_SD_JWT_VCT,
       exp: Math.floor(now.getTime() / 1000) + 365 * 24 * 60 * 60,

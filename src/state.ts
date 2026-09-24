@@ -4,6 +4,7 @@ import {
   resolvedIssuerConfigurationById,
 } from "./configurations/registry.js";
 import type { ResolvedIssuerConfiguration } from "./configurations/types.js";
+import { DEFAULT_SD_JWT_DIGEST_ALGORITHM } from "./digest-algorithm.js";
 import { supportedCredentialConfigurationIdsForIssuer } from "./metadata.js";
 import type {
   AppConfig,
@@ -14,6 +15,7 @@ import type {
   Oid4vciHttpRequestCapture,
   OpenId4VpResponseMode,
   RequestSigningMaterial,
+  SdJwtDigestAlgorithm,
   SessionCapture,
   StatusReferenceFixture,
   VpDcApiCapture,
@@ -47,6 +49,7 @@ export class CaptureStore {
     statusListEnabled = false,
     fixtureId?: string,
     statusReference?: StatusReferenceFixture,
+    digestAlgorithm?: SdJwtDigestAlgorithm,
   ): SessionCapture {
     const sessionId = randomUUID();
     const session: SessionCapture = {
@@ -62,6 +65,9 @@ export class CaptureStore {
       ...(fixtureId ? { fixture_id: fixtureId } : {}),
       ...(statusReference && statusReference !== "valid"
         ? { status_reference: statusReference }
+        : {}),
+      ...(digestAlgorithm && digestAlgorithm !== DEFAULT_SD_JWT_DIGEST_ALGORITHM
+        ? { digest_algorithm: digestAlgorithm }
         : {}),
 
       observed: {
