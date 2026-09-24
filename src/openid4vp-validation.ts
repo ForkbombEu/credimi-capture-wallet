@@ -483,7 +483,8 @@ async function oid4vpJwkThumbprint(authorizationRequest: JsonRecord): Promise<Ui
 }
 
 function mdocNamespaces(issuerSigned: IssuerSigned): Record<string, Record<string, unknown>> {
-  const namespaces = issuerSigned.issuerNamespaces.issuerNamespaces;
+  const namespaces = issuerSigned.issuerNamespaces?.issuerNamespaces;
+  if (!namespaces) return {};
   return Object.fromEntries(
     [...namespaces.keys()].map((namespace) => [
       namespace,
@@ -608,10 +609,18 @@ function mdocVerificationContext(): MdocContext {
       },
     },
     x509: {
-      getIssuerNameField: ({ certificate, field }) => {
-        const cert = new X509Certificate(certificate);
-        const source = field === "issuer" ? cert.issuer : cert.subject;
-        return source.split("\n");
+      getSubjectNameField: ({ certificate, field }) => {
+        const subject = new X509Certificate(certificate).subject;
+        return subject
+          .split("\n")
+          .map((line) => {
+            const separator = line.indexOf("=");
+            return separator === -1
+              ? null
+              : { name: line.slice(0, separator), value: line.slice(separator + 1) };
+          })
+          .filter((entry) => entry?.name === field)
+          .map((entry) => String(entry?.value));
       },
       getPublicKey: async ({ certificate }) =>
         CoseKey.fromJwk(

@@ -18,12 +18,12 @@
     "init": "tsx src/cli.ts init"
   },
   "dependencies": {
-    "@credo-ts/core": "0.7.1-alpha-20260731093103",
-    "@credo-ts/openid4vc": "0.7.1-alpha-20260731093103",
-    "@owf/cose": "0.3.2",
-    "@owf/mdoc": "0.7.0",
+    "@credo-ts/core": "0.7.2-alpha-20260924150946",
+    "@credo-ts/openid4vc": "0.7.2-alpha-20260924150946",
+    "@owf/cose": "0.4.0",
+    "@owf/mdoc": "0.8.0",
     "@types/qrcode": "1.5.5",
-    "dcql": "3.0.0",
+    "dcql": "3.0.1",
     "express": "^4.19.2",
     "jose": "^5.9.6",
     "qrcode": "1.5.4"
