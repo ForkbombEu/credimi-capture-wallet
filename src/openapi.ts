@@ -1096,7 +1096,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             dcql_query: {
               oneOf: [{ type: "object", additionalProperties: true }, { type: "null" }],
               description:
-                "DCQL query, or null to omit dcql_query from the wallet-facing Authorization Request. The verifier keeps a query for verification either way, because the Authorization Response is matched against the request object this service signs; use null together with scopes for a Section 5.1 scope-based request.",
+                "DCQL query, or null to omit dcql_query from the wallet-facing Authorization Request. The verifier keeps a query for verification either way, because the Authorization Response is matched against the request object this service signs; use null together with scopes for a Section 5.1 scope-based request. Set require_cryptographic_holder_binding on individual credential entries to request unbound presentations where supported.",
             },
             scopes: { oneOf: [{ type: "string" }, { type: "array", items: { type: "string" } }] },
             verifier_attestation: {
@@ -1153,7 +1153,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
                 { type: "string", const: "{{base_url}}/openid4vp/redirect" },
               ],
               description:
-                "Absolute URI returned to the Wallet after a successful presentation. The service appends a fresh response_code parameter. The capture template creates a service-hosted confirmation page and records valid visits.",
+                "Absolute URI inserted into the wallet-facing Authorization Request and returned to the Wallet after a successful presentation. The service appends a fresh response_code parameter. The capture template creates a service-hosted confirmation page and records valid visits.",
             },
             request_mutation: { $ref: "#/components/schemas/RequestMutation" },
             request_behavior: { $ref: "#/components/schemas/RequestBehavior" },

@@ -921,6 +921,31 @@ describe("capture issuer server", () => {
       ["family_name"],
       ["given_name"],
     ]);
+    const requestObject = await request(app).get(
+      `/openid4vp/sessions/${session.session_id}/request`,
+    );
+    const delivered = decodeJwt(requestObject.text) as JsonRecord;
+    expect(delivered.response_uri).toBe(session.response_uri);
+    expect(delivered.redirect_uri).toBeUndefined();
+  });
+
+  it("delivers the holder-binding requirement in the signed DCQL query", async () => {
+    const app = createApp(config);
+    const dcqlQuery = dcqlForClaims(["family_name"]);
+    const credential = (dcqlQuery.credentials as JsonRecord[])[0];
+    credential.require_cryptographic_holder_binding = false;
+
+    const created = await request(app).post("/openid4vp/sessions").send({ dcql_query: dcqlQuery });
+    expect(created.status, created.text).toBe(201);
+    const session = created.body as VpSessionCreateResponse;
+    const requestObject = await request(app).get(
+      `/openid4vp/sessions/${session.session_id}/request`,
+    );
+    const deliveredDcql = (decodeJwt(requestObject.text) as JsonRecord).dcql_query as JsonRecord;
+
+    expect((deliveredDcql.credentials as JsonRecord[])[0]).toMatchObject({
+      require_cryptographic_holder_binding: false,
+    });
   });
 
   it("creates OpenID4VP sessions that advertise request_uri_method post", async () => {
@@ -1105,6 +1130,10 @@ describe("capture issuer server", () => {
     });
 
     expect(session.authorization_request.client_metadata).toEqual(clientMetadata);
+    const requestObject = await request(app).get(
+      `/openid4vp/sessions/${session.session_id}/request`,
+    );
+    expect((decodeJwt(requestObject.text) as JsonRecord).client_metadata).toEqual(clientMetadata);
   });
 
   it("merges caller client metadata over the generated verifier metadata", async () => {
@@ -1249,6 +1278,10 @@ describe("capture issuer server", () => {
     expect(
       Buffer.from(String(redirectUri.searchParams.get("response_code")), "base64url"),
     ).toHaveLength(16);
+    const requestObject = await request(app).get(
+      `/openid4vp/sessions/${session.session_id}/request`,
+    );
+    expect((decodeJwt(requestObject.text) as JsonRecord).redirect_uri).toBe(session.redirect_uri);
   });
 
   it("records visits to the capture redirect URI template and its concrete URI", async () => {

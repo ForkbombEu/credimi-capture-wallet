@@ -1294,10 +1294,12 @@ async function createVpSession(
     credentialConfigurationIds,
     responseMode,
   );
+  const sessionRedirectUri = redirectUri ? redirectUriWithResponseCode(redirectUri) : undefined;
   const request = {
     ...defaultRequest,
     ...requestOverride,
     response_mode: responseMode,
+    ...(sessionRedirectUri ? { redirect_uri: sessionRedirectUri } : {}),
   };
   const requestSigningMaterial = await requestSigningMaterialOrUndefined(requestBehavior);
   const credoVerifier = await credoOpenId4VpVerifier(config);
@@ -1316,7 +1318,6 @@ async function createVpSession(
     requestSigningMaterial,
     verifierAttestation,
   );
-  const sessionRedirectUri = redirectUri ? redirectUriWithResponseCode(redirectUri) : undefined;
   const dcApi =
     credoSession.dcApiRequest && credoSession.expectedOrigin
       ? {
