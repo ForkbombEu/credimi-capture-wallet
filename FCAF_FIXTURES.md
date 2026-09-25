@@ -51,10 +51,10 @@ To give a wallet several credentials of the same type, issue one session per fix
 ## Status-list fixtures
 
 `status_list_enabled` allocates a real reference from the configured Status List service.
-`status_reference` then shapes the `status` claim of an SD-JWT VC; anything other than `valid`
-requires `FCAF_SCENARIOS_ENABLED` and `status_list_enabled: true`.
+`status_reference` then reshapes that allocation in the issued SD-JWT VC or mdoc; anything other
+than `valid` requires `FCAF_SCENARIOS_ENABLED` and `status_list_enabled: true`.
 
-| Configuration | Issued `status` | Serves |
+| Configuration | Issued status structure | Serves |
 | --- | --- | --- |
 | `status_list_enabled: false` | claim absent | `WS_RP_MS_Metadata__082` |
 | `status_reference: "valid"` | `{"status_list":{"uri","idx"}}` | `WS_RP_MS_CredentialFormats__029`, `__030`, `__031`, `__044`, `WS_RP_MS_Metadata__081`, `__083`, `__085`, `__088` |
@@ -63,7 +63,8 @@ requires `FCAF_SCENARIOS_ENABLED` and `status_list_enabled: true`.
 | `missing_index` | only `uri` | `WS_RP_MS_Metadata__087` |
 | `malformed_uri` | unparseable `uri` | `WS_RP_MS_Metadata__089` |
 | `missing_uri` | only `idx` | `WS_RP_MS_Metadata__090` |
-| mdoc configuration with `status_list_enabled: true` | valid COSE status at CBOR label 65535 | `WS_RP_MS_CredentialFormats__032`, `__033`, `WS_RP_MS_Metadata__091`, `__093`, `__095`, `__098`, `__101`, `__103` |
+| mdoc configuration with `status_list_enabled: true` and `status_reference: "valid"` | valid COSE status | `WS_RP_MS_CredentialFormats__032`, `__033`, `WS_RP_MS_Metadata__091`, `__093`, `__095`, `__098`, `__101`, `__103` |
+| mdoc configuration with a non-`valid` `status_reference` | corresponding malformed, issuer-signed COSE status | `WS_RP_MS_Metadata__092`, `__094`, `__096`, `__097`, `__099`, `__100`, `__102` |
 
 ## Degree credential structure
 
@@ -153,7 +154,6 @@ one is a wallet-profile question that the FCAF harness answers by running the te
 | Requirement | Blocked by |
 | --- | --- |
 | A credential without cryptographic holder binding — `WS_RP_IA_MainInteraction__006`, `__008`, `__010`, `WS_RP_MS_CredentialFormats__046` | [credo-ts#2936](https://github.com/openwallet-foundation/credo-ts/pull/2936) |
-| Malformed COSE status structures — `WS_RP_MS_Metadata__092`, `__094`, `__096`, `__097`, `__099`, `__100`, `__102` | `@owf/token-status-list` requires a non-negative integer `idx` and a string `uri`; producing these needs a non-Credo COSE path, which `AGENTS.md` puts behind explicit approval |
 | A presentation in SD-JWT VC JSON serialization — `WS_RP_MS_CredentialFormats__048` | Compact serialization only, on both the issuing and the verifying side |
 | A numeric data-type mismatch — the `kg` axis of `WS_RP_IA_MainInteraction__033` | No issued credential carries a numeric claim |
 | A wallet-accepted verifier attestation — `WS_RP_SM_RpIntegrity__010` | The attestation issuer is a fixture key published at `/openid4vp/verifier-attestation-issuer/jwks.json`; a wallet accepts it only once an operator configures that key as a trusted attestation issuer |

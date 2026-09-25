@@ -1,9 +1,16 @@
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import {
+  type JsonWebKey as NodeJsonWebKey,
+  createHash,
+  createPublicKey,
+  randomBytes,
+  randomUUID,
+  verify,
+} from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Kms, Mdoc, X509Certificate } from "@credo-ts/core";
-import { DateOnly } from "@owf/cose";
+import { CoseKey, DataItem, DateOnly, Sign1, cborDecode } from "@owf/cose";
 import { IssuerSigned } from "@owf/mdoc";
 import type { Express } from "express";
 import {
@@ -26,6 +33,7 @@ import {
   initIssuer,
   issuerCertificatePath,
   jwksPath,
+  loadIssuerCertificate,
   privateJwkPath,
   verifierCertificatePath,
   verifierJwksPath,
@@ -87,6 +95,38 @@ const conformingIssuer = resolvedIssuerConfigurationById(config, conformingIssue
 if (!conformingIssuer) throw new Error("conforming issuer configuration unavailable");
 const conformingMaterialDirectory = conformingIssuer.materialDirectory;
 const conformingIssuerConfig = issuerAppConfig(config, conformingIssuer);
+
+function isCoseSign1(
+  value: unknown,
+): value is [Uint8Array, Map<number, unknown>, Uint8Array | null, Uint8Array] {
+  return (
+    Array.isArray(value) &&
+    value.length === 4 &&
+    value[0] instanceof Uint8Array &&
+    value[1] instanceof Map &&
+    (value[2] === null || value[2] instanceof Uint8Array) &&
+    value[3] instanceof Uint8Array
+  );
+}
+
+function mdocStatusAndSignature(encoded: string): {
+  signature: Sign1;
+  status: Map<unknown, unknown>;
+} {
+  const issuerSigned = cborDecode(Buffer.from(encoded, "base64url"));
+  if (!(issuerSigned instanceof Map)) throw new Error("Issued mdoc is not a CBOR map");
+  const issuerAuth = issuerSigned.get("issuerAuth");
+  if (!isCoseSign1(issuerAuth)) throw new Error("Issued mdoc issuerAuth is not a COSE Sign1");
+  const signature = Sign1.fromEncodedStructure(issuerAuth);
+  if (!signature.payload) throw new Error("Issued mdoc COSE Sign1 has no payload");
+  const mobileSecurityObject = cborDecode(signature.payload, { unwrapTopLevelDataItem: false });
+  if (!(mobileSecurityObject instanceof DataItem) || !(mobileSecurityObject.data instanceof Map)) {
+    throw new Error("Issued mdoc Mobile Security Object is not an encoded CBOR map");
+  }
+  const status = mobileSecurityObject.data.get("status");
+  if (!(status instanceof Map)) throw new Error("Issued mdoc Mobile Security Object has no status");
+  return { signature, status };
+}
 
 beforeAll(async () => {
   await initIssuer({
@@ -2039,6 +2079,111 @@ describe("capture issuer server", () => {
     expect(capture.observed.wallet_jwks.source).toBe("credo.verified_holder_binding");
   });
 
+  it.each([
+    ["status_without_status_list", new Map()],
+    [
+      "negative_index",
+      new Map<unknown, unknown>([
+        [
+          "status_list",
+          new Map<unknown, unknown>([
+            ["uri", "https://status.example.test/1"],
+            ["idx", -1],
+          ]),
+        ],
+      ]),
+    ],
+    [
+      "missing_index",
+      new Map<unknown, unknown>([
+        ["status_list", new Map<unknown, unknown>([["uri", "https://status.example.test/1"]])],
+      ]),
+    ],
+    [
+      "malformed_uri",
+      new Map<unknown, unknown>([
+        [
+          "status_list",
+          new Map<unknown, unknown>([
+            ["uri", "not a uri"],
+            ["idx", 42],
+          ]),
+        ],
+      ]),
+    ],
+    [
+      "missing_uri",
+      new Map<unknown, unknown>([["status_list", new Map<unknown, unknown>([["idx", 42]])]]),
+    ],
+  ] as const)(
+    "issues a signed mdoc with the %s status fixture",
+    async (statusReference, expectedStatus) => {
+      const allocation = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(
+          new Response(
+            JSON.stringify({ status_list: { uri: "https://status.example.test/1", idx: 42 } }),
+            { headers: { "content-type": "application/json" }, status: 200 },
+          ),
+        );
+      vi.stubGlobal("fetch", allocation);
+      const app = createApp({ ...config, fcaf_scenarios_enabled: true });
+      const session = await postJson<SessionCreateResponse>(app, "/sessions", {
+        credential_configuration_id: mdocCredentialConfigurationId(
+          config,
+          "key-attestation-required",
+        ),
+        flow: "pre_authorized_code",
+        status_list_enabled: true,
+        status_reference: statusReference,
+      });
+      const dpop = await dpopKey();
+      const token = await preAuthorizedToken(app, session, dpop);
+      const walletKey = await dpopKey();
+      const credentialPath = issuerProtocolPath(session, "/credential");
+      const nonce = await request(app).post(issuerProtocolPath(session, "/nonce"));
+      const proof = await keyAttestationJwt(walletKey, String(nonce.body.c_nonce));
+      const credential = await request(app)
+        .post(credentialPath)
+        .set("authorization", `DPoP ${token.access_token}`)
+        .set("DPoP", await dpopProof(dpop, "POST", credentialPath, token.access_token))
+        .send({
+          credential_configuration_id: session.credential_configuration_id,
+          proofs: { attestation: [proof] },
+        });
+
+      expect(credential.status, JSON.stringify(credential.body)).toBe(200);
+      expect(allocation).toHaveBeenCalledOnce();
+      const encodedMdoc = (credential.body as CredentialResponse).credentials[0].credential;
+      const { signature, status } = mdocStatusAndSignature(encodedMdoc);
+      const issuerKey = CoseKey.fromJwk(
+        loadIssuerCertificate(conformingIssuerConfig).publicJwk.toJson(),
+      );
+
+      expect(status).toEqual(expectedStatus);
+      expect(
+        await signature.verifySignature(
+          { key: issuerKey },
+          {
+            verify: async ({ key, signature: value, toBeVerified }) =>
+              verify(
+                "sha256",
+                toBeVerified,
+                {
+                  dsaEncoding: "ieee-p1363",
+                  key: createPublicKey({
+                    format: "jwk",
+                    key: key.jwk as unknown as NodeJsonWebKey,
+                  }),
+                },
+                value,
+              ),
+          },
+        ),
+      ).toBe(true);
+    },
+  );
+
   it("captures and correlates pre-authorized requests with secrets redacted", async () => {
     const app = createApp(config);
     const session = await postJson<SessionCreateResponse>(app, "/sessions", {
@@ -2725,18 +2870,6 @@ describe("capture issuer server", () => {
       "a malformed fixture without status-list allocation",
       { status_reference: "negative_index" },
       { error: "status_reference_requires_status_list" },
-    ],
-    [
-      "a malformed fixture for an mdoc configuration",
-      {
-        status_reference: "missing_uri",
-        status_list_enabled: true,
-        credential_configuration_id: mdocCredentialConfigurationId(
-          config,
-          "key-attestation-required",
-        ),
-      },
-      { error: "status_reference_unsupported_for_mdoc" },
     ],
     [
       "a digest algorithm SD-JWT VC does not allow",

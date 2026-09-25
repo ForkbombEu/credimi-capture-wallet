@@ -12,6 +12,7 @@ import {
   PID_MDOC_NAMESPACE,
   PID_SD_JWT_VCT,
 } from "./credential-definitions.js";
+import type { MdocSignOptionsWithStatusReference } from "./malformed-mdoc-status.js";
 import type {
   AppConfig,
   JsonRecord,
@@ -173,9 +174,10 @@ export function mdocCredentialSignOptions(options: {
   config: AppConfig;
   holderJwk: JsonRecord;
   statusListReference?: StatusListReference;
+  statusReference?: StatusReferenceFixture;
   subject?: PidSubject;
   now?: Date;
-}): MdocSignOptions {
+}): MdocSignOptionsWithStatusReference {
   const now = options.now ?? new Date();
   const issuerCertificate = loadIssuerCertificate(options.config);
   issuerCertificate.keyId = issuerSigningKeyId(options.config);
@@ -198,6 +200,11 @@ export function mdocCredentialSignOptions(options: {
             uri: options.statusListReference.uri,
           },
         }
+      : {}),
+    ...(options.statusListReference &&
+    options.statusReference &&
+    options.statusReference !== "valid"
+      ? { statusReference: options.statusReference }
       : {}),
   };
 }

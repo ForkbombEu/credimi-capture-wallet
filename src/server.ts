@@ -490,9 +490,6 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       if (statusReference !== "valid" && !statusListEnabled) {
         return res.status(400).json({ error: "status_reference_requires_status_list" });
       }
-      if (statusReference !== "valid" && credentialConfigurationId.includes("mdoc")) {
-        return res.status(400).json({ error: "status_reference_unsupported_for_mdoc" });
-      }
       const fixtureId = pidFixtureIdOrNull(body.fixture_id ?? "pid_default");
       if (!fixtureId) {
         return res.status(400).json({

@@ -211,20 +211,14 @@ Status List endpoint in the generated service config with
 configured endpoint and management key at runtime.
 The management API key is server-side only and is never included in a credential,
 offer, browser response, or capture log.
-`status_reference` is optional and shapes the `status` claim of an issued SD-JWT VC. `valid`, the
-default, embeds the allocated Token Status List reference. The other values produce the
-deliberately malformed structures the FCAF revocation-metadata tests require — `status` without a
-`status_list` member, a negative or missing `idx`, and a malformed or missing `uri` — and are
-refused unless the deployment sets `FCAF_SCENARIOS_ENABLED=true`. They also require
+`status_reference` is optional and shapes the `status` structure of an issued SD-JWT VC or mdoc.
+`valid`, the default, embeds the allocated Token Status List reference. The other values produce
+the deliberately malformed structures the FCAF revocation-metadata tests require — `status`
+without a `status_list` member, a negative or missing `idx`, and a malformed or missing `uri` —
+and are refused unless the deployment sets `FCAF_SCENARIOS_ENABLED=true`. They also require
 `status_list_enabled: true`, because the reference is always allocated normally first and the
 fixture only reshapes that real allocation. A credential with no `status` claim at all is simply
 `status_list_enabled: false`.
-
-The malformed structures are not available for mdoc configurations, and the request is refused
-rather than silently ignored: an mdoc `status` claim is built by `@owf/token-status-list` through
-Credo, whose schema requires a non-negative integer `idx` and a string `uri`, so the COSE variants
-of those tests cannot be produced without a non-Credo COSE implementation. See
-[Known limitations](#known-limitations).
 
 `issuer_configuration_id` is optional and accepts `eu-pid-device-bound` or
 `eu-pid-jwt-proof-only`. A credential configuration must belong to the selected
@@ -844,15 +838,12 @@ credential issuer chain.
 
 These are deliberate gaps, not bugs. Each names what is missing and what would close it.
 
-**COSE status-list structures.** The malformed `status_reference` fixtures apply to SD-JWT VC
-only. An mdoc `status` claim is produced by `@owf/token-status-list` through Credo's
-`MdocSignOptions.statusInfo`, whose schema requires a non-negative integer `idx` and a string
-`uri`, so a negative or missing index, a missing or malformed URI, an empty status map, a map
-without a `status_list` entry, and a missing status claim at CBOR label 65535 cannot be produced
-through the library. Emitting them would mean assembling the Mobile Security Object outside
-Credo, which `AGENTS.md` puts behind explicit approval; the service refuses the request instead of
-issuing a silently valid credential. Valid COSE status references work today through
-`status_list_enabled`.
+**COSE status-list structures.** The malformed `status_reference` fixtures apply to mdocs as
+well as SD-JWT VCs. Normal mdoc issuance remains on Credo. For an explicitly enabled malformed
+fixture only, the service reconstructs the signed Mobile Security Object with `@owf/cose`, changing
+only the status structure and retaining Credo's KMS for the issuer signature. This deliberate
+exception is limited to conformance fixtures that Credo's
+`MdocSignOptions.statusInfo` correctly refuses to construct.
 
 **Credentials without cryptographic holder binding.** Not implemented, pending
 [credo-ts#2936](https://github.com/openwallet-foundation/credo-ts/pull/2936). Every credential

@@ -929,7 +929,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
               ],
               default: "valid",
               description:
-                "Shape of the status claim in the issued SD-JWT VC. Anything other than valid is test-only, refused unless the deployment sets FCAF_SCENARIOS_ENABLED, and requires status_list_enabled so the malformed structure reshapes a genuinely allocated reference. Not available for mdoc configurations, where the status claim is built by the COSE library and these structures cannot be produced.",
+                "Shape of the status structure in the issued SD-JWT VC or mdoc. Anything other than valid is test-only, refused unless the deployment sets FCAF_SCENARIOS_ENABLED, and requires status_list_enabled so the malformed structure reshapes a genuinely allocated reference. For mdoc, only the Mobile Security Object status structure is reconstructed and Credo's KMS signs it.",
             },
             digest_algorithm: {
               type: "string",

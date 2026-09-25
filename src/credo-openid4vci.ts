@@ -1,6 +1,14 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { readFile } from "node:fs/promises";
-import { Agent, ClaimFormat, ConsoleLogger, Kms, LogLevel, X509Module } from "@credo-ts/core";
+import {
+  Agent,
+  ClaimFormat,
+  ConsoleLogger,
+  Kms,
+  LogLevel,
+  MdocApi,
+  X509Module,
+} from "@credo-ts/core";
 import {
   type OpenId4VcIssuanceSessionRecord,
   OpenId4VcIssuanceSessionState,
@@ -27,6 +35,7 @@ import {
 } from "./credential.js";
 import { InMemoryStorageModule, NodeKmsBackend, nodeAgentDependencies } from "./credo-openid4vp.js";
 import { fakeOAuthServer } from "./fake-oauth-server.js";
+import { applyMdocStatusReferenceFixture } from "./malformed-mdoc-status.js";
 import {
   credentialIssuerMetadata,
   supportedCredentialById,
@@ -160,12 +169,40 @@ export class CredoOpenId4VciIssuer {
     const runtime = new CredoOpenId4VciIssuer(config, store, agent, internalApp);
     runtimeRef.current = runtime;
     await agent.initialize();
+    runtime.installMdocStatusFixtureSigner();
     for (const issuer of issuerConfigurations) {
       await runtime.importIssuerKeys(issuer);
       await runtime.createIssuerRecord(issuer);
     }
     runtime.listenForIssuanceEvents();
     return runtime;
+  }
+
+  private installMdocStatusFixtureSigner(): void {
+    const mdocApi = this.agent.dependencyManager.resolve(MdocApi);
+    const agent = this.agent;
+    this.agent.dependencyManager.registerInstance(
+      MdocApi,
+      new Proxy(mdocApi, {
+        get(target, property, receiver) {
+          if (property === "sign") {
+            return async (options: Parameters<MdocApi["sign"]>[0]) => {
+              const mdoc = await target.sign(options);
+              return applyMdocStatusReferenceFixture(mdoc, options, async (signingOptions) => {
+                const signed = await agent.kms.sign({
+                  algorithm: signingOptions.algorithm as Kms.KnownJwaSignatureAlgorithm,
+                  data: signingOptions.data,
+                  keyId: signingOptions.keyId,
+                });
+                return signed.signature;
+              });
+            };
+          }
+          const value = Reflect.get(target, property, receiver);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      }),
+    );
   }
 
   async createCredentialOffer(options: {
@@ -432,6 +469,7 @@ export class CredoOpenId4VciIssuer {
             config: signingConfig,
             holderJwk,
             statusListReference: statusListReferences[index],
+            statusReference: captureSession.status_reference,
             subject,
           }),
         ),

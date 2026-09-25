@@ -46,8 +46,7 @@ implemented, documented and tested.
 | --- | --- | --- |
 | 4.1 multiple credentials of one type, 4.5 additional claim values | done | Nine `fixture_id` claim sets, plus the `age_over_18` attribute in both encodings |
 | 4.2 credentials without holder binding: `WS_RP_IA_MainInteraction__006`, `__008`, `__010`, `WS_RP_MS_CredentialFormats__046` | blocked | Awaiting [credo-ts#2936](https://github.com/openwallet-foundation/credo-ts/pull/2936); Credo currently refuses `require_cryptographic_holder_binding: false` |
-| 4.3 JOSE status structures | done | Six `status_reference` fixtures, SD-JWT VC only |
-| 4.3 COSE status structures: `WS_RP_MS_Metadata__092`, `__094`, `__096`, `__097`, `__099`, `__100`, `__102` | blocked | `@owf/token-status-list` enforces a non-negative integer `idx` and a string `uri`, so malformed COSE structures need a non-Credo COSE path. Requires explicit approval under AGENTS.md |
+| 4.3 JOSE and COSE status structures | done | The six `status_reference` fixtures issue SD-JWT VC and mdoc variants; malformed mdoc status is reconstructed with `@owf/cose` and signed through Credo's KMS |
 | 4.4 SD-JWT VC JSON serialization: `WS_RP_MS_CredentialFormats__048` | blocked | Compact serialization only, on both the issuing and the verifying side |
 | The numeric axis of `WS_RP_IA_MainInteraction__033` | not started | No issued credential carries a numeric claim; the test's `kg` axis needs a new credential type |
 
