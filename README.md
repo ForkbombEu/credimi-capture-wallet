@@ -160,8 +160,8 @@ The legacy root issuer no longer exists.
 
 
 The configured `--credential-configuration-id` is the base for four PID Credential
-Configuration Identifiers. Each issuer additionally offers a fixed degree test
-credential configuration for DCQL textual-encoding conformance cases:
+Configuration Identifiers. Each issuer additionally offers fixed degree and numeric test
+credential configurations for DCQL conformance cases:
 
 | Issuer | Format | Configuration ID and scope suffix | Credential type |
 | --- | --- | --- | --- |
@@ -171,13 +171,14 @@ credential configuration for DCQL textual-encoding conformance cases:
 | `eu-pid-jwt-proof-only` | mdoc | `.mdoc.jwt-proof` | `doctype: eu.europa.ec.eudi.pid.1` |
 | `eu-pid-device-bound` | SD-JWT VC | `urn:credimi:degree:1.sd-jwt.key-attestation-required` | `vct: urn:credimi:degree:1` |
 | `eu-pid-jwt-proof-only` | SD-JWT VC | `urn:credimi:degree:1.sd-jwt.jwt-proof` | `vct: urn:credimi:degree:1` |
+| `eu-pid-device-bound` | SD-JWT VC | `urn:credimi:numeric-claims:1.sd-jwt.key-attestation-required` | `vct: urn:credimi:numeric-claims:1` |
+| `eu-pid-jwt-proof-only` | SD-JWT VC | `urn:credimi:numeric-claims:1.sd-jwt.jwt-proof` | `vct: urn:credimi:numeric-claims:1` |
 
 Each PID configuration has a unique scope formed by appending the same suffix to the
-configured credential scope. The degree configurations use the fixed scopes shown in
-the table. The duplicated configurations issue the same credential type and claims and
-retain the same `vct` or `doctype`; only the issuer and proof policy differ. The
-device-bound issuer and its key-attestation-required SD-JWT PID configuration are
-selected when their request fields are omitted.
+configured credential scope. The degree and numeric configurations use the fixed scopes shown in
+the table. The duplicated configurations issue the same credential type and claims and retain the
+same `vct` or `doctype`; only the issuer and proof policy differ. The device-bound issuer and its
+key-attestation-required SD-JWT PID configuration are selected when their request fields are omitted.
 
 Start by creating a capture session for a credential configuration:
 
@@ -269,18 +270,19 @@ requires a hash function that is secure at the time of issuance. The value is re
 Mobile Security Object rather than to `_sd_alg`, and is recorded as `digest_algorithm` in the
 issuance capture when it is not the default.
 
-Both issuers issue the same deterministic PID claims for the PID
-configurations. The degree test credential is an SD-JWT VC for Arthur Dent with
-`degrees` (including an entry without `type`) and `academic_programmes`, a nested
-array of awarded programme titles. The interiors of `address` and of both arrays are
-individually disclosable: each `address` member is its own disclosure, each `degrees`
-entry is its own disclosure with `type` and `university` separate inside it, and each
-`academic_programmes` inner array and each string inside
-it is disclosable by index. A Wallet can therefore reveal `address.locality` alone, or
-`degrees[0..1].type` while
-withholding `degrees[2].university`, which is what the FCAF textual-encoding cases
-assert. It supports DCQL paths such as
-`["degrees", null, "type"]` and `["academic_programmes", null, 1]`. The removed legacy root issuer and its `broken`
+Both issuers issue the same deterministic PID claims for the PID configurations. The degree test
+credential is an SD-JWT VC for Arthur Dent with `degrees` (including an entry without `type`) and
+`academic_programmes`, a nested array of awarded programme titles. The interiors of `address` and
+of both arrays are individually disclosable: each `address` member is its own disclosure, each
+`degrees` entry is its own disclosure with `type` and `university` separate inside it, and each
+`academic_programmes` inner array and each string inside it is disclosable by index. A Wallet can
+therefore reveal `address.locality` alone, or `degrees[0..1].type` while withholding
+`degrees[2].university`, which is what the FCAF textual-encoding cases assert. It supports DCQL
+paths such as `["degrees", null, "type"]` and `["academic_programmes", null, 1]`.
+
+The numeric test credential is deliberately not a PID variant. It carries only the selectively
+disclosable floating-point claim `kg: 70.5`, so `WS_RP_IA_MainInteraction__033` can verify that a
+float does not satisfy an integer DCQL constraint. The removed legacy root issuer and its `broken`
 credential fixture are no longer available.
 
 To request an encrypted Credential Response, include `credential_response_encryption`

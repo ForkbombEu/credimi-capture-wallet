@@ -27,10 +27,11 @@ import {
 import { issuerAppConfig } from "./configurations/resolve-urls.js";
 import { pidFixtureIdOrNull, pidFixtureSubject } from "./configurations/shared/pid-fixtures.js";
 import type { ResolvedIssuerConfiguration } from "./configurations/types.js";
-import { DEGREE_SD_JWT_VCT } from "./credential-definitions.js";
+import { DEGREE_SD_JWT_VCT, NUMERIC_SD_JWT_VCT } from "./credential-definitions.js";
 import {
   degreeSdJwtCredentialSignOptions,
   mdocCredentialSignOptions,
+  numericSdJwtCredentialSignOptions,
   sdJwtCredentialSignOptions,
 } from "./credential.js";
 import { InMemoryStorageModule, NodeKmsBackend, nodeAgentDependencies } from "./credo-openid4vp.js";
@@ -478,24 +479,22 @@ export class CredoOpenId4VciIssuer {
     return {
       type: "credentials" as const,
       format: ClaimFormat.SdJwtDc,
-      credentials: holderJwks.map((holderJwk, index) =>
-        credential.vct === DEGREE_SD_JWT_VCT
-          ? degreeSdJwtCredentialSignOptions({
-              config: signingConfig,
-              holderJwk,
-              statusListReference: statusListReferences[index],
-              statusReference: captureSession.status_reference,
-              digestAlgorithm: captureSession.digest_algorithm,
-            })
-          : sdJwtCredentialSignOptions({
-              config: signingConfig,
-              holderJwk,
-              statusListReference: statusListReferences[index],
-              statusReference: captureSession.status_reference,
-              digestAlgorithm: captureSession.digest_algorithm,
-              subject,
-            }),
-      ),
+      credentials: holderJwks.map((holderJwk, index) => {
+        const signingOptions = {
+          config: signingConfig,
+          holderJwk,
+          statusListReference: statusListReferences[index],
+          statusReference: captureSession.status_reference,
+          digestAlgorithm: captureSession.digest_algorithm,
+        };
+        if (credential.vct === DEGREE_SD_JWT_VCT) {
+          return degreeSdJwtCredentialSignOptions(signingOptions);
+        }
+        if (credential.vct === NUMERIC_SD_JWT_VCT) {
+          return numericSdJwtCredentialSignOptions(signingOptions);
+        }
+        return sdJwtCredentialSignOptions({ ...signingOptions, subject });
+      }),
     };
   }
 

@@ -5,6 +5,8 @@ import { euPidJwtProofOnly } from "../src/configurations/eu-pid-jwt-proof-only/i
 import {
   DEGREE_SD_JWT_CLAIMS,
   DEGREE_SD_JWT_VCT,
+  NUMERIC_SD_JWT_CLAIMS,
+  NUMERIC_SD_JWT_VCT,
   PID_MDOC_CLAIMS,
   PID_MDOC_DOCTYPE,
   PID_MDOC_NAMESPACE,
@@ -17,6 +19,7 @@ import {
   degreeSdJwtCredentialConfigurationId,
   jwtVcIssuerMetadata,
   mdocCredentialConfigurationId,
+  numericSdJwtCredentialConfigurationId,
   sdJwtCredentialConfigurationId,
 } from "../src/metadata.js";
 import type { JsonRecord } from "../src/types.js";
@@ -48,6 +51,10 @@ describe("metadata", () => {
         "urn:credimi:degree:1.sd-jwt.key-attestation-required",
       [degreeSdJwtCredentialConfigurationId(DEFAULT_CONFIG, "jwt-proof")]:
         "urn:credimi:degree:1.sd-jwt.jwt-proof",
+      [numericSdJwtCredentialConfigurationId(DEFAULT_CONFIG, "key-attestation-required")]:
+        "urn:credimi:numeric-claims:1.sd-jwt.key-attestation-required",
+      [numericSdJwtCredentialConfigurationId(DEFAULT_CONFIG, "jwt-proof")]:
+        "urn:credimi:numeric-claims:1.sd-jwt.jwt-proof",
     };
 
     expect(
@@ -107,16 +114,21 @@ describe("metadata", () => {
     const degree = conformingConfigurations[
       degreeSdJwtCredentialConfigurationId(DEFAULT_CONFIG, "key-attestation-required")
     ] as JsonRecord;
+    const numeric = conformingConfigurations[
+      numericSdJwtCredentialConfigurationId(DEFAULT_CONFIG, "key-attestation-required")
+    ] as JsonRecord;
 
     expect(Object.keys(conformingConfigurations)).toEqual([
       sdJwtCredentialConfigurationId(DEFAULT_CONFIG, "key-attestation-required"),
       mdocCredentialConfigurationId(DEFAULT_CONFIG, "key-attestation-required"),
       degreeSdJwtCredentialConfigurationId(DEFAULT_CONFIG, "key-attestation-required"),
+      numericSdJwtCredentialConfigurationId(DEFAULT_CONFIG, "key-attestation-required"),
     ]);
     expect(Object.keys(jwtOnlyConfigurations)).toEqual([
       sdJwtCredentialConfigurationId(DEFAULT_CONFIG, "jwt-proof"),
       mdocCredentialConfigurationId(DEFAULT_CONFIG, "jwt-proof"),
       degreeSdJwtCredentialConfigurationId(DEFAULT_CONFIG, "jwt-proof"),
+      numericSdJwtCredentialConfigurationId(DEFAULT_CONFIG, "jwt-proof"),
     ]);
     const keyAttestationRequired = {
       jwt: {
@@ -152,6 +164,12 @@ describe("metadata", () => {
         (claim) => claim.path,
       ),
     ).toEqual(DEGREE_SD_JWT_CLAIMS.map((claim) => claim.split(".")));
+    expect(numeric.vct).toBe(NUMERIC_SD_JWT_VCT);
+    expect(
+      ((numeric.credential_metadata as JsonRecord).claims as JsonRecord[]).map(
+        (claim) => claim.path,
+      ),
+    ).toEqual(NUMERIC_SD_JWT_CLAIMS.map((claim) => claim.split(".")));
   });
 
   it("advertises the MDOC PID credential configuration", () => {

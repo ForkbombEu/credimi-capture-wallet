@@ -9,7 +9,7 @@ import {
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Kms, Mdoc, X509Certificate } from "@credo-ts/core";
+import { Kms, Mdoc, SdJwtVcService, X509Certificate } from "@credo-ts/core";
 import { CoseKey, DataItem, DateOnly, Sign1, cborDecode } from "@owf/cose";
 import { IssuerSigned } from "@owf/mdoc";
 import type { Express } from "express";
@@ -43,6 +43,8 @@ import { issuerAppConfig } from "../src/configurations/resolve-urls.js";
 import {
   DEGREE_SD_JWT_CLAIMS,
   DEGREE_SD_JWT_VCT,
+  NUMERIC_SD_JWT_CLAIMS,
+  NUMERIC_SD_JWT_VCT,
   PID_MDOC_CLAIMS,
   PID_MDOC_DOCTYPE,
   PID_MDOC_NAMESPACE,
@@ -53,6 +55,7 @@ import { CREDIMI_LOGO_URL, issueSdJwtCredential } from "../src/credential.js";
 import {
   degreeSdJwtCredentialConfigurationId,
   mdocCredentialConfigurationId,
+  numericSdJwtCredentialConfigurationId,
   sdJwtCredentialConfigurationId,
 } from "../src/metadata.js";
 import { createApp } from "../src/server.js";
@@ -374,11 +377,13 @@ describe("capture issuer server", () => {
       sdJwtCredentialConfigurationId(config, "key-attestation-required"),
       mdocCredentialConfigurationId(config, "key-attestation-required"),
       degreeSdJwtCredentialConfigurationId(config, "key-attestation-required"),
+      numericSdJwtCredentialConfigurationId(config, "key-attestation-required"),
     ]);
     expect(Object.keys(jwtOnlyConfigurations)).toEqual([
       sdJwtCredentialConfigurationId(config, "jwt-proof"),
       mdocCredentialConfigurationId(config, "jwt-proof"),
       degreeSdJwtCredentialConfigurationId(config, "jwt-proof"),
+      numericSdJwtCredentialConfigurationId(config, "jwt-proof"),
     ]);
     expect(
       deviceBoundConfigurations[sdJwtCredentialConfigurationId(config, "key-attestation-required")]
@@ -828,6 +833,33 @@ describe("capture issuer server", () => {
     });
     expect((credential.claims as JsonRecord[]).map((claim) => claim.path)).toEqual(
       DEGREE_SD_JWT_CLAIMS.map((claim) => claim.split(".")),
+    );
+  });
+
+  it("creates OpenID4VP requests for the numeric credential", async () => {
+    const app = createApp(config);
+    const selectedCredentialConfigurationId = numericSdJwtCredentialConfigurationId(
+      config,
+      "key-attestation-required",
+    );
+    const created = await request(app)
+      .post("/ui/openid4vp/sessions")
+      .type("form")
+      .send({ credential_configuration_id: selectedCredentialConfigurationId })
+      .redirects(0);
+    const sessionId = (created.headers.location ?? "").split("/").pop() ?? "";
+
+    expect(created.status).toBe(303);
+    const requestObject = await request(app).get(`/openid4vp/sessions/${sessionId}/request`);
+    const dcqlQuery = (decodeJwt(requestObject.text) as JsonRecord).dcql_query as JsonRecord;
+    const credential = (dcqlQuery.credentials as JsonRecord[])[0];
+
+    expect(credential).toMatchObject({
+      format: "dc+sd-jwt",
+      meta: { vct_values: [NUMERIC_SD_JWT_VCT] },
+    });
+    expect((credential.claims as JsonRecord[]).map((claim) => claim.path)).toEqual(
+      NUMERIC_SD_JWT_CLAIMS.map((claim) => claim.split(".")),
     );
   });
 
@@ -2357,6 +2389,41 @@ describe("capture issuer server", () => {
     expect(capture.status).toBe("credential_issued");
   });
 
+  it("issues the numeric credential with a floating-point kg claim", async () => {
+    const app = createApp(config);
+    const session = await postJson<SessionCreateResponse>(app, "/sessions", {
+      issuer_configuration_id: jwtOnlyIssuerId,
+      credential_configuration_id: numericSdJwtCredentialConfigurationId(config, "jwt-proof"),
+      flow: "pre_authorized_code",
+    });
+    const dpop = await dpopKey();
+    const token = await preAuthorizedToken(app, session, dpop);
+    const holderKey = await dpopKey();
+    const credentialPath = issuerProtocolPath(session, "/credential");
+    const credential = await request(app)
+      .post(credentialPath)
+      .set("authorization", `DPoP ${token.access_token}`)
+      .set("DPoP", await dpopProof(dpop, "POST", credentialPath, token.access_token))
+      .send({
+        credential_configuration_id: session.credential_configuration_id,
+        proofs: {
+          jwt: [
+            await credentialProofJwtWithoutKeyAttestation(
+              holderKey,
+              token.c_nonce,
+              `${config.issuer_base_url}${jwtOnlyIssuerPath}`,
+            ),
+          ],
+        },
+      });
+
+    expect(credential.status, credential.text).toBe(200);
+    const compact = (credential.body as CredentialResponse).credentials[0].credential;
+    const decoded = new SdJwtVcService({} as never).fromCompact(compact);
+    expect(decoded.prettyClaims).toMatchObject({ vct: NUMERIC_SD_JWT_VCT, kg: 70.5 });
+    expect(typeof decoded.prettyClaims.kg).toBe("number");
+  });
+
   it("uses Credo to verify JWT proof, key attestation, nonce, and holder binding", async () => {
     const app = createApp(config);
     const invalidSession = await postJson<SessionCreateResponse>(app, "/sessions", {
@@ -2435,9 +2502,7 @@ describe("capture issuer server", () => {
       x5c: expect.any(Array),
     });
 
-    const decoded = new (await import("@credo-ts/core")).SdJwtVcService({} as never).fromCompact(
-      compactSdJwt,
-    );
+    const decoded = new SdJwtVcService({} as never).fromCompact(compactSdJwt);
     expect(decoded.prettyClaims).toMatchObject({
       vct: PID_SD_JWT_VCT,
       address: {

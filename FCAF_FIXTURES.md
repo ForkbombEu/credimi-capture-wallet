@@ -43,8 +43,8 @@ byte-identical. Applies to both the SD-JWT VC and mdoc PID configurations.
 The PID attribute `age_over_18` exists in both encodings so a DCQL query can constrain it.
 
 `WS_RP_IA_MainInteraction__033` also has a numeric data-type axis, a float where an integer is
-expected. Neither the PID nor the degree credential carries a numeric claim, so no fixture covers
-it; a credential type with a numeric attribute would have to be added first.
+expected. The test-only SD-JWT VC `urn:credimi:numeric-claims:1` carries `kg: 70.5`; it is not a
+PID claim or a PID schema version.
 
 To give a wallet several credentials of the same type, issue one session per fixture.
 

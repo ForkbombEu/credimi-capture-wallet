@@ -48,7 +48,7 @@ implemented, documented and tested.
 | 4.2 credentials without holder binding: `WS_RP_IA_MainInteraction__006`, `__008`, `__010`, `WS_RP_MS_CredentialFormats__046` | blocked | Awaiting [credo-ts#2936](https://github.com/openwallet-foundation/credo-ts/pull/2936); Credo currently refuses `require_cryptographic_holder_binding: false` |
 | 4.3 JOSE and COSE status structures | done | The six `status_reference` fixtures issue SD-JWT VC and mdoc variants; malformed mdoc status is reconstructed with `@owf/cose` and signed through Credo's KMS |
 | 4.4 SD-JWT VC JSON serialization: `WS_RP_MS_CredentialFormats__048` | blocked | Compact serialization only, on both the issuing and the verifying side |
-| The numeric axis of `WS_RP_IA_MainInteraction__033` | not started | No issued credential carries a numeric claim; the test's `kg` axis needs a new credential type |
+| The numeric axis of `WS_RP_IA_MainInteraction__033` | done | The test-only `urn:credimi:numeric-claims:1` SD-JWT VC carries the float `kg: 70.5`, independently of the PID schema |
 
 ## Phase 5 — trust, identity and cryptography — partial
 

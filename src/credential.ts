@@ -8,6 +8,7 @@ import {
   CREDIMI_LOGO_URL,
   CREDIMI_WEBSITE,
   DEGREE_SD_JWT_VCT,
+  NUMERIC_SD_JWT_VCT,
   PID_MDOC_DOCTYPE,
   PID_MDOC_NAMESPACE,
   PID_SD_JWT_VCT,
@@ -140,6 +141,36 @@ export function degreeSdJwtCredentialSignOptions(options: {
       ...sdJwtStatusClaim(options.statusListReference, options.statusReference),
     },
     disclosureFrame: DEGREE_DISCLOSURE_FRAME,
+  };
+}
+
+/**
+ * The numeric test credential intentionally carries a float. It exists solely to exercise DCQL
+ * value-type matching when a verifier expects an integer `kg` claim.
+ */
+export function numericSdJwtCredentialSignOptions(options: {
+  config: AppConfig;
+  holderJwk: JsonRecord;
+  statusListReference?: StatusListReference;
+  statusReference?: StatusReferenceFixture;
+  digestAlgorithm?: SdJwtDigestAlgorithm;
+  now?: Date;
+}): SdJwtVcSignOptions {
+  const issuerCertificate = loadIssuerCertificate(options.config);
+  issuerCertificate.keyId = issuerSigningKeyId(options.config);
+  const now = options.now ?? new Date();
+  return {
+    issuer: { method: "x5c", issuer: options.config.issuer_base_url, x5c: [issuerCertificate] },
+    holder: { method: "jwk", jwk: Kms.PublicJwk.fromUnknown(options.holderJwk) },
+    headerType: "dc+sd-jwt",
+    ...(options.digestAlgorithm ? { hashingAlgorithm: options.digestAlgorithm } : {}),
+    payload: {
+      vct: NUMERIC_SD_JWT_VCT,
+      exp: Math.floor(now.getTime() / 1000) + 365 * 24 * 60 * 60,
+      kg: 70.5,
+      ...sdJwtStatusClaim(options.statusListReference, options.statusReference),
+    },
+    disclosureFrame: { _sd: ["kg"] },
   };
 }
 

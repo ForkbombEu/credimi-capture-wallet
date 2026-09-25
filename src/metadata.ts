@@ -11,6 +11,8 @@ import {
   CREDIMI_LOGO_URL,
   DEGREE_SD_JWT_CLAIMS,
   DEGREE_SD_JWT_VCT,
+  NUMERIC_SD_JWT_CLAIMS,
+  NUMERIC_SD_JWT_VCT,
   PID_MDOC_CLAIMS,
   PID_MDOC_DOCTYPE,
   PID_MDOC_NAMESPACE,
@@ -173,6 +175,13 @@ export function degreeSdJwtCredentialConfigurationId(
   return `urn:credimi:degree:1.sd-jwt.${proofPolicy}`;
 }
 
+export function numericSdJwtCredentialConfigurationId(
+  _config: AppConfig,
+  proofPolicy: CredentialProofPolicy,
+): string {
+  return `urn:credimi:numeric-claims:1.sd-jwt.${proofPolicy}`;
+}
+
 export function credentialScope(
   config: AppConfig,
   format: CredentialFormat,
@@ -236,6 +245,25 @@ export function supportedCredentials(config: AppConfig): SupportedCredential[] {
       displayName: "Credimi test degree (SD-JWT VC, JWT proof, no key attestation)",
       vct: DEGREE_SD_JWT_VCT,
       claimPaths: DEGREE_SD_JWT_CLAIMS,
+    },
+    {
+      id: numericSdJwtCredentialConfigurationId(config, "key-attestation-required"),
+      scope: "urn:credimi:numeric-claims:1.sd-jwt.key-attestation-required",
+      format: "dc+sd-jwt",
+      proofPolicy: "key-attestation-required",
+      displayName:
+        "Credimi test numeric claims (SD-JWT VC, JWT or attestation proof, key attestation required)",
+      vct: NUMERIC_SD_JWT_VCT,
+      claimPaths: NUMERIC_SD_JWT_CLAIMS,
+    },
+    {
+      id: numericSdJwtCredentialConfigurationId(config, "jwt-proof"),
+      scope: "urn:credimi:numeric-claims:1.sd-jwt.jwt-proof",
+      format: "dc+sd-jwt",
+      proofPolicy: "jwt-proof",
+      displayName: "Credimi test numeric claims (SD-JWT VC, JWT proof, no key attestation)",
+      vct: NUMERIC_SD_JWT_VCT,
+      claimPaths: NUMERIC_SD_JWT_CLAIMS,
     },
   ];
 }
