@@ -1852,10 +1852,12 @@ describe("capture issuer server", () => {
     });
   });
 
-  it("captures OpenID4VP request_uri POST payloads", async () => {
+  it("captures wallet metadata for a client-metadata-free OpenID4VP request_uri POST", async () => {
     const app = createApp(config);
     const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
       request_uri_method: "post",
+      response_mode: "direct_post",
+      client_metadata: null,
       dcql_query: dcqlForClaims(["family_name"]),
     });
 
@@ -1868,6 +1870,7 @@ describe("capture issuer server", () => {
     expect(requestObject.type).toBe("application/oauth-authz-req+jwt");
     const claims = decodeJwt(requestObject.text) as JsonRecord;
     expect(claims.wallet_nonce).toBe("wallet-nonce-123");
+    expect(claims.client_metadata).toBeUndefined();
 
     const capture = await getJson<VpSessionResponse>(
       app,

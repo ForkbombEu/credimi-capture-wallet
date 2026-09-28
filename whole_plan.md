@@ -225,10 +225,11 @@ exists.
 | --- | --- | --- |
 | `WS_RP_SM_RpIntegrity__013c_UF`, `WS_RP_SM_RpIntegrity__030` | An intentionally unacceptable Request Object signing algorithm and a multi-signed Request Object, respectively | 5.3 |
 | `WS_RP_IA_Metadata__011`, `__012`, `__013` | Dynamic and static discovery, including source-defined controllable SIOPv2 `aud` values | 5.9 |
-| `WS_RP_SM_RpIntegrity__021`, `WS_RP_MS_ProtocolMessages__002` | Source-defined Request Object metadata placement and protocol-message variations | 2.8 |
-| `WS_RP_MS_Metadata__105`, `__106`, `__107`, `__109` | Source-defined issuer status-list encoding and structure controls | 4.3 |
+| `WS_RP_SM_RpIntegrity__021`, `WS_RP_MS_ProtocolMessages__002` | Existing `request_mutation` and `plain` delivery controls; confirm the delivered wire evidence | 1 |
+| `WS_RP_MS_Metadata__105`, `__106`, `__107`, `__109` | Existing `client_metadata`, `request_mutation`, and POST Request URI capture controls; confirm the delivered wire evidence | 1 |
 | `WS_RP_MS_Metadata__110`, `__133`, `WS_RP_MS_ProtocolMessages__143`–`__146` | Signed `redirect_uri:` and non-DC-API `origin:` client identifiers, client-identifier prefixes, locally stored metadata, and trusted registry resolution | 5.9 |
-| `WS_RP_IA_MainInteraction__065`, `__066` | Source-defined verifier response or interaction variations, with their delivered HTTP evidence | 3.2 |
+| `WS_RP_IA_MainInteraction__065` | An AKI-based `trusted_authorities` DCQL fixture and matching credential chain | 5.8 |
+| `WS_RP_IA_MainInteraction__066` | Existing per-session verifier response without `redirect_uri`; confirm delivered HTTP evidence | 1 |
 | `WS_RP_SM_RpIntegrity__024`, `WS_RP_UC_Presentation__004` | A Wallet profile rejecting all non-`x509_hash` identifiers and an independently controllable second-device invocation path | 7 |
 
 The owning phase is not a claim that the feature is applicable or that Credo
@@ -582,18 +583,28 @@ Review:
 
 * `WS_RP_SM_RpIntegrity__021`
 * `WS_RP_MS_ProtocolMessages__002`
+* `WS_RP_MS_Metadata__105`
+* `WS_RP_MS_Metadata__106`
+* `WS_RP_MS_Metadata__107`
+* `WS_RP_MS_Metadata__109`
 
-The first requires verifier metadata outside `client_metadata` in the delivered
-Request Object. Read the second source test before selecting its control: do not
-infer it from the identifier or conflate it with a different protocol-message
-scenario.
+Confirm the existing controls before adding new code:
 
-Implement each verifier-side variation through the isolated request-mutation
-mechanism where that preserves the verifier's internal state. Capture the
-generated and delivered Request Objects and the Wallet outcome. If the source
-requires Wallet-side metadata resolution rather than a message this service can
-produce, record that as the blocking dependency instead of adding a misleading
-verifier mode.
+* `WS_RP_SM_RpIntegrity__021` and `WS_RP_MS_Metadata__109` use
+  `request_mutation` to add non-key metadata outside `client_metadata`.
+* `WS_RP_MS_ProtocolMessages__002` uses `request_delivery: "plain"` to send
+  unsigned URL-encoded Authorization Request parameters.
+* `WS_RP_MS_Metadata__105` supplies an unrecognized `client_metadata` member.
+* `WS_RP_MS_Metadata__106` uses `request_mutation` to set a non-object
+  `client_metadata` value after normal input validation.
+* `WS_RP_MS_Metadata__107` uses `client_metadata: null` and a POST Request URI;
+  `raw.request_uri_http` and `observed.request_uri_payload` preserve the
+  Wallet's retrieval request.
+
+Exercise each variation through the HTTP endpoint and record the generated and
+delivered Request Objects, Request URI retrieval where applicable, and Wallet
+outcome. Add a new control only when that evidence shows the existing mechanism
+cannot produce the exact source-defined message.
 
 
 ## Deliverable
@@ -634,7 +645,6 @@ Review:
 * `WS_RP_MS_ProtocolMessages__127`
 * `WS_RP_MS_ProtocolMessages__128`
 * `WS_RP_IA_MainInteraction__064`
-* `WS_RP_IA_MainInteraction__065`
 * `WS_RP_IA_MainInteraction__066`
 
 Implement the exact response variations required by the source tests.
@@ -763,7 +773,6 @@ Review:
 * `WS_RP_MS_CredentialFormats__029` through `__033`
 * `WS_RP_MS_CredentialFormats__044`
 * `WS_RP_MS_Metadata__081` through `__103`
-* `WS_RP_MS_Metadata__105`, `__106`, `__107`, `__109`
 
 The current status-list allocation mechanism must be reused wherever it satisfies the source tests.
 
@@ -1036,7 +1045,7 @@ Review:
 * `WS_RP_MS_ProtocolMessages__095`
 * `WS_RP_SM_TrustMechanisms__002` through `__015` — upstream has no `__014`, so enumerate the existing identifiers instead of relying on the range.
 * `WS_RP_SM_TrustMechanisms__021`
-
+* `WS_RP_IA_MainInteraction__065`
 These tests require certificate-chain, issuer-identification, or trusted-list fixtures.
 
 Distinguish the following requirements:
@@ -1085,6 +1094,20 @@ variations only when Capture Wallet can deliver the corresponding Request
 Object. This includes the controlled SIOPv2 `aud` cases, signed
 `redirect_uri:` identifiers, the non-DC-API `origin:` identifier, and the
 metadata or registry resolution paths the source specifies.
+
+Initial Phase 0 inspection of Credo-TS `0.7.2-alpha-20260924150946`
+found that its OpenID4VP request signer accepts only a DID signer, an X.509
+signer with `x509_hash` or `x509_san_dns`, or `method: "none"` for the
+unsigned `redirect_uri` prefix. The Capture Wallet API exposes the same five
+schemes. It therefore cannot yet create the signed dynamic- or static-discovery
+Request Objects required by `WS_RP_IA_Metadata__011`–`__013`.
+
+Before adding any implementation, identify a Credo-supported way to construct
+those requests. If none exists, document the limitation and obtain the
+AGENTS.md-required approval before proposing a narrowly scoped JOSE
+alternative. Do not use `request_mutation` to disguise a different client
+identifier scheme as discovery.
+
 
 Each work item MUST first establish whether its resolution happens in this
 service, in the Wallet, or through external infrastructure. Preserve the
