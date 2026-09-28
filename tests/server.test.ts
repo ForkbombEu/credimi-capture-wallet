@@ -4602,6 +4602,18 @@ describe("FCAF verifier response scenarios", () => {
     expect(response.body).toEqual({});
   });
 
+  it("returns and captures a direct-post response without redirect_uri", async () => {
+    const { response, capture } = await submitValidPresentation(createApp(scenarioConfig));
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({});
+    expect(response.body).not.toHaveProperty("redirect_uri");
+    expect(capture.raw?.presentation_response_verifier_http).toMatchObject({
+      status: 200,
+      body: "{}",
+    });
+  });
+
   it.each([
     ["an out-of-range status", { status: 600 }],
     ["a non-string body", { body: {} }],

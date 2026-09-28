@@ -234,9 +234,9 @@ the copy the verifier reasons about is never the mutated one. Evidence:
 `verification_applies` is captured as evidence and never enforced; the verifier keeps its normal
 checks in all cases.
 
-### Confirmed FCAF request variants
+### Confirmed FCAF protocol variants
 
-Existing controls cover these FCAF request variants; they do not need a
+Existing controls cover these FCAF protocol variants; they do not need a
 separate service mode:
 
 * **Client metadata:** an unrecognised member may be supplied normally; mutate
@@ -247,6 +247,9 @@ separate service mode:
   prefixes. For a plain Authorization Request, mutate only the outer client
   identifier to an HTTPS value; the deeplink then has neither `request` nor
   `request_uri`.
+* **Direct-post response:** the normal verifier response is HTTP `200` with an
+  empty JSON object and no `redirect_uri`; its exact delivered form is captured
+  in `raw.presentation_response_verifier_http`.
 
 The session capture preserves the generated request separately from the
 delivered request. Read the delivered fields and captured Wallet response to
