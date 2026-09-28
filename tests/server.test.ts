@@ -3569,6 +3569,57 @@ describe("FCAF request mutation", () => {
     expect((metadata.vp_formats_supported as JsonRecord)["dc+sd-jwt"]).toBe(42);
     expect(payload.nonce).toEqual([]);
   });
+  it("delivers defined and unrecognised client metadata members", async () => {
+    const app = createApp(scenarioConfig);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      response_mode: "direct_post",
+      client_metadata: { client_name: "ignored-by-wallet" },
+    });
+
+    const payload = decodeJwt(await deliveredRequestObject(app, session)) as JsonRecord;
+    expect((payload.client_metadata as JsonRecord).client_name).toBe("ignored-by-wallet");
+    expect((payload.client_metadata as JsonRecord).vp_formats_supported).toBeDefined();
+  });
+
+  it("delivers a non-object client_metadata value only to the Wallet", async () => {
+    const app = createApp(scenarioConfig);
+    const session = await mutatedSession(app, {
+      request_object: { set: { "/client_metadata": "not-a-json-object" } },
+    });
+
+    const payload = decodeJwt(await deliveredRequestObject(app, session)) as JsonRecord;
+    expect(payload.client_metadata).toBe("not-a-json-object");
+    expect(session.authorization_request.client_metadata).toBeDefined();
+
+    const capture = await getJson<VpSessionResponse>(
+      app,
+      `/openid4vp/sessions/${session.session_id}`,
+    );
+    expect(capture.raw?.authorization_request_delivered?.client_metadata).toBe("not-a-json-object");
+  });
+
+  it.each(["WS_RP_MS_Metadata__109", "WS_RP_SM_RpIntegrity__021"])(
+    "delivers non-key verifier metadata outside client_metadata for %s",
+    async () => {
+      const app = createApp(scenarioConfig);
+      const session = await mutatedSession(app, {
+        request_object: { set: { "/client_name": "outside-client-metadata" } },
+      });
+
+      const payload = decodeJwt(await deliveredRequestObject(app, session)) as JsonRecord;
+      expect(payload.client_name).toBe("outside-client-metadata");
+      expect(payload.client_metadata).toBeDefined();
+      expect(session.authorization_request.client_name).toBeUndefined();
+
+      const capture = await getJson<VpSessionResponse>(
+        app,
+        `/openid4vp/sessions/${session.session_id}`,
+      );
+      expect(capture.raw?.authorization_request_delivered?.client_name).toBe(
+        "outside-client-metadata",
+      );
+    },
+  );
 
   it("mutates the JOSE header of the signed Request Object", async () => {
     const app = createApp(scenarioConfig);
