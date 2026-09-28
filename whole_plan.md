@@ -214,6 +214,28 @@ A test may have multiple dependencies. Record all of them.
 Categories B and C are this plan's work. Categories A, D, E, and F are not: record them, name the owner, and stop.
 
 For every entry, state the capability in terms of observable behaviour — "the signed Request Object must omit `response_uri`", "the issued credential must carry a status list with a negative index" — not in terms of a test name. Capabilities, not tests, are what the later phases implement, and several tests usually share one.
+### 0.5 Seed ownership for currently unassigned blocked tests
+
+The current backlog already identifies the following work. Phase 0 MUST confirm
+each requirement against the upstream source, but MUST NOT leave it unassigned
+or treat its absence from an earlier phase list as evidence that the capability
+exists.
+
+| Tests | Capability or dependency to resolve | Owning phase |
+| --- | --- | --- |
+| `WS_RP_SM_RpIntegrity__013c_UF`, `WS_RP_SM_RpIntegrity__030` | An intentionally unacceptable Request Object signing algorithm and a multi-signed Request Object, respectively | 5.3 |
+| `WS_RP_IA_Metadata__011`, `__012`, `__013` | Dynamic and static discovery, including source-defined controllable SIOPv2 `aud` values | 5.9 |
+| `WS_RP_SM_RpIntegrity__021`, `WS_RP_MS_ProtocolMessages__002` | Source-defined Request Object metadata placement and protocol-message variations | 2.8 |
+| `WS_RP_MS_Metadata__105`, `__106`, `__107`, `__109` | Source-defined issuer status-list encoding and structure controls | 4.3 |
+| `WS_RP_MS_Metadata__110`, `__133`, `WS_RP_MS_ProtocolMessages__143`–`__146` | Signed `redirect_uri:` and non-DC-API `origin:` client identifiers, client-identifier prefixes, locally stored metadata, and trusted registry resolution | 5.9 |
+| `WS_RP_IA_MainInteraction__065`, `__066` | Source-defined verifier response or interaction variations, with their delivered HTTP evidence | 3.2 |
+| `WS_RP_SM_RpIntegrity__024`, `WS_RP_UC_Presentation__004` | A Wallet profile rejecting all non-`x509_hash` identifiers and an independently controllable second-device invocation path | 7 |
+
+The owning phase is not a claim that the feature is applicable or that Credo
+supports it. It is the workstream responsible for determining that from the
+source test, delivering the Capture Wallet capability when possible, or
+recording the concrete external dependency when it is not.
+
 
 ## Deliverable
 
@@ -554,6 +576,25 @@ Capture:
 * The returned signed Request Object.
 * The actual nonce in the returned object.
 * The subsequent Wallet outcome.
+## 2.8 Remaining source-defined Request Object variations
+
+Review:
+
+* `WS_RP_SM_RpIntegrity__021`
+* `WS_RP_MS_ProtocolMessages__002`
+
+The first requires verifier metadata outside `client_metadata` in the delivered
+Request Object. Read the second source test before selecting its control: do not
+infer it from the identifier or conflate it with a different protocol-message
+scenario.
+
+Implement each verifier-side variation through the isolated request-mutation
+mechanism where that preserves the verifier's internal state. Capture the
+generated and delivered Request Objects and the Wallet outcome. If the source
+requires Wallet-side metadata resolution rather than a message this service can
+produce, record that as the blocking dependency instead of adding a misleading
+verifier mode.
+
 
 ## Deliverable
 
@@ -593,6 +634,8 @@ Review:
 * `WS_RP_MS_ProtocolMessages__127`
 * `WS_RP_MS_ProtocolMessages__128`
 * `WS_RP_IA_MainInteraction__064`
+* `WS_RP_IA_MainInteraction__065`
+* `WS_RP_IA_MainInteraction__066`
 
 Implement the exact response variations required by the source tests.
 
@@ -720,6 +763,7 @@ Review:
 * `WS_RP_MS_CredentialFormats__029` through `__033`
 * `WS_RP_MS_CredentialFormats__044`
 * `WS_RP_MS_Metadata__081` through `__103`
+* `WS_RP_MS_Metadata__105`, `__106`, `__107`, `__109`
 
 The current status-list allocation mechanism must be reused wherever it satisfies the source tests.
 
@@ -860,11 +904,13 @@ Review:
 * `WS_RP_SM_RpIntegrity_CryptographicSignature_002`
 * `WS_RP_SM_RpIntegrity_CryptographicSignature_003`
 * `WS_RP_SM_RpIntegrity_CryptographicSignature_004`
+* `WS_RP_SM_RpIntegrity__013c_UF`
+* `WS_RP_SM_RpIntegrity__030`
 * `WS_RP_SM_RpIntegrity__032`
 * `WS_RP_SM_RpIntegrity__033`
 * `WS_RP_SM_RpIntegrity__034`
 
-These tests require specific signature algorithms or signing formats, including RS384 and COSE variants.
+These tests require specific signature algorithms or signing formats, including an intentionally unacceptable algorithm, multi-signature construction, RS384, and COSE variants.
 
 First inspect the installed Credo-TS version.
 
@@ -1020,6 +1066,32 @@ Use the current verifier's existing DCQL support where possible.
 Do not implement Wallet-side trusted-list resolution inside the verifier.
 
 Verify that the reference Wallet supports the required trust mechanism and has been configured with the appropriate trust anchors or list references.
+## 5.9 Discovery, client identifier, and metadata-resolution scenarios
+
+Review:
+
+* `WS_RP_IA_Metadata__011`
+* `WS_RP_IA_Metadata__012`
+* `WS_RP_IA_Metadata__013`
+* `WS_RP_MS_Metadata__110`
+* `WS_RP_MS_Metadata__133`
+* `WS_RP_MS_ProtocolMessages__143`
+* `WS_RP_MS_ProtocolMessages__144`
+* `WS_RP_MS_ProtocolMessages__145`
+* `WS_RP_MS_ProtocolMessages__146`
+
+Implement the source-defined dynamic or static discovery and client-identifier
+variations only when Capture Wallet can deliver the corresponding Request
+Object. This includes the controlled SIOPv2 `aud` cases, signed
+`redirect_uri:` identifiers, the non-DC-API `origin:` identifier, and the
+metadata or registry resolution paths the source specifies.
+
+Each work item MUST first establish whether its resolution happens in this
+service, in the Wallet, or through external infrastructure. Preserve the
+actual discovery document, metadata request and response, delivered Request
+Object, and Wallet outcome. Do not label an identifier prefix as supported
+until the Wallet receives and resolves the exact source-defined form.
+
 
 ## Deliverable
 
@@ -1144,6 +1216,8 @@ Review these tests individually:
 | `WS_RP_SM_IssuerIntegrity__012`  | Appropriate mdoc revocation fixture                                            |
 | `WS_RP_IA_MainInteraction__046`  | Large credential/presentation fixture and URL-limit conditions                 |
 | `WS_RP_IA_MainInteraction__060`  | Reassessment of exact source-test applicability and response-mode requirements |
+| `WS_RP_SM_RpIntegrity__024`      | Wallet profile that rejects every non-`x509_hash` client identifier           |
+| `WS_RP_UC_Presentation__004`     | Independently controllable second-device invocation path                       |
 
 Also review any tests from the previous phases that remain blocked by missing reference-Wallet capabilities.
 
