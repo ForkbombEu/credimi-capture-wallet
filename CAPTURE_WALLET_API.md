@@ -234,6 +234,25 @@ the copy the verifier reasons about is never the mutated one. Evidence:
 `verification_applies` is captured as evidence and never enforced; the verifier keeps its normal
 checks in all cases.
 
+### Confirmed FCAF request variants
+
+Existing controls cover these FCAF request variants; they do not need a
+separate service mode:
+
+* **Client metadata:** an unrecognised member may be supplied normally; mutate
+  `/client_metadata` to deliver a non-object value; or mutate a non-key member
+  such as `/client_name` outside `client_metadata`.
+* **Client identifiers:** mutate `/client_id` in both `request_object` and
+  `outer_request` to deliver signed `redirect_uri:`, `origin:`, or unsupported
+  prefixes. For a plain Authorization Request, mutate only the outer client
+  identifier to an HTTPS value; the deeplink then has neither `request` nor
+  `request_uri`.
+
+The session capture preserves the generated request separately from the
+delivered request. Read the delivered fields and captured Wallet response to
+evaluate the Wallet; do not infer its result from the selected mutation.
+
+
 ### Request-delivery behaviours
 
 `request_behavior` selects a variation that is not a payload value, so no pointer edit can express
