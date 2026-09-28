@@ -3888,6 +3888,40 @@ describe("FCAF request mutation", () => {
     expect(capture.raw?.authorization_request_jwt).toMatch(/^ey/);
   });
 
+  it("serves a configured HTTP error after POST Request URI retrieval and captures both sides", async () => {
+    const app = createApp(scenarioConfig);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      response_mode: "direct_post",
+      request_uri_method: "post",
+      request_behavior: {
+        request_uri_response: {
+          status: 404,
+          content_type: "text/plain",
+          body: "request unavailable",
+        },
+      },
+    });
+
+    const served = await request(app)
+      .post(new URL(String(session.request_uri)).pathname)
+      .send({});
+
+    expect(served.status).toBe(404);
+    expect(served.headers["content-type"]).toContain("text/plain");
+    expect(served.text).toBe("request unavailable");
+
+    const capture = await getJson<VpSessionResponse>(
+      app,
+      `/openid4vp/sessions/${session.session_id}`,
+    );
+    expect(capture.raw?.request_uri_http).toMatchObject({ method: "POST" });
+    expect(capture.raw?.request_uri_response_http).toMatchObject({
+      status: 404,
+      body: "request unavailable",
+    });
+    expect(capture.events.map((event) => event.type)).toContain("vp_request_retrieved");
+  });
+
   it("serves the normal Request URI response when no behaviour is selected", async () => {
     const app = createApp(scenarioConfig);
     const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
