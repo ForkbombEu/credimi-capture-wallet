@@ -3604,6 +3604,52 @@ describe("FCAF request mutation", () => {
       unknown_parameter: "present",
     });
   });
+  it.each([
+    ["redirect_uri", "redirect_uri:https://rp.example.test/callback"],
+    ["origin", "origin:https://rp.example.test"],
+    ["unsupported", "unsupported:client"],
+  ])(
+    "delivers a signed Request Object and outer request with the %s client identifier prefix",
+    async (_name, clientId) => {
+      const app = createApp(scenarioConfig);
+      const session = await mutatedSession(app, {
+        request_object: { set: { "/client_id": clientId } },
+        outer_request: { set: { "/client_id": clientId } },
+      });
+
+      expect(new URL(session.deeplink).searchParams.get("client_id")).toBe(clientId);
+      const payload = decodeJwt(await deliveredRequestObject(app, session)) as JsonRecord;
+      expect(payload.client_id).toBe(clientId);
+
+      const capture = await getJson<VpSessionResponse>(
+        app,
+        `/openid4vp/sessions/${session.session_id}`,
+      );
+      expect(capture.raw?.authorization_request_delivered?.client_id).toBe(clientId);
+      expect(capture.raw?.outer_request_delivered?.client_id).toBe(clientId);
+    },
+  );
+
+  it("delivers an unsigned HTTPS client identifier in a plain Authorization Request", async () => {
+    const app = createApp(scenarioConfig);
+    const clientId = "https://rp.example.test/client";
+    const session = await mutatedSession(
+      app,
+      { outer_request: { set: { "/client_id": clientId } } },
+      { request_delivery: "plain" },
+    );
+
+    const deeplink = new URL(session.deeplink);
+    expect(deeplink.searchParams.get("client_id")).toBe(clientId);
+    expect(deeplink.searchParams.has("request")).toBe(false);
+    expect(deeplink.searchParams.has("request_uri")).toBe(false);
+
+    const capture = await getJson<VpSessionResponse>(
+      app,
+      `/openid4vp/sessions/${session.session_id}`,
+    );
+    expect(capture.raw?.outer_request_delivered?.client_id).toBe(clientId);
+  });
 
   it("keeps verification bound to the generated request, not to the mutated one", async () => {
     const app = createApp(scenarioConfig);

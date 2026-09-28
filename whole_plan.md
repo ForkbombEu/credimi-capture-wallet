@@ -227,7 +227,8 @@ exists.
 | `WS_RP_IA_Metadata__011`, `__012`, `__013` | Dynamic and static discovery, including source-defined controllable SIOPv2 `aud` values | 5.9 |
 | `WS_RP_SM_RpIntegrity__021`, `WS_RP_MS_ProtocolMessages__002` | Existing `request_mutation` and `plain` delivery controls; confirm the delivered wire evidence | 1 |
 | `WS_RP_MS_Metadata__105`, `__106`, `__107`, `__109` | Existing `client_metadata`, `request_mutation`, and POST Request URI capture controls; confirm the delivered wire evidence | 1 |
-| `WS_RP_MS_Metadata__110`, `__133`, `WS_RP_MS_ProtocolMessages__143`–`__146` | Signed `redirect_uri:` and non-DC-API `origin:` client identifiers, client-identifier prefixes, locally stored metadata, and trusted registry resolution | 5.9 |
+| `WS_RP_MS_Metadata__110`, `__133`, `WS_RP_MS_ProtocolMessages__143`, `__144` | Existing `request_mutation` and `plain` delivery controls; confirm the delivered wire evidence | 1 |
+| `WS_RP_MS_ProtocolMessages__145`, `__146` | Wallet-local or trusted-registry verifier metadata and the required conflict response | 7 |
 | `WS_RP_IA_MainInteraction__065` | An AKI-based `trusted_authorities` DCQL fixture and matching credential chain | 5.8 |
 | `WS_RP_IA_MainInteraction__066` | Existing per-session verifier response without `redirect_uri`; confirm delivered HTTP evidence | 1 |
 | `WS_RP_SM_RpIntegrity__024`, `WS_RP_UC_Presentation__004` | A Wallet profile rejecting all non-`x509_hash` identifiers and an independently controllable second-device invocation path | 7 |
@@ -1241,6 +1242,8 @@ Review these tests individually:
 | `WS_RP_IA_MainInteraction__060`  | Reassessment of exact source-test applicability and response-mode requirements |
 | `WS_RP_SM_RpIntegrity__024`      | Wallet profile that rejects every non-`x509_hash` client identifier           |
 | `WS_RP_UC_Presentation__004`     | Independently controllable second-device invocation path                       |
+| `WS_RP_MS_ProtocolMessages__145` | Wallet-local verifier metadata for the selected Client Identifier             |
+| `WS_RP_MS_ProtocolMessages__146` | Wallet access to a trusted registry containing the selected verifier          |
 
 Also review any tests from the previous phases that remain blocked by missing reference-Wallet capabilities.
 
