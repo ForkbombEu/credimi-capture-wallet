@@ -9,7 +9,7 @@ https://github.com/ForkbombEu/credimi-capture-wallet
 
 It owns the verifier and the issuer: session creation, Authorization Request construction and signing, Request URI delivery, response verification, evidence capture, credential issuance, and credential fixtures.
 
-The FCAF harness in https://github.com/ForkbombEu/credimi owns the test definitions, scenario generation, assertions, evidence processing, and `ASSERTION_REVIEW_BACKLOG.md`. That work is **out of scope here**. This plan reads the backlog to learn which verifier and issuer capabilities are missing, and delivers those capabilities plus the evidence the assertions need. It does not write test definitions or assertions, and it does not commit to that repository.
+The FCAF harness in https://github.com/ForkbombEu/credimi owns the test definitions, scenario generation, assertions, evidence processing, and `ASSERTION_REVIEW_BACKLOG.md`. That work is **out of scope here**. This plan reads the backlog to identify the verifier and issuer capabilities the harness needs, then delivers those capabilities and the evidence they expose so FCAF tests can be implemented and run in the harness. It does not write test definitions or assertions, and it does not commit to that repository.
 
 `pkg/fcaf/CAPTURE_WALLET_API.md` in the harness repository mirrors the contract owned here by `CAPTURE_WALLET_API.md`. When the contract changes here, flag the mirror for update; do not edit it from this repository.
 
@@ -25,7 +25,7 @@ The rendered site at `conformance.eudi.dev` is a lossy view of the same content:
 
 Read the relevant test files and inspect the current implementation before making changes.
 
-The objective is not simply to increase the number of test definitions. The goal is to make additional FCAF scenarios executable and provide sufficient evidence to evaluate their assertions.
+The objective is to make additional FCAF scenarios executable from the harness and provide sufficient evidence for its assertions, not to increase the number of test definitions in this repository.
 
 Distinguish carefully between:
 
@@ -51,9 +51,9 @@ Every identifier referenced in this document has been checked against the `submi
 
 ## 2. Out of scope
 
-**DC API transport.** `response_mode=dc_api` and `response_mode=dc_api.jwt` are already implemented, documented, and covered by HTTP-level tests in this repository, together with the presentation page at `/ui/openid4vp/sessions/{sessionId}/dc_api_presentation`, origin-bound verification, and invocation-outcome capture. No DC API implementation work remains, so this plan contains none. Leave that flow alone: do not reimplement the transport, add a `transport` parameter, rename or duplicate the `deeplink` field, redesign the presentation page, or add a second DC API session-creation endpoint. Section 3.2 still applies to it — any new scenario mechanism must not weaken it.
+**DC API transport and FCAF coverage.** `response_mode=dc_api` and `response_mode=dc_api.jwt` are implemented, documented, covered by HTTP-level tests in this repository, and their FCAF tests are implemented and working in the harness. This plan contains no DC API implementation or FCAF test work. Leave that flow alone: do not reimplement the transport, add a `transport` parameter, rename or duplicate the `deeplink` field, redesign the presentation page, or add a second DC API session-creation endpoint. Section 3.2 still applies to it — any new scenario mechanism must not weaken it.
 
-**FCAF definitions, assertions, and execution.** Writing test definitions, generating scenarios, evaluating assertions, driving a browser and a reference Wallet, and updating `ASSERTION_REVIEW_BACKLOG.md` all belong to the harness repository. This plan stops at the capability and the evidence: for each missing capability it delivers the verifier or issuer behaviour plus a capture field the harness can assert on.
+**FCAF definitions, assertions, and execution.** Writing test definitions, generating scenarios, evaluating assertions, driving a browser and a reference Wallet, and updating `ASSERTION_REVIEW_BACKLOG.md` all belong to the harness repository. This plan stops at the capability and evidence boundary: for each missing capability it delivers the verifier or issuer behavior plus the observable capture field or issued-credential member that the harness can assert on.
 
 **Reference-Wallet and external trust infrastructure.** Wallet profiles, wallet capabilities, trusted lists, federation authorities, and attestation issuers are external dependencies. This plan prepares the fixtures the verifier must present and records what remains blocked; it does not stand up that infrastructure.
 
@@ -137,9 +137,9 @@ Do not push or deploy unless explicitly requested.
 
 Establish the actual remaining work in this repository before implementing new features.
 
-The backlog records a baseline of 621 upstream source tests and 584 matching Credimi definitions. The upstream count matches the `submitted` branch exactly; the definition count belongs to the harness repository and is not verified here.
+The backlog records a baseline of 621 upstream source tests and 595 matching Credimi definitions. The upstream count matches the `submitted` branch exactly; the definition count belongs to the harness repository and is not verified here.
 
-The backlog was prepared against an earlier version of this repository and still lists DC API as unavailable. The current repository is the implementation baseline.
+DC API transport is implemented and runnable in this repository, and its corresponding FCAF tests are implemented and working in the harness. Treat it as an established baseline rather than a backlog gap.
 
 This phase produces no verifier code. Its output is the list of capabilities the later phases implement.
 
