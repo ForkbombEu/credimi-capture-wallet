@@ -6,29 +6,22 @@ the source, tests, `FCAF_FIXTURES.md`, `README.md`, and `CAPTURE_WALLET_API.md`.
 
 ## Phase 0 — capability matrix
 
-The plan's machine-diffable capability matrix has not yet been produced. It must use the harness
-repository's `ASSERTION_REVIEW_BACKLOG.md` as read-only input and contain one row for every upstream
-test: its category, repository-owned capability, evidence fields, phase owner, and external
-blocker/owner.
+`FCAF_CAPABILITY_MATRIX.csv` is the committed, machine-diffable inventory of all 621 upstream
+relying-party tests. It records the source requirement, category, Capture Wallet capability,
+evidence fields, owning phase, and external blocker or owner. `FCAF_CAPABILITY_MATRIX.md` defines
+its stable columns and inputs.
+
 ### Execution sequence
 
-1. Produce and commit the Phase 0 capability matrix from every upstream
-   relying-party test, the harness backlog, and the current Capture Wallet
-   contract.
-2. Confirm category-A scenarios by recording the actual delivered request,
+1. Confirm category-A scenarios by recording the actual delivered request,
    response, credential, and evidence fields; do not add duplicate service
    controls.
-3. Group the remaining service-owned request variations behind the isolated,
-   FCAF-gated Request Object and Request URI mechanism, then implement and
-   verify it.
-4. Add the per-session verifier-response mechanism and preserve independent
-   HTTP and cryptographic-verification evidence.
-5. Add only the issuer and credential fixtures that Credo can generate and the
+2. Add only the issuer and credential fixtures that Credo can generate and the
    reference Wallet can consume.
-6. Investigate signing, discovery, encryption, and trust work through
+3. Investigate signing, discovery, encryption, and trust work through
    Credo-TS first; record external Wallet or infrastructure dependencies
    instead of substituting a custom implementation.
-7. Reassess scope, transaction-data, device-binding, and external blockers
+4. Reassess scope, transaction-data, device-binding, and external blockers
    after their shared prerequisites have been proven.
 
 Each service-owned slice is a separate commit with HTTP-level evidence, normal
