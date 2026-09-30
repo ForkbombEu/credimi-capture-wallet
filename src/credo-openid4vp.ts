@@ -666,7 +666,6 @@ function optionalAuthorizationRequestParameters(request: JsonRecord): JsonRecord
     parameters.transaction_data = encodedTransactionData(request.transaction_data);
   }
   if (request.verifier_info !== undefined) parameters.verifier_info = request.verifier_info;
-  if (request.redirect_uri !== undefined) parameters.redirect_uri = request.redirect_uri;
   return parameters;
 }
 

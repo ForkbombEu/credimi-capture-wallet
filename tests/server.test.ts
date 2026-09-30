@@ -1265,24 +1265,28 @@ describe("capture issuer server", () => {
     expect(response.body).toMatchObject({ error: "invalid_allow_undecryptable_response" });
   });
 
-  it("adds a fresh response code to a post-submission redirect URI", async () => {
-    const app = createApp(config);
-    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
-      redirect_uri: "https://rp.example.test/complete?flow=wallet",
-    });
+  it.each(["direct_post", "direct_post.jwt"] as const)(
+    "keeps the post-submission redirect URI out of a %s Request Object",
+    async (responseMode) => {
+      const app = createApp(config);
+      const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+        response_mode: responseMode,
+        redirect_uri: "https://rp.example.test/complete?flow=wallet",
+      });
 
-    const redirectUri = new URL(String(session.redirect_uri));
-    expect(redirectUri.origin).toBe("https://rp.example.test");
-    expect(redirectUri.pathname).toBe("/complete");
-    expect(redirectUri.searchParams.get("flow")).toBe("wallet");
-    expect(
-      Buffer.from(String(redirectUri.searchParams.get("response_code")), "base64url"),
-    ).toHaveLength(16);
-    const requestObject = await request(app).get(
-      `/openid4vp/sessions/${session.session_id}/request`,
-    );
-    expect((decodeJwt(requestObject.text) as JsonRecord).redirect_uri).toBe(session.redirect_uri);
-  });
+      const redirectUri = new URL(String(session.redirect_uri));
+      expect(redirectUri.origin).toBe("https://rp.example.test");
+      expect(redirectUri.pathname).toBe("/complete");
+      expect(redirectUri.searchParams.get("flow")).toBe("wallet");
+      expect(
+        Buffer.from(String(redirectUri.searchParams.get("response_code")), "base64url"),
+      ).toHaveLength(16);
+      const requestObject = await request(app).get(
+        `/openid4vp/sessions/${session.session_id}/request`,
+      );
+      expect(decodeJwt(requestObject.text) as JsonRecord).not.toHaveProperty("redirect_uri");
+    },
+  );
 
   it("records visits to the capture redirect URI template and its concrete URI", async () => {
     const app = createApp(config);

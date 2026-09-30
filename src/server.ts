@@ -1299,7 +1299,6 @@ async function createVpSession(
     ...defaultRequest,
     ...requestOverride,
     response_mode: responseMode,
-    ...(sessionRedirectUri ? { redirect_uri: sessionRedirectUri } : {}),
   };
   const requestSigningMaterial = await requestSigningMaterialOrUndefined(requestBehavior);
   const credoVerifier = await credoOpenId4VpVerifier(config);
