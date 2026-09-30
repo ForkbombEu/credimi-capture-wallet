@@ -23,6 +23,7 @@ import {
   decodeJwt,
   decodeProtectedHeader,
   exportJWK,
+  flattenedVerify,
   generateKeyPair,
   importJWK,
 } from "jose";
@@ -1896,6 +1897,102 @@ describe("capture issuer server", () => {
     });
   });
 
+  it.each([
+    ["A128GCM", "P-256"],
+    ["A256GCM", "P-384"],
+    ["A128CBC-HS256", "P-256"],
+    ["A256GCM", "X25519"],
+  ] as const)(
+    "encrypts the Request Object with %s to a %s Wallet key from wallet_metadata",
+    async (enc, crv) => {
+      const app = createApp(config);
+      const walletKey = await walletEncryptionKey(crv);
+      const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+        request_uri_method: "post",
+        response_mode: "direct_post",
+        dcql_query: dcqlForClaims(["family_name"]),
+      });
+
+      const served = await request(app)
+        .post(`/openid4vp/sessions/${session.session_id}/request`)
+        .type("form")
+        .send({
+          wallet_nonce: "wallet-nonce-123",
+          wallet_metadata: encryptingWalletMetadata(walletKey.publicJwk, enc),
+        });
+
+      expect(served.status).toBe(200);
+      expect(served.type).toBe("application/oauth-authz-req+jwt");
+      expect(served.text.split(".")).toHaveLength(5);
+      const header = decodeProtectedHeader(served.text);
+      expect(header).toMatchObject({ alg: "ECDH-ES", enc, cty: "JWT", kid: "wallet-enc-1" });
+      expect(header.epk).toMatchObject({ crv });
+      expect(header.epk).not.toHaveProperty("d");
+      const { plaintext } = await compactDecrypt(served.text, walletKey.privateKey);
+      const signedRequestObject = new TextDecoder().decode(plaintext);
+      expect(decodeProtectedHeader(signedRequestObject).typ).toBe("oauth-authz-req+jwt");
+      expect(decodeJwt(signedRequestObject).wallet_nonce).toBe("wallet-nonce-123");
+
+      const capture = await getJson<VpSessionResponse>(
+        app,
+        `/openid4vp/sessions/${session.session_id}`,
+      );
+      expect(capture.raw?.authorization_request_jwt).toBe(signedRequestObject);
+      expect(capture.raw?.authorization_request_jwe).toBe(served.text);
+      expect(
+        capture.events.find((event) => event.type === "vp_request_object_encrypted"),
+      ).toMatchObject({ detail: { alg: "ECDH-ES", enc, kid: "wallet-enc-1" } });
+    },
+  );
+
+  it.each([
+    [
+      "no content encryption list",
+      { request_object_encryption_enc_values_supported: undefined },
+      "wallet_metadata does not list request_object_encryption_enc_values_supported",
+    ],
+    [
+      "no ECDH-ES key agreement",
+      { request_object_encryption_alg_values_supported: ["ECDH-ES+A256KW"] },
+      "request_object_encryption_alg_values_supported does not include ECDH-ES",
+    ],
+    [
+      "only unsupported content encryption",
+      { request_object_encryption_enc_values_supported: ["XC20P"] },
+      "request_object_encryption_enc_values_supported lists none of A128GCM, A192GCM, A256GCM, A128CBC-HS256, A192CBC-HS384, A256CBC-HS512",
+    ],
+  ])(
+    "refuses a Request Object encryption requirement with %s",
+    async (_label, override, reason) => {
+      const app = createApp(config);
+      const walletKey = await walletEncryptionKey("P-256");
+      const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+        request_uri_method: "post",
+        response_mode: "direct_post",
+      });
+      const metadata = {
+        ...JSON.parse(encryptingWalletMetadata(walletKey.publicJwk, "A128GCM")),
+        ...override,
+      };
+
+      const served = await request(app)
+        .post(`/openid4vp/sessions/${session.session_id}/request`)
+        .type("form")
+        .send({ wallet_metadata: JSON.stringify(metadata) });
+
+      expect(served.status).toBe(400);
+      expect(served.body).toEqual({ error: "invalid_request", error_description: reason });
+      const capture = await getJson<VpSessionResponse>(
+        app,
+        `/openid4vp/sessions/${session.session_id}`,
+      );
+      expect(capture.raw?.request_uri_response_http).toMatchObject({ status: 400 });
+      expect(
+        capture.events.find((event) => event.type === "vp_request_object_encryption_unsupported"),
+      ).toMatchObject({ detail: { reason } });
+    },
+  );
+
   it("captures the signed authorization request and wallet GET request_uri retrieval", async () => {
     const app = createApp(config);
     const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {});
@@ -3327,6 +3424,105 @@ describe("OpenID4VP over the Digital Credentials API", () => {
     });
   });
 
+  it("signs one DC API request under both Client Identifiers for multisigned delivery", async () => {
+    const app = createApp(dcApiConfig);
+    const session = await dcApiSession(app, { request_delivery: "multisigned" });
+
+    expect(session.request_delivery).toBe("multisigned");
+    expect(session.dc_api_request.protocol).toBe("openid4vp-v1-multisigned");
+    const jws = session.dc_api_request.data.request as {
+      payload: string;
+      signatures: { protected: string; signature: string }[];
+    };
+    expect(jws.signatures).toHaveLength(2);
+    const payload = JSON.parse(Buffer.from(jws.payload, "base64url").toString("utf8"));
+    expect(payload).not.toHaveProperty("client_id");
+    expect(payload).toMatchObject({
+      expected_origins: [dcApiOrigin],
+      response_mode: "dc_api.jwt",
+      nonce: session.authorization_request.nonce,
+    });
+
+    const verifierJwks = JSON.parse(readFileSync(verifierJwksPath(config.data_dir), "utf8"));
+    const didDocument = (await request(app).get("/openid4vp/did.json")).body;
+    const keys = [
+      await importJWK(verifierJwks.keys[0], "ES256"),
+      await importJWK(didDocument.verificationMethod[0].publicKeyJwk, "ES256"),
+    ];
+    const headers = await Promise.all(
+      jws.signatures.map(async (signature, index) => {
+        const verified = await flattenedVerify({ payload: jws.payload, ...signature }, keys[index]);
+        return verified.protectedHeader;
+      }),
+    );
+    expect(headers[0]).toMatchObject({
+      alg: "ES256",
+      typ: "oauth-authz-req+jwt",
+      client_id: session.authorization_request.client_id,
+      x5c: [expect.any(String)],
+    });
+    expect(headers[1]).toMatchObject({
+      alg: "ES256",
+      typ: "oauth-authz-req+jwt",
+      client_id: `decentralized_identifier:${didDocument.id}`,
+      kid: `${didDocument.id}#credimi-fake-verifier-did-key`,
+    });
+  });
+
+  it("verifies a presentation answering a multisigned DC API request", async () => {
+    const app = createApp(dcApiConfig);
+    const session = await dcApiSession(app, { request_delivery: "multisigned" });
+    const presentation = await sdJwtPresentation({
+      credential: await sdJwtCredential(),
+      authorizationRequest: session.authorization_request,
+      disclosedClaims: ["family_name"],
+      audience: `origin:${dcApiOrigin}`,
+    });
+
+    const response = await request(app)
+      .post(`/openid4vp/sessions/${session.session_id}/response`)
+      .send({
+        response: await encryptedAuthorizationResponse(session.authorization_request, {
+          vp_token: { query_0: [presentation] },
+        }),
+      });
+
+    expect(response.status).toBe(200);
+    const capture = await getJson<VpSessionResponse>(
+      app,
+      `/openid4vp/sessions/${session.session_id}`,
+    );
+    expect(capture.status).toBe("presentation_validated");
+  });
+
+  it.each([
+    [
+      { response_mode: "direct_post", request_delivery: "multisigned" },
+      "multisigned_request_delivery_requires_dc_api",
+    ],
+    [
+      { request_delivery: "multisigned", client_id_scheme: "decentralized_identifier" },
+      "client_id_scheme_unsupported_for_multisigned",
+    ],
+    [
+      {
+        request_delivery: "multisigned",
+        presentation_request: {
+          dcql_query: dcqlForClaims(["family_name"]),
+          verifier_info: [{ format: "jwt", data: "eyJ.e30.sig" }],
+        },
+      },
+      "verifier_info_unsupported_for_multisigned",
+    ],
+  ])("rejects a multisigned request it cannot sign faithfully: %o", async (body, error) => {
+    const response = await request(createApp(dcApiConfig))
+      .post("/openid4vp/sessions")
+      .send({ response_mode: "dc_api.jwt", ...body });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ error });
+  });
+
   it("rejects a DC API presentation bound to the client_id instead of the origin", async () => {
     const app = createApp(dcApiConfig);
     const session = await dcApiSession(app);
@@ -3476,6 +3672,27 @@ describe("OpenID4VP over the Digital Credentials API", () => {
     expect(second.body.error).toBe("invalid_presentation");
   });
 });
+/** A Wallet encryption key pair whose public half a POST Request URI `wallet_metadata` carries. */
+async function walletEncryptionKey(
+  crv: "P-256" | "P-384" | "X25519",
+): Promise<{ publicJwk: JWK; privateKey: KeyLike }> {
+  const { publicKey, privateKey } = await generateKeyPair("ECDH-ES", { crv, extractable: true });
+  return {
+    publicJwk: { ...(await exportJWK(publicKey)), kid: "wallet-enc-1", use: "enc", alg: "ECDH-ES" },
+    privateKey,
+  };
+}
+
+/** OpenID4VP Section 5.10 `wallet_metadata` from a Wallet that requires an encrypted Request Object. */
+function encryptingWalletMetadata(publicJwk: JWK, enc: string): string {
+  return JSON.stringify({
+    vp_formats_supported: { "dc+sd-jwt": { "sd-jwt_alg_values": ["ES256"] } },
+    jwks: { keys: [publicJwk] },
+    request_object_encryption_alg_values_supported: ["ECDH-ES"],
+    request_object_encryption_enc_values_supported: [enc],
+  });
+}
+
 async function postJson<T>(app: Express, path: string, body: object): Promise<T> {
   const response = await request(app).post(path).send(body);
   expect(response.status).toBeLessThan(400);
@@ -3871,6 +4088,33 @@ describe("FCAF request mutation", () => {
       .send({ wallet_nonce: "wallet-supplied-nonce" });
 
     expect(decodeJwt(served.text).wallet_nonce).toBe("wallet-supplied-nonce");
+  });
+
+  it("serves a plain signed Request Object to a Wallet that requires encryption", async () => {
+    const app = createApp(scenarioConfig);
+    const walletKey = await walletEncryptionKey("P-256");
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      response_mode: "direct_post",
+      request_uri_method: "post",
+      request_behavior: { request_object_encryption: "none" },
+    });
+
+    const served = await request(app)
+      .post(new URL(String(session.request_uri)).pathname)
+      .type("form")
+      .send({ wallet_metadata: encryptingWalletMetadata(walletKey.publicJwk, "A128GCM") });
+
+    expect(served.status).toBe(200);
+    expect(served.text.split(".")).toHaveLength(3);
+    expect(decodeProtectedHeader(served.text).typ).toBe("oauth-authz-req+jwt");
+    const capture = await getJson<VpSessionResponse>(
+      app,
+      `/openid4vp/sessions/${session.session_id}`,
+    );
+    expect(capture.raw).not.toHaveProperty("authorization_request_jwe");
+    expect(capture.events.map((event) => event.type)).toContain(
+      "vp_request_object_encryption_skipped",
+    );
   });
 
   it("serves the Request URI with a deliberately wrong status, media type, and body", async () => {
@@ -5046,6 +5290,7 @@ interface VpSessionResponse extends JsonRecord {
   events: Array<{ type: string; detail: JsonRecord }>;
   raw?: {
     authorization_request_jwt?: string;
+    authorization_request_jwe?: string;
     authorization_request_delivered?: JsonRecord;
     outer_request_delivered?: JsonRecord;
     request_uri_response_http?: { status: number; headers: JsonRecord; body: string };

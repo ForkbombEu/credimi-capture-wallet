@@ -308,6 +308,12 @@ export interface VpRequestBehavior {
   wallet_nonce?: "echo" | "mismatch" | "omit";
   /** Serve the Request URI with a specific status, media type, or body. */
   request_uri_response?: VpRequestUriResponseBehavior;
+  /**
+   * Serve the signed Request Object unencrypted even when the Wallet's POST Request URI
+   * `wallet_metadata` supplied encryption keys, so a Wallet that requires encryption receives a
+   * plain JWS.
+   */
+  request_object_encryption?: "none";
 }
 
 /**
@@ -324,7 +330,16 @@ export interface VpResponseScenario {
   extra_parameters?: JsonRecord;
 }
 
-export type VpDcApiProtocol = "openid4vp-v1-signed" | "openid4vp-v1-unsigned";
+export type VpDcApiProtocol =
+  | "openid4vp-v1-signed"
+  | "openid4vp-v1-multisigned"
+  | "openid4vp-v1-unsigned";
+
+/**
+ * How the request reaches the Wallet. `multisigned` is a DC API JWS JSON Serialization request
+ * signed under more than one Client Identifier (OpenID4VP Appendix A.3.2.2).
+ */
+export type VpRequestDelivery = "by_reference" | "by_value" | "plain" | "multisigned";
 
 /** Browser invocation request handed to `navigator.credentials.get({ digital: { requests } })`. */
 export interface VpDcApiRequest {
@@ -360,7 +375,7 @@ export interface VpDcApiCapture {
 export interface VpSessionCapture {
   session_id: string;
   status: string;
-  request_delivery: "by_reference" | "by_value" | "plain";
+  request_delivery: VpRequestDelivery;
   response_mode: OpenId4VpResponseMode;
   /**
    * The verifier's own view of the request. When a `request_mutation` is applied this stays the
@@ -407,6 +422,12 @@ export interface VpSessionCapture {
   raw?: {
     authorization_request?: JsonRecord;
     authorization_request_jwt?: string;
+    /**
+     * The encrypted Request Object served to the Wallet when its POST Request URI
+     * `wallet_metadata` supplied an encryption key. `authorization_request_jwt` is the signed JWT
+     * it encloses.
+     */
+    authorization_request_jwe?: string;
     /** The mutated Request Object payload actually signed and delivered, when it differs. */
     authorization_request_delivered?: JsonRecord;
     /** Deeplink query parameters, or DC API `data`, as delivered to the wallet. */

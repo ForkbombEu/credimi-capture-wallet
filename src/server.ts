@@ -71,6 +71,7 @@ import {
   requestMutationOrNull,
   requestMutationPointers,
 } from "./request-mutation.js";
+import { negotiateRequestObjectEncryption } from "./request-object-encryption.js";
 import { responseScenarioOrNull } from "./response-scenario.js";
 import { CaptureStore, asStringOrNull } from "./state.js";
 import { STATUS_REFERENCE_FIXTURES, statusReferenceFixtureOrNull } from "./status-reference.js";
@@ -90,6 +91,7 @@ import type {
   VpDcApiInvocationCapture,
   VpDcApiInvocationOutcome,
   VpRequestBehavior,
+  VpRequestDelivery,
   VpRequestMutation,
   VpResponseScenario,
   VpSessionCapture,
@@ -696,6 +698,23 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       if (selectedClientIdScheme === "redirect_uri" && selectedRequestDelivery !== "plain") {
         return res.status(400).json({ error: "redirect_uri_client_id_requires_plain_delivery" });
       }
+      if (selectedRequestDelivery === "multisigned") {
+        if (!dcApi) {
+          return res.status(400).json({ error: "multisigned_request_delivery_requires_dc_api" });
+        }
+        if (clientIdScheme && clientIdScheme !== "x509_hash") {
+          return res.status(400).json({ error: "client_id_scheme_unsupported_for_multisigned" });
+        }
+        if (
+          requestBehavior?.signature ||
+          requestBehavior?.signing_key ||
+          requestBehavior?.certificate_chain ||
+          requestMutation?.request_object_header ||
+          verifierAttestation
+        ) {
+          return res.status(400).json({ error: "signature_behavior_unsupported_for_multisigned" });
+        }
+      }
       if (clientMetadata === null && isEncryptedResponseMode(selectedResponseMode)) {
         return res.status(400).json({ error: "client_metadata_required_for_encrypted_response" });
       }
@@ -704,10 +723,18 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
           .status(400)
           .json({ error: "allow_undecryptable_response_requires_client_metadata" });
       }
-      const requestOverride = {
+      const requestOverride: JsonRecord = {
         ...(objectOrNull(body.presentation_request) ?? vpRequestBody(body)),
         ...(body.response_type !== undefined ? { response_type: body.response_type } : {}),
       };
+      // Appendix A.3.2.2 binds `verifier_info` to one signature's Client Identifier, and a
+      // caller-supplied attestation names only one of the two this request is signed under.
+      if (
+        selectedRequestDelivery === "multisigned" &&
+        requestOverride.verifier_info !== undefined
+      ) {
+        return res.status(400).json({ error: "verifier_info_unsupported_for_multisigned" });
+      }
       const session = await createVpSession(
         config,
         store,
@@ -885,7 +912,37 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       const requestObject = store.vpCredoAuthorizationRequestJwts.get(session.session_id);
       if (!requestObject) return res.status(404).json({ error: "vp_request_not_found" });
       session.raw.authorization_request_jwt = requestObject;
-      return sendRequestUriResponse(res, session, requestObject);
+      // Section 5.10: `jwks` in `wallet_metadata` asks for the Request Object to be encrypted.
+      const negotiation = negotiateRequestObjectEncryption(body.wallet_metadata);
+      if (negotiation.status === "not_requested") {
+        return sendRequestUriResponse(res, session, requestObject);
+      }
+      if (session.request_behavior?.request_object_encryption === "none") {
+        store.addEvent(session, "vp_request_object_encryption_skipped", {});
+        return sendRequestUriResponse(res, session, requestObject);
+      }
+      if (negotiation.status === "unsupported") {
+        store.addEvent(session, "vp_request_object_encryption_unsupported", {
+          reason: negotiation.reason,
+        });
+        return sendRequestUriResponse(
+          res,
+          session,
+          JSON.stringify({ error: "invalid_request", error_description: negotiation.reason }),
+          { status: 400, contentType: "application/json" },
+        );
+      }
+      const { encryption } = negotiation;
+      const encryptedRequestObject = await (
+        await credoOpenId4VpVerifier(config)
+      ).encryptRequestObject(requestObject, encryption);
+      session.raw.authorization_request_jwe = encryptedRequestObject;
+      store.addEvent(session, "vp_request_object_encrypted", {
+        alg: encryption.alg,
+        enc: encryption.enc,
+        kid: typeof encryption.recipientJwk.kid === "string" ? encryption.recipientJwk.kid : null,
+      });
+      return sendRequestUriResponse(res, session, encryptedRequestObject);
     } catch (error) {
       return next(error);
     }
@@ -1276,7 +1333,7 @@ async function createVpSession(
   credentialConfigurationIds?: string[],
   requestUriMethod = "get",
   responseMode: OpenId4VpResponseMode = "direct_post.jwt",
-  requestDelivery: "by_reference" | "by_value" | "plain" = "by_reference",
+  requestDelivery: VpRequestDelivery = "by_reference",
   deeplinkScheme = "openid4vp://",
   redirectUri?: string,
   captureRedirect = false,
@@ -1454,10 +1511,14 @@ function sendRequestUriResponse(
   res: Response,
   session: VpSessionCapture,
   requestObject: string,
+  generated: { status: number; contentType: string } = {
+    status: 200,
+    contentType: "application/oauth-authz-req+jwt",
+  },
 ): Response {
   const behavior = session.request_behavior?.request_uri_response;
-  const status = behavior?.status ?? 200;
-  const contentType = behavior?.content_type ?? "application/oauth-authz-req+jwt";
+  const status = behavior?.status ?? generated.status;
+  const contentType = behavior?.content_type ?? generated.contentType;
   const body = behavior?.body ?? requestObject;
   res.once("finish", () => {
     session.raw ??= {};
@@ -1631,10 +1692,13 @@ function dcApiSubmissionRejectionOrNull(
   return null;
 }
 
-function requestDeliveryOrNull(value: unknown): "by_reference" | "by_value" | "plain" | null {
+function requestDeliveryOrNull(value: unknown): VpRequestDelivery | null {
   if (typeof value !== "string") return null;
   const normalized = value.toLowerCase();
-  return normalized === "by_reference" || normalized === "by_value" || normalized === "plain"
+  return normalized === "by_reference" ||
+    normalized === "by_value" ||
+    normalized === "plain" ||
+    normalized === "multisigned"
     ? normalized
     : null;
 }

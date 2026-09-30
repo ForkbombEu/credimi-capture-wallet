@@ -19,6 +19,7 @@ import type {
   SessionCapture,
   StatusReferenceFixture,
   VpDcApiCapture,
+  VpRequestDelivery,
   VpSessionCapture,
 } from "./types.js";
 
@@ -157,7 +158,7 @@ export class CaptureStore {
   createVpSession(
     sessionId: string,
     authorizationRequest: JsonRecord,
-    requestDelivery: "by_reference" | "by_value" | "plain",
+    requestDelivery: VpRequestDelivery,
     requestUriMethod: string,
     responseMode: OpenId4VpResponseMode,
     deeplinkScheme: string,

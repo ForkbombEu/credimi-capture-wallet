@@ -122,7 +122,7 @@ The credential request normally uses `application/json` with `credential_configu
 | `request_uri_method` | Any string; OpenID4VP defines case-sensitive `get`, `post` | `get` |
 | `client_id_scheme` | `x509_hash`, `x509_san_dns`, `decentralized_identifier`, `verifier_attestation`, `redirect_uri` | `x509_hash` |
 | `verifier_attestation` | Object; requires `client_id_scheme: "verifier_attestation"` | Attestation with the real subject, the fixture issuer, and no `redirect_uris` |
-| `request_delivery` | `by_reference`, `by_value`, `plain` | `by_reference` |
+| `request_delivery` | `by_reference`, `by_value`, `plain`, `multisigned` (DC API only) | `by_reference` |
 | `response_type` | `vp_token`, `vp_token id_token`, `code` | `vp_token` |
 | `response_mode` | `direct_post`, `direct_post.jwt`, `dc_api`, `dc_api.jwt` | `direct_post.jwt` |
 | `presentation_request` | Request-object claim overrides | — |
@@ -137,7 +137,9 @@ The credential request normally uses `application/json` with `credential_configu
 | `request_behavior` | Request-delivery behaviour that is not a payload value; test-only | — |
 | `response_scenario` | HTTP response the verifier returns after a presentation; test-only | — |
 
-`request_uri_method` is valid only with `request_delivery: "by_reference"`. The service preserves any supplied string in the deeplink, including values other than the OpenID4VP-defined, case-sensitive `get` and `post`, exclusively to create malformed requests for wallet negative tests. `by_value` supplies a signed Request Object in `request`; `plain` supplies the Authorization Request's URL-encoded parameters directly in the deeplink and omits `request`, `request_uri`, and `request_uri_method`. `response_type`, top-level DCQL, scopes, transaction data, and verifier information are used to construct the wallet-facing request. Inspect the returned `authorization_request` to confirm the exact claims.
+`request_uri_method` is valid only with `request_delivery: "by_reference"`. The service preserves any supplied string in the deeplink, including values other than the OpenID4VP-defined, case-sensitive `get` and `post`, exclusively to create malformed requests for wallet negative tests. `by_value` supplies a signed Request Object in `request`; `plain` supplies the Authorization Request's URL-encoded parameters directly in the deeplink and omits `request`, `request_uri`, and `request_uri_method`; `multisigned` applies only to the DC API response modes. `response_type`, top-level DCQL, scopes, transaction data, and verifier information are used to construct the wallet-facing request. Inspect the returned `authorization_request` to confirm the exact claims.
+
+With `request_uri_method: post`, a Wallet whose `wallet_metadata` carries `jwks` receives the signed Request Object encrypted as a Nested JWT (`alg: ECDH-ES`, `cty: JWT`) to the first public EC or X25519 key usable for ECDH-ES, using the first content encryption it lists in `request_object_encryption_enc_values_supported` among `A128GCM`, `A192GCM`, `A256GCM`, `A128CBC-HS256`, `A192CBC-HS384`, and `A256CBC-HS512`. `request_object_encryption_alg_values_supported`, when present, must include `ECDH-ES`. These are the RFC 8414 Wallet Metadata members; `authorization_encryption_*` describes the Authorization Response and is not consulted. An unmet requirement is answered `400 {"error":"invalid_request","error_description":"…"}` and recorded as `vp_request_object_encryption_unsupported`; a successful encryption is recorded as `vp_request_object_encrypted` with the JWE in `raw.authorization_request_jwe` and the enclosed signed JWT in `raw.authorization_request_jwt`.
 
 `dcql_query: null` omits the query from the request the Wallet receives, which is how a Section 5.1 scope-based request is sent: combine it with `scopes`. The Verifier keeps a query regardless, because the Authorization Response is matched against the request object this service signs, so a presentation returned for a scope-only request still verifies. The kept query appears in `authorization_request` and the delivered request in `raw.authorization_request_delivered`. Scope values are caller-supplied and resolved by the Wallet's profile; this service defines none.
 
@@ -270,6 +272,7 @@ is not valid, recorded under `request_behavior`, and logged as `vp_request_behav
 | `{"certificate_chain":"unrelated_self_signed"\|"untrusted_root"\|"incomplete_chain"}` | A generated X.509 chain replaces `x5c`: one self-signed leaf, a leaf plus an untrusted generated root, or a leaf whose issuer is absent. The request is signed by that chain's leaf key and the `x509_hash` Client Identifier is recomputed from the new leaf, so the chain is the only defect. Requires `client_id_scheme: "x509_hash"`, otherwise `certificate_chain_requires_x509_hash_client_id`. Note that the delivered Client Identifier changes, so a presentation that does arrive fails audience verification. |
 | `{"wallet_nonce":"echo"\|"mismatch"\|"omit"}` | How the POST Request URI flow answers the supplied `wallet_nonce`: echo it, return a fresh unrelated value, or leave the parameter out. `echo` is the default. The `vp_request_retrieved` event records `wallet_nonce_present`, `wallet_nonce_behavior`, and `wallet_nonce_returned`. |
 | `{"request_uri_response":{"status":…,"content_type":"…","body":"…"}}` | Serve the Request URI with a wrong status, media type, or body; each member is optional. It applies to both GET and POST Request URI retrieval. The Request Object is still generated and kept in `raw.authorization_request_jwt`; the raw retrieval and response actually delivered are recorded in `raw.request_uri_http` and `raw.request_uri_response_http`. |
+| `{"request_object_encryption":"none"}` | Serve the signed Request Object unencrypted even when the Wallet's POST Request URI `wallet_metadata` asks for encryption; recorded as `vp_request_object_encryption_skipped`. |
 
 ### Verifier response scenarios
 
@@ -300,8 +303,13 @@ separate transport field.
 
 `request_delivery` decides how the request reaches the browser rather than how it reaches a
 wallet: `by_value` — the default for DC API — produces a signed Request Object carrying `client_id`
-and `expected_origins`, `plain` produces unsigned request parameters with neither, and
-`by_reference` is rejected with `request_delivery_unsupported_for_dc_api`.
+and `expected_origins`, `multisigned` produces the same request signed under two Client
+Identifiers, `plain` produces unsigned request parameters with neither, and `by_reference` is
+rejected with `request_delivery_unsupported_for_dc_api`. `multisigned` is rejected outside the DC
+API response modes with `multisigned_request_delivery_requires_dc_api`, with a `client_id_scheme`
+other than `x509_hash` with `client_id_scheme_unsupported_for_multisigned`, with `verifier_info`
+with `verifier_info_unsupported_for_multisigned`, and with signature-altering behaviours with
+`signature_behavior_unsupported_for_multisigned`.
 `client_id_scheme: "redirect_uri"` is rejected with `client_id_scheme_unsupported_for_dc_api`
 because a signed DC API request requires a `client_id`, and `request_uri_method` is rejected with
 `request_uri_method_unsupported_for_dc_api`. A DC API request carries no `request_uri`,
@@ -321,7 +329,11 @@ because a signed DC API request requires a `client_id`, and `request_uri_method`
 
 Pass it as one entry of `navigator.credentials.get({ digital: { requests: [ ... ] } })`. For
 `plain` delivery the protocol is `openid4vp-v1-unsigned` and `data` holds the Authorization
-Request parameters themselves.
+Request parameters themselves. For `multisigned` delivery the protocol is
+`openid4vp-v1-multisigned` and `data.request` is a JWS JSON Serialization object (Appendix
+A.3.2.2): the `payload` omits `client_id`, and `signatures` holds one entry signed with the
+`x509_hash` certificate key (`x5c`) and one with the `decentralized_identifier` did:web key (`kid`),
+each carrying its `client_id` in the protected header.
 
 `deeplink` keeps its field name and string type, but for DC API it is the HTTPS URL of this
 service's presentation page rather than a wallet invocation URL. It is built from the configured
@@ -362,7 +374,7 @@ submissions.
 | Method | Path | Input | Result |
 | --- | --- | --- | --- |
 | `GET` | `/openid4vp/sessions/{sessionId}/request` | — | Signed request object with media type `application/oauth-authz-req+jwt`; marks the request as retrieved. |
-| `POST` | `/openid4vp/sessions/{sessionId}/request` | Form payload; `wallet_nonce` is recognized and other fields are captured | Signed request object. Use only for a session with `request_uri_method: post`. |
+| `POST` | `/openid4vp/sessions/{sessionId}/request` | Form payload; `wallet_nonce` and `wallet_metadata` are recognized and other fields are captured | Signed request object, encrypted when `wallet_metadata` carries `jwks`; `400 invalid_request` when that encryption requirement cannot be met. Use only for a session with `request_uri_method: post`. |
 | `POST` | `/openid4vp/sessions/{sessionId}/response` | Form-encoded wallet response | Captures and verifies the response for that session. `200` means valid; `400` returns `invalid_presentation` and verification errors. |
 | `POST` | `/openid4vp/response` | Form-encoded wallet response with required `state` | Alternative direct-post endpoint; `state` selects the session. |
 

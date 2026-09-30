@@ -1,4 +1,5 @@
 import {
+  type JsonWebKey as NodeJsonWebKey,
   createPrivateKey,
   createPublicKey,
   randomBytes,
@@ -23,6 +24,7 @@ import {
   type FileSystem,
   InjectionSymbols,
   JsonEncoder,
+  JwsService,
   Kms,
   LogLevel,
   type Module,
@@ -31,6 +33,7 @@ import {
   RecordDuplicateError,
   RecordNotFoundError,
   type StorageService,
+  TypedArrayEncoder,
   X509Certificate,
   X509Module,
 } from "@credo-ts/core";
@@ -54,6 +57,7 @@ import {
   verifierDidPrivateJwkPath,
   verifierPrivateJwkPath,
 } from "./config.js";
+import { ecdhEsEncrypt, isEcdhEsContentEncryption } from "./kms-encryption.js";
 import {
   type OpenId4VpClientIdScheme,
   dcApiPresentationUrl,
@@ -61,11 +65,14 @@ import {
   isEncryptedResponseMode,
   isOpenId4VpResponseMode,
   signPresentationAuthorizationRequest,
+  verifierCertificateBase64Der,
+  verifierClientIdentifiers,
   verifierOrigin,
 } from "./openid4vp.js";
 import { corruptJwsSignature } from "./request-behavior.js";
 import { x509HashClientId } from "./request-certificates.js";
 import { applyRequestMutationEdits } from "./request-mutation.js";
+import type { RequestObjectEncryption } from "./request-object-encryption.js";
 import type {
   AppConfig,
   JsonRecord,
@@ -73,6 +80,7 @@ import type {
   RequestSigningMaterial,
   VpDcApiRequest,
   VpRequestBehavior,
+  VpRequestDelivery,
   VpRequestMutation,
   VpSessionCapture,
   VpVerifierAttestation,
@@ -215,7 +223,7 @@ export class CredoOpenId4VpVerifier {
     request: JsonRecord,
     verifierDcqlQuery: JsonRecord,
     requestUriMethod: string,
-    requestDelivery: "by_reference" | "by_value" | "plain",
+    requestDelivery: VpRequestDelivery,
     deeplinkScheme: string,
     clientMetadata: JsonRecord | null | undefined,
     clientIdScheme: OpenId4VpClientIdScheme,
@@ -356,9 +364,17 @@ export class CredoOpenId4VpVerifier {
         : signedDeliveredRequest;
     if (authorizationRequestJwt)
       created.verificationSession.authorizationRequestJwt = authorizationRequestJwt;
+    const multiSignedRequest =
+      requestDelivery === "multisigned"
+        ? await this.multiSignedRequest(deliveredRequest)
+        : undefined;
     const outerRequest = applyRequestMutationEdits(
       dcApi
-        ? dcApiBrowserRequest(deliveredRequest, deliveredAuthorizationRequestJwt).data
+        ? dcApiBrowserRequest(
+            deliveredRequest,
+            deliveredAuthorizationRequestJwt,
+            multiSignedRequest,
+          ).data
         : outerRequestParameters(
             deliveredRequest,
             requestDelivery,
@@ -386,7 +402,11 @@ export class CredoOpenId4VpVerifier {
       ...(dcApi
         ? {
             dcApiRequest: {
-              ...dcApiBrowserRequest(deliveredRequest, deliveredAuthorizationRequestJwt),
+              ...dcApiBrowserRequest(
+                deliveredRequest,
+                deliveredAuthorizationRequestJwt,
+                multiSignedRequest,
+              ),
               data: outerRequest,
             },
             expectedOrigin,
@@ -488,6 +508,102 @@ export class CredoOpenId4VpVerifier {
     });
   }
 
+  /**
+   * Encrypts a signed Request Object to the Wallet key negotiated from its `wallet_metadata`, as a
+   * Nested JWT (RFC 9101 Section 4, RFC 7519 Section 5.2). Credo's KMS performs the ECDH-ES key
+   * agreement and content encryption with a fresh ephemeral key; its OpenID4VP verifier API has no
+   * Request Object encryption, and its JWE callback omits the `cty` a Nested JWT requires, so only
+   * the JOSE header and compact serialization are assembled here.
+   */
+  async encryptRequestObject(
+    requestObject: string,
+    encryption: RequestObjectEncryption,
+  ): Promise<string> {
+    const recipient = encryption.recipientJwk;
+    const kms = this.agent.kms;
+    const ephemeral = await kms.createKey({
+      type: { kty: recipient.kty, crv: recipient.crv } as Kms.KmsCreateKeyType,
+    });
+    try {
+      const { kty, crv, x, y } = ephemeral.publicJwk as JsonRecord;
+      const header = JsonEncoder.toBase64Url({
+        alg: encryption.alg,
+        enc: encryption.enc,
+        cty: "JWT",
+        ...(typeof recipient.kid === "string" ? { kid: recipient.kid } : {}),
+        epk: { kty, crv, x, ...(y === undefined ? {} : { y }) },
+      });
+      const encrypted = await kms.encrypt({
+        key: {
+          keyAgreement: {
+            keyId: ephemeral.keyId,
+            algorithm: "ECDH-ES",
+            externalPublicJwk: recipient as Kms.KmsJwkPublicEcdh,
+          },
+        },
+        data: TypedArrayEncoder.fromUtf8String(requestObject),
+        encryption: {
+          algorithm: encryption.enc,
+          aad: TypedArrayEncoder.fromUtf8String(header),
+        } as Kms.KmsEncryptDataEncryption,
+      });
+      if (!encrypted.iv || !encrypted.tag) throw new Error("Expected JWE iv and tag");
+      return [
+        header,
+        "",
+        TypedArrayEncoder.toBase64Url(encrypted.iv),
+        TypedArrayEncoder.toBase64Url(encrypted.encrypted),
+        TypedArrayEncoder.toBase64Url(encrypted.tag),
+      ].join(".");
+    } finally {
+      await kms.deleteKey({ keyId: ephemeral.keyId });
+    }
+  }
+
+  /**
+   * Appendix A.3.2.2: one payload signed under both Client Identifiers this service holds keys
+   * for. `client_id` and `verifier_info` travel only in each signature's protected header, so they
+   * are removed from the shared payload. Credo's JWS service signs each entry with the key already
+   * imported for that identifier.
+   */
+  private async multiSignedRequest(request: JsonRecord): Promise<JsonRecord> {
+    await this.importDidSigningKey(true);
+    const { client_id: _clientId, verifier_info: _verifierInfo, ...claims } = request;
+    const payload = TypedArrayEncoder.fromUtf8String(JSON.stringify(claims));
+    const clientIds = verifierClientIdentifiers(this.config);
+    const did = verifierDid(this.config);
+    const signers = [
+      {
+        keyId: VERIFIER_KEY_ID,
+        header: {
+          x5c: [verifierCertificateBase64Der(this.config)],
+          client_id: clientIds.x509_hash,
+        },
+      },
+      {
+        keyId: VERIFIER_DID_KEY_ID,
+        header: {
+          kid: `${did}#${VERIFIER_DID_KEY_ID}`,
+          client_id: clientIds.decentralized_identifier,
+        },
+      },
+    ];
+    const jwsService = new JwsService();
+    const signatures: JsonRecord[] = [];
+    let encodedPayload = "";
+    for (const signer of signers) {
+      const jws = await jwsService.createJws(this.agent.context, {
+        payload,
+        keyId: signer.keyId,
+        header: {},
+        protectedHeaderOptions: { alg: "ES256", typ: "oauth-authz-req+jwt", ...signer.header },
+      });
+      encodedPayload = jws.payload;
+      signatures.push({ protected: jws.protected, signature: jws.signature });
+    }
+    return { payload: encodedPayload, signatures };
+  }
+
   private requestSigner(clientIdScheme: OpenId4VpClientIdScheme) {
     if (clientIdScheme === "redirect_uri") return { method: "none" as const };
     if (clientIdScheme === "decentralized_identifier") {
@@ -536,7 +652,7 @@ function normalizeAuthorizationResponse(response: JsonRecord | undefined): JsonR
  */
 function outerRequestParameters(
   authorizationRequest: JsonRecord,
-  requestDelivery: "by_reference" | "by_value" | "plain",
+  requestDelivery: VpRequestDelivery,
   requestUri: string,
   requestUriMethod: string,
   authorizationRequestJwt: string | undefined,
@@ -645,7 +761,11 @@ function responseModeFromRequest(request: JsonRecord): OpenId4VpResponseMode {
 function dcApiBrowserRequest(
   authorizationRequest: JsonRecord,
   authorizationRequestJwt: string | undefined,
+  multiSignedRequest?: JsonRecord,
 ): VpDcApiRequest {
+  if (multiSignedRequest) {
+    return { protocol: "openid4vp-v1-multisigned", data: { request: multiSignedRequest } };
+  }
   if (authorizationRequestJwt) {
     return { protocol: "openid4vp-v1-signed", data: { request: authorizationRequestJwt } };
   }
@@ -957,7 +1077,15 @@ export class NodeKmsBackend implements Kms.KeyManagementService {
     options: Kms.KmsCreateKeyOptions<Type>,
   ): Promise<Kms.KmsCreateKeyReturn<Type>> {
     const algorithm = keyPairAlgorithm(options.type);
-    const { publicKey, privateKey } = await generateKeyPair(algorithm, { extractable: true });
+    // An ephemeral ECDH-ES key must share the recipient's curve.
+    const crv =
+      algorithm === "ECDH-ES" && "crv" in options.type && typeof options.type.crv === "string"
+        ? options.type.crv
+        : undefined;
+    const { publicKey, privateKey } = await generateKeyPair(algorithm, {
+      extractable: true,
+      ...(crv ? { crv } : {}),
+    });
     const privateJwk = (await exportJWK(privateKey)) as JWK;
     const exportedPublicJwk = (await exportJWK(publicKey)) as JWK;
     const keyId = cryptoRandomId();
@@ -1012,8 +1140,32 @@ export class NodeKmsBackend implements Kms.KeyManagementService {
     return verified ? { verified: true, publicJwk: jwk as Kms.KmsJwkPublic } : { verified: false };
   }
 
-  async encrypt(): Promise<Kms.KmsEncryptReturn> {
-    throw new Error("KMS encryption is not supported by this backend");
+  /**
+   * ECDH-ES direct key agreement with the ephemeral key `keyAgreement.keyId`, which is what
+   * Credo's JWE encryption asks a backend for. Key wrapping is not implemented.
+   */
+  async encrypt(
+    _agentContext: AgentContext,
+    options: Kms.KmsEncryptOptions,
+  ): Promise<Kms.KmsEncryptReturn> {
+    const keyAgreement = "keyAgreement" in options.key ? options.key.keyAgreement : undefined;
+    if (keyAgreement?.algorithm !== "ECDH-ES") {
+      throw new Error("Only ECDH-ES key agreement encryption is supported");
+    }
+    const encryption = options.encryption;
+    if (!isEcdhEsContentEncryption(encryption.algorithm)) {
+      throw new Error(`Content encryption '${encryption.algorithm}' is not supported`);
+    }
+    return ecdhEsEncrypt({
+      privateJwk: this.requiredKey(keyAgreement.keyId) as NodeJsonWebKey,
+      recipientPublicJwk: keyAgreement.externalPublicJwk as NodeJsonWebKey,
+      enc: encryption.algorithm,
+      data: options.data,
+      aad: ("aad" in encryption ? encryption.aad : undefined) ?? new Uint8Array(),
+      apu: keyAgreement.apu,
+      apv: keyAgreement.apv,
+      iv: "iv" in encryption ? encryption.iv : undefined,
+    });
   }
 
   async decrypt(

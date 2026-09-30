@@ -374,20 +374,42 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           operationId: "postPresentationRequest",
           summary: "Retrieve request using request_uri POST",
           description:
-            "Used only when the session was created with `request_uri_method: post`. A wallet may supply `wallet_nonce`.",
+            "Used only when the session was created with `request_uri_method: post`. A wallet may supply `wallet_nonce` and `wallet_metadata`. When `wallet_metadata` carries `jwks`, the signed Request Object is returned encrypted (ECDH-ES) to the first usable key, with the content encryption the Wallet lists first in `request_object_encryption_enc_values_supported`; if the Wallet's metadata cannot be honoured the request is answered with `400 invalid_request`.",
           parameters: [sessionIdParameter],
           requestBody: {
             required: false,
             ...form({
               type: "object",
-              properties: { wallet_nonce: { type: "string" } },
+              properties: {
+                wallet_nonce: { type: "string" },
+                wallet_metadata: {
+                  type: "string",
+                  description:
+                    "JSON object of OpenID4VP Section 10 Wallet Metadata. jwks, request_object_encryption_alg_values_supported, and request_object_encryption_enc_values_supported select Request Object encryption.",
+                },
+              },
               additionalProperties: true,
             }),
           },
           responses: {
             "200": {
-              description: "Signed authorization request object.",
+              description: "Signed authorization request object, encrypted when requested.",
               content: { "application/oauth-authz-req+jwt": { schema: { type: "string" } } },
+            },
+            "400": {
+              description:
+                "The Wallet requires an encrypted Request Object this verifier cannot produce.",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      error: { type: "string", enum: ["invalid_request"] },
+                      error_description: { type: "string" },
+                    },
+                  },
+                },
+              },
             },
             "404": errorResponses["404"],
           },
@@ -1070,10 +1092,10 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             },
             request_delivery: {
               type: "string",
-              enum: ["by_reference", "by_value", "plain"],
+              enum: ["by_reference", "by_value", "plain", "multisigned"],
               default: "by_reference",
               description:
-                "Deliver a signed request object by reference or value, or a plain URL-encoded Authorization Request without request or request_uri. For the dc_api response modes this selects how the request reaches the browser instead: by_value produces a signed openid4vp-v1-signed request, plain an unsigned openid4vp-v1-unsigned one, by_reference is rejected, and the default becomes by_value.",
+                "Deliver a signed request object by reference or value, or a plain URL-encoded Authorization Request without request or request_uri. For the dc_api response modes this selects how the request reaches the browser instead: by_value produces a signed openid4vp-v1-signed request, multisigned an openid4vp-v1-multisigned request signed under both the x509_hash and decentralized_identifier Client Identifiers, plain an unsigned openid4vp-v1-unsigned one, by_reference is rejected, and the default becomes by_value. multisigned is rejected outside the dc_api response modes, with a client_id_scheme other than x509_hash, with verifier_info, and with signature-altering request behaviours.",
             },
             response_type: {
               type: "string",
@@ -1230,6 +1252,12 @@ export function openApiDocument(config: AppConfig): JsonRecord {
               },
               additionalProperties: false,
             },
+            request_object_encryption: {
+              type: "string",
+              enum: ["none"],
+              description:
+                "Serve the signed Request Object unencrypted even when the Wallet's POST Request URI wallet_metadata supplied encryption keys. Recorded as a vp_request_object_encryption_skipped event.",
+            },
             signature: {
               type: "string",
               enum: ["corrupt"],
@@ -1312,13 +1340,13 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           properties: {
             protocol: {
               type: "string",
-              enum: ["openid4vp-v1-signed", "openid4vp-v1-unsigned"],
+              enum: ["openid4vp-v1-signed", "openid4vp-v1-multisigned", "openid4vp-v1-unsigned"],
             },
             data: {
               type: "object",
               additionalProperties: true,
               description:
-                "For openid4vp-v1-signed a single request member holding the signed Request Object. For openid4vp-v1-unsigned the Authorization Request parameters themselves, without client_id or expected_origins.",
+                "For openid4vp-v1-signed a single request member holding the compact signed Request Object. For openid4vp-v1-multisigned a single request member holding the JWS JSON Serialization object: a payload without client_id and one signatures entry per Client Identifier, each carrying its client_id in the protected header. For openid4vp-v1-unsigned the Authorization Request parameters themselves, without client_id or expected_origins.",
             },
           },
         },
@@ -1340,7 +1368,13 @@ export function openApiDocument(config: AppConfig): JsonRecord {
               properties: {
                 authorization_request_jwt: {
                   type: "string",
-                  description: "Exact signed request object returned to the Wallet.",
+                  description:
+                    "Exact signed request object returned to the Wallet, or the signed JWT enclosed in authorization_request_jwe when the Request Object was encrypted.",
+                },
+                authorization_request_jwe: {
+                  type: "string",
+                  description:
+                    "Exact encrypted Request Object returned from a POST Request URI whose wallet_metadata supplied an encryption key.",
                 },
                 request_uri_http: {
                   $ref: "#/components/schemas/RequestUriHttpCapture",

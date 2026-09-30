@@ -483,7 +483,8 @@ A key-bound attestation has to bind its proof of possession to the request's `no
 Omitting the `nonce` or the `client_id` from the proof, breaking either signature, or declaring a format no profile defines are all differences in what the caller signs, so each is a change to that payload rather than a control on this service.
 
 Two related cases need nothing new: a request object signed with a key that does not match `cnf` is `request_behavior: {"signing_key": "unrelated"}`, and a missing attestation is `request_mutation` unsetting `/jwt` in the request object header.
-* `request_delivery` can be `by_reference`, `by_value`, or `plain`, default is `by_reference`. `plain` puts URL-encoded Authorization Request parameters directly in the deeplink, without `request` or `request_uri`; it cannot be combined with `request_uri_method`.
+* `request_delivery` can be `by_reference`, `by_value`, `plain`, or `multisigned`, default is `by_reference`. `plain` puts URL-encoded Authorization Request parameters directly in the deeplink, without `request` or `request_uri`; it cannot be combined with `request_uri_method`. `multisigned` is valid only for the DC API response modes; see [Digital Credentials API presentation](#digital-credentials-api-presentation).
+* With `request_uri_method: post`, a Wallet whose `wallet_metadata` carries `jwks` receives the signed Request Object encrypted as a Nested JWT (`alg: ECDH-ES`, `cty: JWT`) to the first public EC or X25519 key usable for ECDH-ES. The content encryption is the first value the Wallet lists in `request_object_encryption_enc_values_supported` among `A128GCM`, `A192GCM`, `A256GCM`, `A128CBC-HS256`, `A192CBC-HS384`, and `A256CBC-HS512`; `request_object_encryption_alg_values_supported`, when present, must include `ECDH-ES`. OpenID4VP Section 10 makes Wallet Metadata RFC 8414 metadata, so these registered members are used; `authorization_encryption_*` describes the Authorization Response and is not consulted. When the Wallet's requirement cannot be met the Request URI answers `400 {"error":"invalid_request"}` and records `vp_request_object_encryption_unsupported`. The served JWE is kept in `raw.authorization_request_jwe` and the enclosed signed JWT in `raw.authorization_request_jwt`.
 * `response_type` can be `vp_token` or `vp_token id_token` or `code`, but during presentation verification only `vp_token` is supported, default is `vp_token`
 * `response_mode` selects the presentation flow. `direct_post` and `direct_post.jwt` are the redirect-based flows, default is `direct_post.jwt`. `dc_api` and `dc_api.jwt` present over the W3C Digital Credentials API instead; see [Digital Credentials API presentation](#digital-credentials-api-presentation).
 * `dcql_query` may be `null` to omit the parameter entirely from the wallet-facing Authorization Request. The default query remains only in Credo's internal verifier session.
@@ -646,6 +647,10 @@ answers the `wallet_nonce` the Wallet supplied: `mismatch` returns a fresh unrel
 returned values are both recorded in the `vp_request_retrieved` event, so an assertion can show
 which one the Wallet acted on.
 
+`{"request_object_encryption":"none"}` serves the signed Request Object unencrypted even when the
+Wallet's POST Request URI `wallet_metadata` asks for encryption, recorded as a
+`vp_request_object_encryption_skipped` event.
+
 `{"request_uri_response":{"status":404,"content_type":"text/plain","body":"..."}}` serves the
 Request URI with a deliberately wrong retrieval response. Every member is optional and defaults to
 the normal one. The signed Request Object is still generated and kept in
@@ -714,6 +719,15 @@ curl -X POST "$BASE_URL/openid4vp/sessions" \
 
 For `plain` request delivery the protocol is `openid4vp-v1-unsigned` and `data` holds the
 Authorization Request parameters themselves, without `client_id` or `expected_origins`.
+
+`multisigned` request delivery (DC API only) produces an `openid4vp-v1-multisigned` request
+(OpenID4VP Appendix A.3.2.2): `data.request` is a JWS JSON Serialization object whose `payload`
+omits `client_id` and whose two `signatures` carry it in their protected headers, one signed by the
+`x509_hash` verifier certificate key (`x5c`) and one by the `decentralized_identifier` did:web key
+(`kid`). It is rejected outside the DC API response modes
+(`multisigned_request_delivery_requires_dc_api`), with a `client_id_scheme` other than `x509_hash`,
+with `verifier_info` (which Appendix A.3.2.2 binds to a single signature), and with
+signature-altering request behaviours.
 
 `deeplink` keeps its name and type for compatibility, but for DC API it is **not** a wallet
 deeplink: it is the HTTPS URL of this service's presentation page,

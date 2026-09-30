@@ -62,6 +62,11 @@ export function requestBehaviorOrNull(value: unknown): VpRequestBehavior | null 
       behavior.request_uri_response = requestUriResponse;
       continue;
     }
+    if (member === "request_object_encryption") {
+      if (memberValue !== "none") return null;
+      behavior.request_object_encryption = memberValue;
+      continue;
+    }
     return null;
   }
   return Object.keys(behavior).length === 0 ? null : behavior;
