@@ -78,11 +78,6 @@ condition. The unaddressed entries are:
 
 - **Digital Credentials API execution:** the transport and its corresponding FCAF tests are
   implemented and working. No DC API implementation or FCAF test work remains in this repository.
-- **Category-A FCAF execution:** the local Capture Wallet tests prove the existing FCAF scenario
-  controls, but no external Wallet run occurred on this workstation. The Credimi harness is not
-  running on `localhost:8090`, its `.env` is absent, and Docker Compose cannot resolve its required
-  runtime secrets. Provision a Credimi instance, API key, configured verifier URL, and registered
-  reference-Wallet device before invoking `make fcaf-run` with the desired `FCAF_FILTER`.
 - **Developer tools:** no additional tool is currently required; `mise.toml` declares `node`,
   `pnpm`, and `task`.
 
