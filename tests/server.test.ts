@@ -3560,6 +3560,17 @@ describe("FCAF request mutation", () => {
     expect(payload.state).toBeNull();
   });
 
+  it("delivers a controlled Request Object audience while retaining the generated static audience", async () => {
+    const app = createApp(scenarioConfig);
+    const session = await mutatedSession(app, {
+      request_object: { set: { "/aud": "https://wallet.example.invalid" } },
+    });
+
+    const payload = decodeJwt(await deliveredRequestObject(app, session)) as JsonRecord;
+    expect(payload.aud).toBe("https://wallet.example.invalid");
+    expect(session.authorization_request.aud).toBe("https://self-issued.me/v2");
+  });
+
   it("writes nested members and values of the wrong JSON type", async () => {
     const app = createApp(scenarioConfig);
     const session = await mutatedSession(app, {
