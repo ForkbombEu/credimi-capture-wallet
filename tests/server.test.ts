@@ -2788,7 +2788,7 @@ describe("capture issuer server", () => {
       .post(`${conformingIssuerPath}/credential`)
       .send({ proof: { proof_type: "jwt", jwt: unsignedJwt({ alg: "ES256", kid: "key-1" }) } });
 
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(401);
     expect(response.headers["www-authenticate"]).toContain("DPoP");
   });
 
@@ -2853,7 +2853,7 @@ describe("capture issuer server", () => {
         proofs: { jwt: [unsignedJwt({ alg: "ES256", jwk: dpop.publicJwk })] },
       });
 
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(401);
   });
 
   it("accepts independent wallet-attestation and DPoP keys at PAR", async () => {
@@ -2960,6 +2960,49 @@ describe("capture issuer server", () => {
       access_token: expect.any(String),
       token_type: "DPoP",
     });
+  });
+
+  it("accepts a Client Attestation PoP from a wallet clock up to 60 seconds ahead", async () => {
+    const app = createApp(config);
+    const clientId = "https://wallet.example.test";
+    const walletInstanceKey = await dpopKey();
+    const walletAttestation = await walletAttestationJwt(walletInstanceKey, clientId);
+
+    const pushWithClockAhead = async (seconds: number) => {
+      const session = await postJson<SessionCreateResponse>(app, "/sessions", {});
+      const offer = await getJson<CredentialOfferResponse>(
+        app,
+        new URL(session.offer_url).pathname,
+      );
+      const parPath = issuerProtocolPath(session, "/par");
+      return request(app)
+        .post(parPath)
+        .set("DPoP", await dpopProof(await dpopKey(), "POST", parPath))
+        .set("OAuth-Client-Attestation", walletAttestation)
+        .set(
+          "OAuth-Client-Attestation-PoP",
+          await walletAttestationPopJwt(walletInstanceKey, clientId, seconds),
+        )
+        .type("form")
+        .send({
+          response_type: "code",
+          client_id: clientId,
+          redirect_uri: "https://wallet.example.test/callback",
+          scope: session.credential_configuration_id,
+          issuer_state: String(offer.grants.authorization_code.issuer_state),
+          code_challenge: createHash("sha256")
+            .update(randomBytes(48).toString("base64url"))
+            .digest("base64url"),
+          code_challenge_method: "S256",
+        });
+    };
+
+    const withinSkew = await pushWithClockAhead(45);
+    expect(withinSkew.status, JSON.stringify(withinSkew.body)).toBe(201);
+
+    const beyondSkew = await pushWithClockAhead(75);
+    expect(beyondSkew.status).toBe(401);
+    expect(beyondSkew.body).toMatchObject({ error: "invalid_client" });
   });
 
   it("issues the claim set named by fixture_id, end to end", async () => {
@@ -3219,6 +3262,78 @@ describe("capture issuer server", () => {
       redacted: true,
       present: true,
     });
+  });
+
+  it("enforces the wallet's S256 PKCE at PAR and at the token endpoint", async () => {
+    const app = createApp(config);
+    const walletClientId = "https://wallet.example.test";
+    const walletRedirectUri = "https://wallet.example.test/callback";
+    const codeVerifier = randomBytes(48).toString("base64url");
+    const dpop = await dpopKey();
+    const session = await postJson<SessionCreateResponse>(app, "/sessions", {});
+    const offer = JSON.parse(
+      String(new URL(session.deeplink).searchParams.get("credential_offer")),
+    ) as CredentialOfferResponse;
+    const parPath = issuerProtocolPath(session, "/par");
+    const parRequest = {
+      response_type: "code",
+      client_id: walletClientId,
+      redirect_uri: walletRedirectUri,
+      scope: session.credential_configuration_id,
+      issuer_state: String(offer.grants.authorization_code.issuer_state),
+      state: "wallet-state",
+    };
+
+    const withoutPkce = await request(app)
+      .post(parPath)
+      .set("DPoP", await dpopProof(dpop, "POST", parPath))
+      .type("form")
+      .send(parRequest);
+    expect(withoutPkce.status).toBe(400);
+    expect(withoutPkce.body).toMatchObject({ error: "invalid_request" });
+
+    const pushed = await request(app)
+      .post(parPath)
+      .set("DPoP", await dpopProof(dpop, "POST", parPath))
+      .type("form")
+      .send({
+        ...parRequest,
+        code_challenge: createHash("sha256").update(codeVerifier).digest("base64url"),
+        code_challenge_method: "S256",
+      });
+    expect(pushed.status, JSON.stringify(pushed.body)).toBe(201);
+    const authorize = await request(app)
+      .get(issuerProtocolPath(session, "/authorize"))
+      .query({ client_id: walletClientId, request_uri: String(pushed.body.request_uri) })
+      .redirects(0);
+    const externalAuthorizationUrl = new URL(String(authorize.headers.location));
+    const autoApproval = await request(app)
+      .get(`${externalAuthorizationUrl.pathname}${externalAuthorizationUrl.search}`)
+      .redirects(0);
+    const credoCallback = new URL(String(autoApproval.headers.location));
+    const walletAuthorizationResponse = await request(app)
+      .get(`${credoCallback.pathname}${credoCallback.search}`)
+      .redirects(0);
+    const walletCallback = new URL(String(walletAuthorizationResponse.headers.location));
+
+    const tokenPath = issuerProtocolPath(session, "/token");
+    const token = await request(app)
+      .post(tokenPath)
+      .set("DPoP", await dpopProof(dpop, "POST", tokenPath))
+      .type("form")
+      .send({
+        grant_type: "authorization_code",
+        code: String(walletCallback.searchParams.get("code")),
+        code_verifier: randomBytes(48).toString("base64url"),
+        redirect_uri: walletRedirectUri,
+        client_id: walletClientId,
+      });
+    expect(token.status).toBe(400);
+    expect(token.body).toMatchObject({ error: "invalid_grant" });
+
+    const capture = await getJson<SessionCapture>(app, `/sessions/${session.session_id}`);
+    expect(capture.status).not.toBe("token_issued");
+    expect(capture.checks.pkce_valid).not.toBe(true);
   });
 
   it("rejects unknown issuance flow presets", async () => {
@@ -5122,12 +5237,17 @@ async function walletAttestationJwt(key: DpopKey, clientId: string): Promise<str
     .sign(await importJWK(privateJwk, "ES256"));
 }
 
-async function walletAttestationPopJwt(key: DpopKey, clientId: string): Promise<string> {
-  const now = Math.floor(Date.now() / 1000);
+async function walletAttestationPopJwt(
+  key: DpopKey,
+  clientId: string,
+  clockAheadSeconds = 0,
+): Promise<string> {
+  const now = Math.floor(Date.now() / 1000) + clockAheadSeconds;
   return new SignJWT({
     iss: clientId,
     aud: `${config.issuer_base_url}${conformingIssuerPath}`,
     iat: now,
+    nbf: now,
     jti: randomUUID(),
   })
     .setProtectedHeader({

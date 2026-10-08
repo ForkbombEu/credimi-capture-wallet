@@ -138,6 +138,10 @@ The DPoP combined client-authentication method is not advertised.
 The pinned Credo-TS/OpenID4VC stack accepts the OpenID4VCI 1.0 Wallet Attestation PoP
 claim set, where `exp` is optional. Signature, audience, time, client,
 proof-of-possession key, and certificate checks remain handled by Credo-TS.
+The issuer agent sets Credo's `validitySkewSeconds` to 60 seconds. Credo-TS applies it to the
+`nbf` and `exp` checks of the Wallet Attestation and Client Attestation PoP at PAR and the token
+endpoint, and to DPoP proof verification
+([credo-ts#2998](https://github.com/openwallet-foundation/credo-ts/pull/2998)).
 When initialized with issuer encryption material, the metadata also advertises optional
 Credential Request and Credential Response encryption using `ECDH-ES` and `A256GCM`.
 The service runs two Credo-TS issuer records at all times. Each has its own identifier,

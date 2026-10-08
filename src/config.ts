@@ -2,7 +2,13 @@ import { randomBytes } from "node:crypto";
 import { X509Certificate as NodeX509Certificate } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { CredoWebCrypto, Kms, X509Certificate, X509KeyUsage } from "@credo-ts/core";
+import {
+  CredoWebCrypto,
+  Kms,
+  SdJwtVcModuleConfig,
+  X509Certificate,
+  X509KeyUsage,
+} from "@credo-ts/core";
 import { exportJWK, generateKeyPair } from "jose";
 import { resolvedIssuerConfigurations } from "./configurations/registry.js";
 import { issuerAppConfig } from "./configurations/resolve-urls.js";
@@ -741,8 +747,10 @@ function createSigningContext(privateJwk: JsonRecord, keyId: string): object {
       };
     },
   };
+  const sdJwtVcConfig = new SdJwtVcModuleConfig();
   const resolve = (token: unknown) => {
     if (token === Kms.KeyManagementApi) return kms;
+    if (token === SdJwtVcModuleConfig) return sdJwtVcConfig;
     throw new Error("Unsupported Credo dependency requested while creating issuer certificate");
   };
 

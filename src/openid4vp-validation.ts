@@ -6,7 +6,7 @@ import {
   randomBytes,
   verify as verifySignature,
 } from "node:crypto";
-import { Kms, SdJwtVcService, X509ModuleConfig } from "@credo-ts/core";
+import { Kms, SdJwtVcModuleConfig, SdJwtVcService, X509ModuleConfig } from "@credo-ts/core";
 import { SignatureAlgorithm } from "@owf/cose";
 import {
   CoseKey,
@@ -281,9 +281,11 @@ function credoVerificationContext(): object {
         )
         .filter((certificate): certificate is string => typeof certificate === "string"),
   };
+  const sdJwtVcConfig = new SdJwtVcModuleConfig();
   const resolve = (token: unknown) => {
     if (token === Kms.KeyManagementApi) return kms;
     if (token === X509ModuleConfig) return x509Config;
+    if (token === SdJwtVcModuleConfig) return sdJwtVcConfig;
     throw new Error("Unsupported Credo dependency requested while verifying SD-JWT VC");
   };
   return {

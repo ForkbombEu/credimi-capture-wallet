@@ -55,6 +55,12 @@ import type {
 
 const issuers = new WeakMap<CaptureStore, Promise<CredoOpenId4VciIssuer>>();
 
+/**
+ * Allowed clock skew for the time claims Credo validates, including Wallet Attestation,
+ * Client Attestation PoP, and DPoP proofs at the issuer's authorization server.
+ */
+const VALIDITY_SKEW_SECONDS = 60;
+
 type RequestContext = {
   capture: Oid4vciHttpRequestCapture | null;
   dpop: string | undefined;
@@ -124,6 +130,7 @@ export class CredoOpenId4VciIssuer {
       config: {
         allowInsecureHttpUrls: true,
         autoUpdateStorageOnStartup: true,
+        validitySkewSeconds: VALIDITY_SKEW_SECONDS,
         logger: new ConsoleLogger(LogLevel.Error),
       },
       dependencies,
@@ -292,7 +299,6 @@ export class CredoOpenId4VciIssuer {
         "authorization_code",
         "urn:ietf:params:oauth:grant-type:pre-authorized_code",
       ],
-      response_types_supported: ["code"],
       scopes_supported: supportedCredentialsForIssuer(this.config, issuer).map(
         (credential) => credential.scope,
       ),
@@ -309,7 +315,6 @@ export class CredoOpenId4VciIssuer {
     capture: Oid4vciHttpRequestCapture | null,
     credentialRequestEvidence?: RequestContext["credentialRequestEvidence"],
   ): void {
-    if (req.path.endsWith("/par")) normalizeParResponseStatus(res);
     this.requestContext.run({ capture, dpop: req.header("DPoP"), credentialRequestEvidence }, () =>
       this.app(req, res, next),
     );
@@ -546,14 +551,6 @@ function credentialOfferByValue(byReference: string, offer: JsonRecord): string 
   deeplink.searchParams.delete("credential_offer_uri");
   deeplink.searchParams.set("credential_offer", JSON.stringify(offer));
   return deeplink.toString();
-}
-
-function normalizeParResponseStatus(res: Response): void {
-  const send = res.send.bind(res);
-  res.send = ((body: unknown) => {
-    if (res.statusCode === 200) res.status(201);
-    return send(body);
-  }) as typeof res.send;
 }
 
 function captureSessionIdFromCredo(issuanceSession: OpenId4VcIssuanceSessionRecord): string | null {
