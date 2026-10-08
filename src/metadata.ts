@@ -11,6 +11,10 @@ import {
   CREDIMI_LOGO_URL,
   DEGREE_SD_JWT_CLAIMS,
   DEGREE_SD_JWT_VCT,
+  DOMESTIC_PID_CLAIM,
+  DOMESTIC_PID_MDOC_NAMESPACE,
+  DOMESTIC_PID_SD_JWT_CLAIMS,
+  DOMESTIC_PID_SD_JWT_VCT,
   NUMERIC_SD_JWT_CLAIMS,
   NUMERIC_SD_JWT_VCT,
   PID_MDOC_CLAIMS,
@@ -31,7 +35,8 @@ export interface SupportedCredential {
   proofPolicy: CredentialProofPolicy;
   displayName: string;
   vct?: string;
-  claimPaths: readonly string[];
+  /** Full claim paths: JSON path segments for SD-JWT VC, `[namespace, element]` for mdoc. */
+  claimPaths: readonly (readonly string[])[];
 }
 
 export { PID_MDOC_DOCTYPE, PID_MDOC_NAMESPACE, PID_SD_JWT_VCT };
@@ -182,6 +187,21 @@ export function numericSdJwtCredentialConfigurationId(
   return `urn:credimi:numeric-claims:1.sd-jwt.${proofPolicy}`;
 }
 
+/** Fixed identifier, also used as scope, for a domestic PID configuration. */
+export function domesticPidCredentialConfigurationId(
+  format: CredentialFormat,
+  proofPolicy: CredentialProofPolicy,
+): string {
+  return `${DOMESTIC_PID_SD_JWT_VCT}.${credentialFormatId(format)}.${proofPolicy}`;
+}
+
+export function isDomesticPidCredential(credential: SupportedCredential): boolean {
+  return (
+    credential.id ===
+    domesticPidCredentialConfigurationId(credential.format, credential.proofPolicy)
+  );
+}
+
 export function credentialScope(
   config: AppConfig,
   format: CredentialFormat,
@@ -200,7 +220,7 @@ export function supportedCredentials(config: AppConfig): SupportedCredential[] {
       displayName:
         "Credimi Demo PID (SD-JWT VC, JWT or attestation proof, key attestation required)",
       vct: PID_SD_JWT_VCT,
-      claimPaths: PID_SD_JWT_CLAIMS,
+      claimPaths: sdJwtClaimPaths(PID_SD_JWT_CLAIMS),
     },
     {
       id: sdJwtCredentialConfigurationId(config, "jwt-proof"),
@@ -209,7 +229,7 @@ export function supportedCredentials(config: AppConfig): SupportedCredential[] {
       proofPolicy: "jwt-proof",
       displayName: "Credimi Demo PID (SD-JWT VC, JWT proof, no key attestation)",
       vct: PID_SD_JWT_VCT,
-      claimPaths: PID_SD_JWT_CLAIMS,
+      claimPaths: sdJwtClaimPaths(PID_SD_JWT_CLAIMS),
     },
     {
       id: mdocCredentialConfigurationId(config, "key-attestation-required"),
@@ -217,7 +237,7 @@ export function supportedCredentials(config: AppConfig): SupportedCredential[] {
       format: "mso_mdoc",
       proofPolicy: "key-attestation-required",
       displayName: "Credimi Demo PID (MDOC, JWT or attestation proof, key attestation required)",
-      claimPaths: PID_MDOC_CLAIMS,
+      claimPaths: mdocClaimPaths(PID_MDOC_NAMESPACE, PID_MDOC_CLAIMS),
     },
     {
       id: mdocCredentialConfigurationId(config, "jwt-proof"),
@@ -225,7 +245,7 @@ export function supportedCredentials(config: AppConfig): SupportedCredential[] {
       format: "mso_mdoc",
       proofPolicy: "jwt-proof",
       displayName: "Credimi Demo PID (MDOC, JWT proof, no key attestation)",
-      claimPaths: PID_MDOC_CLAIMS,
+      claimPaths: mdocClaimPaths(PID_MDOC_NAMESPACE, PID_MDOC_CLAIMS),
     },
     {
       id: degreeSdJwtCredentialConfigurationId(config, "key-attestation-required"),
@@ -235,7 +255,7 @@ export function supportedCredentials(config: AppConfig): SupportedCredential[] {
       displayName:
         "Credimi test degree (SD-JWT VC, JWT or attestation proof, key attestation required)",
       vct: DEGREE_SD_JWT_VCT,
-      claimPaths: DEGREE_SD_JWT_CLAIMS,
+      claimPaths: sdJwtClaimPaths(DEGREE_SD_JWT_CLAIMS),
     },
     {
       id: degreeSdJwtCredentialConfigurationId(config, "jwt-proof"),
@@ -244,7 +264,7 @@ export function supportedCredentials(config: AppConfig): SupportedCredential[] {
       proofPolicy: "jwt-proof",
       displayName: "Credimi test degree (SD-JWT VC, JWT proof, no key attestation)",
       vct: DEGREE_SD_JWT_VCT,
-      claimPaths: DEGREE_SD_JWT_CLAIMS,
+      claimPaths: sdJwtClaimPaths(DEGREE_SD_JWT_CLAIMS),
     },
     {
       id: numericSdJwtCredentialConfigurationId(config, "key-attestation-required"),
@@ -254,7 +274,7 @@ export function supportedCredentials(config: AppConfig): SupportedCredential[] {
       displayName:
         "Credimi test numeric claims (SD-JWT VC, JWT or attestation proof, key attestation required)",
       vct: NUMERIC_SD_JWT_VCT,
-      claimPaths: NUMERIC_SD_JWT_CLAIMS,
+      claimPaths: sdJwtClaimPaths(NUMERIC_SD_JWT_CLAIMS),
     },
     {
       id: numericSdJwtCredentialConfigurationId(config, "jwt-proof"),
@@ -263,7 +283,37 @@ export function supportedCredentials(config: AppConfig): SupportedCredential[] {
       proofPolicy: "jwt-proof",
       displayName: "Credimi test numeric claims (SD-JWT VC, JWT proof, no key attestation)",
       vct: NUMERIC_SD_JWT_VCT,
-      claimPaths: NUMERIC_SD_JWT_CLAIMS,
+      claimPaths: sdJwtClaimPaths(NUMERIC_SD_JWT_CLAIMS),
+    },
+    ...(["key-attestation-required", "jwt-proof"] as const).flatMap(domesticPidCredentials),
+  ];
+}
+
+function domesticPidCredentials(proofPolicy: CredentialProofPolicy): SupportedCredential[] {
+  const proofDescription =
+    proofPolicy === "jwt-proof"
+      ? "JWT proof, no key attestation"
+      : "JWT or attestation proof, key attestation required";
+  return [
+    {
+      id: domesticPidCredentialConfigurationId("dc+sd-jwt", proofPolicy),
+      scope: domesticPidCredentialConfigurationId("dc+sd-jwt", proofPolicy),
+      format: "dc+sd-jwt",
+      proofPolicy,
+      displayName: `Credimi Demo domestic PID XX (SD-JWT VC, ${proofDescription})`,
+      vct: DOMESTIC_PID_SD_JWT_VCT,
+      claimPaths: sdJwtClaimPaths(DOMESTIC_PID_SD_JWT_CLAIMS),
+    },
+    {
+      id: domesticPidCredentialConfigurationId("mso_mdoc", proofPolicy),
+      scope: domesticPidCredentialConfigurationId("mso_mdoc", proofPolicy),
+      format: "mso_mdoc",
+      proofPolicy,
+      displayName: `Credimi Demo domestic PID XX (MDOC, ${proofDescription})`,
+      claimPaths: [
+        ...mdocClaimPaths(PID_MDOC_NAMESPACE, PID_MDOC_CLAIMS),
+        ...mdocClaimPaths(DOMESTIC_PID_MDOC_NAMESPACE, [DOMESTIC_PID_CLAIM]),
+      ],
     },
   ];
 }
@@ -355,6 +405,20 @@ function credentialConfiguration(
           },
         },
       ],
+      claims: credential.claimPaths.map((path) => ({
+        path: [...path],
+        mandatory: true,
+        display: [
+          {
+            name: (path.at(-1) ?? "")
+              .split("_")
+              .filter(Boolean)
+              .map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`)
+              .join(" "),
+            locale: "en-US",
+          },
+        ],
+      })),
     },
     cryptographic_binding_methods_supported:
       credential.format === "mso_mdoc" ? ["cose_key"] : ["jwk"],
@@ -362,59 +426,15 @@ function credentialConfiguration(
     proof_types_supported: proofTypesSupported,
   };
 
-  if (credential.format === "mso_mdoc") {
-    return {
-      ...common,
-      doctype: PID_MDOC_DOCTYPE,
-      credential_metadata: {
-        ...common.credential_metadata,
-        claims: pidClaimDescriptions(PID_MDOC_CLAIMS, (claim) => [PID_MDOC_NAMESPACE, claim]),
-      },
-    };
-  }
-
-  return {
-    ...common,
-    vct: credential.vct,
-    credential_metadata: {
-      ...common.credential_metadata,
-      claims: pidClaimDescriptions(credential.claimPaths, sdJwtClaimPath),
-    },
-  };
+  return credential.format === "mso_mdoc"
+    ? { ...common, doctype: PID_MDOC_DOCTYPE }
+    : { ...common, vct: credential.vct };
 }
 
-function pidClaimDescriptions(
-  claims: readonly string[],
-  pathForClaim: (claim: string) => string[],
-): Array<{
-  path: string[];
-  mandatory: boolean;
-  display: Array<{ name: string; locale: string }>;
-}> {
-  return claims.map((claim) => ({
-    path: pathForClaim(claim),
-    mandatory: true,
-    display: [
-      {
-        name: claimDisplayName(claim),
-        locale: "en-US",
-      },
-    ],
-  }));
+function sdJwtClaimPaths(claims: readonly string[]): string[][] {
+  return claims.map((claim) => claim.split("."));
 }
 
-function sdJwtClaimPath(claim: string): string[] {
-  return claim.split(".");
-}
-
-function claimDisplayName(claim: string): string {
-  return (
-    claim
-      .split(".")
-      .at(-1)
-      ?.split("_")
-      .filter(Boolean)
-      .map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`)
-      .join(" ") ?? claim
-  );
+function mdocClaimPaths(namespace: string, elements: readonly string[]): string[][] {
+  return elements.map((element) => [namespace, element]);
 }

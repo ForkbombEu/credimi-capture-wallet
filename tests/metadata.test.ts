@@ -5,6 +5,9 @@ import { euPidJwtProofOnly } from "../src/configurations/eu-pid-jwt-proof-only/i
 import {
   DEGREE_SD_JWT_CLAIMS,
   DEGREE_SD_JWT_VCT,
+  DOMESTIC_PID_MDOC_NAMESPACE,
+  DOMESTIC_PID_SD_JWT_CLAIMS,
+  DOMESTIC_PID_SD_JWT_VCT,
   NUMERIC_SD_JWT_CLAIMS,
   NUMERIC_SD_JWT_VCT,
   PID_MDOC_CLAIMS,
@@ -17,6 +20,7 @@ import { CREDIMI_LOGO_URL } from "../src/credential.js";
 import {
   credentialIssuerMetadata,
   degreeSdJwtCredentialConfigurationId,
+  domesticPidCredentialConfigurationId,
   jwtVcIssuerMetadata,
   mdocCredentialConfigurationId,
   numericSdJwtCredentialConfigurationId,
@@ -55,6 +59,14 @@ describe("metadata", () => {
         "urn:credimi:numeric-claims:1.sd-jwt.key-attestation-required",
       [numericSdJwtCredentialConfigurationId(DEFAULT_CONFIG, "jwt-proof")]:
         "urn:credimi:numeric-claims:1.sd-jwt.jwt-proof",
+      [domesticPidCredentialConfigurationId("dc+sd-jwt", "key-attestation-required")]:
+        "urn:eudi:pid:xx:1.sd-jwt.key-attestation-required",
+      [domesticPidCredentialConfigurationId("mso_mdoc", "key-attestation-required")]:
+        "urn:eudi:pid:xx:1.mdoc.key-attestation-required",
+      [domesticPidCredentialConfigurationId("dc+sd-jwt", "jwt-proof")]:
+        "urn:eudi:pid:xx:1.sd-jwt.jwt-proof",
+      [domesticPidCredentialConfigurationId("mso_mdoc", "jwt-proof")]:
+        "urn:eudi:pid:xx:1.mdoc.jwt-proof",
     };
 
     expect(
@@ -123,12 +135,16 @@ describe("metadata", () => {
       mdocCredentialConfigurationId(DEFAULT_CONFIG, "key-attestation-required"),
       degreeSdJwtCredentialConfigurationId(DEFAULT_CONFIG, "key-attestation-required"),
       numericSdJwtCredentialConfigurationId(DEFAULT_CONFIG, "key-attestation-required"),
+      domesticPidCredentialConfigurationId("dc+sd-jwt", "key-attestation-required"),
+      domesticPidCredentialConfigurationId("mso_mdoc", "key-attestation-required"),
     ]);
     expect(Object.keys(jwtOnlyConfigurations)).toEqual([
       sdJwtCredentialConfigurationId(DEFAULT_CONFIG, "jwt-proof"),
       mdocCredentialConfigurationId(DEFAULT_CONFIG, "jwt-proof"),
       degreeSdJwtCredentialConfigurationId(DEFAULT_CONFIG, "jwt-proof"),
       numericSdJwtCredentialConfigurationId(DEFAULT_CONFIG, "jwt-proof"),
+      domesticPidCredentialConfigurationId("dc+sd-jwt", "jwt-proof"),
+      domesticPidCredentialConfigurationId("mso_mdoc", "jwt-proof"),
     ]);
     const keyAttestationRequired = {
       jwt: {
@@ -200,6 +216,34 @@ describe("metadata", () => {
     expect(claims.map((claim) => claim.path)).toEqual(
       PID_MDOC_CLAIMS.map((claim) => [PID_MDOC_NAMESPACE, claim]),
     );
+  });
+
+  it("advertises the domestic PID with its domestic type and namespace", () => {
+    const metadata = credentialIssuerMetadata(DEFAULT_CONFIG, euPidJwtProofOnly) as JsonRecord;
+    const configurations = metadata.credential_configurations_supported as JsonRecord;
+    const sdJwt = configurations[
+      domesticPidCredentialConfigurationId("dc+sd-jwt", "jwt-proof")
+    ] as JsonRecord;
+    const mdoc = configurations[
+      domesticPidCredentialConfigurationId("mso_mdoc", "jwt-proof")
+    ] as JsonRecord;
+    const claimPaths = (configuration: JsonRecord) =>
+      ((configuration.credential_metadata as JsonRecord).claims as JsonRecord[]).map(
+        (claim) => claim.path,
+      );
+
+    expect(sdJwt.vct).toBe(DOMESTIC_PID_SD_JWT_VCT);
+    expect(claimPaths(sdJwt)).toEqual(DOMESTIC_PID_SD_JWT_CLAIMS.map((claim) => claim.split(".")));
+    expect(mdoc.doctype).toBe(PID_MDOC_DOCTYPE);
+    expect(claimPaths(mdoc)).toEqual([
+      ...PID_MDOC_CLAIMS.map((claim) => [PID_MDOC_NAMESPACE, claim]),
+      [DOMESTIC_PID_MDOC_NAMESPACE, "credimi_domestic_claim"],
+    ]);
+    expect((mdoc.credential_metadata as JsonRecord).claims).toContainEqual({
+      path: [DOMESTIC_PID_MDOC_NAMESPACE, "credimi_domestic_claim"],
+      mandatory: true,
+      display: [{ name: "Credimi Domestic Claim", locale: "en-US" }],
+    });
   });
 
   it("advertises JWT VC issuer metadata for the HTTPS issuer identifier", () => {

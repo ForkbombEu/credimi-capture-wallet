@@ -11,7 +11,7 @@ import {
   verifierDidPrivateJwkPath,
   verifierPrivateJwkPath,
 } from "./config.js";
-import { PID_MDOC_CLAIMS, PID_MDOC_NAMESPACE, PID_SD_JWT_VCT } from "./credential-definitions.js";
+import { PID_SD_JWT_VCT } from "./credential-definitions.js";
 import {
   PID_MDOC_DOCTYPE,
   type SupportedCredential,
@@ -245,16 +245,9 @@ function defaultDcqlQuery(credentials: SupportedCredential[]): JsonRecord {
         credential.format === "mso_mdoc"
           ? { doctype_value: PID_MDOC_DOCTYPE }
           : { vct_values: [credential.vct ?? PID_SD_JWT_VCT] },
-      claims: defaultClaimPaths(credential),
+      claims: credential.claimPaths.map((path) => ({ path: [...path] })),
     })),
   };
-}
-
-function defaultClaimPaths(credential: SupportedCredential): Array<{ path: string[] }> {
-  if (credential.format === "mso_mdoc") {
-    return PID_MDOC_CLAIMS.map((claim) => ({ path: [PID_MDOC_NAMESPACE, claim] }));
-  }
-  return credential.claimPaths.map((claim) => ({ path: claim.split(".") }));
 }
 
 function selectedSupportedCredentials(

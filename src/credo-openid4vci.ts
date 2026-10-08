@@ -30,6 +30,8 @@ import type { ResolvedIssuerConfiguration } from "./configurations/types.js";
 import { DEGREE_SD_JWT_VCT, NUMERIC_SD_JWT_VCT } from "./credential-definitions.js";
 import {
   degreeSdJwtCredentialSignOptions,
+  domesticPidMdocCredentialSignOptions,
+  domesticPidSdJwtCredentialSignOptions,
   mdocCredentialSignOptions,
   numericSdJwtCredentialSignOptions,
   sdJwtCredentialSignOptions,
@@ -39,6 +41,7 @@ import { fakeOAuthServer } from "./fake-oauth-server.js";
 import { applyMdocStatusReferenceFixture } from "./malformed-mdoc-status.js";
 import {
   credentialIssuerMetadata,
+  isDomesticPidCredential,
   supportedCredentialById,
   supportedCredentialsForIssuer,
 } from "./metadata.js";
@@ -466,19 +469,23 @@ export class CredoOpenId4VciIssuer {
 
     const signingConfig = issuerAppConfig(this.config, issuer);
     const subject = pidFixtureSubject(pidFixtureIdOrNull(captureSession.fixture_id) ?? undefined);
+    const domesticPid = isDomesticPidCredential(credential);
     if (credential.format === "mso_mdoc") {
       return {
         type: "credentials" as const,
         format: ClaimFormat.MsoMdoc,
-        credentials: holderJwks.map((holderJwk, index) =>
-          mdocCredentialSignOptions({
+        credentials: holderJwks.map((holderJwk, index) => {
+          const signingOptions = {
             config: signingConfig,
             holderJwk,
             statusListReference: statusListReferences[index],
             statusReference: captureSession.status_reference,
             subject,
-          }),
-        ),
+          };
+          return domesticPid
+            ? domesticPidMdocCredentialSignOptions(signingOptions)
+            : mdocCredentialSignOptions(signingOptions);
+        }),
       };
     }
     return {
@@ -497,6 +504,9 @@ export class CredoOpenId4VciIssuer {
         }
         if (credential.vct === NUMERIC_SD_JWT_VCT) {
           return numericSdJwtCredentialSignOptions(signingOptions);
+        }
+        if (domesticPid) {
+          return domesticPidSdJwtCredentialSignOptions({ ...signingOptions, subject });
         }
         return sdJwtCredentialSignOptions({ ...signingOptions, subject });
       }),

@@ -164,8 +164,8 @@ The legacy root issuer no longer exists.
 
 
 The configured `--credential-configuration-id` is the base for four PID Credential
-Configuration Identifiers. Each issuer additionally offers fixed degree and numeric test
-credential configurations for DCQL conformance cases:
+Configuration Identifiers. Each issuer additionally offers fixed degree, numeric, and domestic
+PID test credential configurations for DCQL conformance cases:
 
 | Issuer | Format | Configuration ID and scope suffix | Credential type |
 | --- | --- | --- | --- |
@@ -177,12 +177,25 @@ credential configurations for DCQL conformance cases:
 | `eu-pid-jwt-proof-only` | SD-JWT VC | `urn:credimi:degree:1.sd-jwt.jwt-proof` | `vct: urn:credimi:degree:1` |
 | `eu-pid-device-bound` | SD-JWT VC | `urn:credimi:numeric-claims:1.sd-jwt.key-attestation-required` | `vct: urn:credimi:numeric-claims:1` |
 | `eu-pid-jwt-proof-only` | SD-JWT VC | `urn:credimi:numeric-claims:1.sd-jwt.jwt-proof` | `vct: urn:credimi:numeric-claims:1` |
+| `eu-pid-device-bound` | SD-JWT VC | `urn:eudi:pid:xx:1.sd-jwt.key-attestation-required` | `vct: urn:eudi:pid:xx:1` |
+| `eu-pid-device-bound` | mdoc | `urn:eudi:pid:xx:1.mdoc.key-attestation-required` | `doctype: eu.europa.ec.eudi.pid.1` |
+| `eu-pid-jwt-proof-only` | SD-JWT VC | `urn:eudi:pid:xx:1.sd-jwt.jwt-proof` | `vct: urn:eudi:pid:xx:1` |
+| `eu-pid-jwt-proof-only` | mdoc | `urn:eudi:pid:xx:1.mdoc.jwt-proof` | `doctype: eu.europa.ec.eudi.pid.1` |
 
 Each PID configuration has a unique scope formed by appending the same suffix to the
-configured credential scope. The degree and numeric configurations use the fixed scopes shown in
-the table. The duplicated configurations issue the same credential type and claims and retain the
-same `vct` or `doctype`; only the issuer and proof policy differ. The device-bound issuer and its
-key-attestation-required SD-JWT PID configuration are selected when their request fields are omitted.
+configured credential scope. The degree, numeric, and domestic PID configurations use the fixed
+scopes shown in the table. The duplicated configurations issue the same credential type and claims
+and retain the same `vct` or `doctype`; only the issuer and proof policy differ. The device-bound
+issuer and its key-attestation-required SD-JWT PID configuration are selected when their request
+fields are omitted.
+
+The domestic PID is a test-only PID with a fake national attribute, modelled on PID Rulebook
+§2.2.2. It carries every PID claim, including the selected PID fixture, plus
+`credimi_domestic_claim: "credimi-domestic-value"`. The SD-JWT VC uses the domestic type
+`urn:eudi:pid:xx:1` and discloses the claim at the top level; the mdoc keeps the PID doctype and
+namespace and adds the claim in the domestic namespace `eu.europa.ec.eudi.pid.xx.1`. `xx` is an
+ISO 3166-1 user-assigned code, so the type matches no real Member State. The service publishes no
+SD-JWT VC Type Metadata for `urn:eudi:pid:xx:1`.
 
 Start by creating a capture session for a credential configuration:
 

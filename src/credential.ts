@@ -8,6 +8,10 @@ import {
   CREDIMI_LOGO_URL,
   CREDIMI_WEBSITE,
   DEGREE_SD_JWT_VCT,
+  DOMESTIC_PID_CLAIM,
+  DOMESTIC_PID_CLAIM_VALUE,
+  DOMESTIC_PID_MDOC_NAMESPACE,
+  DOMESTIC_PID_SD_JWT_VCT,
   NUMERIC_SD_JWT_VCT,
   PID_MDOC_DOCTYPE,
   PID_MDOC_NAMESPACE,
@@ -115,6 +119,25 @@ export function sdJwtCredentialSignOptions(options: {
         "sex",
       ],
     },
+  };
+}
+
+/**
+ * The domestic PID is the PID under its domestic type `urn:eudi:pid:xx:1`, with the fake
+ * national attribute added as one more selectively disclosable top-level claim.
+ */
+export function domesticPidSdJwtCredentialSignOptions(
+  options: Parameters<typeof sdJwtCredentialSignOptions>[0],
+): SdJwtVcSignOptions {
+  const pid = sdJwtCredentialSignOptions(options);
+  return {
+    ...pid,
+    payload: {
+      ...pid.payload,
+      vct: DOMESTIC_PID_SD_JWT_VCT,
+      [DOMESTIC_PID_CLAIM]: DOMESTIC_PID_CLAIM_VALUE,
+    },
+    disclosureFrame: { _sd: [...(pid.disclosureFrame?._sd ?? []), DOMESTIC_PID_CLAIM] },
   };
 }
 
@@ -237,5 +260,22 @@ export function mdocCredentialSignOptions(options: {
     options.statusReference !== "valid"
       ? { statusReference: options.statusReference }
       : {}),
+  };
+}
+
+/**
+ * The domestic PID mdoc keeps the EU-wide PID doctype and namespace and adds the fake national
+ * attribute in the domestic namespace, as PID Rulebook §2.2.2 prescribes.
+ */
+export function domesticPidMdocCredentialSignOptions(
+  options: Parameters<typeof mdocCredentialSignOptions>[0],
+): MdocSignOptionsWithStatusReference {
+  const pid = mdocCredentialSignOptions(options);
+  return {
+    ...pid,
+    namespaces: {
+      ...pid.namespaces,
+      [DOMESTIC_PID_MDOC_NAMESPACE]: { [DOMESTIC_PID_CLAIM]: DOMESTIC_PID_CLAIM_VALUE },
+    },
   };
 }

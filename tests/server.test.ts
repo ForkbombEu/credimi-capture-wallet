@@ -44,6 +44,8 @@ import { issuerAppConfig } from "../src/configurations/resolve-urls.js";
 import {
   DEGREE_SD_JWT_CLAIMS,
   DEGREE_SD_JWT_VCT,
+  DOMESTIC_PID_MDOC_NAMESPACE,
+  DOMESTIC_PID_SD_JWT_VCT,
   NUMERIC_SD_JWT_CLAIMS,
   NUMERIC_SD_JWT_VCT,
   PID_MDOC_CLAIMS,
@@ -55,6 +57,7 @@ import {
 import { CREDIMI_LOGO_URL, issueSdJwtCredential } from "../src/credential.js";
 import {
   degreeSdJwtCredentialConfigurationId,
+  domesticPidCredentialConfigurationId,
   mdocCredentialConfigurationId,
   numericSdJwtCredentialConfigurationId,
   sdJwtCredentialConfigurationId,
@@ -379,12 +382,16 @@ describe("capture issuer server", () => {
       mdocCredentialConfigurationId(config, "key-attestation-required"),
       degreeSdJwtCredentialConfigurationId(config, "key-attestation-required"),
       numericSdJwtCredentialConfigurationId(config, "key-attestation-required"),
+      domesticPidCredentialConfigurationId("dc+sd-jwt", "key-attestation-required"),
+      domesticPidCredentialConfigurationId("mso_mdoc", "key-attestation-required"),
     ]);
     expect(Object.keys(jwtOnlyConfigurations)).toEqual([
       sdJwtCredentialConfigurationId(config, "jwt-proof"),
       mdocCredentialConfigurationId(config, "jwt-proof"),
       degreeSdJwtCredentialConfigurationId(config, "jwt-proof"),
       numericSdJwtCredentialConfigurationId(config, "jwt-proof"),
+      domesticPidCredentialConfigurationId("dc+sd-jwt", "jwt-proof"),
+      domesticPidCredentialConfigurationId("mso_mdoc", "jwt-proof"),
     ]);
     expect(
       deviceBoundConfigurations[sdJwtCredentialConfigurationId(config, "key-attestation-required")]
@@ -862,6 +869,32 @@ describe("capture issuer server", () => {
     expect((credential.claims as JsonRecord[]).map((claim) => claim.path)).toEqual(
       NUMERIC_SD_JWT_CLAIMS.map((claim) => claim.split(".")),
     );
+  });
+
+  it("creates OpenID4VP requests for the domestic PID mdoc across both namespaces", async () => {
+    const app = createApp(config);
+    const created = await request(app)
+      .post("/ui/openid4vp/sessions")
+      .type("form")
+      .send({
+        credential_configuration_id: domesticPidCredentialConfigurationId("mso_mdoc", "jwt-proof"),
+      })
+      .redirects(0);
+    const sessionId = (created.headers.location ?? "").split("/").pop() ?? "";
+
+    expect(created.status).toBe(303);
+    const requestObject = await request(app).get(`/openid4vp/sessions/${sessionId}/request`);
+    const dcqlQuery = (decodeJwt(requestObject.text) as JsonRecord).dcql_query as JsonRecord;
+    const credential = (dcqlQuery.credentials as JsonRecord[])[0];
+
+    expect(credential).toMatchObject({
+      format: "mso_mdoc",
+      meta: { doctype_value: PID_MDOC_DOCTYPE },
+    });
+    expect((credential.claims as JsonRecord[]).map((claim) => claim.path)).toEqual([
+      ...PID_MDOC_CLAIMS.map((claim) => [PID_MDOC_NAMESPACE, claim]),
+      [DOMESTIC_PID_MDOC_NAMESPACE, "credimi_domestic_claim"],
+    ]);
   });
 
   it("creates OpenID4VP sessions with a valid presentation request", async () => {
@@ -2560,6 +2593,59 @@ describe("capture issuer server", () => {
     expect(decoded.prettyClaims).toMatchObject({ vct: NUMERIC_SD_JWT_VCT, kg: 70.5 });
     expect(typeof decoded.prettyClaims.kg).toBe("number");
   });
+
+  it.each(["dc+sd-jwt", "mso_mdoc"] as const)(
+    "issues the %s domestic PID with the PID claims and the domestic claim",
+    async (format) => {
+      const app = createApp(config);
+      const session = await postJson<SessionCreateResponse>(app, "/sessions", {
+        issuer_configuration_id: jwtOnlyIssuerId,
+        credential_configuration_id: domesticPidCredentialConfigurationId(format, "jwt-proof"),
+        flow: "pre_authorized_code",
+      });
+      const dpop = await dpopKey();
+      const token = await preAuthorizedToken(app, session, dpop);
+      const holderKey = await dpopKey();
+      const credentialPath = issuerProtocolPath(session, "/credential");
+      const credential = await request(app)
+        .post(credentialPath)
+        .set("authorization", `DPoP ${token.access_token}`)
+        .set("DPoP", await dpopProof(dpop, "POST", credentialPath, token.access_token))
+        .send({
+          credential_configuration_id: session.credential_configuration_id,
+          proofs: {
+            jwt: [
+              await credentialProofJwtWithoutKeyAttestation(
+                holderKey,
+                token.c_nonce,
+                `${config.issuer_base_url}${jwtOnlyIssuerPath}`,
+              ),
+            ],
+          },
+        });
+
+      expect(credential.status, credential.text).toBe(200);
+      const encoded = (credential.body as CredentialResponse).credentials[0].credential;
+      if (format === "dc+sd-jwt") {
+        const decoded = new SdJwtVcService({} as never).fromCompact(encoded);
+        expect(decoded.prettyClaims).toMatchObject({
+          vct: DOMESTIC_PID_SD_JWT_VCT,
+          given_name: "Mario",
+          credimi_domestic_claim: "credimi-domestic-value",
+        });
+        expect(decoded.payload).not.toHaveProperty("credimi_domestic_claim");
+        return;
+      }
+      const decoded = Mdoc.fromBase64Url(encoded);
+      expect(decoded.docType).toBe(PID_MDOC_DOCTYPE);
+      expect(decoded.issuerSignedNamespaces[PID_MDOC_NAMESPACE]).toMatchObject({
+        given_name: "Mario",
+      });
+      expect(decoded.issuerSignedNamespaces[DOMESTIC_PID_MDOC_NAMESPACE]).toEqual({
+        credimi_domestic_claim: "credimi-domestic-value",
+      });
+    },
+  );
 
   it("uses Credo to verify JWT proof, key attestation, nonce, and holder binding", async () => {
     const app = createApp(config);

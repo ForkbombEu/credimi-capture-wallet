@@ -8,6 +8,17 @@ export const NUMERIC_SD_JWT_VCT = "urn:credimi:numeric-claims:1";
 export const PID_MDOC_DOCTYPE = "eu.europa.ec.eudi.pid.1";
 export const PID_MDOC_NAMESPACE = "eu.europa.ec.eudi.pid.1";
 
+/**
+ * Test-only domestic PID following PID Rulebook §2.2.2: a domestic type extending
+ * `urn:eudi:pid:1` and a domestic mdoc namespace inside the EU-wide PID doctype. `xx` is an
+ * ISO 3166-1 user-assigned code, so the fake domestic attribute cannot be mistaken for a real
+ * Member State's.
+ */
+export const DOMESTIC_PID_SD_JWT_VCT = "urn:eudi:pid:xx:1";
+export const DOMESTIC_PID_MDOC_NAMESPACE = "eu.europa.ec.eudi.pid.xx.1";
+export const DOMESTIC_PID_CLAIM = "credimi_domestic_claim";
+export const DOMESTIC_PID_CLAIM_VALUE = "credimi-domestic-value";
+
 export const PID_SD_JWT_CLAIMS = [
   "address.country",
   "address.formatted",
@@ -65,6 +76,8 @@ export const PID_MDOC_CLAIMS = [
   "resident_street",
   "sex",
 ] as const;
+
+export const DOMESTIC_PID_SD_JWT_CLAIMS = [...PID_SD_JWT_CLAIMS, DOMESTIC_PID_CLAIM] as const;
 
 export const DEGREE_SD_JWT_CLAIMS = [
   "name",
