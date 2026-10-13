@@ -254,8 +254,15 @@ export class CredoOpenId4VpVerifier {
           createAuthorizationRequest(verifierDcqlQuery),
         )
       : createAuthorizationRequest(verifierDcqlQuery));
-    const { dcql_query: generatedDcqlQuery, ...createdAuthorizationRequest } = created
-      .verificationSession.requestPayload as JsonRecord;
+    const {
+      dcql_query: generatedDcqlQuery,
+      state: generatedState,
+      ...createdAuthorizationRequest
+    } = created.verificationSession.requestPayload as JsonRecord;
+    // Section 5.1 makes `state` optional outside the Section 5.3 conditions. It is dropped from
+    // the request the verifier holds, not only from the delivered copy, so Credo stops expecting
+    // it back; the Section 5.3 consequence is enforced when the response is verified.
+    const omitState = request.state === null;
     // Section 5.1 lets a request carry a `scope` representing a DCQL Query instead of the query
     // itself. The query is dropped from the delivered copy only: the verifier keeps it, because
     // Credo matches the Authorization Response against the request object this service signs, and
@@ -263,6 +270,7 @@ export class CredoOpenId4VpVerifier {
     const omitDcqlFromDelivery = request.dcql_query === null;
     const authorizationRequest: JsonRecord = {
       ...createdAuthorizationRequest,
+      ...(omitState || generatedState === undefined ? {} : { state: generatedState }),
       dcql_query: omitDcqlFromDelivery ? generatedDcqlQuery : request.dcql_query,
       ...(request.nonce !== undefined ? { nonce: request.nonce } : {}),
       ...optionalAuthorizationRequestParameters(request),
@@ -362,8 +370,16 @@ export class CredoOpenId4VpVerifier {
       signedDeliveredRequest && requestBehavior?.signature === "corrupt"
         ? corruptJwsSignature(signedDeliveredRequest)
         : signedDeliveredRequest;
-    if (authorizationRequestJwt)
+    if (authorizationRequestJwt) {
       created.verificationSession.authorizationRequestJwt = authorizationRequestJwt;
+    } else if (omitState) {
+      // An unsigned request leaves Credo holding its own payload, which still carries `state`.
+      const stored = created.verificationSession.authorizationRequestPayload;
+      if (stored && "state" in stored) {
+        const { state: _state, ...withoutState } = stored;
+        created.verificationSession.authorizationRequestPayload = withoutState;
+      }
+    }
     const multiSignedRequest =
       requestDelivery === "multisigned"
         ? await this.multiSignedRequest(deliveredRequest)
@@ -417,11 +433,33 @@ export class CredoOpenId4VpVerifier {
   }
 
   /**
-   * Verifies an Authorization Response. DC API responses are bound to the browser origin rather
-   * than to the Client Identifier, so the session's trusted origin is handed to Credo, which
-   * derives the expected `origin:<origin>` presentation audience from it.
+   * Verifies an Authorization Response. A request that omitted `state` while asking for a
+   * Presentation without Holder Binding outside the DC API cannot meet Section 5.3, so its
+   * response is rejected whatever Credo concluded; Credo's own checks are kept as evidence.
    */
   async verifyResponse(
+    session: VpSessionCapture,
+    body: JsonRecord,
+    verificationSessionId: string,
+  ): Promise<CredoVpVerification> {
+    const verification = await this.credoVerification(session, body, verificationSessionId);
+    if (!unboundPresentationRequestedWithoutState(session)) return verification;
+    return {
+      ...verification,
+      valid: false,
+      errors: [
+        ...verification.errors,
+        "OpenID4VP Section 5.3 requires state when a Presentation without Holder Binding is requested, and the Authorization Request omitted it",
+      ],
+    };
+  }
+
+  /**
+   * DC API responses are bound to the browser origin rather than to the Client Identifier, so the
+   * session's trusted origin is handed to Credo, which derives the expected `origin:<origin>`
+   * presentation audience from it.
+   */
+  private async credoVerification(
     session: VpSessionCapture,
     body: JsonRecord,
     verificationSessionId: string,
@@ -1231,6 +1269,23 @@ function signatureHash(algorithm: string): string | null {
 
 function cryptoRandomId(): string {
   return randomBytes(16).toString("base64url");
+}
+
+/**
+ * Section 5.3 conditions for a mandatory `state`: at least one Credential is requested without
+ * cryptographic Holder Binding and the request does not travel over the DC API. The verifier's
+ * own request is consulted, not the delivered copy, because that is what it verifies against.
+ */
+function unboundPresentationRequestedWithoutState(session: VpSessionCapture): boolean {
+  const request = session.authorization_request;
+  if (request.state !== undefined || isDcApiResponseMode(session.response_mode)) return false;
+  const credentials = asRecord(request.dcql_query)?.credentials;
+  return (
+    Array.isArray(credentials) &&
+    credentials.some(
+      (credential) => asRecord(credential)?.require_cryptographic_holder_binding === false,
+    )
+  );
 }
 
 function asRecord(value: unknown): JsonRecord | null {

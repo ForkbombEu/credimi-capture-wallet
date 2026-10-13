@@ -129,6 +129,7 @@ Credo enforces the wallet's PKCE: a PAR request without `code_challenge` gets `4
 | `response_mode` | `direct_post`, `direct_post.jwt`, `dc_api`, `dc_api.jwt` | `direct_post.jwt` |
 | `presentation_request` | Request-object claim overrides | — |
 | `dcql_query` | DCQL query object, or `null` to omit the parameter from the wallet-facing request | Default query |
+| `state` | `null` to omit the parameter from the request; any other value is rejected with `invalid_state` | Generated per request |
 | `scopes` | A string or string array | — |
 | `transaction_data` | Array of transaction data entries, or any other JSON value | — |
 | `verifier_info` | JSON value | — |
@@ -149,6 +150,14 @@ With `request_uri_method: post`, a Wallet whose `wallet_metadata` carries `jwks`
 the request top level. The service carries it unchanged into the signed query; `false` requests a
 presentation without cryptographic holder binding where the Wallet and credential format permit it.
 
+`state: null` omits `state` from the Authorization Request and from the request the Verifier
+checks the response against, so a response without `state` is accepted. OpenID4VP Section 5.3
+makes `state` mandatory when any credential entry sets `require_cryptographic_holder_binding: false`
+and the request does not use the DC API. The service still lets you create that request, but it
+captures the response as `presentation_invalid` with a Section 5.3 error, alongside Credo-TS's own
+checks. DC API requests never carry `state`. A response to a request without `state` must be
+posted to the session's `response_uri`; `POST /openid4vp/response` selects the session by `state`.
+
 `verifier_info` is delivered exactly as supplied. OpenID4VP Section 5.11 leaves the format and semantics of these attestations to ecosystems and profiles, so this service signs none of its own. To bind a key-bound attestation to the request, read the Client Identifier from `/openid4vp/client-identifiers`, choose the `nonce`, sign the attestation and its proof of possession over that `nonce` and Client Identifier in the structure the profile defines, then create the session with the same `nonce` and the whole `verifier_info` array. A missing `nonce` or `client_id` in the proof, a broken signature, and an unrecognised format are all differences in what the caller signs.
 
 Each decoded SD-JWT VC presentation carries `digest_algorithm`, the credential's `_sd_alg` defaulted to `sha-256` when the issuer omitted it, since that value is absent from the disclosed claims but determines the digest algorithm a Wallet needed to support.
@@ -157,7 +166,7 @@ A session that sent transaction data records `checks.transaction_data_verified`:
 
 Entries of a `transaction_data` array that are JSON objects are base64url-encoded as OpenID4VP Section 5.1 requires, so a caller supplies the entry it wants the Wallet to decode; entries of any other type, strings included, are delivered exactly as supplied, and a `transaction_data` value that is not an array is passed through untouched. Use `request_mutation` on `/transaction_data` to deliver a parameter that bypasses encoding entirely.
 
-`scheme`, `request_uri_method`, `client_id_scheme`, `request_delivery`, `response_mode`, `client_metadata`, and `redirect_uri` are top-level fields only. They select how the service builds, signs, and delivers the request instead of being request-object claims, so nesting any of them inside `presentation_request` has no effect and is not reported as an error. `redirect_uri` is returned only in a successful direct-post response after the service adds its fresh response code. In particular, a `client_metadata` value inside `presentation_request` is discarded and the generated verifier metadata is used. Only `response_type`, `dcql_query`, `nonce`, `scopes`, `transaction_data`, and `verifier_info` are honoured in both positions, and a top-level `response_type` wins over a nested one.
+`scheme`, `request_uri_method`, `client_id_scheme`, `request_delivery`, `response_mode`, `client_metadata`, and `redirect_uri` are top-level fields only. They select how the service builds, signs, and delivers the request instead of being request-object claims, so nesting any of them inside `presentation_request` has no effect and is not reported as an error. `redirect_uri` is returned only in a successful direct-post response after the service adds its fresh response code. In particular, a `client_metadata` value inside `presentation_request` is discarded and the generated verifier metadata is used. Only `response_type`, `dcql_query`, `nonce`, `state`, `scopes`, `transaction_data`, and `verifier_info` are honoured in both positions, and a top-level `response_type` wins over a nested one.
 
 `client_id_scheme: "x509_san_dns"` signs the request with the existing verifier certificate and uses its DNS Subject Alternative Name as the Client Identifier value. `client_id_scheme: "decentralized_identifier"` signs with a separate `did:web` key and publishes its DID Document at `/openid4vp/did.json`. `client_id_scheme: "verifier_attestation"` signs with the request key but publishes no certificate: the request object's `jwt` JOSE header carries a Verifier Attestation JWT whose `sub` is the Client Identifier after the prefix, whose `cnf.jwk` is the request signing key, and whose `iss` is the fixture attestation issuer published at `/openid4vp/verifier-attestation-issuer/jwks.json`. The optional `verifier_attestation` object sets `subject`, `issuer`, `redirect_uris`, extra `claims`, or `signature: "corrupt"`; the last requires `FCAF_SCENARIOS_ENABLED`, and supplying the object under any other client identifier prefix is refused with `verifier_attestation_requires_verifier_attestation_client_id`. `client_id_scheme: "redirect_uri"` creates an unsigned request and therefore requires `request_delivery: "plain"`; signed and by-reference delivery are rejected. The default remains the certificate hash prefix, `x509_hash`.
 

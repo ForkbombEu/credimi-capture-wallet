@@ -1113,12 +1113,17 @@ export function openApiDocument(config: AppConfig): JsonRecord {
               type: "object",
               additionalProperties: true,
               description:
-                "Request Object claim overrides. Only response_type, dcql_query, nonce, scopes, transaction_data, and verifier_info are honoured here; delivery, response_mode, client_id_scheme, scheme, redirect_uri, and client_metadata are top-level fields and are ignored when nested.",
+                "Request Object claim overrides. Only response_type, dcql_query, nonce, state, scopes, transaction_data, and verifier_info are honoured here; delivery, response_mode, client_id_scheme, scheme, redirect_uri, and client_metadata are top-level fields and are ignored when nested.",
             },
             dcql_query: {
               oneOf: [{ type: "object", additionalProperties: true }, { type: "null" }],
               description:
                 "DCQL query, or null to omit dcql_query from the wallet-facing Authorization Request. The verifier keeps a query for verification either way, because the Authorization Response is matched against the request object this service signs; use null together with scopes for a Section 5.1 scope-based request. Set require_cryptographic_holder_binding on individual credential entries to request unbound presentations where supported.",
+            },
+            state: {
+              type: "null",
+              description:
+                "null omits state from the Authorization Request and from the request the verifier checks the response against; any other value is rejected with invalid_state. OpenID4VP Section 5.3 makes state mandatory when a credential entry sets require_cryptographic_holder_binding: false outside the DC API, so such a response is captured as presentation_invalid. DC API requests never carry state.",
             },
             scopes: { oneOf: [{ type: "string" }, { type: "array", items: { type: "string" } }] },
             verifier_attestation: {

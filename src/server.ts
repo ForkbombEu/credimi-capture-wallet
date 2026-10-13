@@ -727,6 +727,10 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         ...(objectOrNull(body.presentation_request) ?? vpRequestBody(body)),
         ...(body.response_type !== undefined ? { response_type: body.response_type } : {}),
       };
+      // `state` is generated per request; a caller may only ask for it to be omitted.
+      if (requestOverride.state !== undefined && requestOverride.state !== null) {
+        return res.status(400).json({ error: "invalid_state" });
+      }
       // Appendix A.3.2.2 binds `verifier_info` to one signature's Client Identifier, and a
       // caller-supplied attestation names only one of the two this request is signed under.
       if (

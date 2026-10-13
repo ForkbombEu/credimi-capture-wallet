@@ -982,6 +982,99 @@ describe("capture issuer server", () => {
     });
   });
 
+  it("omits state from a signed request and verifies a response without it", async () => {
+    const app = createApp(config);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      response_mode: "direct_post",
+      presentation_request: { state: null, dcql_query: dcqlForClaims(["family_name"]) },
+    });
+
+    expect(session.authorization_request).not.toHaveProperty("state");
+    const requestObject = await request(app).get(
+      `/openid4vp/sessions/${session.session_id}/request`,
+    );
+    expect(decodeJwt(requestObject.text)).not.toHaveProperty("state");
+
+    const presentation = await sdJwtPresentation({
+      credential: await sdJwtCredential(),
+      authorizationRequest: session.authorization_request,
+      disclosedClaims: ["family_name"],
+    });
+    const response = await request(app)
+      .post(`/openid4vp/sessions/${session.session_id}/response`)
+      .send({ vp_token: JSON.stringify({ query_0: [presentation] }) });
+
+    expect(response.status, response.text).toBe(200);
+    const capture = await getJson<VpSessionResponse>(
+      app,
+      `/openid4vp/sessions/${session.session_id}`,
+    );
+    expect(capture.checks).toMatchObject({ presentation_valid: true, errors: [] });
+  });
+
+  it("omits state from an unsigned plain request", async () => {
+    const app = createApp(config);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      client_id_scheme: "redirect_uri",
+      request_delivery: "plain",
+      response_mode: "direct_post",
+      state: null,
+    });
+
+    expect(session.authorization_request).not.toHaveProperty("state");
+    const deeplink = new URL(session.deeplink);
+    expect(deeplink.searchParams.get("nonce")).toBe(session.authorization_request.nonce);
+    expect(deeplink.searchParams.has("state")).toBe(false);
+  });
+
+  it.each([
+    ["with state", {}, 200],
+    ["without state", { state: null }, 400],
+  ])(
+    "enforces Section 5.3 for an unbound credential requested %s",
+    async (_label, override, status) => {
+      const app = createApp(config);
+      const dcqlQuery = dcqlForClaims(["family_name"]);
+      (dcqlQuery.credentials as JsonRecord[])[0].require_cryptographic_holder_binding = false;
+      const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+        response_mode: "direct_post",
+        presentation_request: { ...override, dcql_query: dcqlQuery },
+      });
+      const presentation = await sdJwtPresentation({
+        credential: await sdJwtCredential(),
+        authorizationRequest: session.authorization_request,
+        disclosedClaims: ["family_name"],
+      });
+
+      const response = await request(app)
+        .post(`/openid4vp/sessions/${session.session_id}/response`)
+        .send({
+          ...(session.authorization_request.state === undefined
+            ? {}
+            : { state: session.authorization_request.state }),
+          vp_token: JSON.stringify({ query_0: [presentation] }),
+        });
+
+      expect(response.status, response.text).toBe(status);
+      const capture = await getJson<VpSessionResponse>(
+        app,
+        `/openid4vp/sessions/${session.session_id}`,
+      );
+      const stateRequired = capture.checks.errors.some((error) => error.includes("Section 5.3"));
+      expect(capture.checks.presentation_valid).toBe(status === 200);
+      expect(stateRequired).toBe(status === 400);
+    },
+  );
+
+  it("rejects a state value other than null", async () => {
+    const response = await request(createApp(config))
+      .post("/openid4vp/sessions")
+      .send({ state: "caller-chosen" });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ error: "invalid_state" });
+  });
+
   it("creates OpenID4VP sessions that advertise request_uri_method post", async () => {
     const app = createApp(config);
     const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
@@ -3623,6 +3716,36 @@ describe("OpenID4VP over the Digital Credentials API", () => {
     expect(capture.raw?.presentation_response_decrypted?.vp_token).toEqual({
       query_0: [presentation],
     });
+  });
+
+  it("does not require state for an unbound credential requested over the DC API", async () => {
+    const app = createApp(dcApiConfig);
+    const dcqlQuery = dcqlForClaims(["family_name"]);
+    (dcqlQuery.credentials as JsonRecord[])[0].require_cryptographic_holder_binding = false;
+    const session = await dcApiSession(app, {
+      presentation_request: { state: null, dcql_query: dcqlQuery },
+    });
+    const presentation = await sdJwtPresentation({
+      credential: await sdJwtCredential(),
+      authorizationRequest: session.authorization_request,
+      disclosedClaims: ["family_name"],
+      audience: `origin:${dcApiOrigin}`,
+    });
+
+    const response = await request(app)
+      .post(`/openid4vp/sessions/${session.session_id}/response`)
+      .send({
+        response: await encryptedAuthorizationResponse(session.authorization_request, {
+          vp_token: { query_0: [presentation] },
+        }),
+      });
+
+    expect(response.status, response.text).toBe(200);
+    const capture = await getJson<VpSessionResponse>(
+      app,
+      `/openid4vp/sessions/${session.session_id}`,
+    );
+    expect(capture.checks).toMatchObject({ presentation_valid: true, errors: [] });
   });
 
   it("signs one DC API request under both Client Identifiers for multisigned delivery", async () => {
