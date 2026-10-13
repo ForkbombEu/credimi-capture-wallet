@@ -880,7 +880,11 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         wallet_nonce_returned: returnedWalletNonce ?? null,
         payload: body,
       });
-      if (walletNonce) {
+      // The re-signed Request Object must keep the signer the session was created with: a DID or
+      // attestation request re-signed under the X.509 key would no longer match its Client
+      // Identifier.
+      const signer = store.vpRequestSigners.get(session.session_id);
+      if (walletNonce && signer) {
         session.authorization_request = {
           ...session.authorization_request,
           wallet_nonce: returnedWalletNonce,
@@ -898,12 +902,15 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         const resigned = await signPresentationAuthorizationRequest(
           config,
           delivered,
-          "x509_hash",
+          signer.clientIdScheme,
           {
             ...(session.request_mutation?.request_object_header
               ? { headerEdits: session.request_mutation.request_object_header }
               : {}),
             ...(material ? { material } : {}),
+            ...(signer.verifierAttestationJwt
+              ? { verifierAttestationJwt: signer.verifierAttestationJwt }
+              : {}),
           },
         );
         store.vpCredoAuthorizationRequestJwts.set(
@@ -1422,6 +1429,9 @@ async function createVpSession(
   }
   if (requestSigningMaterial) {
     store.vpRequestSigningMaterial.set(sessionId, requestSigningMaterial);
+  }
+  if (credoSession.requestSigner) {
+    store.vpRequestSigners.set(sessionId, credoSession.requestSigner);
   }
   if (responseScenario) {
     session.response_scenario = responseScenario;

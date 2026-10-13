@@ -60,6 +60,7 @@ import {
 import { ecdhEsEncrypt, isEcdhEsContentEncryption } from "./kms-encryption.js";
 import {
   type OpenId4VpClientIdScheme,
+  type VpRequestSigner,
   dcApiPresentationUrl,
   isDcApiResponseMode,
   isEncryptedResponseMode,
@@ -103,6 +104,8 @@ export interface CredoVpSession {
   deliveredAuthorizationRequest: JsonRecord;
   /** The signed Request Object actually served to the wallet; differs under a mutation. */
   deliveredAuthorizationRequestJwt?: string;
+  /** How the Request Object was signed; absent when it is unsigned. */
+  requestSigner?: VpRequestSigner;
   /** Deeplink query parameters, or the DC API `data` member, as delivered. */
   outerRequest: JsonRecord;
   /** Present for DC API sessions: the payload for `navigator.credentials.get()`. */
@@ -414,6 +417,14 @@ export class CredoOpenId4VpVerifier {
       deeplink,
       deliveredAuthorizationRequest: deliveredRequest,
       deliveredAuthorizationRequestJwt,
+      ...(signRequest
+        ? {
+            requestSigner: {
+              clientIdScheme,
+              ...(verifierAttestationJwt ? { verifierAttestationJwt } : {}),
+            },
+          }
+        : {}),
       outerRequest,
       ...(dcApi
         ? {

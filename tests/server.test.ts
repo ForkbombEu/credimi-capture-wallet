@@ -1140,6 +1140,31 @@ describe("capture issuer server", () => {
     expect(decodeProtectedHeader(requestObject.text).x5c).toBeUndefined();
   });
 
+  it.each(["x509_hash", "decentralized_identifier", "verifier_attestation"] as const)(
+    "re-signs a wallet_nonce Request Object with the session's %s signer",
+    async (clientIdScheme) => {
+      const app = createApp(config);
+      const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+        request_uri_method: "post",
+        client_id_scheme: clientIdScheme,
+      });
+      const requestUriPath = new URL(String(session.request_uri)).pathname;
+      const original = await request(app).post(requestUriPath).type("form").send({});
+      const resigned = await request(app)
+        .post(requestUriPath)
+        .type("form")
+        .send({ wallet_nonce: "wallet-supplied-nonce" });
+
+      expect(decodeJwt(resigned.text).wallet_nonce).toBe("wallet-supplied-nonce");
+      expect(decodeProtectedHeader(resigned.text)).toEqual(decodeProtectedHeader(original.text));
+      if (clientIdScheme === "decentralized_identifier") {
+        const didDocument = (await request(app).get("/openid4vp/did.json")).body;
+        const didKey = await importJWK(didDocument.verificationMethod[0].publicKeyJwk, "ES256");
+        await expect(compactVerify(resigned.text, didKey)).resolves.toBeDefined();
+      }
+    },
+  );
+
   it("rejects signed delivery for redirect_uri OpenID4VP requests", async () => {
     const app = createApp(config);
     const response = await request(app)

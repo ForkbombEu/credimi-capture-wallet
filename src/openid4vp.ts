@@ -43,6 +43,12 @@ export type OpenId4VpClientIdScheme =
   | "decentralized_identifier"
   | "verifier_attestation";
 
+/** The signer a session's Request Object was created with, reused whenever it is re-signed. */
+export interface VpRequestSigner {
+  clientIdScheme: Exclude<OpenId4VpClientIdScheme, "redirect_uri">;
+  verifierAttestationJwt?: string;
+}
+
 /** Exhaustive over the union, so adding a response mode without handling it fails to compile. */
 const OPENID4VP_RESPONSE_MODES: Record<OpenId4VpResponseMode, true> = {
   direct_post: true,
