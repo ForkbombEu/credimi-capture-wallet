@@ -4473,6 +4473,51 @@ describe("FCAF request mutation", () => {
     expect(decodeJwt(served.text).wallet_nonce).toBe("wallet-supplied-nonce");
   });
 
+  it.each([
+    ["a certificate_chain fixture", { request_behavior: { certificate_chain: "untrusted_root" } }],
+    ["an omitted dcql_query", { scopes: "openid", presentation_request: { dcql_query: null } }],
+    ["a request_object mutation", { request_mutation: { request_object: { unset: ["/state"] } } }],
+    ["a verifier_attestation Client Identifier", { client_id_scheme: "verifier_attestation" }],
+  ])(
+    "re-signs a wallet_nonce Request Object delivered with %s unchanged but for the nonce",
+    async (_label, body) => {
+      const app = createApp(scenarioConfig);
+      const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+        response_mode: "direct_post",
+        request_uri_method: "post",
+        ...body,
+      });
+      const requestUriPath = new URL(String(session.request_uri)).pathname;
+      const original = await request(app).post(requestUriPath).type("form").send({});
+      const resigned = await request(app)
+        .post(requestUriPath)
+        .type("form")
+        .send({ wallet_nonce: "wallet-supplied-nonce" });
+
+      expect(decodeJwt(resigned.text)).toEqual({
+        ...decodeJwt(original.text),
+        wallet_nonce: "wallet-supplied-nonce",
+      });
+      expect(decodeProtectedHeader(resigned.text)).toEqual(decodeProtectedHeader(original.text));
+    },
+  );
+
+  it("lets a request_object mutation override the echoed wallet_nonce", async () => {
+    const app = createApp(scenarioConfig);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      response_mode: "direct_post",
+      request_uri_method: "post",
+      request_mutation: { request_object: { set: { "/wallet_nonce": "mutated-nonce" } } },
+    });
+
+    const served = await request(app)
+      .post(new URL(String(session.request_uri)).pathname)
+      .type("form")
+      .send({ wallet_nonce: "wallet-supplied-nonce" });
+
+    expect(decodeJwt(served.text).wallet_nonce).toBe("mutated-nonce");
+  });
+
   it("serves a plain signed Request Object to a Wallet that requires encryption", async () => {
     const app = createApp(scenarioConfig);
     const walletKey = await walletEncryptionKey("P-256");

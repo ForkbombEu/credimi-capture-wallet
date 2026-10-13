@@ -6,7 +6,7 @@ import {
 import type { ResolvedIssuerConfiguration } from "./configurations/types.js";
 import { DEFAULT_SD_JWT_DIGEST_ALGORITHM } from "./digest-algorithm.js";
 import { supportedCredentialConfigurationIdsForIssuer } from "./metadata.js";
-import type { VpRequestSigner } from "./openid4vp.js";
+import type { VpDeliveredRequestRecipe } from "./openid4vp.js";
 import type {
   AppConfig,
   CaptureEvent,
@@ -36,7 +36,7 @@ export class CaptureStore {
    * a capture is evidence that gets exported, and a private key must not travel with it.
    */
   readonly vpRequestSigningMaterial = new Map<string, RequestSigningMaterial>();
-  readonly vpRequestSigners = new Map<string, VpRequestSigner>();
+  readonly vpDeliveredRequestRecipes = new Map<string, VpDeliveredRequestRecipe>();
   readonly credoIssuanceSessionIds = new Map<string, string>();
   readonly captureSessionIdsByCredoSession = new Map<string, string>();
   readonly captureSessionIdsByCredentialOffer = new Map<string, string>();

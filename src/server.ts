@@ -55,6 +55,7 @@ import {
   type OpenId4VpResponseMode,
   dcApiPresentationExpiresAt,
   defaultPresentationRequest,
+  deliveredAuthorizationRequest,
   isDcApiResponseMode,
   isEncryptedResponseMode,
   isOpenId4VpResponseMode,
@@ -66,11 +67,7 @@ import {
   generateRequestCertificateMaterial,
   generateUnrelatedSigningKey,
 } from "./request-certificates.js";
-import {
-  applyRequestMutationEdits,
-  requestMutationOrNull,
-  requestMutationPointers,
-} from "./request-mutation.js";
+import { requestMutationOrNull, requestMutationPointers } from "./request-mutation.js";
 import { negotiateRequestObjectEncryption } from "./request-object-encryption.js";
 import { responseScenarioOrNull } from "./response-scenario.js";
 import { CaptureStore, asStringOrNull } from "./state.js";
@@ -880,21 +877,21 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         wallet_nonce_returned: returnedWalletNonce ?? null,
         payload: body,
       });
-      // The re-signed Request Object must keep the signer the session was created with: a DID or
-      // attestation request re-signed under the X.509 key would no longer match its Client
-      // Identifier.
-      const signer = store.vpRequestSigners.get(session.session_id);
-      if (walletNonce && signer) {
+      // The re-signed Request Object must be the one originally delivered plus the nonce: the
+      // same signer, mutations, withheld DCQL query, and fixture Client Identifier. Rebuilding it
+      // any other way would add defects the scenario never asked for, such as a DID request
+      // signed under the X.509 key.
+      const recipe = store.vpDeliveredRequestRecipes.get(session.session_id);
+      const signer = recipe?.signer;
+      if (walletNonce && recipe && signer) {
         session.authorization_request = {
           ...session.authorization_request,
           wallet_nonce: returnedWalletNonce,
         };
         session.raw.authorization_request = session.authorization_request;
-        // Re-signing replaces the Request Object served to the wallet, so a session's mutation
-        // has to be reapplied here or the wallet would receive an unmutated request from the
-        // POST Request URI flow only.
-        const delivered = applyRequestMutationEdits(
+        const delivered = deliveredAuthorizationRequest(
           session.authorization_request,
+          recipe,
           session.request_mutation?.request_object,
         );
         if (session.request_mutation) session.raw.authorization_request_delivered = delivered;
@@ -1430,9 +1427,7 @@ async function createVpSession(
   if (requestSigningMaterial) {
     store.vpRequestSigningMaterial.set(sessionId, requestSigningMaterial);
   }
-  if (credoSession.requestSigner) {
-    store.vpRequestSigners.set(sessionId, credoSession.requestSigner);
-  }
+  store.vpDeliveredRequestRecipes.set(sessionId, credoSession.deliveredRequestRecipe);
   if (responseScenario) {
     session.response_scenario = responseScenario;
     store.addEvent(session, "vp_response_scenario_selected", { ...responseScenario });

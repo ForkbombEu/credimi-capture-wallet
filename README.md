@@ -663,7 +663,9 @@ negative scenarios in which no presentation should arrive.
 answers the `wallet_nonce` the Wallet supplied: `mismatch` returns a fresh unrelated value and
 `omit` leaves the parameter out. `echo` is the normal behaviour and the default. The received and
 returned values are both recorded in the `vp_request_retrieved` event, so an assertion can show
-which one the Wallet acted on.
+which one the Wallet acted on. Answering a `wallet_nonce` re-signs the Request Object, which
+otherwise stays the one originally delivered: same signer and Client Identifier, same mutations,
+and same withheld `dcql_query`.
 
 `{"request_object_encryption":"none"}` serves the signed Request Object unencrypted even when the
 Wallet's POST Request URI `wallet_metadata` asks for encryption, recorded as a

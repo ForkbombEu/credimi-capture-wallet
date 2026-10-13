@@ -60,8 +60,9 @@ import {
 import { ecdhEsEncrypt, isEcdhEsContentEncryption } from "./kms-encryption.js";
 import {
   type OpenId4VpClientIdScheme,
-  type VpRequestSigner,
+  type VpDeliveredRequestRecipe,
   dcApiPresentationUrl,
+  deliveredAuthorizationRequest,
   isDcApiResponseMode,
   isEncryptedResponseMode,
   isOpenId4VpResponseMode,
@@ -104,8 +105,8 @@ export interface CredoVpSession {
   deliveredAuthorizationRequest: JsonRecord;
   /** The signed Request Object actually served to the wallet; differs under a mutation. */
   deliveredAuthorizationRequestJwt?: string;
-  /** How the Request Object was signed; absent when it is unsigned. */
-  requestSigner?: VpRequestSigner;
+  /** How `deliveredAuthorizationRequest` was derived and signed, for a `wallet_nonce` re-sign. */
+  deliveredRequestRecipe: VpDeliveredRequestRecipe;
   /** Deeplink query parameters, or the DC API `data` member, as delivered. */
   outerRequest: JsonRecord;
   /** Present for DC API sessions: the payload for `navigator.credentials.get()`. */
@@ -312,16 +313,6 @@ export class CredoOpenId4VpVerifier {
       typeof authorizationRequest.response_uri === "string"
         ? authorizationRequest.response_uri
         : undefined;
-    // Mutations are applied here, after every internal check: `authorizationRequest` stays the
-    // message this service generated and verifies against, `deliveredRequest` is the copy the
-    // wallet receives. Both are signed separately because Credo derives the nonce, state, and
-    // client identifier it expects in the Authorization Response from the Request Object JWT it
-    // holds — handing it the mutated one would move the verifier's own expectations with it.
-    const deliveredRequest = applyRequestMutationEdits(
-      authorizationRequest,
-      requestMutation?.request_object,
-    );
-    if (omitDcqlFromDelivery) deliveredRequest.dcql_query = undefined;
     const signRequest = !(clientIdScheme === "redirect_uri" || unsignedDcApi);
     // Credo has no signer for Section 5.10, so the attestation request is built here: the Client
     // Identifier names the attested subject and the attestation itself rides in the JOSE header.
@@ -329,13 +320,10 @@ export class CredoOpenId4VpVerifier {
       clientIdScheme === "verifier_attestation"
         ? await createVerifierAttestation(this.config, verifierAttestation)
         : undefined;
-    if (verifierAttestationJwt) {
-      authorizationRequest.client_id = verifierAttestationClientId(
-        this.config,
-        verifierAttestation,
-      );
-      deliveredRequest.client_id = authorizationRequest.client_id;
-    }
+    const attestedClientId = verifierAttestationJwt
+      ? verifierAttestationClientId(this.config, verifierAttestation)
+      : undefined;
+    if (attestedClientId) authorizationRequest.client_id = attestedClientId;
     const authorizationRequestJwt = signRequest
       ? await signPresentationAuthorizationRequest(
           this.config,
@@ -348,9 +336,33 @@ export class CredoOpenId4VpVerifier {
     // Identifier is recomputed from it: the chain becomes the only defect instead of also
     // disagreeing with the identifier. Credo keeps the request generated above, so the verifier's
     // own expectations stay on the real certificate.
-    if (requestSigningMaterial?.x5c && clientIdScheme === "x509_hash") {
-      deliveredRequest.client_id = x509HashClientId(requestSigningMaterial.x5c[0]);
-    }
+    const fixtureChainClientId =
+      requestSigningMaterial?.x5c && clientIdScheme === "x509_hash"
+        ? x509HashClientId(requestSigningMaterial.x5c[0])
+        : undefined;
+    const deliveredClientId = attestedClientId ?? fixtureChainClientId;
+    const deliveredRequestRecipe: VpDeliveredRequestRecipe = {
+      ...(signRequest
+        ? {
+            signer: {
+              clientIdScheme,
+              ...(verifierAttestationJwt ? { verifierAttestationJwt } : {}),
+            },
+          }
+        : {}),
+      omitDcqlQuery: omitDcqlFromDelivery,
+      ...(deliveredClientId ? { clientId: deliveredClientId } : {}),
+    };
+    // Mutations are applied here, after every internal check: `authorizationRequest` stays the
+    // message this service generated and verifies against, `deliveredRequest` is the copy the
+    // wallet receives. Both are signed separately because Credo derives the nonce, state, and
+    // client identifier it expects in the Authorization Response from the Request Object JWT it
+    // holds — handing it the mutated one would move the verifier's own expectations with it.
+    const deliveredRequest = deliveredAuthorizationRequest(
+      authorizationRequest,
+      deliveredRequestRecipe,
+      requestMutation?.request_object,
+    );
     const mutatesRequestObject = Boolean(
       requestMutation?.request_object ?? requestMutation?.request_object_header,
     );
@@ -417,14 +429,7 @@ export class CredoOpenId4VpVerifier {
       deeplink,
       deliveredAuthorizationRequest: deliveredRequest,
       deliveredAuthorizationRequestJwt,
-      ...(signRequest
-        ? {
-            requestSigner: {
-              clientIdScheme,
-              ...(verifierAttestationJwt ? { verifierAttestationJwt } : {}),
-            },
-          }
-        : {}),
+      deliveredRequestRecipe,
       outerRequest,
       ...(dcApi
         ? {

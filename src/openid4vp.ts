@@ -49,6 +49,35 @@ export interface VpRequestSigner {
   verifierAttestationJwt?: string;
 }
 
+/**
+ * How the wallet-facing Authorization Request is derived from the verifier's own request, kept
+ * per session so that a `wallet_nonce` re-sign reproduces the original delivery exactly.
+ */
+export interface VpDeliveredRequestRecipe {
+  /** Absent when the request is delivered unsigned. */
+  signer?: VpRequestSigner;
+  /** A Section 5.1 scope-based request: the verifier keeps its query, the wallet never sees it. */
+  omitDcqlQuery: boolean;
+  /** Replaces any mutated `client_id`: the attested subject, or a fixture chain's `x509_hash`. */
+  clientId?: string;
+}
+
+/**
+ * The wallet-facing copy of `request`. Mutation edits apply first, so a scenario can also replace
+ * a value the verifier set, such as an echoed `wallet_nonce`; the recipe's own adjustments apply
+ * last because they define the scenario's single intended defect.
+ */
+export function deliveredAuthorizationRequest(
+  request: JsonRecord,
+  recipe: VpDeliveredRequestRecipe,
+  requestObjectEdits?: VpRequestMutationEdits,
+): JsonRecord {
+  const delivered = applyRequestMutationEdits(request, requestObjectEdits);
+  if (recipe.omitDcqlQuery) delivered.dcql_query = undefined;
+  if (recipe.clientId !== undefined) delivered.client_id = recipe.clientId;
+  return delivered;
+}
+
 /** Exhaustive over the union, so adding a response mode without handling it fails to compile. */
 const OPENID4VP_RESPONSE_MODES: Record<OpenId4VpResponseMode, true> = {
   direct_post: true,
