@@ -1929,6 +1929,40 @@ describe("capture issuer server", () => {
     },
   );
 
+  it("exposes the decrypted error of an encrypted wallet error response", async () => {
+    const app = createApp(config);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      presentation_request: { dcql_query: dcqlForClaims(["family_name"]) },
+    });
+    const errorResponse = {
+      error: "access_denied",
+      error_description: "The End-User declined the presentation",
+      state: session.authorization_request.state,
+    };
+
+    const response = await request(app)
+      .post(`/openid4vp/sessions/${session.session_id}/response`)
+      .send({
+        response: await encryptedAuthorizationResponse(
+          session.authorization_request,
+          errorResponse,
+        ),
+      });
+
+    expect(response.status).toBe(400);
+    const capture = await getJson<VpSessionResponse>(
+      app,
+      `/openid4vp/sessions/${session.session_id}`,
+    );
+    expect(capture.status).toBe("presentation_invalid");
+    expect(capture.checks).toMatchObject({
+      presentation_valid: false,
+      vp_token_format_valid: false,
+    });
+    expect(capture.raw?.presentation_response).toEqual({ response: expect.any(String) });
+    expect(capture.raw?.presentation_response_decrypted).toEqual(errorResponse);
+  });
+
   it("accepts SD-JWT VC presentations that satisfy a required DCQL credential_set option", async () => {
     const app = createApp(config);
     const dcqlQuery = {

@@ -492,9 +492,9 @@ export class CredoOpenId4VpVerifier {
     } catch (error) {
       const verificationSession =
         await this.verifierApi().getVerificationSessionById(verificationSessionId);
-      const authorizationResponse = verificationSession.authorizationResponsePayload as
-        | JsonRecord
-        | undefined;
+      const authorizationResponse =
+        (verificationSession.authorizationResponsePayload as JsonRecord | undefined) ??
+        walletErrorResponseOrUndefined(error);
       const message = credoErrorMessage(error, verificationSession.errorMessage);
       return {
         valid: false,
@@ -681,6 +681,16 @@ function normalizeAuthorizationResponse(response: JsonRecord | undefined): JsonR
   } catch {
     return response;
   }
+}
+
+/**
+ * The payload of a Wallet's error Authorization Response, after any decryption. Credo rejects it
+ * by rethrowing the parser's error, which carries the payload as `errorResponse`, and does not
+ * keep it on the verification session, so it is read from the error instead.
+ */
+function walletErrorResponseOrUndefined(error: unknown): JsonRecord | undefined {
+  if (!(error instanceof Error) || !("errorResponse" in error)) return undefined;
+  return asRecord(error.errorResponse) ?? undefined;
 }
 
 /**
