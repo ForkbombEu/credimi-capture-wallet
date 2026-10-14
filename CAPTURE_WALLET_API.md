@@ -393,6 +393,17 @@ Raw form payloads are preserved in the presentation capture for fidelity. Treat 
 
 The session record additionally exposes `raw.authorization_request_jwt`, the exact signed Request Object returned to the Wallet, and `raw.request_uri_http`, the Wallet's Request URI retrieval method, headers with sensitive values redacted, and exact POST body when received. `raw.presentation_response_http` contains the received presentation response HTTP `method`, headers with sensitive values redacted, and exact body. `raw.presentation_response_verifier_http` captures the verifier reply's status, redacted headers, and exact body. The HTTP envelopes are retained for valid and invalid responses and are intentionally not shown as dedicated fields in the operator UI.
 
+`raw.presentation_response_decrypted` is always wallet-originated evidence, never an error
+constructed by Capture while verifying it. For `direct_post.jwt` and `dc_api.jwt`, it contains the
+decrypted Authorization Response JWE payload, including either `vp_token` or the Wallet's `error`,
+`error_description`, and `state`, even when verification fails. It is absent only when the response
+cannot be decrypted, including an intentionally `allow_undecryptable_response` session. For plain
+`direct_post` and `dc_api`, it contains the normalized posted Authorization Response when available;
+`raw.presentation_response` preserves the unmodified form or JSON members. `checks.vp_token_format_valid`
+and `vp_presentation_response_received.detail.vp_token_observed` describe whether that wallet
+payload carried a `vp_token`, independently of the verifier's subsequent result. Verifier-side
+failures remain in `checks.errors` and `raw.presentation_response_verifier_http`.
+
 ## Test-only chained OAuth server
 
 The authorization-code issuance flow uses an internal, auto-approving OAuth server between Credo and the issuer. These are test-service endpoints, not a general-purpose identity provider.

@@ -38,12 +38,13 @@ import {
   X509Module,
 } from "@credo-ts/core";
 import type { TrustedIssuerX509 } from "@credo-ts/core";
-import { OpenId4VcModule } from "@credo-ts/openid4vc";
+import { OpenId4VcModule, getOid4vcDecryptJweCallback } from "@credo-ts/openid4vc";
 import express from "express";
 import {
   type JWK,
   calculateJwkThumbprint,
   compactDecrypt,
+  decodeJwt,
   exportJWK,
   generateKeyPair,
   importJWK,
@@ -508,9 +509,11 @@ export class CredoOpenId4VpVerifier {
     } catch (error) {
       const verificationSession =
         await this.verifierApi().getVerificationSessionById(verificationSessionId);
-      const authorizationResponse =
-        (verificationSession.authorizationResponsePayload as JsonRecord | undefined) ??
-        walletErrorResponseOrUndefined(error);
+      const authorizationResponse = await this.walletAuthorizationResponse(
+        session,
+        body,
+        verificationSession.requestPayload,
+      );
       const message = credoErrorMessage(error, verificationSession.errorMessage);
       return {
         valid: false,
@@ -521,9 +524,39 @@ export class CredoOpenId4VpVerifier {
         // A failure naming invalid_transaction_data is Credo rejecting the Section 8.4 binding;
         // any other failure says nothing about the binding, so the check stays unanswered.
         transaction_data_verified: message.includes("invalid_transaction_data") ? false : null,
-        authorization_response: normalizeAuthorizationResponse(authorizationResponse),
+        authorization_response: authorizationResponse,
         errors: [message],
       };
+    }
+  }
+
+  /**
+   * Captures the Authorization Response from the Wallet, independently of Credo's verification
+   * result. Credo retains this payload only after success, while verifier-side failure errors can
+   * contain a different, verifier-built `errorResponse`.
+   */
+  private async walletAuthorizationResponse(
+    session: VpSessionCapture,
+    body: JsonRecord,
+    authorizationRequestPayload: unknown,
+  ): Promise<JsonRecord | undefined> {
+    if (!isEncryptedResponseMode(session.response_mode)) {
+      return normalizeAuthorizationResponse(body);
+    }
+
+    const response = typeof body.response === "string" ? body.response : undefined;
+    const encryptionJwk = verifierEncryptionJwk(authorizationRequestPayload);
+    if (!response || !encryptionJwk) return undefined;
+
+    try {
+      const decrypt = getOid4vcDecryptJweCallback(this.agent.context);
+      const decrypted = (await decrypt(response, {
+        jwk: encryptionJwk as never,
+      })) as { decrypted: boolean; payload?: string };
+      if (!decrypted.decrypted || typeof decrypted.payload !== "string") return undefined;
+      return normalizeAuthorizationResponse(walletAuthorizationResponsePayload(decrypted.payload));
+    } catch {
+      return undefined;
     }
   }
 
@@ -699,14 +732,21 @@ function normalizeAuthorizationResponse(response: JsonRecord | undefined): JsonR
   }
 }
 
-/**
- * The payload of a Wallet's error Authorization Response, after any decryption. Credo rejects it
- * by rethrowing the parser's error, which carries the payload as `errorResponse`, and does not
- * keep it on the verification session, so it is read from the error instead.
- */
-function walletErrorResponseOrUndefined(error: unknown): JsonRecord | undefined {
-  if (!(error instanceof Error) || !("errorResponse" in error)) return undefined;
-  return asRecord(error.errorResponse) ?? undefined;
+function verifierEncryptionJwk(authorizationRequestPayload: unknown): JsonRecord | undefined {
+  const clientMetadata = asRecord(asRecord(authorizationRequestPayload)?.client_metadata);
+  const keys = asRecord(clientMetadata?.jwks)?.keys;
+  if (!Array.isArray(keys)) return undefined;
+  return keys.map(asRecord).find((key) => key?.use === "enc") ?? undefined;
+}
+
+function walletAuthorizationResponsePayload(payload: string): JsonRecord | undefined {
+  try {
+    const response =
+      payload.split(".").length === 3 ? (decodeJwt(payload) as unknown) : JSON.parse(payload);
+    return asRecord(response) ?? undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**

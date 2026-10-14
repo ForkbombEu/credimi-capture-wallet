@@ -1505,7 +1505,7 @@ function captureVpResponse(
     also_seen_in: [],
   };
   store.addEvent(session, "vp_presentation_response_received", {
-    vp_token_observed: body.vp_token !== undefined,
+    vp_token_observed: validation.authorization_response?.vp_token !== undefined,
     presentation_valid: validation.valid,
     errors: validation.errors,
   });

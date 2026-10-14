@@ -1805,6 +1805,41 @@ describe("capture issuer server", () => {
     );
   });
 
+  it("keeps a failed plain direct-post VP token separate from the verifier error", async () => {
+    const app = createApp(config);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      response_mode: "direct_post",
+      presentation_request: { dcql_query: dcqlForClaims(["family_name"]) },
+    });
+
+    const response = await request(app)
+      .post(`/openid4vp/sessions/${session.session_id}/response`)
+      .type("form")
+      .send({
+        state: session.authorization_request.state,
+        vp_token: "not-a-real-presentation",
+      });
+
+    expect(response.status, response.text).toBe(400);
+    const capture = await getJson<VpSessionResponse>(
+      app,
+      `/openid4vp/sessions/${session.session_id}`,
+    );
+    expect(capture.status).toBe("presentation_invalid");
+    expect(capture.checks.vp_token_format_valid).toBe(true);
+    expect(capture.raw?.presentation_response_decrypted).toEqual({
+      state: session.authorization_request.state,
+      vp_token: "not-a-real-presentation",
+    });
+    expect(capture.raw?.presentation_response_decrypted).not.toHaveProperty("error");
+    expect(capture.events).toContainEqual(
+      expect.objectContaining({
+        type: "vp_presentation_response_received",
+        detail: expect.objectContaining({ vp_token_observed: true }),
+      }),
+    );
+  });
+
   it("rejects SD-JWT VC presentations that do not disclose all requested DCQL claims", async () => {
     const app = createApp(config);
     const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
@@ -1974,7 +2009,7 @@ describe("capture issuer server", () => {
         ),
       });
 
-    expect(response.status).toBe(400);
+    expect(response.status, response.text).toBe(400);
     const capture = await getJson<VpSessionResponse>(
       app,
       `/openid4vp/sessions/${session.session_id}`,
@@ -1986,6 +2021,56 @@ describe("capture issuer server", () => {
     });
     expect(capture.raw?.presentation_response).toEqual({ response: expect.any(String) });
     expect(capture.raw?.presentation_response_decrypted).toEqual(errorResponse);
+    expect(capture.events).toContainEqual(
+      expect.objectContaining({
+        type: "vp_presentation_response_received",
+        detail: expect.objectContaining({ vp_token_observed: false }),
+      }),
+    );
+  });
+
+  it("retains an encrypted VP token after Credo rejects its DCQL match", async () => {
+    const app = createApp(config);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      presentation_request: {
+        dcql_query: dcqlForClaims(["family_name", "given_name"]),
+      },
+    });
+    const presentation = await sdJwtPresentation({
+      credential: await sdJwtCredential(),
+      authorizationRequest: session.authorization_request,
+      disclosedClaims: ["family_name"],
+    });
+    const walletResponse = {
+      state: session.authorization_request.state,
+      vp_token: { query_0: [presentation] },
+    };
+
+    const response = await request(app)
+      .post(`/openid4vp/sessions/${session.session_id}/response`)
+      .send({
+        response: await encryptedAuthorizationResponse(
+          session.authorization_request,
+          walletResponse,
+        ),
+      });
+
+    expect(response.status, response.text).toBe(400);
+    const capture = await getJson<VpSessionResponse>(
+      app,
+      `/openid4vp/sessions/${session.session_id}`,
+    );
+    expect(capture.status).toBe("presentation_invalid");
+    expect(capture.checks.vp_token_format_valid).toBe(true);
+    expect(capture.checks.errors).not.toHaveLength(0);
+    expect(capture.raw?.presentation_response_decrypted).toEqual(walletResponse);
+    expect(capture.raw?.presentation_response_decrypted).not.toHaveProperty("error");
+    expect(capture.events).toContainEqual(
+      expect.objectContaining({
+        type: "vp_presentation_response_received",
+        detail: expect.objectContaining({ vp_token_observed: true }),
+      }),
+    );
   });
 
   it("accepts SD-JWT VC presentations that satisfy a required DCQL credential_set option", async () => {
@@ -5708,6 +5793,7 @@ interface VpSessionResponse extends JsonRecord {
   };
   checks: {
     presentation_valid: boolean | null;
+    vp_token_format_valid: boolean;
     nonce_verified: boolean;
     transaction_data_verified: boolean | null;
     holder_binding_verified: boolean;
