@@ -1236,9 +1236,14 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             },
             certificate_chain: {
               type: "string",
-              enum: ["unrelated_self_signed", "untrusted_root", "incomplete_chain"],
+              enum: [
+                "unrelated_self_signed",
+                "untrusted_root",
+                "incomplete_chain",
+                "with_trust_anchor",
+              ],
               description:
-                "Present a different X.509 chain in x5c, generated through the same Credo X.509 path the service uses for its own material. The request stays validly signed by that chain's leaf key and the x509_hash Client Identifier is recomputed from it, so the chain is the only defect. Requires the x509_hash client identifier prefix.",
+                "Present a different X.509 chain in x5c. The generated chains come from the same Credo X.509 path the service uses for its own material; the request stays validly signed by that chain's leaf key and the x509_hash Client Identifier is recomputed from it, so the chain is the only defect. with_trust_anchor instead delivers [deployed verifier certificate, configured CA certificate] signed by the normal key, with the Client Identifier unchanged; the CA is read from verifier/verifier-ca-certificate.pem in the data directory and its absence is refused with verifier_ca_certificate_not_configured. Requires the x509_hash client identifier prefix.",
             },
             wallet_nonce: {
               type: "string",

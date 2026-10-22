@@ -343,10 +343,11 @@ export class CredoOpenId4VpVerifier {
           verifierAttestationJwt ? { verifierAttestationJwt } : {},
         )
       : undefined;
-    // A certificate-chain fixture replaces the leaf the wallet sees, so the `x509_hash` Client
-    // Identifier is recomputed from it: the chain becomes the only defect instead of also
-    // disagreeing with the identifier. Credo keeps the request generated above, so the verifier's
-    // own expectations stay on the real certificate.
+    // A generated certificate-chain fixture replaces the leaf the wallet sees, so the `x509_hash`
+    // Client Identifier is recomputed from it: the chain becomes the only defect instead of also
+    // disagreeing with the identifier. `with_trust_anchor` keeps the deployed leaf, so the
+    // recomputed value is the normal one. Credo keeps the request generated above, so the
+    // verifier's own expectations stay on the real certificate.
     const fixtureChainClientId =
       requestSigningMaterial?.x5c && clientIdScheme === "x509_hash"
         ? x509HashClientId(requestSigningMaterial.x5c[0])

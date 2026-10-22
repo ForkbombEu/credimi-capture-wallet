@@ -235,6 +235,14 @@ export function verifierCertificatePath(dataDir: string): string {
   return join(dataDir, "verifier", "verifier-certificate.pem");
 }
 
+/**
+ * Optional CA certificate that issued the verifier certificate, typically the trust anchor a
+ * Wallet is configured with. Operator-supplied; `init` never generates it.
+ */
+export function verifierCaCertificatePath(dataDir: string): string {
+  return join(dataDir, "verifier", "verifier-ca-certificate.pem");
+}
+
 export function verifierDidPrivateJwkPath(dataDir: string): string {
   return join(dataDir, "verifier", "verifier-did-private-jwk.json");
 }

@@ -1,10 +1,11 @@
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import express, { type NextFunction, type Request, type Response } from "express";
 import QRCode from "qrcode";
 import {
   loadIssuerJwks,
   verifierAttestationIssuerPublicJwk,
+  verifierCaCertificatePath,
   verifierDidDocument,
 } from "./config.js";
 import {
@@ -66,6 +67,7 @@ import { corruptJwsSignature, requestBehaviorOrNull } from "./request-behavior.j
 import {
   generateRequestCertificateMaterial,
   generateUnrelatedSigningKey,
+  verifierChainWithTrustAnchor,
 } from "./request-certificates.js";
 import { requestMutationOrNull, requestMutationPointers } from "./request-mutation.js";
 import { negotiateRequestObjectEncryption } from "./request-object-encryption.js";
@@ -690,6 +692,16 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       }
       if (requestBehavior?.certificate_chain && selectedClientIdScheme !== "x509_hash") {
         return res.status(400).json({ error: "certificate_chain_requires_x509_hash_client_id" });
+      }
+      if (
+        requestBehavior?.certificate_chain === "with_trust_anchor" &&
+        !existsSync(verifierCaCertificatePath(config.data_dir))
+      ) {
+        return res.status(400).json({
+          error: "verifier_ca_certificate_not_configured",
+          error_description:
+            "certificate_chain with_trust_anchor needs the CA certificate at verifier/verifier-ca-certificate.pem in the data directory",
+        });
       }
       if (verifierAttestation && selectedClientIdScheme !== "verifier_attestation") {
         return res
@@ -1369,7 +1381,7 @@ async function createVpSession(
     ...requestOverride,
     response_mode: responseMode,
   };
-  const requestSigningMaterial = await requestSigningMaterialOrUndefined(requestBehavior);
+  const requestSigningMaterial = await requestSigningMaterialOrUndefined(config, requestBehavior);
   const credoVerifier = await credoOpenId4VpVerifier(config);
   const credoSession = await credoVerifier.createSession(
     sessionId,
@@ -1456,11 +1468,16 @@ async function createVpSession(
 /**
  * Resolves the key, and chain, a session's Request Object is signed with. `signing_key` keeps the
  * real certificate and changes only the key, so the mismatch between them is the single defect;
- * `certificate_chain` generates a chain and signs with its leaf key, so the chain is.
+ * `certificate_chain` generates a chain and signs with its leaf key, so the chain is. Its
+ * `with_trust_anchor` value keeps the real key and leaf and appends the configured CA certificate.
  */
 async function requestSigningMaterialOrUndefined(
+  config: AppConfig,
   behavior: VpRequestBehavior | undefined,
 ): Promise<RequestSigningMaterial | undefined> {
+  if (behavior?.certificate_chain === "with_trust_anchor") {
+    return verifierChainWithTrustAnchor(config);
+  }
   if (behavior?.certificate_chain) {
     return generateRequestCertificateMaterial(behavior.certificate_chain);
   }

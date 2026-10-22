@@ -658,10 +658,19 @@ requires the `x509_hash` prefix.
 | `unrelated_self_signed` | One self-signed leaf for `unrelated-verifier.invalid` |
 | `untrusted_root` | `[leaf, root]` where the root is a generated CA no wallet trusts |
 | `incomplete_chain` | `[leaf]` only, whose issuing CA is absent from the chain |
+| `with_trust_anchor` | `[deployed verifier certificate, configured CA certificate]` |
 
 Because the delivered Client Identifier changes, a wallet that answers anyway produces a
 presentation bound to it, which then fails audience verification. That is expected: these are
 negative scenarios in which no presentation should arrive.
+
+`with_trust_anchor` is the exception: it generates nothing. It delivers the deployed verifier
+certificate followed by the CA certificate the operator placed at
+`data/verifier/verifier-ca-certificate.pem`, typically the trust anchor the Wallet is configured
+with, signed by the normal verifier key. The leaf is unchanged, so the `x509_hash` Client
+Identifier is too, and a presentation answering it verifies normally. Both certificates are parsed
+with Credo's `X509Certificate`. Without that file the control is refused with
+`verifier_ca_certificate_not_configured`.
 
 `{"wallet_nonce":"mismatch"}` and `{"wallet_nonce":"omit"}` change how the POST Request URI flow
 answers the `wallet_nonce` the Wallet supplied: `mismatch` returns a fresh unrelated value and
@@ -838,6 +847,7 @@ OpenID4VP verifier material:
 data/verifier/verifier-private-jwk.json
 data/verifier/verifier-certificate.pem
 data/verifier/verifier-jwks.json
+data/verifier/verifier-ca-certificate.pem   (optional, operator-supplied)
 ```
 
 To use a specific verifier key, replace `data/verifier/verifier-private-jwk.json`
@@ -847,6 +857,10 @@ key. Do not use `init --force` after replacing verifier or issuer material unles
 want all generated material regenerated. The verifier `x509_hash` client identifier
 is derived from its certificate, and signed request objects are signed with its
 private JWK.
+
+`data/verifier/verifier-ca-certificate.pem` is optional and never generated. Place there the PEM CA
+certificate that issued the verifier certificate when a test needs it in `x5c`; it is used only by
+`request_behavior.certificate_chain: "with_trust_anchor"`.
 
 From env file `.env`, that is loaded automatically when present, you can set:
 - `GUI_ENABLED`: enables or disables browser GUI routes. Defaults to `true`.

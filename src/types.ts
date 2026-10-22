@@ -28,11 +28,16 @@ export type StatusReferenceFixture =
  */
 export type SdJwtDigestAlgorithm = "sha-256" | "sha-384" | "sha-512";
 
-/** X.509 chain presented in the `x5c` header of a signed Request Object for a test scenario. */
+/**
+ * X.509 chain presented in the `x5c` header of a signed Request Object for a test scenario.
+ * `with_trust_anchor` keeps the deployed leaf and appends the operator-configured CA certificate;
+ * the others replace the chain with generated certificates.
+ */
 export type RequestCertificateFixture =
   | "unrelated_self_signed"
   | "untrusted_root"
-  | "incomplete_chain";
+  | "incomplete_chain"
+  | "with_trust_anchor";
 
 /** Key, and optional certificate chain, a Request Object is signed with. */
 export interface RequestSigningMaterial {
@@ -301,7 +306,8 @@ export interface VpRequestBehavior {
   signing_key?: "unrelated";
   /**
    * Present a different X.509 chain in `x5c`. The request stays validly signed by that chain's
-   * leaf key, so the chain is the only defect.
+   * leaf key, so the chain is the only defect. `with_trust_anchor` is not a defect: the deployed
+   * leaf, followed by the configured CA certificate a Wallet may hold as its trust anchor.
    */
   certificate_chain?: RequestCertificateFixture;
   /**

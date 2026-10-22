@@ -91,6 +91,7 @@ the whole set is in one place.
 | `certificate_chain: "unrelated_self_signed"` | Self-signed leaf for `unrelated-verifier.invalid` | `WS_RP_SM_RpIntegrity__026` |
 | `certificate_chain: "untrusted_root"` | `[leaf, generated root]` | `WS_RP_SM_RpIntegrity__017`, `__019` |
 | `certificate_chain: "incomplete_chain"` | `[leaf]` with its issuer absent | `WS_RP_SM_RpIntegrity__017`, `__019` |
+| `certificate_chain: "with_trust_anchor"` | `[deployed leaf, configured CA]`, normal key, `x509_hash` Client Identifier unchanged; needs `verifier/verifier-ca-certificate.pem` | `WS_RP_SM_RpIntegrity__025` |
 
 Three more cases need no new control, because the mechanisms from Phase 2 already express them:
 
@@ -161,7 +162,6 @@ one is a wallet-profile question that the FCAF harness answers by running the te
 | A numeric data-type mismatch — the `kg` axis of `WS_RP_IA_MainInteraction__033` | No issued credential carries a numeric claim |
 | A wallet-accepted verifier attestation — `WS_RP_SM_RpIntegrity__010` | The attestation issuer is a fixture key published at `/openid4vp/verifier-attestation-issuer/jwks.json`; a wallet accepts it only once an operator configures that key as a trusted attestation issuer |
 | A wallet-accepted `x509_san_dns` request — `WS_RP_MS_Metadata__125`, `__127`, `__128` | The EUDI service-provider registry does not issue a certificate with a `dNSName` SAN, so a registry-trusted request cannot use that prefix |
-| The wallet's configured trust anchor inside `x5c` — `WS_RP_SM_RpIntegrity__025` | `untrusted_root` includes the generated chain's own root, not the anchor the wallet trusts, which this service does not hold |
 | RS384 or PS384 signed requests — `WS_RP_SM_RpIntegrity__032`, `WS_RP_SM_RpIntegrity_CryptographicSignature_002` | The KMS backend generates EC keys only, and an RSA certificate would need a non-Credo path; signing with an RSA key under the existing certificate would add a second defect |
 | COSE algorithm identifiers −7 versus −9 — `WS_RP_SM_RpIntegrity__033`, `__034`, `CryptographicSignature_003`, `_004` | Both describe ECDSA P-256 with SHA-256, which a JOSE `alg` header expresses only as `ES256`; the COSE identifier distinction is not expressible in a JAR request object |
 | An encrypted Request Object — `WS_RP_IA_MainInteraction__024` | Request Object encryption is not implemented; the wallet-metadata cases `WS_RP_MS_Metadata__134`, `__136`, `__137` need only the captured `wallet_metadata`, and `__135` is the service's current unencrypted behaviour |

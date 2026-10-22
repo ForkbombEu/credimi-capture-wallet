@@ -44,6 +44,7 @@ import {
   jwksPath,
   loadIssuerCertificate,
   privateJwkPath,
+  verifierCaCertificatePath,
   verifierCertificatePath,
   verifierJwksPath,
   verifierPrivateJwkPath,
@@ -4842,6 +4843,123 @@ describe("FCAF request mutation", () => {
 
     expect(response.status).toBe(400);
     expect(response.body).toEqual({ error: "certificate_chain_requires_x509_hash_client_id" });
+  });
+
+  describe("with_trust_anchor", () => {
+    const caPath = verifierCaCertificatePath(dataDir);
+
+    async function writeConfiguredCa(): Promise<string> {
+      const { privateKey } = await generateKeyPair("ES256", { extractable: true });
+      const privateJwk = { ...(await exportJWK(privateKey)), kid: "fcaf-test-ca" } as JsonRecord;
+      const { d: _private, ...publicJwk } = privateJwk;
+      const authorityKey = Kms.PublicJwk.fromUnknown(publicJwk);
+      authorityKey.keyId = "fcaf-test-ca";
+      const certificate = await X509Certificate.create(
+        {
+          authorityKey,
+          issuer: { countryName: "IT", commonName: "FCAF Test Trust Anchor" },
+          validity: {
+            notBefore: new Date("2024-01-01T00:00:00Z"),
+            notAfter: new Date("2034-01-01T00:00:00Z"),
+          },
+          extensions: {
+            keyUsage: { usages: [X509KeyUsage.KeyCertSign] },
+            basicConstraints: { ca: true },
+          },
+        },
+        new CredoWebCrypto(createJwkSigningContext(privateJwk, "fcaf-test-ca") as never),
+      );
+      writeFileSync(caPath, certificate.toString("pem"));
+      return Buffer.from(certificate.rawCertificate).toString("base64");
+    }
+
+    afterEach(() => {
+      rmSync(caPath, { force: true });
+    });
+
+    it("delivers the deployed leaf followed by the configured CA, under the same client_id", async () => {
+      const caDer = await writeConfiguredCa();
+      const app = createApp(scenarioConfig);
+      const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+        response_mode: "direct_post",
+        request_uri_method: "post",
+        request_behavior: { certificate_chain: "with_trust_anchor" },
+      });
+      const deployedLeaf = readFileSync(verifierCertificatePath(dataDir), "utf8")
+        .replace(/-----[^-]+-----/g, "")
+        .replace(/\s+/g, "");
+      const requestPath = `/openid4vp/sessions/${session.session_id}/request`;
+      const served = await request(app).post(requestPath).type("form").send({});
+      const resigned = await request(app)
+        .post(requestPath)
+        .type("form")
+        .send({ wallet_nonce: "trust-anchor-nonce" });
+
+      for (const requestObject of [served.text, resigned.text]) {
+        const chain = decodeProtectedHeader(requestObject).x5c as string[];
+        expect(chain).toEqual([deployedLeaf, caDer]);
+        const leaf = X509Certificate.fromEncodedCertificate(chain[0]);
+        await expect(
+          compactVerify(requestObject, await importJWK(leaf.publicJwk.toJson() as JWK, "ES256")),
+        ).resolves.toBeDefined();
+        expect(decodeJwt(requestObject).client_id).toBe(session.authorization_request.client_id);
+      }
+      expect(decodeJwt(resigned.text).wallet_nonce).toBe("trust-anchor-nonce");
+
+      const capture = await getJson<VpSessionResponse>(
+        app,
+        `/openid4vp/sessions/${session.session_id}`,
+      );
+      expect(capture.request_behavior).toEqual({ certificate_chain: "with_trust_anchor" });
+      expect(decodeProtectedHeader(String(capture.raw?.authorization_request_jwt)).x5c).toEqual([
+        deployedLeaf,
+        caDer,
+      ]);
+    });
+
+    it("verifies a presentation answering the trust-anchor request", async () => {
+      await writeConfiguredCa();
+      const app = createApp(scenarioConfig);
+      const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+        response_mode: "direct_post",
+        presentation_request: { dcql_query: dcqlForClaims(["family_name"]) },
+        request_behavior: { certificate_chain: "with_trust_anchor" },
+      });
+      const delivered = decodeJwt(await deliveredRequestObject(app, session)) as JsonRecord;
+      const presentation = await sdJwtPresentation({
+        credential: await sdJwtCredential(),
+        authorizationRequest: delivered,
+        disclosedClaims: ["family_name"],
+      });
+
+      const response = await request(app)
+        .post(`/openid4vp/sessions/${session.session_id}/response`)
+        .send({ state: delivered.state, vp_token: { query_0: [presentation] } });
+
+      expect(response.status, JSON.stringify(response.body)).toBe(200);
+    });
+
+    it("refuses the control when no CA certificate is configured", async () => {
+      const response = await request(createApp(scenarioConfig))
+        .post("/openid4vp/sessions")
+        .send({ request_behavior: { certificate_chain: "with_trust_anchor" } });
+
+      expect(response.status).toBe(400);
+      expect(response.body).toMatchObject({ error: "verifier_ca_certificate_not_configured" });
+    });
+
+    it("still requires the x509_hash client identifier", async () => {
+      await writeConfiguredCa();
+      const response = await request(createApp(scenarioConfig))
+        .post("/openid4vp/sessions")
+        .send({
+          client_id_scheme: "decentralized_identifier",
+          request_behavior: { certificate_chain: "with_trust_anchor" },
+        });
+
+      expect(response.status).toBe(400);
+      expect(response.body).toEqual({ error: "certificate_chain_requires_x509_hash_client_id" });
+    });
   });
 
   it("leaves ordinary sessions unmutated", async () => {

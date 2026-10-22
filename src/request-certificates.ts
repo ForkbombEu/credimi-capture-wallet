@@ -1,8 +1,19 @@
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { CredoWebCrypto, Kms, X509Certificate, X509KeyUsage } from "@credo-ts/core";
 import { exportJWK, generateKeyPair } from "jose";
-import { createJwkSigningContext } from "./config.js";
-import type { JsonRecord, RequestCertificateFixture, RequestSigningMaterial } from "./types.js";
+import {
+  createJwkSigningContext,
+  verifierCaCertificatePath,
+  verifierCertificatePath,
+  verifierPrivateJwkPath,
+} from "./config.js";
+import type {
+  AppConfig,
+  JsonRecord,
+  RequestCertificateFixture,
+  RequestSigningMaterial,
+} from "./types.js";
 
 const FIXTURE_VALIDITY = {
   notBefore: new Date("2024-01-01T00:00:00Z"),
@@ -19,7 +30,7 @@ const FIXTURE_VALIDITY = {
  * separate certificate implementation exists for tests.
  */
 export async function generateRequestCertificateMaterial(
-  fixture: RequestCertificateFixture,
+  fixture: Exclude<RequestCertificateFixture, "with_trust_anchor">,
 ): Promise<RequestSigningMaterial> {
   const leaf = await generateSigningKey();
   if (fixture === "unrelated_self_signed") {
@@ -59,6 +70,27 @@ export async function generateRequestCertificateMaterial(
 export async function generateUnrelatedSigningKey(): Promise<RequestSigningMaterial> {
   const { privateJwk } = await generateSigningKey();
   return { privateJwk };
+}
+
+/**
+ * The deployed verifier chain completed with the operator-configured CA certificate, which a
+ * Wallet may hold as its trust anchor. The leaf and the signing key are the normal ones, so the
+ * `x509_hash` Client Identifier is unchanged and the trust anchor's presence in `x5c` is the only
+ * difference from an ordinary request. Both certificates are parsed through Credo's X.509 module.
+ */
+export function verifierChainWithTrustAnchor(config: AppConfig): RequestSigningMaterial {
+  const leaf = X509Certificate.fromEncodedCertificate(
+    readFileSync(verifierCertificatePath(config.data_dir), "utf8"),
+  );
+  const trustAnchor = X509Certificate.fromEncodedCertificate(
+    readFileSync(verifierCaCertificatePath(config.data_dir), "utf8"),
+  );
+  return {
+    privateJwk: JSON.parse(
+      readFileSync(verifierPrivateJwkPath(config.data_dir), "utf8"),
+    ) as JsonRecord,
+    x5c: [encodeDer(leaf), encodeDer(trustAnchor)],
+  };
 }
 
 /** The `x509_hash` Client Identifier for a leaf certificate, per OpenID4VP Section 5.9.3. */

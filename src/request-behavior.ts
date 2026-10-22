@@ -42,7 +42,8 @@ export function requestBehaviorOrNull(value: unknown): VpRequestBehavior | null 
       if (
         memberValue !== "unrelated_self_signed" &&
         memberValue !== "untrusted_root" &&
-        memberValue !== "incomplete_chain"
+        memberValue !== "incomplete_chain" &&
+        memberValue !== "with_trust_anchor"
       ) {
         return null;
       }
