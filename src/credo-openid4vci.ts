@@ -457,13 +457,22 @@ export class CredoOpenId4VciIssuer {
 
     const statusListReferences = captureSession.status_list_enabled
       ? await Promise.all(
-          holderJwks.map((_, index) =>
-            allocateStatusListReference({
+          holderJwks.map(async (_, index) => {
+            const allocationId = statusAllocationId(captureSession, index);
+            const reference = await allocateStatusListReference({
               config: this.config,
-              allocationId: statusAllocationId(captureSession, index),
+              allocationId,
               doctype: statusListCredentialType(credential),
-            }),
-          ),
+            });
+            // Kept at the credential's index, so a retried request replaces rather than appends,
+            // and `POST /sessions/{id}/status` can revoke exactly what was allocated.
+            captureSession.status_list_references ??= [];
+            captureSession.status_list_references[index] = {
+              allocation_id: allocationId,
+              ...reference,
+            };
+            return reference;
+          }),
         )
       : holderJwks.map(() => undefined);
 

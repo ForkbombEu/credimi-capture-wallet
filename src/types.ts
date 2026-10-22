@@ -6,6 +6,31 @@ export interface StatusListReference {
   idx: number;
 }
 
+/** A reference the Status List service allocated for one issued credential. */
+export interface StatusListAllocation extends StatusListReference {
+  /** The idempotency key sent to `/token_status_list/take`, `<session_id>:<credential index>`. */
+  allocation_id: string;
+}
+
+/** Outcome of one `/token_status_list/set` call. `http_status` is null when no response came. */
+export interface StatusListUpdateResult extends StatusListReference {
+  /** Token Status List value requested: `1`, revoked. */
+  status: number;
+  ok: boolean;
+  http_status: number | null;
+  /** The Status List service's response body, as received. */
+  response_body?: string;
+  /** Transport failure, such as a timeout or refused connection. */
+  error?: string;
+}
+
+/** One `POST /sessions/{sessionId}/status` request and the per-reference results. */
+export interface StatusListUpdateCapture {
+  at: string;
+  requested_status: "revoked";
+  results: StatusListUpdateResult[];
+}
+
 /**
  * Shape of the `status` claim in an issued credential. `valid` is the normal Token Status List
  * reference; the others are the deliberately malformed structures the revocation-metadata tests
@@ -200,6 +225,13 @@ export interface SessionCapture {
    */
   digest_algorithm?: SdJwtDigestAlgorithm;
   status_list_allocation_ids?: string[];
+  /**
+   * The reference allocated for each issued credential, at the credential's index. This is the
+   * real allocation even when `status_reference` reshaped what the credential carries.
+   */
+  status_list_references?: StatusListAllocation[];
+  /** Every `POST /sessions/{sessionId}/status` call, in order. */
+  status_list_updates?: StatusListUpdateCapture[];
   observed: {
     client_id: ObservedValue<string>;
     redirect_uri: ObservedValue<string>;

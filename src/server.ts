@@ -73,6 +73,7 @@ import { requestMutationOrNull, requestMutationPointers } from "./request-mutati
 import { negotiateRequestObjectEncryption } from "./request-object-encryption.js";
 import { responseScenarioOrNull } from "./response-scenario.js";
 import { CaptureStore, asStringOrNull } from "./state.js";
+import { revokeStatusListReference } from "./status-list.js";
 import { STATUS_REFERENCE_FIXTURES, statusReferenceFixtureOrNull } from "./status-reference.js";
 import type {
   AppConfig,
@@ -85,6 +86,7 @@ import type {
   RequestUriHttpCapture,
   SdJwtDigestAlgorithm,
   SessionCapture,
+  StatusListUpdateCapture,
   StatusReferenceFixture,
   VerifierResponseHttpCapture,
   VpDcApiInvocationCapture,
@@ -594,6 +596,59 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     const session = store.getSession(req.params.sessionId);
     if (!session) return res.status(404).json({ error: "session_not_found" });
     return res.json(session.events);
+  });
+
+  // Test-only revocation of every reference allocated for the session's credentials, through the
+  // Status List service. It is separate from issuance so that a test can revoke after the Wallet
+  // has stored the credential.
+  app.post("/sessions/:sessionId/status", async (req, res, next) => {
+    try {
+      if (!config.fcaf_scenarios_enabled) {
+        return res.status(400).json({ error: "status_update_not_enabled" });
+      }
+      const session = store.getSession(req.params.sessionId);
+      if (!session) return res.status(404).json({ error: "session_not_found" });
+      const body = requestParams(req);
+      if (body.status !== "revoked") {
+        return res
+          .status(400)
+          .json({ error: "unsupported_status", supported_statuses: ["revoked"] });
+      }
+      if (!session.status_list_enabled) {
+        return res.status(400).json({ error: "status_list_not_enabled" });
+      }
+      const references = (session.status_list_references ?? []).filter(Boolean);
+      if (references.length === 0) {
+        return res.status(409).json({ error: "status_list_references_not_allocated" });
+      }
+      const update: StatusListUpdateCapture = {
+        at: new Date().toISOString(),
+        requested_status: "revoked",
+        results: await Promise.all(
+          references.map(({ uri, idx }) => revokeStatusListReference(config, { uri, idx })),
+        ),
+      };
+      session.status_list_updates ??= [];
+      session.status_list_updates.push(update);
+      store.addEvent(session, "status_list_status_updated", {
+        requested_status: update.requested_status,
+        results: update.results.map(({ uri, idx, ok, http_status, error }) => ({
+          uri,
+          idx,
+          ok,
+          http_status,
+          ...(error === undefined ? {} : { error }),
+        })),
+      });
+      const failed = update.results.some((result) => !result.ok);
+      return res.status(failed ? 502 : 200).json({
+        ...(failed ? { error: "status_list_update_failed" } : {}),
+        session_id: session.session_id,
+        ...update,
+      });
+    } catch (error) {
+      return next(error);
+    }
   });
 
   app.post("/openid4vp/sessions", async (req, res, next) => {

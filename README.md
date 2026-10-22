@@ -246,6 +246,34 @@ appends `%GG`, `uri_illegal_characters` appends `<token>|1`, and `uri_empty` is 
 `https://status.ex ample.test/1`, `https://status.example.test/1%GG`,
 `https://status.example.test/1<token>|1`, and `""`.
 
+Each allocated reference is recorded in the issuance capture as `status_list_references`, one
+`{allocation_id, uri, idx}` per issued credential at that credential's index. It is the real
+allocation even when `status_reference` reshaped what the credential carries.
+
+To revoke a session's credentials after the Wallet has stored them, for example for
+`WS_RP_SM_IssuerIntegrity__012`, call:
+
+```sh
+curl -X POST "$BASE_URL/sessions/{sessionId}/status" \
+  -H 'Content-Type: application/json' \
+  -d '{"status":"revoked"}'
+```
+
+The service calls the Status List service's `POST /token_status_list/set` with form `uri`, `idx`,
+and `status=1` and the configured `X-Api-Key`, once per entry of `status_list_references`. It
+answers `200` when every reference was revoked and `502 status_list_update_failed` otherwise; both
+bodies carry each per-reference result (`ok`, `http_status`, the service's `response_body`, or a
+transport `error`). Every call is appended to `status_list_updates` and logged as a
+`status_list_status_updated` event. It requires `FCAF_SCENARIOS_ENABLED=true`, refuses a session
+without `status_list_enabled` (`status_list_not_enabled`) and one that has not issued yet
+(`409 status_list_references_not_allocated`), and accepts only `"revoked"`.
+
+Revocation is not instantly visible. ForkbombEu/capture-status-list serves each Status List Token
+with `Cache-Control: max-age=43200` (12 hours) and a weak `ETag`, and its CWT tokens carry an
+`exp` of `iat` plus that max-age. A Wallet or Verifier that already fetched the list may keep the
+cached copy, still showing the credential valid, until the max-age elapses, unless it revalidates
+with `If-None-Match`. Revoke before the list is first fetched, or allow for that window.
+
 `issuer_configuration_id` is optional and accepts `eu-pid-device-bound` or
 `eu-pid-jwt-proof-only`. A credential configuration must belong to the selected
 issuer; the service rejects cross-issuer combinations.
@@ -879,9 +907,11 @@ From env file `.env`, that is loaded automatically when present, you can set:
   never from a request `Host` header, so a cross-device DC API deployment behind a proxy must set
   it to the HTTPS URL the End-User's browser actually reaches.
 - `FCAF_SCENARIOS_ENABLED`: enables the FCAF scenario inputs that deliberately produce malformed
-  protocol material: `request_mutation`, `request_behavior`, and `response_scenario`. Defaults to
-  `false`, so an ordinary deployment refuses them with `request_mutation_not_enabled`,
-  `request_behavior_not_enabled`, or `response_scenario_not_enabled`.
+  protocol material or test-only state changes: `request_mutation`, `request_behavior`,
+  `response_scenario`, a non-`valid` `status_reference`, and `POST /sessions/{sessionId}/status`.
+  Defaults to `false`, so an ordinary deployment refuses them with `request_mutation_not_enabled`,
+  `request_behavior_not_enabled`, `response_scenario_not_enabled`,
+  `status_reference_not_enabled`, or `status_update_not_enabled`.
 - `STATUS_LIST_BASE_URL`: overrides the configured Status List endpoint.
 - `STATUS_LIST_API_KEY`: overrides the configured Status List management API key.
 

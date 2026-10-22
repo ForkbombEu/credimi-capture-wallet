@@ -98,6 +98,41 @@ An issued credential with no `status` claim at all is `status_list_enabled: fals
 | `GET` | `/sessions/{sessionId}/deeplink` | `{ deeplink, credential_offer }`; records a deeplink-generation event. |
 | `GET` | `/sessions/{sessionId}/jwks` | Verified wallet holder-binding JWKS. Returns `409` until a holder key has been observed. |
 | `GET` | `/sessions/{sessionId}/events` | Chronological issuance events (`at`, `type`, `detail`). |
+| `POST` | `/sessions/{sessionId}/status` | `{"status":"revoked"}`: revoke every reference allocated to the session through the Status List service. Test-only; see below. |
+
+### Revoking issued credentials
+
+Each reference allocated from the Status List service is recorded in the issuance capture as
+`status_list_references`: one `{"allocation_id","uri","idx"}` per issued credential, at that
+credential's index. It is the real allocation even when `status_reference` reshaped what the
+credential carries.
+
+`POST /sessions/{sessionId}/status` with `{"status":"revoked"}` calls the configured Status List
+service's `POST /token_status_list/set` with form `uri`, `idx`, `status=1` and the `X-Api-Key`
+management key — the reference-compatible API of ForkbombEu/capture-status-list — once for every
+entry of `status_list_references`. It is a separate call, so a test can revoke after the Wallet has
+stored the credential, as `WS_RP_SM_IssuerIntegrity__012` (revoked mdoc) requires.
+
+| Outcome | Response |
+| --- | --- |
+| Every reference revoked | `200` with `session_id`, `at`, `requested_status: "revoked"`, and `results` |
+| A reference refused, or no answer | `502` with `error: "status_list_update_failed"` and the same members |
+| `FCAF_SCENARIOS_ENABLED` off | `400 status_update_not_enabled` |
+| `status` other than `"revoked"` | `400 unsupported_status` with `supported_statuses` |
+| Session issued without `status_list_enabled` | `400 status_list_not_enabled` |
+| No credential issued yet | `409 status_list_references_not_allocated` |
+| Unknown session | `404 session_not_found` |
+
+Each entry of `results` carries `uri`, `idx`, `status: 1`, `ok`, `http_status` (`null` when no
+response arrived), and either the service's `response_body` as received or a transport `error`.
+The call is appended to `status_list_updates` and logged as a `status_list_status_updated` event;
+the API key is never recorded.
+
+The Status List service controls when a revocation becomes visible. ForkbombEu/capture-status-list
+serves every Status List Token with `Cache-Control: max-age=43200` (12 hours) and a weak `ETag`,
+and its CWT tokens carry `exp` set to `iat` plus that max-age. A Wallet or Verifier that fetched the
+list before the revocation may rely on its cached copy until the max-age elapses, unless it
+revalidates with `If-None-Match`.
 
 ### Issuer protocol endpoints
 

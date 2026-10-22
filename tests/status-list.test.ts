@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_CONFIG } from "../src/config.js";
-import { allocateStatusListReference, statusListCredentialType } from "../src/status-list.js";
+import {
+  allocateStatusListReference,
+  revokeStatusListReference,
+  statusListCredentialType,
+} from "../src/status-list.js";
 
 const config = {
   ...DEFAULT_CONFIG,
@@ -139,6 +143,26 @@ describe("status-list allocation", () => {
       content_type: "text/html",
       server: "cloudflare",
       cf_ray: "test-ray",
+    });
+  });
+});
+
+describe("status-list revocation", () => {
+  it("returns a transport failure as a result instead of throwing", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockRejectedValue(new Error("connect ECONNREFUSED")),
+    );
+
+    await expect(
+      revokeStatusListReference(config, { uri: "http://status-list.example.test/l/1", idx: 7 }),
+    ).resolves.toEqual({
+      uri: "http://status-list.example.test/l/1",
+      idx: 7,
+      status: 1,
+      ok: false,
+      http_status: null,
+      error: "connect ECONNREFUSED",
     });
   });
 });

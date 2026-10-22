@@ -70,6 +70,10 @@ than `valid` requires `FCAF_SCENARIOS_ENABLED` and `status_list_enabled: true`.
 | `uri_empty` | `uri: ""` | `WS_RP_MS_Metadata__089` step 5 |
 | mdoc configuration with `status_list_enabled: true` and `status_reference: "valid"` | valid COSE status | `WS_RP_MS_CredentialFormats__032`, `__033`, `WS_RP_MS_Metadata__091`, `__093`, `__095`, `__098`, `__101`, `__103` |
 | mdoc configuration with a non-`valid` `status_reference` | corresponding malformed, issuer-signed COSE status; the five `uri_*` shapes serve the five steps of `__099` | `WS_RP_MS_Metadata__092`, `__094`, `__096`, `__097`, `__099`, `__100`, `__102` |
+| mdoc configuration with `status_list_enabled: true`, then `POST /sessions/{sessionId}/status` `{"status":"revoked"}` once the wallet holds it | valid COSE status whose allocated entry the Status List service marks revoked (`status=1`); the list's 12-hour `max-age` can delay when a cached copy shows it | `WS_RP_SM_IssuerIntegrity__012` |
+
+Every allocated reference is recorded in the issuance capture as `status_list_references`, and each
+revocation call with its per-reference result in `status_list_updates`.
 
 ## Degree credential structure
 

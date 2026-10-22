@@ -1,8 +1,11 @@
 import { PID_MDOC_DOCTYPE } from "./credential-definitions.js";
 import type { SupportedCredential } from "./metadata.js";
-import type { AppConfig, StatusListReference } from "./types.js";
+import type { AppConfig, StatusListReference, StatusListUpdateResult } from "./types.js";
 
 const STATUS_LIST_TAKE_PATH = "/token_status_list/take";
+const STATUS_LIST_SET_PATH = "/token_status_list/set";
+/** Token Status List value for a revoked (`INVALID`) Referenced Token. */
+const STATUS_REVOKED = 1;
 const DEFAULT_COUNTRY = "EU";
 const DEFAULT_EXPIRY_DATE = "2099-12-31";
 
@@ -17,10 +20,7 @@ export async function allocateStatusListReference(options: {
   allocationId: string;
   doctype: string;
 }): Promise<StatusListReference> {
-  const baseUrl = options.config.status_list_base_url.endsWith("/")
-    ? options.config.status_list_base_url
-    : `${options.config.status_list_base_url}/`;
-  const endpoint = new URL(STATUS_LIST_TAKE_PATH, baseUrl);
+  const endpoint = statusListEndpoint(options.config, STATUS_LIST_TAKE_PATH);
   const body = new URLSearchParams({
     country: DEFAULT_COUNTRY,
     doctype: options.doctype,
@@ -92,6 +92,59 @@ export async function allocateStatusListReference(options: {
     );
   }
   return reference;
+}
+
+/**
+ * Marks one allocated reference revoked through the Status List service's
+ * `POST /token_status_list/set` (form `uri`, `idx`, `status=1`, `X-Api-Key`), the
+ * reference-compatible management API of ForkbombEu/capture-status-list. A failure is returned as
+ * a result rather than thrown, so one unreachable or refused reference does not hide the outcome
+ * of the others. The API key is sent but never recorded.
+ */
+export async function revokeStatusListReference(
+  config: AppConfig,
+  reference: StatusListReference,
+): Promise<StatusListUpdateResult> {
+  const result = { uri: reference.uri, idx: reference.idx, status: STATUS_REVOKED };
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), config.status_list_timeout_ms);
+  try {
+    const response = await fetch(statusListEndpoint(config, STATUS_LIST_SET_PATH), {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        "x-api-key": config.status_list_api_key,
+      },
+      body: new URLSearchParams({
+        uri: reference.uri,
+        idx: String(reference.idx),
+        status: String(STATUS_REVOKED),
+      }),
+      signal: controller.signal,
+    });
+    return {
+      ...result,
+      ok: response.ok,
+      http_status: response.status,
+      response_body: await response.text(),
+    };
+  } catch (error) {
+    return {
+      ...result,
+      ok: false,
+      http_status: null,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function statusListEndpoint(config: AppConfig, path: string): URL {
+  const baseUrl = config.status_list_base_url.endsWith("/")
+    ? config.status_list_base_url
+    : `${config.status_list_base_url}/`;
+  return new URL(path, baseUrl);
 }
 
 function statusListReference(value: unknown): StatusListReference | null {

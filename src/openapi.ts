@@ -311,6 +311,42 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           },
         },
       },
+      "/sessions/{sessionId}/status": {
+        post: {
+          tags: ["Issuance sessions"],
+          operationId: "updateIssuedCredentialStatus",
+          summary: "Revoke the session's issued credentials",
+          description:
+            "Test-only, refused with status_update_not_enabled unless the deployment sets FCAF_SCENARIOS_ENABLED. Calls the configured Status List service's POST /token_status_list/set (form uri, idx, status=1, X-Api-Key) for every reference allocated to the session, recorded in status_list_references. It is separate from issuance so that a test can revoke after the Wallet has stored the credential. Each call is appended to status_list_updates and logged as a status_list_status_updated event. The Status List service serves its tokens with Cache-Control max-age (43200 seconds in ForkbombEu/capture-status-list) and an ETag, so a Wallet or Verifier holding a cached list sees the revocation only after that max-age elapses or it revalidates.",
+          parameters: [sessionIdParameter],
+          requestBody: {
+            required: true,
+            ...json({
+              type: "object",
+              required: ["status"],
+              properties: { status: { type: "string", enum: ["revoked"] } },
+            }),
+          },
+          responses: {
+            "200": response("Every allocated reference was revoked.", {
+              $ref: "#/components/schemas/StatusListUpdate",
+            }),
+            "400": response(
+              "status_update_not_enabled, unsupported_status, or status_list_not_enabled for a session issued without a status list.",
+              { $ref: "#/components/schemas/Error" },
+            ),
+            "404": errorResponses["404"],
+            "409": response(
+              "status_list_references_not_allocated: no credential has been issued yet.",
+              { $ref: "#/components/schemas/Error" },
+            ),
+            "502": response(
+              "status_list_update_failed: the Status List service refused or did not answer at least one reference. The body also carries every per-reference result.",
+              { $ref: "#/components/schemas/StatusListUpdate" },
+            ),
+          },
+        },
+      },
       "/openid4vp/sessions": {
         post: {
           tags: ["Presentation sessions"],
@@ -1036,7 +1072,58 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             "checks",
             "events",
           ],
+          properties: {
+            status_list_references: {
+              type: "array",
+              description:
+                "Reference allocated for each issued credential, at the credential's index. The real allocation, even when status_reference reshaped what the credential carries.",
+              items: {
+                type: "object",
+                required: ["allocation_id", "uri", "idx"],
+                properties: {
+                  allocation_id: { type: "string" },
+                  uri: { type: "string" },
+                  idx: { type: "integer", minimum: 0 },
+                },
+              },
+            },
+            status_list_updates: {
+              type: "array",
+              description: "Every POST /sessions/{sessionId}/status call, in order.",
+              items: { $ref: "#/components/schemas/StatusListUpdate" },
+            },
+          },
           additionalProperties: true,
+        },
+        StatusListUpdate: {
+          type: "object",
+          required: ["at", "requested_status", "results"],
+          properties: {
+            error: { type: "string", const: "status_list_update_failed" },
+            session_id: { type: "string" },
+            at: { type: "string", format: "date-time" },
+            requested_status: { type: "string", const: "revoked" },
+            results: {
+              type: "array",
+              items: {
+                type: "object",
+                required: ["uri", "idx", "status", "ok", "http_status"],
+                properties: {
+                  uri: { type: "string" },
+                  idx: { type: "integer" },
+                  status: { type: "integer", const: 1 },
+                  ok: { type: "boolean" },
+                  http_status: { type: ["integer", "null"] },
+                  response_body: {
+                    type: "string",
+                    description: "The Status List service's response body, as received.",
+                  },
+                  error: { type: "string", description: "Transport failure, such as a timeout." },
+                },
+              },
+            },
+          },
+          additionalProperties: false,
         },
         IssuerCatalogueEntry: {
           type: "object",

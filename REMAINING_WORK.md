@@ -63,7 +63,6 @@ condition. The unaddressed entries are:
 | `WS_RP_IA_Engagement__001b` | An `eu-eaap://` scheme invocation. |
 | `WS_RP_IA_Supportive__006` | Device resource exhaustion on the wallet device. |
 | `WS_RP_MS_ProtocolMessages__151` | An unsupported mdoc format variant. |
-| `WS_RP_SM_IssuerIntegrity__012` | An mdoc revocation fixture. |
 | `WS_RP_IA_MainInteraction__046` | A credential large enough to exceed URL or transport limits. |
 | `WS_RP_IA_MainInteraction__060` | Applicability reassessment by the wallet. |
 | `WS_RP_SM_RpIntegrity__024` | Wallet profile rejecting every non-`x509_hash` client identifier. |
