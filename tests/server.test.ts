@@ -2222,15 +2222,96 @@ describe("capture issuer server", () => {
       expect(capture.raw?.authorization_request_jwe).toBe(served.text);
       expect(
         capture.events.find((event) => event.type === "vp_request_object_encrypted"),
-      ).toMatchObject({ detail: { alg: "ECDH-ES", enc, kid: "wallet-enc-1" } });
+      ).toMatchObject({
+        detail: {
+          alg: "ECDH-ES",
+          enc,
+          kid: "wallet-enc-1",
+          alg_source: "request_object",
+          enc_source: "request_object",
+        },
+      });
     },
   );
 
   it.each([
     [
-      "no content encryption list",
-      { request_object_encryption_enc_values_supported: undefined },
-      "wallet_metadata does not list request_object_encryption_enc_values_supported",
+      "jwks alone, using the default",
+      {},
+      { enc: "A128GCM", alg_source: "default", enc_source: "default" },
+    ],
+    [
+      "only authorization_encryption lists",
+      {
+        authorization_encryption_alg_values_supported: ["ECDH-ES"],
+        authorization_encryption_enc_values_supported: ["XC20P", "A256GCM"],
+      },
+      {
+        enc: "A256GCM",
+        alg_source: "authorization_encryption",
+        enc_source: "authorization_encryption",
+      },
+    ],
+    [
+      "request_object lists ahead of authorization_encryption ones, member by member",
+      {
+        request_object_encryption_enc_values_supported: ["A128CBC-HS256"],
+        authorization_encryption_alg_values_supported: ["ECDH-ES"],
+        authorization_encryption_enc_values_supported: ["A256GCM"],
+      },
+      {
+        enc: "A128CBC-HS256",
+        alg_source: "authorization_encryption",
+        enc_source: "request_object",
+      },
+    ],
+  ] as const)("negotiates Request Object encryption from %s", async (_label, lists, expected) => {
+    const app = createApp(config);
+    const walletKey = await walletEncryptionKey("P-256");
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      request_uri_method: "post",
+      response_mode: "direct_post",
+    });
+
+    const served = await request(app)
+      .post(`/openid4vp/sessions/${session.session_id}/request`)
+      .type("form")
+      .send({
+        wallet_metadata: JSON.stringify({ jwks: { keys: [walletKey.publicJwk] }, ...lists }),
+      });
+
+    expect(served.status).toBe(200);
+    expect(decodeProtectedHeader(served.text)).toMatchObject({ alg: "ECDH-ES", enc: expected.enc });
+    const { plaintext } = await compactDecrypt(served.text, walletKey.privateKey);
+    expect(decodeProtectedHeader(new TextDecoder().decode(plaintext)).typ).toBe(
+      "oauth-authz-req+jwt",
+    );
+    const capture = await getJson<VpSessionResponse>(
+      app,
+      `/openid4vp/sessions/${session.session_id}`,
+    );
+    const recorded = { alg: "ECDH-ES", kid: "wallet-enc-1", ...expected };
+    expect(capture.request_object_encryption).toEqual(recorded);
+    expect(
+      capture.events.find((event) => event.type === "vp_request_object_encrypted")?.detail,
+    ).toEqual(recorded);
+  });
+  it.each([
+    [
+      "an authorization_encryption alg list without ECDH-ES",
+      {
+        request_object_encryption_alg_values_supported: undefined,
+        authorization_encryption_alg_values_supported: ["ECDH-ES+A256KW"],
+      },
+      "authorization_encryption_alg_values_supported does not include ECDH-ES",
+    ],
+    [
+      "an authorization_encryption enc list without a supported value",
+      {
+        request_object_encryption_enc_values_supported: undefined,
+        authorization_encryption_enc_values_supported: ["XC20P"],
+      },
+      "authorization_encryption_enc_values_supported lists none of A128GCM, A192GCM, A256GCM, A128CBC-HS256, A192CBC-HS384, A256CBC-HS512",
     ],
     [
       "no ECDH-ES key agreement",

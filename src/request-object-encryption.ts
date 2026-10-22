@@ -3,7 +3,7 @@ import {
   type EcdhEsContentEncryption,
   isEcdhEsContentEncryption,
 } from "./kms-encryption.js";
-import type { JsonRecord } from "./types.js";
+import type { JsonRecord, RequestObjectEncryptionSource } from "./types.js";
 
 const KEY_AGREEMENT_CURVES: Record<string, readonly string[]> = {
   EC: ["P-256", "P-384", "P-521"],
@@ -15,6 +15,8 @@ export interface RequestObjectEncryption {
   recipientJwk: JsonRecord;
   alg: "ECDH-ES";
   enc: EcdhEsContentEncryption;
+  algSource: RequestObjectEncryptionSource;
+  encSource: RequestObjectEncryptionSource;
 }
 
 export type RequestObjectEncryptionNegotiation =
@@ -22,13 +24,25 @@ export type RequestObjectEncryptionNegotiation =
   | { status: "negotiated"; encryption: RequestObjectEncryption }
   | { status: "unsupported"; reason: string };
 
+const DEFAULT_CONTENT_ENCRYPTION: EcdhEsContentEncryption = "A128GCM";
+
+/** Wallet Metadata member prefixes, in the order they are consulted. */
+const LIST_PREFIXES = {
+  request_object: "request_object_encryption",
+  authorization_encryption: "authorization_encryption",
+} as const;
+
 /**
  * OpenID4VP Section 5.10: a Wallet that requires an encrypted Request Object passes its public
- * encryption keys in `wallet_metadata.jwks`. Section 10 defines Wallet Metadata as RFC 8414
- * Authorization Server Metadata, whose registry carries the Request Object algorithms in
- * `request_object_encryption_alg_values_supported` and `..._enc_values_supported`. The
- * `authorization_encryption_*` members describe the Authorization Response instead and are not
- * consulted here.
+ * encryption keys in `wallet_metadata.jwks`; Section 5.10 names no other parameter for it.
+ * Section 10 defines Wallet Metadata as RFC 8414 Authorization Server Metadata, whose registry
+ * carries the Request Object algorithms in `request_object_encryption_alg_values_supported` and
+ * `..._enc_values_supported`, so those are consulted first.
+ *
+ * By maintainer decision, a Wallet that lists neither falls back to its
+ * `authorization_encryption_*` lists, which OpenID4VP assigns to the Authorization Response, and
+ * then to `ECDH-ES` with `A128GCM`. `alg` and `enc` follow that order independently, the list
+ * actually present must allow the choice, and the source of each is returned as evidence.
  *
  * Metadata that does not parse, or that carries no `jwks`, requests no encryption. A `jwks` the
  * Verifier cannot honour is `unsupported` rather than answered with a plain JWS, so the Wallet is
@@ -46,27 +60,27 @@ export function negotiateRequestObjectEncryption(
     return { status: "unsupported", reason: "wallet_metadata.jwks has no keys array" };
   }
 
-  const algValues = metadata.request_object_encryption_alg_values_supported;
-  if (algValues !== undefined && !(Array.isArray(algValues) && algValues.includes("ECDH-ES"))) {
-    return {
-      status: "unsupported",
-      reason: "request_object_encryption_alg_values_supported does not include ECDH-ES",
-    };
+  const algList = supportedValuesList(metadata, "alg_values_supported");
+  if (
+    algList.source !== "default" &&
+    !(Array.isArray(algList.values) && algList.values.includes("ECDH-ES"))
+  ) {
+    return { status: "unsupported", reason: `${algList.member} does not include ECDH-ES` };
   }
 
-  const encValues = metadata.request_object_encryption_enc_values_supported;
-  if (!Array.isArray(encValues)) {
-    return {
-      status: "unsupported",
-      reason: "wallet_metadata does not list request_object_encryption_enc_values_supported",
-    };
-  }
-  const enc = encValues.find(isEcdhEsContentEncryption);
-  if (!enc) {
-    return {
-      status: "unsupported",
-      reason: `request_object_encryption_enc_values_supported lists none of ${ECDH_ES_CONTENT_ENCRYPTION_ALGORITHMS.join(", ")}`,
-    };
+  const encList = supportedValuesList(metadata, "enc_values_supported");
+  let enc: EcdhEsContentEncryption | undefined = DEFAULT_CONTENT_ENCRYPTION;
+  if (encList.source !== "default") {
+    if (!Array.isArray(encList.values)) {
+      return { status: "unsupported", reason: `${encList.member} is not an array` };
+    }
+    enc = encList.values.find(isEcdhEsContentEncryption);
+    if (!enc) {
+      return {
+        status: "unsupported",
+        reason: `${encList.member} lists none of ${ECDH_ES_CONTENT_ENCRYPTION_ALGORITHMS.join(", ")}`,
+      };
+    }
   }
 
   const recipientJwk = keys.find(isKeyAgreementPublicJwk);
@@ -76,7 +90,33 @@ export function negotiateRequestObjectEncryption(
       reason: "wallet_metadata.jwks has no public ECDH-ES encryption key",
     };
   }
-  return { status: "negotiated", encryption: { recipientJwk, alg: "ECDH-ES", enc } };
+  return {
+    status: "negotiated",
+    encryption: {
+      recipientJwk,
+      alg: "ECDH-ES",
+      enc,
+      algSource: algList.source,
+      encSource: encList.source,
+    },
+  };
+}
+
+/** The first `<prefix>_<suffix>` member present, in `LIST_PREFIXES` order. */
+function supportedValuesList(
+  metadata: JsonRecord,
+  suffix: "alg_values_supported" | "enc_values_supported",
+):
+  | { source: Exclude<RequestObjectEncryptionSource, "default">; member: string; values: unknown }
+  | { source: "default" } {
+  for (const [source, prefix] of Object.entries(LIST_PREFIXES) as [
+    keyof typeof LIST_PREFIXES,
+    string,
+  ][]) {
+    const member = `${prefix}_${suffix}`;
+    if (metadata[member] !== undefined) return { source, member, values: metadata[member] };
+  }
+  return { source: "default" };
 }
 
 /**

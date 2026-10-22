@@ -392,6 +392,26 @@ export interface VpDcApiCapture {
   invocation?: VpDcApiInvocationCapture;
 }
 
+/**
+ * Which `wallet_metadata` list a Request Object encryption algorithm was taken from: the
+ * `request_object_encryption_*` member, the `authorization_encryption_*` fallback, or neither, in
+ * which case the default (`ECDH-ES` with `A128GCM`) applies.
+ */
+export type RequestObjectEncryptionSource =
+  | "request_object"
+  | "authorization_encryption"
+  | "default";
+
+/** How the Request Object served from a POST Request URI was encrypted, and why. */
+export interface VpRequestObjectEncryptionCapture {
+  alg: "ECDH-ES";
+  enc: string;
+  /** `kid` of the Wallet key the Request Object was encrypted to, when it had one. */
+  kid: string | null;
+  alg_source: RequestObjectEncryptionSource;
+  enc_source: RequestObjectEncryptionSource;
+}
+
 export interface VpSessionCapture {
   session_id: string;
   status: string;
@@ -426,6 +446,8 @@ export interface VpSessionCapture {
    * attestation, with `{{response_uri}}` already replaced by the session's `response_uri`.
    */
   verifier_attestation?: VpVerifierAttestation;
+  /** Present once a Request Object was served encrypted; the latest POST Request URI wins. */
+  request_object_encryption?: VpRequestObjectEncryptionCapture;
   observed: {
     request_uri_payload: ObservedValue<JsonRecord>;
     wallet_response: ObservedValue<JsonRecord>;

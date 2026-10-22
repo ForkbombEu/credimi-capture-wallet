@@ -151,6 +151,19 @@ unrecognised format are all differences in what the caller signs.
 | `WS_RP_SH_Cryptography_CryptographicHash_010` | `digest_algorithm: "sha-384"` or `"sha-512"` on `POST /sessions`, which sets the `_sd_alg` of the issued SD-JWT VC while the issuer metadata keeps advertising SHA-256 only |
 | `WS_RP_SH_Cryptography_Encryption_002` | `client_metadata: {"encrypted_response_enc_values_supported": ["A128GCM"]}` |
 
+## Request Object encryption
+
+A POST Request URI whose `wallet_metadata` carries `jwks` is answered with the signed Request
+Object encrypted to that key (OpenID4VP Section 5.10). By maintainer decision `alg` and `enc` are
+each taken from the `request_object_encryption_*` list, else the `authorization_encryption_*` list,
+else the default `ECDH-ES` with `A128GCM`; the source of each is recorded as `alg_source` and
+`enc_source` in `request_object_encryption` and the `vp_request_object_encrypted` event.
+
+| Test | How |
+| --- | --- |
+| `WS_RP_MS_Metadata__134` | Default behaviour; a Wallet advertising only the source's `authorization_encryption_*` lists is served from them, with `alg_source`/`enc_source` `authorization_encryption` as evidence |
+| `WS_RP_MS_Metadata__135` | `request_behavior.request_object_encryption: "none"` serves the plain JWS anyway |
+
 ## Reference-wallet compatibility
 
 Not established here. Every fixture above is verified against the credential this service actually
@@ -169,4 +182,3 @@ one is a wallet-profile question that the FCAF harness answers by running the te
 | A wallet-accepted `x509_san_dns` request — `WS_RP_MS_Metadata__125`, `__127`, `__128` | The EUDI service-provider registry does not issue a certificate with a `dNSName` SAN, so a registry-trusted request cannot use that prefix |
 | RS384 or PS384 signed requests — `WS_RP_SM_RpIntegrity__032`, `WS_RP_SM_RpIntegrity_CryptographicSignature_002` | The KMS backend generates EC keys only, and an RSA certificate would need a non-Credo path; signing with an RSA key under the existing certificate would add a second defect |
 | COSE algorithm identifiers −7 versus −9 — `WS_RP_SM_RpIntegrity__033`, `__034`, `CryptographicSignature_003`, `_004` | Both describe ECDSA P-256 with SHA-256, which a JOSE `alg` header expresses only as `ES256`; the COSE identifier distinction is not expressible in a JAR request object |
-| An encrypted Request Object — `WS_RP_IA_MainInteraction__024` | Request Object encryption is not implemented; the wallet-metadata cases `WS_RP_MS_Metadata__134`, `__136`, `__137` need only the captured `wallet_metadata`, and `__135` is the service's current unencrypted behaviour |

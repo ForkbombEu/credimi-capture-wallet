@@ -961,10 +961,15 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         await credoOpenId4VpVerifier(config)
       ).encryptRequestObject(requestObject, encryption);
       session.raw.authorization_request_jwe = encryptedRequestObject;
-      store.addEvent(session, "vp_request_object_encrypted", {
+      session.request_object_encryption = {
         alg: encryption.alg,
         enc: encryption.enc,
         kid: typeof encryption.recipientJwk.kid === "string" ? encryption.recipientJwk.kid : null,
+        alg_source: encryption.algSource,
+        enc_source: encryption.encSource,
+      };
+      store.addEvent(session, "vp_request_object_encrypted", {
+        ...session.request_object_encryption,
       });
       return sendRequestUriResponse(res, session, encryptedRequestObject);
     } catch (error) {

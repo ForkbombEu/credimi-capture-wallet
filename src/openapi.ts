@@ -374,7 +374,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           operationId: "postPresentationRequest",
           summary: "Retrieve request using request_uri POST",
           description:
-            "Used only when the session was created with `request_uri_method: post`. A wallet may supply `wallet_nonce` and `wallet_metadata`. When `wallet_metadata` carries `jwks`, the signed Request Object is returned encrypted (ECDH-ES) to the first usable key, with the content encryption the Wallet lists first in `request_object_encryption_enc_values_supported`; if the Wallet's metadata cannot be honoured the request is answered with `400 invalid_request`.",
+            "Used only when the session was created with `request_uri_method: post`. A wallet may supply `wallet_nonce` and `wallet_metadata`. When `wallet_metadata` carries `jwks`, the signed Request Object is returned encrypted (ECDH-ES) to the first usable key. OpenID4VP 1.0 Section 5.10 names only `jwks`; by maintainer decision `enc` and `alg` are each taken from the `request_object_encryption_*` list if present, else the `authorization_encryption_*` list, else the default (`A128GCM`, `ECDH-ES`). The list used must allow the choice, otherwise the request is answered with `400 invalid_request`. The chosen values and their sources are recorded in the session's `request_object_encryption` and the `vp_request_object_encrypted` event.",
           parameters: [sessionIdParameter],
           requestBody: {
             required: false,
@@ -385,7 +385,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
                 wallet_metadata: {
                   type: "string",
                   description:
-                    "JSON object of OpenID4VP Section 10 Wallet Metadata. jwks, request_object_encryption_alg_values_supported, and request_object_encryption_enc_values_supported select Request Object encryption.",
+                    "JSON object of OpenID4VP Section 10 Wallet Metadata. jwks requests Request Object encryption; request_object_encryption_alg_values_supported and request_object_encryption_enc_values_supported, or failing those authorization_encryption_alg_values_supported and authorization_encryption_enc_values_supported, constrain it.",
                 },
               },
               additionalProperties: true,
@@ -1384,6 +1384,25 @@ export function openApiDocument(config: AppConfig): JsonRecord {
               additionalProperties: true,
               description:
                 "Present when verifier_attestation content was supplied: the content signed into the attestation, with {{response_uri}} already replaced by the session's response_uri.",
+            },
+            request_object_encryption: {
+              type: "object",
+              required: ["alg", "enc", "kid", "alg_source", "enc_source"],
+              description:
+                "Present once a POST Request URI served the Request Object encrypted; the latest retrieval wins. Also the detail of the vp_request_object_encrypted event.",
+              properties: {
+                alg: { type: "string", const: "ECDH-ES" },
+                enc: { type: "string" },
+                kid: { type: ["string", "null"] },
+                alg_source: {
+                  type: "string",
+                  enum: ["request_object", "authorization_encryption", "default"],
+                },
+                enc_source: {
+                  type: "string",
+                  enum: ["request_object", "authorization_encryption", "default"],
+                },
+              },
             },
             raw: {
               type: "object",
