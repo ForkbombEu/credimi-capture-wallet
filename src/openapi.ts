@@ -1430,11 +1430,16 @@ export function openApiDocument(config: AppConfig): JsonRecord {
         },
         RequestUriHttpCapture: {
           type: "object",
-          required: ["method", "headers"],
+          required: ["method", "target", "headers"],
           description:
-            "Machine-readable wallet request to retrieve the request object. Sensitive header values are redacted; body is present only when received.",
+            "Machine-readable wallet request to retrieve the request object, for both GET and POST Request URI retrieval. Sensitive header values are redacted; body is present only when received.",
           properties: {
             method: { type: "string" },
+            target: {
+              type: "string",
+              description:
+                "Request target, path plus query, exactly as received by this service. This is after any reverse proxy, so a proxy that rewrites the path or query changes what is recorded.",
+            },
             headers: { type: "object", additionalProperties: true },
             body: { type: "string" },
           },

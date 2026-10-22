@@ -2170,6 +2170,7 @@ describe("capture issuer server", () => {
     expect(capture.raw?.authorization_request_jwt).toBe(requestObject.text);
     expect(capture.raw?.request_uri_http).toMatchObject({
       method: "POST",
+      target: `/openid4vp/sessions/${session.session_id}/request`,
       headers: {
         "content-type": expect.stringContaining("application/x-www-form-urlencoded"),
       },
@@ -2278,7 +2279,7 @@ describe("capture issuer server", () => {
     const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {});
 
     const requestObject = await request(app)
-      .get(`/openid4vp/sessions/${session.session_id}/request`)
+      .get(`/openid4vp/sessions/${session.session_id}/request?wallet=probe&x=%20y`)
       .set("User-Agent", "wallet-test-agent")
       .set("DPoP", "wallet-request-dpop-proof");
 
@@ -2290,6 +2291,7 @@ describe("capture issuer server", () => {
     expect(capture.raw?.authorization_request_jwt).toBe(requestObject.text);
     expect(capture.raw?.request_uri_http).toMatchObject({
       method: "GET",
+      target: `/openid4vp/sessions/${session.session_id}/request?wallet=probe&x=%20y`,
       headers: {
         "user-agent": "wallet-test-agent",
         dpop: { redacted: true, present: true },
@@ -6174,6 +6176,7 @@ interface VpSessionResponse extends JsonRecord {
     request_uri_response_http?: { status: number; headers: JsonRecord; body: string };
     request_uri_http?: {
       method: string;
+      target: string;
       headers: JsonRecord;
       body?: string;
     };

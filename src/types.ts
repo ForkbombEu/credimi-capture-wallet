@@ -117,6 +117,11 @@ export interface PresentationResponseHttpCapture {
 
 export interface RequestUriHttpCapture {
   method: string;
+  /**
+   * Request target (path and query) as received by this service, which is after any reverse
+   * proxy: a proxy that rewrites the path or query changes what is recorded here.
+   */
+  target: string;
   headers: JsonRecord;
   body?: string;
 }

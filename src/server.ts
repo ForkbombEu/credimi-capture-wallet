@@ -1611,6 +1611,7 @@ function requestUriHttpCapture(req: Request): RequestUriHttpCapture {
   const rawBody = (req as Request & { rawBody?: string }).rawBody;
   return {
     method: req.method,
+    target: req.originalUrl,
     headers: redactHttpHeaders(req.headers),
     ...(rawBody === undefined ? {} : { body: rawBody }),
   };
