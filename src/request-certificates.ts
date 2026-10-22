@@ -74,9 +74,10 @@ export async function generateUnrelatedSigningKey(): Promise<RequestSigningMater
 
 /**
  * The deployed verifier chain completed with the operator-configured CA certificate, which a
- * Wallet may hold as its trust anchor. The leaf and the signing key are the normal ones, so the
- * `x509_hash` Client Identifier is unchanged and the trust anchor's presence in `x5c` is the only
- * difference from an ordinary request. Both certificates are parsed through Credo's X.509 module.
+ * Wallet may hold as its trust anchor; a Wallet must not accept the anchor inside `x5c`. The leaf
+ * and the signing key are the normal ones, so the `x509_hash` Client Identifier is unchanged and
+ * the anchor's presence is the only defect, provided the CA issued the leaf, which the session
+ * route validates with Credo before using this. Both certificates are parsed through Credo.
  */
 export function verifierChainWithTrustAnchor(config: AppConfig): RequestSigningMaterial {
   const leaf = X509Certificate.fromEncodedCertificate(

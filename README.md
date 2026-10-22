@@ -700,13 +700,17 @@ Because the delivered Client Identifier changes, a wallet that answers anyway pr
 presentation bound to it, which then fails audience verification. That is expected: these are
 negative scenarios in which no presentation should arrive.
 
-`with_trust_anchor` is the exception: it generates nothing. It delivers the deployed verifier
-certificate followed by the CA certificate the operator placed at
-`data/verifier/verifier-ca-certificate.pem`, typically the trust anchor the Wallet is configured
-with, signed by the normal verifier key. The leaf is unchanged, so the `x509_hash` Client
-Identifier is too, and a presentation answering it verifies normally. Both certificates are parsed
-with Credo's `X509Certificate`. Without that file the control is refused with
-`verifier_ca_certificate_not_configured`.
+`with_trust_anchor` generates nothing. It delivers the deployed verifier certificate followed by
+the CA certificate the operator placed at `data/verifier/verifier-ca-certificate.pem`, signed by
+the normal verifier key. This is still a negative scenario: `WS_RP_SM_RpIntegrity__025` expects a
+Wallet to reject a request whose `x5c` contains the trust anchor. The leaf is unchanged, so the
+`x509_hash` Client Identifier is too; the anchor's presence is the only defect, and a presentation
+a Wallet sends anyway still verifies. To keep it the only defect, the CA must have issued the
+deployed certificate: Credo's X.509 chain validation (signature, validity, basic constraints, key
+usage) checks this at session creation. A missing file is refused with
+`verifier_ca_certificate_not_configured`; a file that does not parse or does not validate the
+deployed certificate with `verifier_ca_certificate_invalid`, whose `error_description` gives the
+reason.
 
 `{"wallet_nonce":"mismatch"}` and `{"wallet_nonce":"omit"}` change how the POST Request URI flow
 answers the `wallet_nonce` the Wallet supplied: `mismatch` returns a fresh unrelated value and
@@ -894,9 +898,11 @@ want all generated material regenerated. The verifier `x509_hash` client identif
 is derived from its certificate, and signed request objects are signed with its
 private JWK.
 
-`data/verifier/verifier-ca-certificate.pem` is optional and never generated. Place there the PEM CA
-certificate that issued the verifier certificate when a test needs it in `x5c`; it is used only by
-`request_behavior.certificate_chain: "with_trust_anchor"`.
+`data/verifier/verifier-ca-certificate.pem` is optional, never generated, and never fetched. Place
+there, as PEM, the CA certificate that issued `verifier-certificate.pem` — for a registry-issued
+access certificate, the issuing CA the Wallet under test trusts. It is read on each session that
+selects `request_behavior.certificate_chain: "with_trust_anchor"`, so replacing it needs no
+restart.
 
 From env file `.env`, that is loaded automatically when present, you can set:
 - `GUI_ENABLED`: enables or disables browser GUI routes. Defaults to `true`.

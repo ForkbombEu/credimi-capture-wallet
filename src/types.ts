@@ -349,8 +349,9 @@ export interface VpRequestBehavior {
   signing_key?: "unrelated";
   /**
    * Present a different X.509 chain in `x5c`. The request stays validly signed by that chain's
-   * leaf key, so the chain is the only defect. `with_trust_anchor` is not a defect: the deployed
-   * leaf, followed by the configured CA certificate a Wallet may hold as its trust anchor.
+   * leaf key, so the chain is the only defect. For `with_trust_anchor` the defect is the trust
+   * anchor itself: the deployed leaf, followed by the configured CA certificate that issued it,
+   * which a Wallet must not accept inside `x5c`.
    */
   certificate_chain?: RequestCertificateFixture;
   /**

@@ -100,7 +100,7 @@ the whole set is in one place.
 | `certificate_chain: "unrelated_self_signed"` | Self-signed leaf for `unrelated-verifier.invalid` | `WS_RP_SM_RpIntegrity__026` |
 | `certificate_chain: "untrusted_root"` | `[leaf, generated root]` | `WS_RP_SM_RpIntegrity__017`, `__019` |
 | `certificate_chain: "incomplete_chain"` | `[leaf]` with its issuer absent | `WS_RP_SM_RpIntegrity__017`, `__019` |
-| `certificate_chain: "with_trust_anchor"` | `[deployed leaf, configured CA]`, normal key, `x509_hash` Client Identifier unchanged; needs `verifier/verifier-ca-certificate.pem` | `WS_RP_SM_RpIntegrity__025` |
+| `certificate_chain: "with_trust_anchor"` | `[deployed leaf, configured CA]`, normal key, `x509_hash` Client Identifier unchanged, so the anchor inside `x5c` is the only defect and the Wallet is expected to reject it; needs `verifier/verifier-ca-certificate.pem`, which Credo must validate as the leaf's issuer | `WS_RP_SM_RpIntegrity__025` |
 
 Three more cases need no new control, because the mechanisms from Phase 2 already express them:
 

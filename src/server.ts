@@ -758,6 +758,14 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
             "certificate_chain with_trust_anchor needs the CA certificate at verifier/verifier-ca-certificate.pem in the data directory",
         });
       }
+      if (requestBehavior?.certificate_chain === "with_trust_anchor") {
+        const chainError = await trustAnchorChainError(config);
+        if (chainError) {
+          return res
+            .status(400)
+            .json({ error: "verifier_ca_certificate_invalid", error_description: chainError });
+        }
+      }
       if (verifierAttestation && selectedClientIdScheme !== "verifier_attestation") {
         return res
           .status(400)
@@ -1529,7 +1537,8 @@ async function createVpSession(
  * Resolves the key, and chain, a session's Request Object is signed with. `signing_key` keeps the
  * real certificate and changes only the key, so the mismatch between them is the single defect;
  * `certificate_chain` generates a chain and signs with its leaf key, so the chain is. Its
- * `with_trust_anchor` value keeps the real key and leaf and appends the configured CA certificate.
+ * `with_trust_anchor` value keeps the real key and leaf and appends the configured CA certificate,
+ * so the trust anchor's presence in `x5c` is.
  */
 async function requestSigningMaterialOrUndefined(
   config: AppConfig,
@@ -1543,6 +1552,24 @@ async function requestSigningMaterialOrUndefined(
   }
   if (behavior?.signing_key === "unrelated") return generateUnrelatedSigningKey();
   return undefined;
+}
+
+/**
+ * `with_trust_anchor` must add exactly one defect, the anchor in `x5c`. A configured CA that did
+ * not issue the deployed verifier certificate would also break the chain, and a Wallet could then
+ * reject the request for that reason instead, so the chain is validated with Credo first.
+ */
+async function trustAnchorChainError(config: AppConfig): Promise<string | undefined> {
+  let chain: string[];
+  try {
+    chain = verifierChainWithTrustAnchor(config).x5c ?? [];
+  } catch (error) {
+    return `verifier/verifier-ca-certificate.pem is not a parseable certificate: ${errorMessage(error)}`;
+  }
+  const reason = await (await credoOpenId4VpVerifier(config)).certificateChainError(chain);
+  return reason === undefined
+    ? undefined
+    : `the configured CA certificate does not validate the deployed verifier certificate: ${reason}`;
 }
 
 function captureVpResponse(

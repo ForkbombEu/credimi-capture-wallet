@@ -5173,46 +5173,91 @@ describe("FCAF request mutation", () => {
   });
 
   describe("with_trust_anchor", () => {
-    const caPath = verifierCaCertificatePath(dataDir);
+    const validity = {
+      notBefore: new Date("2024-01-01T00:00:00Z"),
+      notAfter: new Date("2034-01-01T00:00:00Z"),
+    };
+    // The shared verifier certificate is self-signed; this data directory's is issued by a
+    // generated CA, as a registry-issued access certificate is by the registry's CA.
+    const anchoredDataDir = mkdtempSync(join(tmpdir(), "fake-issuer-trust-anchor-test-"));
+    const anchoredConfig = { ...scenarioConfig, data_dir: anchoredDataDir };
+    const sharedCaPath = verifierCaCertificatePath(dataDir);
+    let caDer = "";
 
-    async function writeConfiguredCa(): Promise<string> {
+    async function testCa(commonName: string) {
       const { privateKey } = await generateKeyPair("ES256", { extractable: true });
-      const privateJwk = { ...(await exportJWK(privateKey)), kid: "fcaf-test-ca" } as JsonRecord;
+      const privateJwk = { ...(await exportJWK(privateKey)), kid: commonName } as JsonRecord;
       const { d: _private, ...publicJwk } = privateJwk;
       const authorityKey = Kms.PublicJwk.fromUnknown(publicJwk);
-      authorityKey.keyId = "fcaf-test-ca";
+      authorityKey.keyId = commonName;
+      const webCrypto = new CredoWebCrypto(
+        createJwkSigningContext(privateJwk, commonName) as never,
+      );
       const certificate = await X509Certificate.create(
         {
           authorityKey,
-          issuer: { countryName: "IT", commonName: "FCAF Test Trust Anchor" },
-          validity: {
-            notBefore: new Date("2024-01-01T00:00:00Z"),
-            notAfter: new Date("2034-01-01T00:00:00Z"),
-          },
+          issuer: { countryName: "IT", commonName },
+          validity,
           extensions: {
+            subjectKeyIdentifier: { include: true },
             keyUsage: { usages: [X509KeyUsage.KeyCertSign] },
             basicConstraints: { ca: true },
           },
         },
-        new CredoWebCrypto(createJwkSigningContext(privateJwk, "fcaf-test-ca") as never),
+        webCrypto,
       );
-      writeFileSync(caPath, certificate.toString("pem"));
-      return Buffer.from(certificate.rawCertificate).toString("base64");
+      return { authorityKey, webCrypto, certificate };
     }
 
-    afterEach(() => {
-      rmSync(caPath, { force: true });
+    beforeAll(async () => {
+      await initIssuer({
+        issuer_base_url: anchoredConfig.issuer_base_url,
+        data_dir: anchoredDataDir,
+        credential_configuration_id: anchoredConfig.credential_configuration_id,
+        force: true,
+      });
+      const ca = await testCa("FCAF Test Trust Anchor");
+      const { d: _private, ...verifierPublicJwk } = JSON.parse(
+        readFileSync(verifierPrivateJwkPath(anchoredDataDir), "utf8"),
+      ) as JsonRecord;
+      const leaf = await X509Certificate.create(
+        {
+          authorityKey: ca.authorityKey,
+          subjectPublicKey: Kms.PublicJwk.fromUnknown(verifierPublicJwk),
+          issuer: { countryName: "IT", commonName: "FCAF Test Trust Anchor" },
+          subject: { countryName: "IT", commonName: "issuer.example.test" },
+          validity,
+          extensions: {
+            subjectKeyIdentifier: { include: true },
+            authorityKeyIdentifier: { include: true },
+            keyUsage: { usages: [X509KeyUsage.DigitalSignature] },
+            basicConstraints: { ca: false },
+            subjectAlternativeName: { name: [{ type: "url", value: config.issuer_base_url }] },
+          },
+        },
+        ca.webCrypto,
+      );
+      writeFileSync(verifierCertificatePath(anchoredDataDir), leaf.toString("pem"));
+      writeFileSync(verifierCaCertificatePath(anchoredDataDir), ca.certificate.toString("pem"));
+      caDer = Buffer.from(ca.certificate.rawCertificate).toString("base64");
     });
 
-    it("delivers the deployed leaf followed by the configured CA, under the same client_id", async () => {
-      const caDer = await writeConfiguredCa();
-      const app = createApp(scenarioConfig);
+    afterEach(() => {
+      rmSync(sharedCaPath, { force: true });
+    });
+
+    afterAll(() => {
+      rmSync(anchoredDataDir, { recursive: true, force: true });
+    });
+
+    it("delivers the deployed leaf followed by the CA that issued it, under the same client_id", async () => {
+      const app = createApp(anchoredConfig);
       const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
         response_mode: "direct_post",
         request_uri_method: "post",
         request_behavior: { certificate_chain: "with_trust_anchor" },
       });
-      const deployedLeaf = readFileSync(verifierCertificatePath(dataDir), "utf8")
+      const deployedLeaf = readFileSync(verifierCertificatePath(anchoredDataDir), "utf8")
         .replace(/-----[^-]+-----/g, "")
         .replace(/\s+/g, "");
       const requestPath = `/openid4vp/sessions/${session.session_id}/request`;
@@ -5222,10 +5267,14 @@ describe("FCAF request mutation", () => {
         .type("form")
         .send({ wallet_nonce: "trust-anchor-nonce" });
 
+      expect(session.authorization_request.client_id).toBe(
+        `x509_hash:${createHash("sha256").update(Buffer.from(deployedLeaf, "base64")).digest("base64url")}`,
+      );
       for (const requestObject of [served.text, resigned.text]) {
         const chain = decodeProtectedHeader(requestObject).x5c as string[];
         expect(chain).toEqual([deployedLeaf, caDer]);
         const leaf = X509Certificate.fromEncodedCertificate(chain[0]);
+        expect(leaf.issuer).toBe(X509Certificate.fromEncodedCertificate(chain[1]).subject);
         await expect(
           compactVerify(requestObject, await importJWK(leaf.publicJwk.toJson() as JWK, "ES256")),
         ).resolves.toBeDefined();
@@ -5244,9 +5293,8 @@ describe("FCAF request mutation", () => {
       ]);
     });
 
-    it("verifies a presentation answering the trust-anchor request", async () => {
-      await writeConfiguredCa();
-      const app = createApp(scenarioConfig);
+    it("still verifies a presentation a wallet sends anyway", async () => {
+      const app = createApp(anchoredConfig);
       const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
         response_mode: "direct_post",
         presentation_request: { dcql_query: dcqlForClaims(["family_name"]) },
@@ -5275,9 +5323,33 @@ describe("FCAF request mutation", () => {
       expect(response.body).toMatchObject({ error: "verifier_ca_certificate_not_configured" });
     });
 
-    it("still requires the x509_hash client identifier", async () => {
-      await writeConfiguredCa();
+    it("refuses a CA that did not issue the deployed verifier certificate", async () => {
+      writeFileSync(sharedCaPath, (await testCa("Unrelated CA")).certificate.toString("pem"));
       const response = await request(createApp(scenarioConfig))
+        .post("/openid4vp/sessions")
+        .send({ request_behavior: { certificate_chain: "with_trust_anchor" } });
+
+      expect(response.status).toBe(400);
+      expect(response.body).toMatchObject({
+        error: "verifier_ca_certificate_invalid",
+        error_description: expect.stringContaining(
+          "the configured CA certificate does not validate the deployed verifier certificate",
+        ),
+      });
+    });
+
+    it("refuses a CA file that is not a certificate", async () => {
+      writeFileSync(sharedCaPath, "not a certificate");
+      const response = await request(createApp(scenarioConfig))
+        .post("/openid4vp/sessions")
+        .send({ request_behavior: { certificate_chain: "with_trust_anchor" } });
+
+      expect(response.status).toBe(400);
+      expect(response.body).toMatchObject({ error: "verifier_ca_certificate_invalid" });
+    });
+
+    it("still requires the x509_hash client identifier", async () => {
+      const response = await request(createApp(anchoredConfig))
         .post("/openid4vp/sessions")
         .send({
           client_id_scheme: "decentralized_identifier",

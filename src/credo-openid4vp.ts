@@ -608,6 +608,27 @@ export class CredoOpenId4VpVerifier {
   }
 
   /**
+   * Why `chain` does not validate up to its last certificate as the trust anchor, or `undefined`
+   * when it does. Credo's X.509 chain validation checks each signature, the validity periods, the
+   * basic constraints, and the key usages. The anchor may be an intermediate, as a Wallet may be
+   * configured with one.
+   */
+  async certificateChainError(chain: string[]): Promise<string | undefined> {
+    const trustAnchor = chain.at(-1);
+    if (!trustAnchor) return "the certificate chain is empty";
+    try {
+      await this.agent.x509.validateCertificateChain({
+        certificateChain: chain,
+        trustedCertificates: [trustAnchor],
+        allowNonRootTrustedCertificate: true,
+      });
+      return undefined;
+    } catch (error) {
+      return credoErrorMessage(error);
+    }
+  }
+
+  /**
    * Encrypts a signed Request Object to the Wallet key negotiated from its `wallet_metadata`, as a
    * Nested JWT (RFC 9101 Section 4, RFC 7519 Section 5.2). Credo's KMS performs the ECDH-ES key
    * agreement and content encryption with a fresh ephemeral key; its OpenID4VP verifier API has no
