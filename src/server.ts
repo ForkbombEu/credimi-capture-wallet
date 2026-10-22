@@ -103,6 +103,7 @@ import {
   vpRedirectPage,
   vpSessionPage,
 } from "./ui.js";
+import { RESPONSE_URI_PLACEHOLDER } from "./verifier-attestation.js";
 
 export function createApp(config: AppConfig, store = new CaptureStore(config)): express.Express {
   const app = express();
@@ -674,6 +675,9 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       }
       if (dcApi && redirectUri) {
         return res.status(400).json({ error: "redirect_uri_unsupported_for_dc_api" });
+      }
+      if (dcApi && verifierAttestation?.redirect_uris?.includes(RESPONSE_URI_PLACEHOLDER)) {
+        return res.status(400).json({ error: "response_uri_placeholder_unsupported_for_dc_api" });
       }
       if (requestBehavior?.signature === "corrupt" && selectedClientIdScheme === "redirect_uri") {
         return res.status(400).json({ error: "signature_behavior_requires_a_signed_request" });
@@ -1431,6 +1435,9 @@ async function createVpSession(
   if (responseScenario) {
     session.response_scenario = responseScenario;
     store.addEvent(session, "vp_response_scenario_selected", { ...responseScenario });
+  }
+  if (credoSession.verifierAttestation) {
+    session.verifier_attestation = credoSession.verifierAttestation;
   }
   session.raw ??= {};
   session.raw.outer_request_delivered = credoSession.outerRequest;

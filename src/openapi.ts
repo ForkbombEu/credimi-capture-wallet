@@ -1144,7 +1144,8 @@ export function openApiDocument(config: AppConfig): JsonRecord {
                 redirect_uris: {
                   type: "array",
                   items: { type: "string" },
-                  description: "redirect_uris claim. Omitted from the attestation when absent.",
+                  description:
+                    "redirect_uris claim. Omitted from the attestation when absent. An entry equal to the literal {{response_uri}} is replaced with the session's own response_uri at session creation; the placeholder is refused for the DC API response modes, which have no response_uri. The resolved content is recorded in the session's verifier_attestation.",
                 },
                 claims: { type: "object", additionalProperties: true },
                 signature: {
@@ -1368,6 +1369,12 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           properties: {
             redirect_uri_visited_at: { type: "string", format: "date-time" },
             redirect_uri_visit_count: { type: "integer", minimum: 1 },
+            verifier_attestation: {
+              type: "object",
+              additionalProperties: true,
+              description:
+                "Present when verifier_attestation content was supplied: the content signed into the attestation, with {{response_uri}} already replaced by the session's response_uri.",
+            },
             raw: {
               type: "object",
               properties: {

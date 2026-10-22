@@ -114,10 +114,13 @@ time, and two cases reuse mechanisms that already existed.
 | `client_id_scheme: "verifier_attestation"` | Valid attestation: `sub` equal to the Client Identifier, `cnf` holding the request signing key, no `redirect_uris` | `WS_RP_MS_Metadata__116`, `__118`, `__122`, `__124`, `WS_RP_SM_RpIntegrity__008` |
 | `verifier_attestation.subject` | Attestation `sub` disagrees with the Client Identifier | `WS_RP_MS_Metadata__117` |
 | `verifier_attestation.issuer` | Attestation `iss` outside the wallet's trusted list | `WS_RP_SM_RpIntegrity__011` |
-| `verifier_attestation.redirect_uris` | Adds the claim, matching or not matching the request | `WS_RP_MS_Metadata__120`, `__121` |
+| `verifier_attestation.redirect_uris` | Adds the claim, matching or not matching the request; the entry `{{response_uri}}` becomes the session's own `response_uri`, so the matching case needs no URI known in advance | `WS_RP_MS_Metadata__120`, `__121` |
 | `verifier_attestation.signature: "corrupt"` | Attestation signature invalid, request object still validly signed | `WS_RP_SM_RpIntegrity__012` |
 | `request_behavior.signing_key: "unrelated"` | Request object signed by a key that is not the one in `cnf` | `WS_RP_SM_RpIntegrity__009` |
 | `request_mutation.request_object_header.unset: ["/jwt"]` | No attestation in the JOSE header | `WS_RP_MS_Metadata__119` |
+
+None of these depend on the verifier certificate's Subject Alternative Names, so a deployed
+certificate with only a URI SAN serves them; `tests/server.test.ts` exercises that certificate.
 
 `WS_RP_MS_Metadata__123` adds non-key verifier metadata outside `client_metadata`, which is a
 `request_mutation` on the request object rather than a new control.

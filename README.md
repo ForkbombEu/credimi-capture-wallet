@@ -479,9 +479,13 @@ The optional `verifier_attestation` object changes the attestation content, one 
 | --- | --- |
 | `subject` | Attestation `sub`. The Client Identifier keeps the real subject, so the two disagree. |
 | `issuer` | Attestation `iss`, for an issuer outside the Wallet's trusted list. |
-| `redirect_uris` | Adds the `redirect_uris` claim, matching or not matching the request's redirect URI. |
+| `redirect_uris` | Adds the `redirect_uris` claim, matching or not matching the request's redirect URI. An entry equal to the literal `{{response_uri}}` is replaced with the session's own `response_uri` at session creation; it is refused for the DC API response modes, which have no `response_uri`. |
 | `claims` | Additional attestation claims, merged last. |
 | `signature: "corrupt"` | Breaks the attestation signature, leaving the request object validly signed. Requires `FCAF_SCENARIOS_ENABLED`. |
+
+The content actually signed, with `{{response_uri}}` resolved, is recorded in the session capture as `verifier_attestation`.
+
+The request is signed with the verifier key but needs no particular Subject Alternative Name in the verifier certificate: the certificate is never delivered under this prefix. Credo-TS has no Section 5.10 signer and creates its internal copy of the request under `x509_hash`; the service then replaces the Client Identifier and signs the delivered request itself, so the prefix Credo used never reaches the Wallet.
 
 #### Verifier info attestations
 

@@ -280,7 +280,10 @@ export interface VpVerifierAttestation {
   subject?: string;
   /** Attestation `iss`, for an issuer outside the wallet's trusted list. */
   issuer?: string;
-  /** `redirect_uris` claim. Omitted entirely when absent, which a wallet must not enforce. */
+  /**
+   * `redirect_uris` claim. Omitted entirely when absent, which a wallet must not enforce. An
+   * entry equal to `{{response_uri}}` is replaced by the session's own `response_uri`.
+   */
   redirect_uris?: string[];
   /** Additional attestation claims, merged last. */
   claims?: JsonRecord;
@@ -401,6 +404,11 @@ export interface VpSessionCapture {
   request_behavior?: VpRequestBehavior;
   /** Present when the HTTP response returned to the wallet is deliberately test-controlled. */
   response_scenario?: VpResponseScenario;
+  /**
+   * Present when `verifier_attestation` content was supplied: the content actually signed into the
+   * attestation, with `{{response_uri}}` already replaced by the session's `response_uri`.
+   */
+  verifier_attestation?: VpVerifierAttestation;
   observed: {
     request_uri_payload: ObservedValue<JsonRecord>;
     wallet_response: ObservedValue<JsonRecord>;

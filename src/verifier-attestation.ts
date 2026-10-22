@@ -14,6 +14,32 @@ import type { AppConfig, JsonRecord, VpVerifierAttestation } from "./types.js";
 const ATTESTATION_LIFETIME_SECONDS = 300;
 
 /**
+ * A `redirect_uris` entry replaced by the session's own `response_uri` at session creation, so a
+ * caller can ask for an attestation naming a URI it cannot know before the session exists.
+ */
+export const RESPONSE_URI_PLACEHOLDER = "{{response_uri}}";
+
+/**
+ * Replaces every `{{response_uri}}` entry of `redirect_uris`. The resolved attestation is both
+ * what is signed and what the capture records, so the evidence names the URI the wallet saw.
+ */
+export function resolveVerifierAttestation(
+  attestation: VpVerifierAttestation | undefined,
+  responseUri: string | undefined,
+): VpVerifierAttestation | undefined {
+  if (!attestation?.redirect_uris?.includes(RESPONSE_URI_PLACEHOLDER)) return attestation;
+  if (responseUri === undefined) {
+    throw new Error(`${RESPONSE_URI_PLACEHOLDER} needs a session with a response_uri`);
+  }
+  return {
+    ...attestation,
+    redirect_uris: attestation.redirect_uris.map((uri) =>
+      uri === RESPONSE_URI_PLACEHOLDER ? responseUri : uri,
+    ),
+  };
+}
+
+/**
  * Builds the Verifier Attestation JWT that travels in the `jwt` JOSE header of a Request Object
  * signed under the `verifier_attestation` Client Identifier Prefix.
  *

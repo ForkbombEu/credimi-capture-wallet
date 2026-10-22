@@ -88,7 +88,11 @@ import type {
   VpSessionCapture,
   VpVerifierAttestation,
 } from "./types.js";
-import { createVerifierAttestation, verifierAttestationClientId } from "./verifier-attestation.js";
+import {
+  createVerifierAttestation,
+  resolveVerifierAttestation,
+  verifierAttestationClientId,
+} from "./verifier-attestation.js";
 
 const CREDO_VERIFIER_BASE_PATH = "/openid4vp/sessions";
 const CREDO_KMS_BACKEND = "fake-issuer-node";
@@ -116,6 +120,8 @@ export interface CredoVpSession {
   expectedOrigin?: string;
   /** Whether the wallet-facing `client_metadata` still advertises the verifier's encryption key. */
   verifierEncryptionKeyPublished: boolean;
+  /** The attestation content as signed, `{{response_uri}}` resolved; absent if none was supplied. */
+  verifierAttestation?: VpVerifierAttestation;
 }
 
 export class ResponseModeError extends Error {}
@@ -317,12 +323,16 @@ export class CredoOpenId4VpVerifier {
     const signRequest = !(clientIdScheme === "redirect_uri" || unsignedDcApi);
     // Credo has no signer for Section 5.10, so the attestation request is built here: the Client
     // Identifier names the attested subject and the attestation itself rides in the JOSE header.
+    const resolvedVerifierAttestation = resolveVerifierAttestation(
+      verifierAttestation,
+      responseUri,
+    );
     const verifierAttestationJwt =
       clientIdScheme === "verifier_attestation"
-        ? await createVerifierAttestation(this.config, verifierAttestation)
+        ? await createVerifierAttestation(this.config, resolvedVerifierAttestation)
         : undefined;
     const attestedClientId = verifierAttestationJwt
-      ? verifierAttestationClientId(this.config, verifierAttestation)
+      ? verifierAttestationClientId(this.config, resolvedVerifierAttestation)
       : undefined;
     if (attestedClientId) authorizationRequest.client_id = attestedClientId;
     const authorizationRequestJwt = signRequest
@@ -446,6 +456,7 @@ export class CredoOpenId4VpVerifier {
           }
         : {}),
       verifierEncryptionKeyPublished,
+      ...(resolvedVerifierAttestation ? { verifierAttestation: resolvedVerifierAttestation } : {}),
     };
   }
 
@@ -691,6 +702,14 @@ export class CredoOpenId4VpVerifier {
     return { payload: encodedPayload, signatures };
   }
 
+  /**
+   * The signer Credo creates its own copy of the request with. Credo has no Section 5.10 signer
+   * and treats every `x5c` prefix other than `x509_hash` as `x509_san_dns`, which requires a
+   * `dNSName` SAN matching the response URI: a deployed certificate with only a URI SAN fails
+   * there. A `verifier_attestation` request is therefore created under `x509_hash`; its Client
+   * Identifier is replaced and the request re-signed with the attestation header before anything
+   * is stored or delivered, so the prefix used here never reaches the wallet.
+   */
   private requestSigner(clientIdScheme: OpenId4VpClientIdScheme) {
     if (clientIdScheme === "redirect_uri") return { method: "none" as const };
     if (clientIdScheme === "decentralized_identifier") {
@@ -701,7 +720,7 @@ export class CredoOpenId4VpVerifier {
     }
     return {
       method: "x5c" as const,
-      clientIdPrefix: clientIdScheme,
+      clientIdPrefix: clientIdScheme === "verifier_attestation" ? "x509_hash" : clientIdScheme,
       x5c: [this.verifierCertificate()],
     };
   }

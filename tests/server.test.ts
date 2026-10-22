@@ -9,7 +9,14 @@ import {
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Kms, Mdoc, SdJwtVcService, X509Certificate } from "@credo-ts/core";
+import {
+  CredoWebCrypto,
+  Kms,
+  Mdoc,
+  SdJwtVcService,
+  X509Certificate,
+  X509KeyUsage,
+} from "@credo-ts/core";
 import { CoseKey, DataItem, DateOnly, Sign1, cborDecode } from "@owf/cose";
 import { IssuerSigned } from "@owf/mdoc";
 import type { Express } from "express";
@@ -31,6 +38,7 @@ import request from "supertest";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_CONFIG,
+  createJwkSigningContext,
   initIssuer,
   issuerCertificatePath,
   jwksPath,
@@ -38,6 +46,7 @@ import {
   privateJwkPath,
   verifierCertificatePath,
   verifierJwksPath,
+  verifierPrivateJwkPath,
 } from "../src/config.js";
 import { resolvedIssuerConfigurationById } from "../src/configurations/registry.js";
 import { issuerAppConfig } from "../src/configurations/resolve-urls.js";
@@ -5100,6 +5109,166 @@ describe("verifier attestation requests", () => {
   });
 });
 
+describe("verifier attestation requests under a certificate with only a URI SAN", () => {
+  // The shipped test certificate also carries a dNSName SAN, which hid the deployed failure:
+  // Credo treated the prefix as x509_san_dns and refused a certificate without a matching one.
+  const uriSanDataDir = mkdtempSync(join(tmpdir(), "fake-issuer-uri-san-test-"));
+  const uriSanConfig = { ...config, data_dir: uriSanDataDir };
+
+  beforeAll(async () => {
+    await initIssuer({
+      issuer_base_url: uriSanConfig.issuer_base_url,
+      data_dir: uriSanDataDir,
+      credential_configuration_id: uriSanConfig.credential_configuration_id,
+      force: true,
+    });
+    const privateJwk = JSON.parse(
+      readFileSync(verifierPrivateJwkPath(uriSanDataDir), "utf8"),
+    ) as JsonRecord;
+    const { d: _private, ...publicJwk } = privateJwk;
+    const authorityKey = Kms.PublicJwk.fromUnknown(publicJwk);
+    authorityKey.keyId = String(privateJwk.kid);
+    const certificate = await X509Certificate.create(
+      {
+        authorityKey,
+        issuer: { countryName: "IT", commonName: "Credimi URI SAN Verifier" },
+        validity: {
+          notBefore: new Date("2024-01-01T00:00:00Z"),
+          notAfter: new Date("2034-01-01T00:00:00Z"),
+        },
+        extensions: {
+          keyUsage: { usages: [X509KeyUsage.DigitalSignature] },
+          subjectAlternativeName: { name: [{ type: "url", value: uriSanConfig.issuer_base_url }] },
+          basicConstraints: { ca: false },
+        },
+      },
+      new CredoWebCrypto(createJwkSigningContext(privateJwk, String(privateJwk.kid)) as never),
+    );
+    writeFileSync(verifierCertificatePath(uriSanDataDir), certificate.toString("pem"));
+  });
+
+  afterAll(() => {
+    rmSync(uriSanDataDir, { recursive: true, force: true });
+  });
+
+  async function uriSanAttestationSession(app: Express, body: JsonRecord = {}) {
+    const response = await request(app)
+      .post("/openid4vp/sessions")
+      .send({
+        response_mode: "direct_post",
+        client_id_scheme: "verifier_attestation",
+        request_uri_method: "post",
+        presentation_request: { dcql_query: dcqlForClaims(["family_name"]) },
+        ...body,
+      });
+    expect(response.status, JSON.stringify(response.body)).toBe(201);
+    return response.body as VpSessionCreateResponse;
+  }
+
+  it("uses a certificate without any dNSName SAN", () => {
+    const certificate = X509Certificate.fromEncodedCertificate(
+      readFileSync(verifierCertificatePath(uriSanDataDir), "utf8"),
+    );
+    expect(certificate.sanDnsNames).toEqual([]);
+    expect(certificate.sanUriNames).toEqual([uriSanConfig.issuer_base_url]);
+  });
+
+  it("delivers the attestation request by GET and POST request_uri, and on wallet_nonce", async () => {
+    const app = createApp(uriSanConfig);
+    const session = await uriSanAttestationSession(app);
+    const clientId = String(session.authorization_request.client_id);
+    expect(clientId).toBe("verifier_attestation:issuer.example.test");
+
+    const requestPath = `/openid4vp/sessions/${session.session_id}/request`;
+    const fetched = await request(app).get(requestPath);
+    const posted = await request(app).post(requestPath).type("form").send({});
+    const resigned = await request(app)
+      .post(requestPath)
+      .type("form")
+      .send({ wallet_nonce: "uri-san-wallet-nonce" });
+
+    for (const [response, walletNonce] of [
+      [fetched, undefined],
+      [posted, undefined],
+      [resigned, "uri-san-wallet-nonce"],
+    ] as const) {
+      expect(response.status).toBe(200);
+      const header = decodeProtectedHeader(response.text) as JsonRecord;
+      expect(header).not.toHaveProperty("x5c");
+      const attestation = decodeJwt(String(header.jwt)) as JsonRecord;
+      expect(`verifier_attestation:${attestation.sub}`).toBe(clientId);
+      const confirmationKey = (attestation.cnf as JsonRecord).jwk as JsonRecord;
+      const { payload } = await compactVerify(
+        response.text,
+        await importJWK(confirmationKey as unknown as JWK, "ES256"),
+      );
+      const delivered = JSON.parse(Buffer.from(payload).toString("utf8")) as JsonRecord;
+      expect(delivered.client_id).toBe(clientId);
+      expect(delivered.wallet_nonce).toBe(walletNonce);
+    }
+  });
+
+  it("verifies an Authorization Response under the verifier_attestation client_id", async () => {
+    const app = createApp(uriSanConfig);
+    const session = await uriSanAttestationSession(app);
+    const presentation = await sdJwtPresentation({
+      credential: await sdJwtCredential(),
+      authorizationRequest: session.authorization_request,
+      disclosedClaims: ["family_name"],
+    });
+    expect(String(session.authorization_request.client_id)).toMatch(/^verifier_attestation:/);
+
+    const response = await request(app)
+      .post(`/openid4vp/sessions/${session.session_id}/response`)
+      .send({ state: session.authorization_request.state, vp_token: { query_0: [presentation] } });
+
+    expect(response.status, JSON.stringify(response.body)).toBe(200);
+    const capture = await getJson<VpSessionResponse>(
+      app,
+      `/openid4vp/sessions/${session.session_id}`,
+    );
+    expect(capture.checks).toMatchObject({ presentation_valid: true, errors: [] });
+  });
+
+  it("replaces {{response_uri}} in redirect_uris with the session's response_uri", async () => {
+    const app = createApp(uriSanConfig);
+    const session = await uriSanAttestationSession(app, {
+      verifier_attestation: {
+        redirect_uris: ["{{response_uri}}", "https://relying-party.example/callback"],
+      },
+    });
+    const requestObject = await request(app)
+      .post(`/openid4vp/sessions/${session.session_id}/request`)
+      .type("form")
+      .send({});
+    const header = decodeProtectedHeader(requestObject.text) as JsonRecord;
+    const attestation = decodeJwt(String(header.jwt)) as JsonRecord;
+    const capture = await getJson<VpSessionResponse>(
+      app,
+      `/openid4vp/sessions/${session.session_id}`,
+    );
+
+    const expected = [session.response_uri, "https://relying-party.example/callback"];
+    expect(session.response_uri).toMatch(/^http:\/\/issuer\.example\.test\/openid4vp\/sessions\//);
+    expect(attestation.redirect_uris).toEqual(expected);
+    expect(capture.verifier_attestation).toEqual({ redirect_uris: expected });
+  });
+
+  it("refuses {{response_uri}} for a DC API session, which has no response_uri", async () => {
+    const app = createApp(uriSanConfig);
+    const response = await request(app)
+      .post("/openid4vp/sessions")
+      .send({
+        response_mode: "dc_api",
+        client_id_scheme: "verifier_attestation",
+        verifier_attestation: { redirect_uris: ["{{response_uri}}"] },
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ error: "response_uri_placeholder_unsupported_for_dc_api" });
+  });
+});
+
 describe("presentation digest algorithms", () => {
   it("records the digest algorithm the presented credential used", async () => {
     const app = createApp(config);
@@ -5785,6 +5954,7 @@ interface VpSessionResponse extends JsonRecord {
   decoded_presentations?: JsonRecord;
   request_mutation?: JsonRecord;
   response_scenario?: JsonRecord;
+  verifier_attestation?: JsonRecord;
   dc_api?: {
     request: { protocol: string; data: JsonRecord };
     expected_origin: string;
