@@ -7,7 +7,7 @@ import { DEFAULT_CONFIG, createIssuerSigningContext, initIssuer } from "../src/c
 import { resolvedIssuerConfigurationById } from "../src/configurations/registry.js";
 import { issuerAppConfig } from "../src/configurations/resolve-urls.js";
 import { sdJwtCredentialSignOptions } from "../src/credential.js";
-import { STATUS_REFERENCE_FIXTURES } from "../src/status-reference.js";
+import { STATUS_REFERENCE_FIXTURES, derivedStatusListUri } from "../src/status-reference.js";
 import type {
   AppConfig,
   JsonRecord,
@@ -67,8 +67,37 @@ describe("Token Status List reference fixtures", () => {
     ["missing_index", { status_list: { uri: allocated.uri } }],
     ["malformed_uri", { status_list: { uri: "not a uri", idx: allocated.idx } }],
     ["missing_uri", { status_list: { idx: allocated.idx } }],
+    [
+      "uri_missing_scheme",
+      { status_list: { uri: "//status-list.example.test/statuslists/1", idx: allocated.idx } },
+    ],
+    [
+      "uri_space_in_host",
+      { status_list: { uri: "https://status-list. example.test/statuslists/1", idx: 42 } },
+    ],
+    [
+      "uri_invalid_percent_encoding",
+      { status_list: { uri: `${allocated.uri}%GG`, idx: allocated.idx } },
+    ],
+    [
+      "uri_illegal_characters",
+      { status_list: { uri: `${allocated.uri}<token>|1`, idx: allocated.idx } },
+    ],
+    ["uri_empty", { status_list: { uri: "", idx: allocated.idx } }],
   ])("issues the %s structure the wallet must reject", async (fixture, expected) => {
     expect(await issuedStatusClaim(fixture as StatusReferenceFixture)).toEqual(expected);
+  });
+
+  it("keeps the port and userinfo when inserting a space into the host", () => {
+    expect(
+      derivedStatusListUri(
+        "http://user@localhost:8000/token_status_list/EU/x",
+        "uri_space_in_host",
+      ),
+    ).toBe("http://user@loca lhost:8000/token_status_list/EU/x");
+    expect(derivedStatusListUri("http://localhost:8000/s?x=1", "uri_missing_scheme")).toBe(
+      "//localhost:8000/s?x=1",
+    );
   });
 
   it("omits the claim entirely when no reference was allocated", async () => {
@@ -89,6 +118,11 @@ describe("Token Status List reference fixtures", () => {
       "missing_index",
       "malformed_uri",
       "missing_uri",
+      "uri_missing_scheme",
+      "uri_space_in_host",
+      "uri_invalid_percent_encoding",
+      "uri_illegal_characters",
+      "uri_empty",
     ]);
   });
 });

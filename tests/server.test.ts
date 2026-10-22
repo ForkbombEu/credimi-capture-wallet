@@ -2564,6 +2564,29 @@ describe("capture issuer server", () => {
       "missing_uri",
       new Map<unknown, unknown>([["status_list", new Map<unknown, unknown>([["idx", 42]])]]),
     ],
+    ...(
+      [
+        ["uri_missing_scheme", "//status.example.test/1"],
+        ["uri_space_in_host", "https://status.ex ample.test/1"],
+        ["uri_invalid_percent_encoding", "https://status.example.test/1%GG"],
+        ["uri_illegal_characters", "https://status.example.test/1<token>|1"],
+        ["uri_empty", ""],
+      ] as const
+    ).map(
+      ([statusReference, uri]) =>
+        [
+          statusReference,
+          new Map<unknown, unknown>([
+            [
+              "status_list",
+              new Map<unknown, unknown>([
+                ["uri", uri],
+                ["idx", 42],
+              ]),
+            ],
+          ]),
+        ] as const,
+    ),
   ] as const)(
     "issues a signed mdoc with the %s status fixture",
     async (statusReference, expectedStatus) => {
@@ -2632,6 +2655,54 @@ describe("capture issuer server", () => {
       ).toBe(true);
     },
   );
+
+  it.each([
+    ["uri_missing_scheme", "//status.example.test/1"],
+    ["uri_space_in_host", "https://status.ex ample.test/1"],
+    ["uri_invalid_percent_encoding", "https://status.example.test/1%GG"],
+    ["uri_illegal_characters", "https://status.example.test/1<token>|1"],
+    ["uri_empty", ""],
+  ])("issues an SD-JWT VC with the %s status reference", async (statusReference, uri) => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(
+          new Response(
+            JSON.stringify({ status_list: { uri: "https://status.example.test/1", idx: 42 } }),
+            { headers: { "content-type": "application/json" }, status: 200 },
+          ),
+        ),
+    );
+    const app = createApp({ ...config, fcaf_scenarios_enabled: true });
+    const session = await postJson<SessionCreateResponse>(app, "/sessions", {
+      credential_configuration_id: sdJwtCredentialConfigurationId(
+        config,
+        "key-attestation-required",
+      ),
+      flow: "pre_authorized_code",
+      status_list_enabled: true,
+      status_reference: statusReference,
+    });
+    const dpop = await dpopKey();
+    const token = await preAuthorizedToken(app, session, dpop);
+    const credentialPath = issuerProtocolPath(session, "/credential");
+    const nonce = await request(app).post(issuerProtocolPath(session, "/nonce"));
+    const proof = await keyAttestationJwt(await dpopKey(), String(nonce.body.c_nonce));
+    const credential = await request(app)
+      .post(credentialPath)
+      .set("authorization", `DPoP ${token.access_token}`)
+      .set("DPoP", await dpopProof(dpop, "POST", credentialPath, token.access_token))
+      .send({
+        credential_configuration_id: session.credential_configuration_id,
+        proofs: { attestation: [proof] },
+      });
+
+    expect(credential.status, JSON.stringify(credential.body)).toBe(200);
+    const compact = (credential.body as CredentialResponse).credentials[0].credential;
+    const claims = new SdJwtVcService({} as never).fromCompact(compact).prettyClaims as JsonRecord;
+    expect(claims.status).toEqual({ status_list: { uri, idx: 42 } });
+  });
 
   it("captures and correlates pre-authorized requests with secrets redacted", async () => {
     const app = createApp(config);

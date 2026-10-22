@@ -9,7 +9,8 @@ export interface StatusListReference {
 /**
  * Shape of the `status` claim in an issued credential. `valid` is the normal Token Status List
  * reference; the others are the deliberately malformed structures the revocation-metadata tests
- * require, and are refused unless the deployment enables FCAF scenarios.
+ * require, and are refused unless the deployment enables FCAF scenarios. The `uri_*` shapes keep
+ * `idx` and derive `uri` from the allocated one, breaking a single RFC 3986 rule each.
  */
 export type StatusReferenceFixture =
   | "valid"
@@ -17,7 +18,12 @@ export type StatusReferenceFixture =
   | "negative_index"
   | "missing_index"
   | "malformed_uri"
-  | "missing_uri";
+  | "missing_uri"
+  | "uri_missing_scheme"
+  | "uri_space_in_host"
+  | "uri_invalid_percent_encoding"
+  | "uri_illegal_characters"
+  | "uri_empty";
 
 /**
  * Hash function an issued SD-JWT VC digests its disclosures with, placed in the `_sd_alg` claim.

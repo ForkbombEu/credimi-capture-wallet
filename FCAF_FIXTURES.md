@@ -63,8 +63,13 @@ than `valid` requires `FCAF_SCENARIOS_ENABLED` and `status_list_enabled: true`.
 | `missing_index` | only `uri` | `WS_RP_MS_Metadata__087` |
 | `malformed_uri` | unparseable `uri` | `WS_RP_MS_Metadata__089` |
 | `missing_uri` | only `idx` | `WS_RP_MS_Metadata__090` |
+| `uri_missing_scheme` | allocated `uri` without `scheme:` | `WS_RP_MS_Metadata__089` step 1 |
+| `uri_space_in_host` | allocated `uri` with a space in the middle of the host | `WS_RP_MS_Metadata__089` step 2 |
+| `uri_invalid_percent_encoding` | allocated `uri` + `%GG` | `WS_RP_MS_Metadata__089` step 3 |
+| `uri_illegal_characters` | allocated `uri` + `<token>\|1` | `WS_RP_MS_Metadata__089` step 4 |
+| `uri_empty` | `uri: ""` | `WS_RP_MS_Metadata__089` step 5 |
 | mdoc configuration with `status_list_enabled: true` and `status_reference: "valid"` | valid COSE status | `WS_RP_MS_CredentialFormats__032`, `__033`, `WS_RP_MS_Metadata__091`, `__093`, `__095`, `__098`, `__101`, `__103` |
-| mdoc configuration with a non-`valid` `status_reference` | corresponding malformed, issuer-signed COSE status | `WS_RP_MS_Metadata__092`, `__094`, `__096`, `__097`, `__099`, `__100`, `__102` |
+| mdoc configuration with a non-`valid` `status_reference` | corresponding malformed, issuer-signed COSE status; the five `uri_*` shapes serve the five steps of `__099` | `WS_RP_MS_Metadata__092`, `__094`, `__096`, `__097`, `__099`, `__100`, `__102` |
 
 ## Degree credential structure
 

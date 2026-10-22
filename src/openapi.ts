@@ -948,10 +948,15 @@ export function openApiDocument(config: AppConfig): JsonRecord {
                 "missing_index",
                 "malformed_uri",
                 "missing_uri",
+                "uri_missing_scheme",
+                "uri_space_in_host",
+                "uri_invalid_percent_encoding",
+                "uri_illegal_characters",
+                "uri_empty",
               ],
               default: "valid",
               description:
-                "Shape of the status structure in the issued SD-JWT VC or mdoc. Anything other than valid is test-only, refused unless the deployment sets FCAF_SCENARIOS_ENABLED, and requires status_list_enabled so the malformed structure reshapes a genuinely allocated reference. For mdoc, only the Mobile Security Object status structure is reconstructed and Credo's KMS signs it.",
+                "Shape of the status structure in the issued SD-JWT VC or mdoc. Anything other than valid is test-only, refused unless the deployment sets FCAF_SCENARIOS_ENABLED, and requires status_list_enabled so the malformed structure reshapes a genuinely allocated reference. The uri_* values keep idx and derive uri from the allocated URI: scheme: component removed, a space inserted in the middle of the host, %GG appended, <token>|1 appended, or the empty string. For mdoc, only the Mobile Security Object status structure is reconstructed and Credo's KMS signs it.",
             },
             digest_algorithm: {
               type: "string",

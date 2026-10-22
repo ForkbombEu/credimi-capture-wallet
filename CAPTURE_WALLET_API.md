@@ -69,6 +69,14 @@ malformed structures the revocation-metadata tests require, and are refused with
 | `missing_index` | `status_list` carries only `uri` |
 | `malformed_uri` | `uri` is not a parseable URI |
 | `missing_uri` | `status_list` carries only `idx` |
+| `uri_missing_scheme` | `uri` is the allocated URI without its `scheme:` component, for example `//status.example.test/1` |
+| `uri_space_in_host` | `uri` is the allocated URI with a space inserted in the middle of the host, for example `https://status.ex ample.test/1` |
+| `uri_invalid_percent_encoding` | `uri` is the allocated URI followed by `%GG` |
+| `uri_illegal_characters` | `uri` is the allocated URI followed by `<token>\|1` |
+| `uri_empty` | `uri` is the empty string |
+
+The `uri_*` values keep `idx` and change only `uri`, which is derived from the URI actually
+allocated, so each breaks exactly one RFC 3986 rule.
 
 A malformed fixture requires `status_list_enabled: true`, otherwise it is refused with
 `status_reference_requires_status_list`: the reference is always allocated from the configured

@@ -1,6 +1,7 @@
 import type { Mdoc, MdocSignOptions } from "@credo-ts/core";
 import { DataItem, cborDecode, cborEncode } from "@owf/cose";
 import { CoseKey, IssuerAuth, IssuerSigned } from "@owf/mdoc";
+import { derivedStatusListUri } from "./status-reference.js";
 import type { StatusReferenceFixture } from "./types.js";
 
 export type MdocSignOptionsWithStatusReference = MdocSignOptions & {
@@ -91,6 +92,18 @@ function malformedStatusPayload(
       case "missing_uri":
         malformedStatusList.delete("uri");
         break;
+      case "uri_missing_scheme":
+      case "uri_space_in_host":
+      case "uri_invalid_percent_encoding":
+      case "uri_illegal_characters":
+      case "uri_empty": {
+        const allocated = statusList.get("uri");
+        if (typeof allocated !== "string") {
+          throw new Error("Signed mdoc status_list is missing its allocated uri");
+        }
+        malformedStatusList.set("uri", derivedStatusListUri(allocated, fixture));
+        break;
+      }
     }
     malformedStatus.set("status_list", malformedStatusList);
   }

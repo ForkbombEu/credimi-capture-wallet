@@ -238,6 +238,14 @@ and are refused unless the deployment sets `FCAF_SCENARIOS_ENABLED=true`. They a
 fixture only reshapes that real allocation. A credential with no `status` claim at all is simply
 `status_list_enabled: false`.
 
+Five more values keep `idx` and derive `uri` from the allocated URI, each breaking one RFC 3986
+rule: `uri_missing_scheme` drops the `scheme:` component and keeps the `//authority…` reference,
+`uri_space_in_host` inserts a space in the middle of the host, `uri_invalid_percent_encoding`
+appends `%GG`, `uri_illegal_characters` appends `<token>|1`, and `uri_empty` is `""`. For
+`https://status.example.test/1` they give `//status.example.test/1`,
+`https://status.ex ample.test/1`, `https://status.example.test/1%GG`,
+`https://status.example.test/1<token>|1`, and `""`.
+
 `issuer_configuration_id` is optional and accepts `eu-pid-device-bound` or
 `eu-pid-jwt-proof-only`. A credential configuration must belong to the selected
 issuer; the service rejects cross-issuer combinations.

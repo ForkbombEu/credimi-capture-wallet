@@ -18,6 +18,7 @@ import {
   PID_SD_JWT_VCT,
 } from "./credential-definitions.js";
 import type { MdocSignOptionsWithStatusReference } from "./malformed-mdoc-status.js";
+import { derivedStatusListUri } from "./status-reference.js";
 import type {
   AppConfig,
   JsonRecord,
@@ -200,8 +201,9 @@ export function numericSdJwtCredentialSignOptions(options: {
 /**
  * Builds the `status` claim of an SD-JWT VC. `valid` is the normal Token Status List reference;
  * the other fixtures deliberately malform it for the revocation-metadata tests, which check that
- * a Wallet rejects a negative or missing index and a missing or unparseable URI. The reference is
- * always allocated normally first, so the fixture only reshapes a real allocation.
+ * a Wallet rejects a negative or missing index and a missing, unparseable, or RFC 3986-violating
+ * URI. The reference is always allocated normally first, so the fixture only reshapes a real
+ * allocation.
  */
 function sdJwtStatusClaim(
   reference: StatusListReference | undefined,
@@ -221,6 +223,16 @@ function sdJwtStatusClaim(
       return { status: { status_list: { uri: "not a uri", idx: reference.idx } } };
     case "missing_uri":
       return { status: { status_list: { idx: reference.idx } } };
+    case "uri_missing_scheme":
+    case "uri_space_in_host":
+    case "uri_invalid_percent_encoding":
+    case "uri_illegal_characters":
+    case "uri_empty":
+      return {
+        status: {
+          status_list: { uri: derivedStatusListUri(reference.uri, fixture), idx: reference.idx },
+        },
+      };
   }
 }
 
