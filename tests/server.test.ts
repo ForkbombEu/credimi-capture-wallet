@@ -3525,6 +3525,121 @@ describe("capture issuer server", () => {
         "pre-authorized_code": { redacted: true, present: true },
       });
     });
+
+    it("records delivered response bodies with the ledger's redaction in a default session", async () => {
+      const app = createApp(config);
+      const session = await postJson<SessionCreateResponse>(app, "/sessions", {
+        flow: "pre_authorized_code",
+      });
+      const dpop = await dpopKey();
+      const tokenResponse = await preAuthorizedToken(app, session, dpop);
+
+      const { response, capture } = await requestCredential(
+        app,
+        session,
+        { proofs: { jwt: [await credentialProofJwt(await dpopKey(), tokenResponse.c_nonce)] } },
+        { dpop, response: tokenResponse },
+      );
+
+      expect(response.status, JSON.stringify(response.body)).toBe(200);
+      const byPath = (suffix: string) =>
+        capture.raw?.oid4vci_requests?.find((entry) => entry.path.endsWith(suffix))?.response;
+      expect(
+        byPath(`/offers/${new URL(session.offer_url).pathname.split("/").pop()}`),
+      ).toMatchObject({
+        status: 200,
+        body: {
+          grants: {
+            "urn:ietf:params:oauth:grant-type:pre-authorized_code": {
+              "pre-authorized_code": { redacted: true, present: true },
+            },
+          },
+        },
+      });
+      expect(byPath("/token")).toMatchObject({
+        status: 200,
+        body: {
+          access_token: { redacted: true, present: true },
+          token_type: "DPoP",
+          c_nonce: tokenResponse.c_nonce,
+        },
+      });
+      expect(byPath("/credential")).toMatchObject({
+        status: 200,
+        body: { credentials: [{ credential: { redacted: true, present: true } }] },
+      });
+      const ledger = await getJson<JsonRecord[]>(app, "/oid4vci/requests");
+      expect(JSON.stringify(ledger)).not.toContain(tokenResponse.access_token);
+      expect(JSON.stringify(ledger)).not.toContain(String(response.body.credentials[0].credential));
+    });
+
+    it("keeps PAR, authorize, and credential error responses in a full session", async () => {
+      const app = createApp(scenarioConfig);
+      const session = await postJson<SessionCreateResponse>(app, "/sessions", {
+        evidence_mode: "full",
+      });
+      const pushed = await pushAuthorization(app, session, {});
+      await request(app)
+        .get(issuerProtocolPath(session, "/authorize"))
+        .query({ client_id: walletClientId, request_uri: String(pushed.body.request_uri) })
+        .redirects(0);
+
+      const capture = await getJson<SessionCapture>(app, `/sessions/${session.session_id}`);
+      const parCapture = capture.raw?.oid4vci_requests?.find((entry) =>
+        entry.path.endsWith("/par"),
+      );
+      expect(parCapture?.response).toEqual({
+        status: 201,
+        content_type: expect.stringContaining("application/json"),
+        body: { request_uri: pushed.body.request_uri, expires_in: pushed.body.expires_in },
+      });
+      expect(
+        capture.raw?.oid4vci_requests?.find((entry) => entry.path.endsWith("/authorize"))?.response,
+      ).toMatchObject({ status: 302 });
+      const ledger = await getJson<Oid4vciHttpRequestCapture[]>(app, "/oid4vci/requests");
+      expect(ledger.find((entry) => entry.id === parCapture?.id)?.response.body).toMatchObject({
+        request_uri: { redacted: true, present: true },
+        expires_in: pushed.body.expires_in,
+      });
+
+      const preAuthorized = await preAuthorizedFull(app);
+      const rejected = await requestCredential(app, preAuthorized, { proofs: { jwt: ["a.b.c"] } });
+      expect(
+        rejected.capture.raw?.oid4vci_requests?.find((entry) => entry.path.endsWith("/credential"))
+          ?.response.body,
+      ).toEqual(rejected.response.body);
+    });
+
+    it("attributes a Nonce Endpoint response to the session whose proof carries its c_nonce", async () => {
+      const app = createApp(scenarioConfig);
+      const session = await preAuthorizedFull(app);
+      const unrelated = await request(app).post(`${conformingIssuerPath}/nonce`);
+      const nonce = await request(app).post(`${conformingIssuerPath}/nonce`);
+      const cNonce = String(nonce.body.c_nonce);
+
+      const { response, capture } = await requestCredential(app, session, {
+        proofs: { jwt: [await credentialProofJwt(await dpopKey(), cNonce)] },
+      });
+
+      expect(response.status, JSON.stringify(response.body)).toBe(200);
+      const nonceCaptures = capture.raw?.oid4vci_requests?.filter((entry) =>
+        entry.path.endsWith("/nonce"),
+      );
+      expect(nonceCaptures).toEqual([
+        expect.objectContaining({
+          session_id: session.session_id,
+          response: expect.objectContaining({ status: 200, body: { c_nonce: cNonce } }),
+        }),
+      ]);
+      const ledger = await getJson<Oid4vciHttpRequestCapture[]>(app, "/oid4vci/requests");
+      expect(
+        ledger.find(
+          (entry) =>
+            entry.path.endsWith("/nonce") &&
+            (entry.response.body as JsonRecord | undefined)?.c_nonce === unrelated.body.c_nonce,
+        )?.session_id,
+      ).toBeNull();
+    });
   });
 
   it("enforces the selected JWT proof key-attestation policy", async () => {

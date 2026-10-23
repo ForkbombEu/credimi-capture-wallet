@@ -172,6 +172,11 @@ export interface Oid4vciHttpRequestCapture {
   response: {
     status: number | null;
     content_type: string | null;
+    /**
+     * The delivered body: JSON redacted by the capture's rules, anything else reduced to presence
+     * and length. Absent when the response had no body.
+     */
+    body?: unknown;
   };
 }
 

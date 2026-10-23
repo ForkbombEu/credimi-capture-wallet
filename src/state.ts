@@ -176,6 +176,25 @@ export class CaptureStore {
     return this.fullOid4vciRequests.get(capture) ?? capture;
   }
 
+  /**
+   * Attributes unattributed Nonce Endpoint responses to the session whose Credential Request
+   * carried their `c_nonce` as a proof `nonce`. The Nonce Endpoint takes no session context, so
+   * the nonce value is the only link.
+   */
+  linkNonceResponses(sessionId: string, issuerConfigurationId: string, nonces: string[]): void {
+    if (nonces.length === 0) return;
+    for (const capture of this.oid4vciRequests) {
+      if (capture.session_id !== null || capture.issuer_configuration_id !== issuerConfigurationId)
+        continue;
+      if (!capture.path.endsWith("/nonce")) continue;
+      const body = capture.response.body;
+      const cNonce = body && typeof body === "object" && "c_nonce" in body ? body.c_nonce : null;
+      if (typeof cNonce === "string" && nonces.includes(cNonce)) {
+        this.linkOid4vciRequestToSession(capture, sessionId);
+      }
+    }
+  }
+
   linkCredoIssuanceSession(
     captureSessionId: string,
     credoSessionId: string,

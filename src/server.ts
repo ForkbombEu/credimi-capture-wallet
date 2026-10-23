@@ -48,6 +48,7 @@ import {
   createOid4vciRequestCaptures,
   isOid4vciProtocolPath,
   isRawBodyEvidencePath,
+  recordResponseBody,
   redactHttpHeaders,
   redactOid4vciValue,
 } from "./oid4vci-capture.js";
@@ -64,7 +65,7 @@ import {
   signPresentationAuthorizationRequest,
   verifierClientIdentifiers,
 } from "./openid4vp.js";
-import { credentialRequestProofsCapture } from "./proofs.js";
+import { credentialRequestProofNonces, credentialRequestProofsCapture } from "./proofs.js";
 import { corruptJwsSignature, requestBehaviorOrNull } from "./request-behavior.js";
 import {
   generateRequestCertificateMaterial,
@@ -124,9 +125,10 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     );
     oid4vciCaptures.set(req, captures.redacted);
     store.recordOid4vciRequest(captures.redacted, captures.full);
+    const responseBody = recordResponseBody(res);
     res.once("finish", () => {
-      completeOid4vciRequestCapture(captures.redacted, res);
-      completeOid4vciRequestCapture(captures.full, res);
+      completeOid4vciRequestCapture(captures.redacted, res, responseBody(), "redacted");
+      completeOid4vciRequestCapture(captures.full, res, responseBody(), "full");
     });
     const sessionId =
       oid4vciRequestSessionId(store, req) ??
@@ -1262,10 +1264,20 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       const fullCapture = store.fullOid4vciRequests.get(capture);
       if (fullCapture) fullCapture.body = redactOid4vciValue(body, undefined, "full");
       // Recorded before Credo-TS verifies the proofs, so a rejected proof leaves evidence too.
+      // The proof nonces also attribute the Nonce Endpoint responses that issued them, since
+      // the Nonce Endpoint itself takes no session context.
       const session = capture.session_id ? store.getSession(capture.session_id) : undefined;
-      if (session?.evidence_mode === "full") {
-        session.raw ??= {};
-        session.raw.credential_request_proofs = credentialRequestProofsCapture(capture, body);
+      if (session) {
+        const proofs = credentialRequestProofsCapture(capture, body);
+        store.linkNonceResponses(
+          session.session_id,
+          issuer.id,
+          credentialRequestProofNonces(proofs),
+        );
+        if (session.evidence_mode === "full") {
+          session.raw ??= {};
+          session.raw.credential_request_proofs = proofs;
+        }
       }
     }
     const { credential_response_encryption: _credentialResponseEncryption, ...credoBody } = body;

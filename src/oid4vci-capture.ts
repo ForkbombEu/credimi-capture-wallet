@@ -50,13 +50,17 @@ const SENSITIVE_VALUES = new Set([
   "tx_code",
 ]);
 
-/** Members `full` evidence still redacts: tokens, codes, the PKCE verifier, and raw secrets. */
+/**
+ * Members `full` evidence still redacts: tokens, codes, the PKCE verifier, raw secrets, and the
+ * credentials a Credential Response issues.
+ */
 const FULL_EVIDENCE_SENSITIVE_VALUES = new Set([
   "access_token",
   "authorization_code",
   "client_secret",
   "code",
   "code_verifier",
+  "credential",
   "password",
   "pre-authorized_code",
   "refresh_token",
@@ -120,10 +124,52 @@ export function createOid4vciRequestCaptures(
 export function completeOid4vciRequestCapture(
   capture: Oid4vciHttpRequestCapture,
   res: Response,
+  body: Buffer | null,
+  mode: EvidenceMode,
 ): void {
   capture.response.status = res.statusCode;
   const contentType = res.getHeader("content-type");
   capture.response.content_type = typeof contentType === "string" ? contentType : null;
+  if (body && body.length > 0) {
+    capture.response.body = responseBodyEvidence(body, capture.response.content_type, mode);
+  }
+}
+
+/**
+ * Keeps the bytes a response finally writes, whichever of `send`, `json`, or `redirect` produced
+ * them, so the capture records what was delivered after every interceptor ran.
+ */
+export function recordResponseBody(res: Response): () => Buffer | null {
+  let body: Buffer | null = null;
+  const end = res.end;
+  res.end = function (this: Response, ...args: Parameters<Response["end"]>) {
+    const [chunk] = args;
+    if (typeof chunk === "string") body = Buffer.from(chunk);
+    else if (Buffer.isBuffer(chunk)) body = chunk;
+    return end.apply(this, args);
+  } as Response["end"];
+  return () => body;
+}
+
+/**
+ * A JSON response body, redacted by the same rules as a request in that mode. Any other body is
+ * reduced to presence and length: redirect pages carry authorization codes in their URL, and a
+ * JWT response may be an encrypted Credential Response.
+ */
+export function responseBodyEvidence(
+  body: Buffer,
+  contentType: string | null,
+  mode: EvidenceMode,
+): unknown {
+  const text = body.toString("utf8");
+  if (contentType && /json/i.test(contentType)) {
+    try {
+      return redactOid4vciValue(JSON.parse(text), undefined, mode);
+    } catch {
+      return redactedValue(text);
+    }
+  }
+  return redactedValue(text);
 }
 
 /**

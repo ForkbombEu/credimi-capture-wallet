@@ -452,11 +452,12 @@ For each session you can get different information:
   normalized session capture; a request is attributed to its session when it arrives, so one
   Credo-TS rejects is still there. DPoP, pre-authorized-code, access-token, JWT proof,
   client-attestation, and other secret values are replaced with presence and length
-  metadata, and `header_counts` records how often each header field was sent. The
+  metadata, `header_counts` records how often each header field was sent, and `response`
+  records the delivered status, media type, and body under the same redaction. The
   service-wide ledger retains the latest 1,000 requests. A session created with
   `"evidence_mode":"full"` (test-only, requires `FCAF_SCENARIOS_ENABLED=true`) keeps its own
-  copy of that evidence unredacted, except for tokens, codes, `tx_code`, `code_verifier`, and
-  the `Authorization`, `DPoP`, and cookie headers; the ledger stays redacted. See
+  copy of that evidence unredacted, except for tokens, codes, `tx_code`, `code_verifier`, issued
+  credentials, and the `Authorization`, `DPoP`, and cookie headers; the ledger stays redacted. See
   [FCAF ws_ap evidence](CAPTURE_WALLET_API.md#fcaf-ws_ap-evidence).
 * Captured Wallet holder-binding JWKS after the Wallet has called `/credential` with a
   proof JWT `header.jwk` or a direct attestation `attested_keys` entry:

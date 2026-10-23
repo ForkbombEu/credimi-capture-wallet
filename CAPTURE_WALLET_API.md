@@ -13,7 +13,7 @@ The base URL is configured by `--issuer-base-url`; production uses `https://capt
 - JSON is the default representation unless a route states another media type.
 - Unknown session IDs return `404` with an error object. Invalid protocol input normally returns `400`.
 - Session and event responses are evidence records: their `observed`, `checks`, `raw`, and event `detail` members can grow as the service captures more protocol information. Do not rely on undocumented members.
-- Never store access tokens, refresh tokens, authorization codes, pre-authorized codes, `tx_code`, `code_verifier`, DPoP proofs, credential offers containing pre-authorized codes, or raw presentation payloads in logs or fixtures. Two captures hold raw Wallet input on purpose and must be treated as sensitive evidence: an issuance session created with `evidence_mode: "full"` keeps the OpenID4VCI material listed under [FCAF ws_ap evidence](#fcaf-ws_ap-evidence) in clear in its own capture, while still redacting tokens, codes, `tx_code`, `code_verifier`, and the `Authorization`, `DPoP`, and cookie headers; and a presentation capture preserves raw Wallet form payloads. The global `/oid4vci/requests` ledger is always redacted.
+- Never store access tokens, refresh tokens, authorization codes, pre-authorized codes, `tx_code`, `code_verifier`, DPoP proofs, issued credentials, credential offers containing pre-authorized codes, or raw presentation payloads in logs or fixtures. Two captures hold raw Wallet input on purpose and must be treated as sensitive evidence: an issuance session created with `evidence_mode: "full"` keeps the OpenID4VCI material listed under [FCAF ws_ap evidence](#fcaf-ws_ap-evidence) in clear in its own capture, while still redacting tokens, codes, `tx_code`, `code_verifier`, issued credentials, and the `Authorization`, `DPoP`, and cookie headers; and a presentation capture preserves raw Wallet form payloads. The global `/oid4vci/requests` ledger is always redacted.
 
 ## Service and discovery
 
@@ -187,10 +187,28 @@ A session created with `evidence_mode: "full"` exposes, in its own `raw.oid4vci_
 | `headers` | As in the ledger, but with the `OAuth-Client-Attestation` and `OAuth-Client-Attestation-PoP` values in clear. |
 | `query`, `body` | Proofs, attestations, `client_assertion`, and the `/authorize` `request_uri` in clear. Access and refresh tokens, authorization and pre-authorized codes, `tx_code`, `code_verifier`, `client_secret`, and `password` stay redacted. |
 | `raw_body` | PAR, token, and Credential Requests only: `content_type`, the declared `Content-Type`, and `base64`, the exact received body bytes, so duplicate member names, invalid UTF-8, or a byte order mark stay visible. An `application/jwt` body is kept as `text` instead. A token request body is described as `{content_type, redacted: true, length}`, because it carries the codes and verifier that stay redacted. |
+| `response.body` | The PAR `request_uri` and `expires_in`, the Nonce Endpoint `c_nonce`, the token response members other than tokens, and Credential error responses, in clear. Access and refresh tokens and issued credentials stay redacted. |
 
 A body is read for `raw_body` even when its media type matches no parser, and a request whose
 body a parser rejects, such as malformed JSON, is still captured and attributed, with `body: null`
 and the error response the service returned.
+
+Every capture, in both modes, records the delivered response in `response`: `status`,
+`content_type`, and `body`, taken from the bytes finally written, after any response encryption.
+A JSON body is redacted by the same rules as the request in that mode, so the ledger shows a PAR
+`request_uri`, tokens, and issued credentials as presence and length metadata and keeps `c_nonce`
+in clear. Any other body, such as a redirect page carrying an authorization code or an encrypted
+Credential Response, is always reduced to presence and length. `body` is absent when the response
+had none.
+
+The Nonce Endpoint takes no session context, so a nonce response is first recorded in the ledger
+with `session_id: null`. When a Credential Request arrives, every string `nonce` in its proofs
+(each `proofs.jwt` payload, its `key_attestation` payload, and each `proofs.attestation` payload) is
+matched against the `response.body.c_nonce` of unattributed nonce responses from the same issuer.
+A match gets the session's `session_id` and is appended to its `raw.oid4vci_requests`, after the
+requests already there; order those entries by `at`. A nonce response no Credential Request used
+stays unattributed in `GET /oid4vci/requests`, where a consumer can still match it by `c_nonce` and
+`at`. A `c_nonce` returned in a token response is part of that token request's own capture.
 
 `observed.client_authentication` records the first request carrying `OAuth-Client-Attestation` or
 `OAuth-Client-Attestation-PoP`, in both modes: `method: "wallet_attestation"`, and for each of
@@ -229,6 +247,9 @@ has accepted the proof.
 | `full`: `raw.credential_request_proofs.jwt[]` `payload` | `WS_AP_MS_ProtocolMessages_053a`, `_053b`, `_053c`, `_053d` |
 | `full`: `raw.credential_request_proofs.jwt[]` `compact` and `key_attestation` | `WS_AP_SM_DeviceBinding_010a`, `_010c`, `_011a`, `_011b` |
 | `full`: `raw.credential_request_proofs.attestation[]` | `WS_AP_SM_DeviceBinding_011a`, `_011b` |
+| `full`: PAR `response.body.request_uri` and the `/authorize` `query.request_uri` | `WS_AP_IA_MainInteraction_010c`, `WS_AP_IA_Supportive_011a` |
+| Attributed nonce `response.body.c_nonce` and `raw.credential_request_proofs` `jwt[].payload.nonce` (`full`) | `WS_AP_SM_DeviceBinding_012a` |
+| Attributed nonce `response.body.c_nonce` and `raw.credential_request_proofs` `attestation[].payload.nonce` (`full`) | `WS_AP_SM_DeviceBinding_013a` |
 
 ## OpenID4VP presentation capture
 

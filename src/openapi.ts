@@ -985,6 +985,10 @@ export function openApiDocument(config: AppConfig): JsonRecord {
               properties: {
                 status: { type: ["integer", "null"] },
                 content_type: { type: ["string", "null"] },
+                body: {
+                  description:
+                    "The delivered body, after any response encryption. JSON is redacted by the same rules as the request in that evidence mode (tokens and issued credentials are always presence and length metadata; c_nonce is always kept); any other body is presence and length metadata. Absent when the response had no body.",
+                },
               },
             },
           },

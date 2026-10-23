@@ -77,6 +77,14 @@ export function credentialRequestProofsCapture(
   };
 }
 
+/** Every string `nonce` the proofs and their Key Attestations carry, for nonce attribution. */
+export function credentialRequestProofNonces(proofs: CredentialRequestProofsCapture): string[] {
+  return [
+    ...proofs.jwt.flatMap((proof) => [proof.payload?.nonce, proof.key_attestation?.payload?.nonce]),
+    ...proofs.attestation.map((proof) => proof.payload?.nonce),
+  ].filter((nonce): nonce is string => typeof nonce === "string");
+}
+
 function proofJwtStrings(value: unknown, source: string): Array<{ jwt: string; source: string }> {
   if (typeof value === "string") return [{ jwt: value, source }];
   if (!Array.isArray(value)) return [];
