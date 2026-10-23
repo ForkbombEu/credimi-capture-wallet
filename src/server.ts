@@ -113,6 +113,7 @@ import type {
   VpVerifierAttestation,
 } from "./types.js";
 import {
+  credentialOfferEngagementPage,
   dcApiPresentationPage,
   errorPage,
   helpPage,
@@ -127,12 +128,21 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
   const app = express();
   const oid4vciCaptures = new WeakMap<Request, Oid4vciHttpRequestCapture>();
   // Every OpenID4VCI request is recorded before any handler runs, and attributed to its capture
-  // session there too, so a request Credo-TS rejects still leaves session evidence.
-  const captureOid4vciRequest = async (req: Request, res: Response): Promise<void> => {
+  // session there too, so a request Credo-TS rejects still leaves session evidence. A request with
+  // no matching route or configured issuer resource is recorded as `unmatched`.
+  const captureOid4vciRequest = async (
+    req: Request,
+    res: Response,
+    unmatched = false,
+  ): Promise<void> => {
     const captures = createOid4vciRequestCaptures(
       req,
       oid4vciRequestIssuerConfigurationId(store, req),
     );
+    if (unmatched) {
+      captures.redacted.unmatched = true;
+      captures.full.unmatched = true;
+    }
     oid4vciCaptures.set(req, captures.redacted);
     store.recordOid4vciRequest(captures.redacted, captures.full);
     const responseBody = recordResponseBody(res);
@@ -140,12 +150,21 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       completeOid4vciRequestCapture(captures.redacted, res, responseBody(), "redacted");
       completeOid4vciRequestCapture(captures.full, res, responseBody(), "full");
     });
-    const sessionId =
-      oid4vciRequestSessionId(store, req) ??
-      (isCredoSessionEndpoint(req.path)
-        ? await (await credoOpenId4VciIssuer(config, store)).captureSessionIdForRequest(req)
-        : null);
+    const sessionId = unmatched
+      ? unmatchedRequestSessionId(store, req)
+      : (oid4vciRequestSessionId(store, req) ??
+        (isCredoSessionEndpoint(req.path)
+          ? await (await credoOpenId4VciIssuer(config, store)).captureSessionIdForRequest(req)
+          : null));
     if (sessionId) store.linkOid4vciRequestToSession(captures.redacted, sessionId);
+  };
+
+  const markOid4vciRequestUnmatched = (req: Request): void => {
+    const capture = oid4vciCaptures.get(req);
+    if (!capture) return;
+    capture.unmatched = true;
+    const fullCapture = store.fullOid4vciRequests.get(capture);
+    if (fullCapture) fullCapture.unmatched = true;
   };
 
   // A session's issuance_response_scenario replaces what the Wallet receives from its PAR or
@@ -357,6 +376,26 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       }
     });
 
+    app.get("/ui/sessions/:sessionId/engage", async (req, res, next) => {
+      try {
+        const session = store.getSession(req.params.sessionId);
+        if (!session) return res.status(404).type("html").send(errorPage("Session not found"));
+        const offer = store.credoIssuanceOffers.get(session.session_id);
+        if (!offer)
+          return res.status(409).type("html").send(errorPage("Credential offer not ready"));
+        const qrSvg = await QRCode.toString(offer.credential_offer, {
+          type: "svg",
+          errorCorrectionLevel: "M",
+          margin: 1,
+          width: 288,
+        });
+        store.addEvent(session, "credential_offer_engagement_page_served", {});
+        return res.type("html").send(credentialOfferEngagementPage(offer.credential_offer, qrSvg));
+      } catch (error) {
+        return next(error);
+      }
+    });
+
     app.get("/ui/openid4vp/sessions/:sessionId", async (req, res, next) => {
       try {
         const session = store.getVpSession(req.params.sessionId);
@@ -448,7 +487,10 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     async (req, res, next) => {
       try {
         const issuer = resolvedIssuerConfigurationById(config, req.params.issuerConfigurationId);
-        if (!issuer) return res.status(404).json({ error: "issuer_not_found" });
+        if (!issuer) {
+          markOid4vciRequestUnmatched(req);
+          return res.status(404).json({ error: "issuer_not_found" });
+        }
         const credoIssuer = await credoOpenId4VciIssuer(config, store);
         const metadata = await credoIssuer.credentialIssuerMetadata(issuer.id);
         res.vary("Accept");
@@ -477,7 +519,10 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     async (req, res, next) => {
       try {
         const issuer = resolvedIssuerConfigurationById(config, req.params.issuerConfigurationId);
-        if (!issuer) return res.status(404).json({ error: "issuer_not_found" });
+        if (!issuer) {
+          markOid4vciRequestUnmatched(req);
+          return res.status(404).json({ error: "issuer_not_found" });
+        }
         return res.json(
           await (await credoOpenId4VciIssuer(config, store)).authorizationServerMetadata(issuer.id),
         );
@@ -719,6 +764,24 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     const session = store.getSession(req.params.sessionId);
     if (!session) return res.status(404).json({ error: "session_not_found" });
     return res.json(session.events);
+  });
+
+  // A session's attributed requests, plus every unattributed one recorded since it was created, so
+  // a consumer can establish that a Wallet made no request it should not have, such as a metadata
+  // request derived from the engagement page's origin, which carries no session context.
+  app.get("/sessions/:sessionId/requests", (req, res) => {
+    const session = store.getSession(req.params.sessionId);
+    if (!session) return res.status(404).json({ error: "session_not_found" });
+    const from = session.events.find((event) => event.type === "session_created")?.at ?? "";
+    const to = new Date().toISOString();
+    return res.json({
+      session_id: session.session_id,
+      window: { from, to },
+      requests: [...(session.raw?.oid4vci_requests ?? [])].sort((a, b) => a.at.localeCompare(b.at)),
+      unattributed_requests: store.oid4vciRequests.filter(
+        (entry) => entry.session_id === null && entry.at >= from && entry.at <= to,
+      ),
+    });
   });
 
   // Test-only revocation of every reference allocated for the session's credentials, through the
@@ -1397,6 +1460,15 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     }
   });
 
+  // A request no route handles is recorded as `unmatched` before its 404, so a Wallet that fetches
+  // metadata from a URL it derived itself, or anything else unexpected, leaves evidence.
+  app.use((req, res, next) => {
+    const capture = oid4vciCaptures.get(req);
+    if (!capture) return captureOid4vciRequest(req, res, true).then(() => next(), next);
+    markOid4vciRequestUnmatched(req);
+    return next();
+  });
+
   app.use(
     (error: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
       res.status(500).json({ error: "internal_error", message: error.message });
@@ -1414,6 +1486,12 @@ function oid4vciRequestSessionId(store: CaptureStore, req: Request): string | nu
     return store.captureSessionIdsByCredentialOffer.get(offerPath[1]) ?? null;
   }
   return null;
+}
+
+/** The existing session an unrouted request names in its path, such as a mistyped session route. */
+function unmatchedRequestSessionId(store: CaptureStore, req: Request): string | null {
+  const sessionId = /^\/(?:ui\/)?sessions\/([^/]+)/.exec(req.path)?.[1];
+  return sessionId && store.getSession(sessionId) ? sessionId : null;
 }
 
 function oid4vciRequestIssuerConfigurationId(store: CaptureStore, req: Request): string | null {

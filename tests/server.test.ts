@@ -3846,6 +3846,89 @@ describe("capture issuer server", () => {
         );
       },
     );
+
+    it("records unrouted requests, including self-derived metadata URLs, before the normal 404", async () => {
+      const app = createApp(config);
+      const session = await postJson<SessionCreateResponse>(app, "/sessions", {});
+      const paths = [
+        "/.well-known/openid-credential-issuer",
+        "/.well-known/openid-credential-issuer/issuers/not-configured",
+        "/.well-known/openid-credential-issuer/ui/sessions",
+        "/.well-known/oauth-authorization-server",
+        `/sessions/${session.session_id}/unknown`,
+      ];
+
+      for (const path of paths) {
+        const response = await request(app).get(path);
+        expect(response.status, path).toBe(404);
+      }
+
+      const ledger = await getJson<Oid4vciHttpRequestCapture[]>(app, "/oid4vci/requests");
+      const unmatched = ledger.filter((entry) => entry.unmatched);
+      expect(
+        unmatched.map((entry) => [entry.path, entry.session_id, entry.response.status]),
+      ).toEqual([
+        [paths[0], null, 404],
+        [paths[1], null, 404],
+        [paths[2], null, 404],
+        [paths[3], null, 404],
+        [paths[4], session.session_id, 404],
+      ]);
+    });
+
+    it("serves only the delivered offer on the engagement page", async () => {
+      const app = createApp(scenarioConfig);
+      const session = await postJson<SessionCreateResponse>(app, "/sessions", {
+        offer_scheme: "eu-eaa-offer://",
+        offer_mutation: { unset: ["/credential_issuer"] },
+      });
+
+      const page = await request(app).get(`/ui/sessions/${session.session_id}/engage`);
+      const withoutGui = await request(createApp({ ...scenarioConfig, gui_enabled: false })).get(
+        `/ui/sessions/${session.session_id}/engage`,
+      );
+
+      expect(page.status).toBe(200);
+      expect(page.text).toContain(
+        `<a class="btn btn-primary btn-lg" id="engage-offer" href="${session.deeplink.replaceAll("&", "&amp;").replaceAll('"', "&quot;")}">`,
+      );
+      expect(page.text).toContain("<svg");
+      expect(page.text).not.toContain(session.session_id);
+      expect(withoutGui.status).toBe(404);
+      const capture = await getJson<SessionCapture>(app, `/sessions/${session.session_id}`);
+      expect(capture.events.map((event) => event.type)).toContain(
+        "credential_offer_engagement_page_served",
+      );
+    });
+
+    it("lists a session's requests with every unattributed request since it was created", async () => {
+      const app = createApp(config);
+      await request(app).get("/.well-known/oauth-authorization-server");
+      const session = await postJson<SessionCreateResponse>(app, "/sessions", {
+        credential_offer_mode: "credential_offer_uri",
+      });
+      await request(app).get(new URL(session.offer_url).pathname);
+      await request(app).get(conformingMetadataPath);
+      await request(app).get("/.well-known/openid-credential-issuer");
+
+      const response = await getJson<{
+        session_id: string;
+        window: { from: string; to: string };
+        requests: Oid4vciHttpRequestCapture[];
+        unattributed_requests: Oid4vciHttpRequestCapture[];
+      }>(app, `/sessions/${session.session_id}/requests`);
+
+      expect(response.session_id).toBe(session.session_id);
+      expect(response.requests.map((entry) => entry.path)).toEqual([
+        new URL(session.offer_url).pathname,
+      ]);
+      expect(response.unattributed_requests.map((entry) => [entry.path, entry.unmatched])).toEqual([
+        [conformingMetadataPath, undefined],
+        ["/.well-known/openid-credential-issuer", true],
+      ]);
+      expect(response.window.from <= response.unattributed_requests[0].at).toBe(true);
+      expect((await request(app).get(`/sessions/${randomUUID()}/requests`)).status).toBe(404);
+    });
   });
 
   it("enforces the selected JWT proof key-attestation policy", async () => {

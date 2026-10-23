@@ -23,7 +23,7 @@ The base URL is configured by `--issuer-base-url`; production uses `https://capt
 | `GET` | `/openapi.json` | OpenAPI 3.1 contract for the public REST and protocol surface. |
 | `GET` | `/docs` | Interactive API documentation. |
 | `GET` | `/issuers` | Lists the always-on issuer configurations, metadata URLs, warnings, and credential configuration IDs. |
-| `GET` | `/oid4vci/requests` | Bounded chronological OpenID4VCI request ledger. Sensitive fields are redacted to presence/length metadata, whatever a session's `evidence_mode`. |
+| `GET` | `/oid4vci/requests` | Bounded chronological ledger of OpenID4VCI requests and of every request no route handled (`unmatched: true`). Sensitive fields are redacted to presence/length metadata, whatever a session's `evidence_mode`. |
 
 For each `{issuerConfigurationId}`:
 
@@ -108,6 +108,7 @@ An issued credential with no `status` claim at all is `status_list_enabled: fals
 | `GET` | `/sessions/{sessionId}/deeplink` | `{ deeplink, credential_offer }`; records a deeplink-generation event. |
 | `GET` | `/sessions/{sessionId}/jwks` | Verified wallet holder-binding JWKS. Returns `409` until a holder key has been observed. |
 | `GET` | `/sessions/{sessionId}/events` | Chronological issuance events (`at`, `type`, `detail`). |
+| `GET` | `/sessions/{sessionId}/requests` | The session's attributed requests and every unattributed ledger request since it was created; see [FCAF ws_ap evidence](#fcaf-ws_ap-evidence). |
 | `POST` | `/sessions/{sessionId}/status` | `{"status":"revoked"}`: revoke every reference allocated to the session through the Status List service. Test-only; see below. |
 
 ### Revoking issued credentials
@@ -180,6 +181,27 @@ at `/authorize`, the chained `state` at `/redirect`, the `pre-authorized_code` o
 `/token`, and the grant the access token names at `/credential` (the token is decoded for this,
 not verified). A request that identifies no session, or one Credo cannot match, stays in the
 ledger with `session_id: null`.
+
+A request that finds no configured issuer resource or other route, such as
+`/.well-known/openid-credential-issuer` with no or an unconfigured path suffix,
+`/.well-known/oauth-authorization-server`, or any other unknown path, is still recorded in the
+ledger, with `unmatched: true`, the same redaction, and the `404`
+it received. It is attributed only when its path names an existing session, as in
+`/sessions/{sessionId}/…` or `/ui/sessions/{sessionId}/…`.
+
+`GET /sessions/{sessionId}/requests` returns `{session_id, window, requests,
+unattributed_requests}`: `requests` is the session's `raw.oid4vci_requests` ordered by `at`, in
+the session's evidence mode, and `unattributed_requests` every ledger entry with `session_id: null`
+recorded inside `window`, which runs from the session's creation to the response time. A metadata
+fetch, a nonce request no Credential Request used, and an unmatched request carry no session
+context, so they appear there, redacted, for every session open at the time; the consumer decides
+which belong to the Wallet under test. The ledger keeps only its latest 1,000 entries.
+
+`GET /ui/sessions/{sessionId}/engage`, available while `GUI_ENABLED` is on, is a minimal page with
+only the session's delivered `deeplink`, as an "Open in wallet" button and a QR code, and logs a
+`credential_offer_engagement_page_served` event. An End-User engaging from it gives a Wallet that
+derives a metadata URL from the engaging page's origin or referrer this service's own host, so
+that request, if made, is recorded as above.
 
 Every capture, in both modes, records `header_counts`: the occurrences of each header field by
 lower-case name, counted from the raw header list. Node joins repeated header fields into one
@@ -262,6 +284,7 @@ has accepted the proof.
 | `offer_scheme: "haip-vci://"` and `"eu-eaa-offer://"` deeplinks; the session's later `raw.oid4vci_requests` | `WS_AP_IA_Engagement_007a`, `_007b` |
 | Default by-value `deeplink` and `GET /sessions/{sessionId}/offer`; the session's later requests | `WS_AP_MS_ProtocolMessages_033a` |
 | `offer_mutation` `{"unset":["/credential_configuration_ids"]}`, `raw.credential_offer_delivered`; the absence of later requests | `WS_AP_MS_ProtocolMessages_033c_UF` |
+| `offer_mutation` `{"unset":["/credential_issuer"]}` engaged from `/ui/sessions/{sessionId}/engage`; `unattributed_requests` of `GET /sessions/{sessionId}/requests` | `WS_AP_MS_ProtocolMessages_033b_UF` |
 
 #### Issuer response scenarios
 
@@ -631,6 +654,7 @@ These routes support the server-rendered operator UI. They are not a stable prog
 | `GET` | `/ui/help` |
 | `POST` | `/ui/sessions` |
 | `GET` | `/ui/sessions/{sessionId}` |
+| `GET` | `/ui/sessions/{sessionId}/engage` |
 | `POST` | `/ui/openid4vp/sessions` |
 | `GET` | `/ui/openid4vp/sessions/{sessionId}` |
 | `GET` | `/ui/openid4vp/sessions/{sessionId}/dc_api_presentation` |

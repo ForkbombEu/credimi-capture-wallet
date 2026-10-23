@@ -314,6 +314,22 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           },
         },
       },
+      "/sessions/{sessionId}/requests": {
+        get: {
+          tags: ["Issuance sessions"],
+          operationId: "getIssuanceRequests",
+          summary: "Get issuance HTTP request evidence",
+          description:
+            "Returns every request attributed to the session, in its evidence mode, and every unattributed ledger entry recorded from session creation to the response time. The latter includes metadata, nonce, and unmatched requests that have no session context; the consumer identifies which belong to the Wallet under test.",
+          parameters: [sessionIdParameter],
+          responses: {
+            "200": response("Session and contemporaneous unattributed request evidence.", {
+              $ref: "#/components/schemas/IssuanceSessionRequests",
+            }),
+            "404": errorResponses["404"],
+          },
+        },
+      },
       "/sessions/{sessionId}/status": {
         post: {
           tags: ["Issuance sessions"],
@@ -945,6 +961,12 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             path: { type: "string" },
             session_id: { type: ["string", "null"] },
             issuer_configuration_id: { type: ["string", "null"] },
+            unmatched: {
+              type: "boolean",
+              const: true,
+              description:
+                "Present when no configured issuer resource or other route matched, and the response was 404.",
+            },
             headers: { type: "object", additionalProperties: true },
             header_counts: {
               type: "object",
@@ -990,6 +1012,32 @@ export function openApiDocument(config: AppConfig): JsonRecord {
                     "The delivered body, after any response encryption. JSON is redacted by the same rules as the request in that evidence mode (tokens and issued credentials are always presence and length metadata; c_nonce is always kept); any other body is presence and length metadata. Absent when the response had no body.",
                 },
               },
+            },
+          },
+        },
+        IssuanceSessionRequests: {
+          type: "object",
+          required: ["session_id", "window", "requests", "unattributed_requests"],
+          properties: {
+            session_id: { type: "string", format: "uuid" },
+            window: {
+              type: "object",
+              required: ["from", "to"],
+              properties: {
+                from: { type: "string", format: "date-time" },
+                to: { type: "string", format: "date-time" },
+              },
+            },
+            requests: {
+              type: "array",
+              description: "Requests attributed to this session in chronological order.",
+              items: { $ref: "#/components/schemas/Oid4vciHttpRequestCapture" },
+            },
+            unattributed_requests: {
+              type: "array",
+              description:
+                "Ledger entries with no session ID recorded within window; always redacted, including for a full-evidence session.",
+              items: { $ref: "#/components/schemas/Oid4vciHttpRequestCapture" },
             },
           },
         },

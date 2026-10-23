@@ -459,6 +459,48 @@ export function sessionPage(sessionId: string, deeplink: string, qrSvg: string):
   });
 }
 
+/**
+ * The page an End-User engages a Wallet from: the session's delivered offer deeplink, as a button
+ * and a QR code, and nothing else from the capture. Served from this service's own origin, so a
+ * Wallet that derives metadata from the engaging page's origin or referrer asks this service, which
+ * records the request.
+ */
+export function credentialOfferEngagementPage(deeplink: string, qrSvg: string): string {
+  const escapedDeeplink = escapeHtml(deeplink);
+  return htmlPage({
+    title: "Add a credential",
+    body: [
+      '<header class="topbar">',
+      '<div class="topbar-inner">',
+      '<a class="brand-lockup" href="/">',
+      '<img class="brand-logo" src="/assets/credimi_logo.svg" alt="" aria-hidden="true">',
+      '<span class="brand-name">Wallet metadata capture</span>',
+      "</a>",
+      "</div>",
+      "</header>",
+      '<main class="page-content session-page">',
+      '<section class="session-header container">',
+      "<div>",
+      '<p class="eyebrow">OpenID4VCI credential offer</p>',
+      "<h1>Add a credential</h1>",
+      '<p class="session-intro">Open the offer in your wallet on this device, or scan it with your wallet.</p>',
+      "</div>",
+      "</section>",
+      '<section class="session-layout container">',
+      '<div class="card qr-panel">',
+      '<a class="btn btn-primary btn-lg" id="engage-offer" href="',
+      escapedDeeplink,
+      '">Open in wallet</a>',
+      '<div class="qr-box"><div class="qr-code">',
+      qrSvg,
+      "</div></div>",
+      "</div>",
+      "</section>",
+      "</main>",
+    ].join(""),
+  });
+}
+
 export function errorPage(message: string): string {
   return htmlPage({
     title: "Wallet Metadata Capture Error",

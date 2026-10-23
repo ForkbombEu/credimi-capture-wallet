@@ -162,6 +162,8 @@ export interface Oid4vciHttpRequestCapture {
   path: string;
   session_id: string | null;
   issuer_configuration_id: string | null;
+  /** Present when no configured issuer resource or other route matched, and the response was 404. */
+  unmatched?: true;
   headers: JsonRecord;
   /**
    * Occurrences of each header field, keyed by lower-case name and counted from the raw header

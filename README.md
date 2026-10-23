@@ -465,6 +465,12 @@ For each session you can get different information:
   copy of that evidence unredacted, except for tokens, codes, `tx_code`, `code_verifier`, issued
   credentials, and the `Authorization`, `DPoP`, and cookie headers; the ledger stays redacted. See
   [FCAF ws_ap evidence](CAPTURE_WALLET_API.md#fcaf-ws_ap-evidence).
+  `GET /sessions/{sessionId}/requests` combines that session's attributed requests with all
+  unattributed ledger entries recorded since session creation. This lets a conformance consumer
+  inspect unmatched 404s (for example, an issuer-metadata URL a Wallet derived from the engagement
+  page) without treating their lack of a session ID as missing evidence. With `GUI_ENABLED=true`,
+  `GET /ui/sessions/{sessionId}/engage` provides that minimal engagement page: only the delivered
+  offer as a button and a QR code.
 * Captured Wallet holder-binding JWKS after the Wallet has called `/credential` with a
   proof JWT `header.jwk` or a direct attestation `attested_keys` entry:
   ```sh
