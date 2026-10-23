@@ -287,6 +287,12 @@ the Credential Offer JSON directly in the `deeplink`. Set it to
 `credential_offer_uri` to make the `deeplink` refer to the hosted `offer_url` instead;
 this can keep a QR code smaller when the offer is large.
 
+`offer_scheme` is optional and selects the `deeplink` URL scheme: `openid-credential-offer://`
+(default), `eu-eaa-offer://`, or `haip-vci://`. `offer_mutation` is a test-only set of JSON
+Pointer edits to the by-value offer, such as `{"unset":["/credential_issuer"]}`; it requires
+`FCAF_SCENARIOS_ENABLED=true` and `credential_offer_mode: "credential_offer"`. See
+[FCAF ws_ap evidence](CAPTURE_WALLET_API.md#fcaf-ws_ap-evidence).
+
 `fixture_id` is optional and selects which predefined PID claim set the issued credential
 carries; it defaults to `pid_default`. Every fixture is a fully valid, normally signed PID, and
 no caller-supplied claim override exists, so an issued credential always corresponds to a named
@@ -922,11 +928,12 @@ From env file `.env`, that is loaded automatically when present, you can set:
 - `FCAF_SCENARIOS_ENABLED`: enables the FCAF scenario inputs that deliberately produce malformed
   protocol material, unredacted evidence, or test-only state changes: `request_mutation`,
   `request_behavior`, `response_scenario`, a non-`valid` `status_reference`,
-  `evidence_mode: "full"`, `issuance_response_scenario`, and `POST /sessions/{sessionId}/status`.
-  Defaults to `false`, so an ordinary deployment refuses them with `request_mutation_not_enabled`,
-  `request_behavior_not_enabled`, `response_scenario_not_enabled`,
-  `status_reference_not_enabled`, `evidence_mode_not_enabled`,
-  `issuance_response_scenario_not_enabled`, or `status_update_not_enabled`.
+  `evidence_mode: "full"`, `issuance_response_scenario`, `offer_mutation`, and
+  `POST /sessions/{sessionId}/status`. Defaults to `false`, so an ordinary deployment refuses them
+  with `request_mutation_not_enabled`, `request_behavior_not_enabled`,
+  `response_scenario_not_enabled`, `status_reference_not_enabled`, `evidence_mode_not_enabled`,
+  `issuance_response_scenario_not_enabled`, `offer_mutation_not_enabled`, or
+  `status_update_not_enabled`.
 - `STATUS_LIST_BASE_URL`: overrides the configured Status List endpoint.
 - `STATUS_LIST_API_KEY`: overrides the configured Status List management API key.
 

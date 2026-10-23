@@ -53,6 +53,8 @@ For each `{issuerConfigurationId}`:
 | `digest_algorithm` | Hash function the issued SD-JWT VC digests its disclosures with: `sha-256`, `sha-384`, `sha-512` | `sha-256` |
 | `evidence_mode` | `redacted`, `full`; `full` is test-only | `redacted` |
 | `issuance_response_scenario` | HTTP responses the PAR and Credential endpoints deliver; test-only | — |
+| `offer_scheme` | URL scheme of the offer deeplink: `openid-credential-offer://`, `eu-eaa-offer://`, `haip-vci://` | `openid-credential-offer://` |
+| `offer_mutation` | JSON Pointer `set`/`unset` edits to the by-value Credential Offer; test-only | — |
 
 It returns `201` with `session_id`, issuer and authorization-server identifiers, the selected flow and configuration, `fixture_id`, `offer_url`, `deeplink`, and `status: "created"`. A configuration belonging to another issuer is rejected.
 
@@ -92,6 +94,10 @@ An issued credential with no `status` claim at all is `status_list_enabled: fals
 `digest_algorithm` sets the `_sd_alg` of an issued SD-JWT VC. `sha-256` is the Section 4.1.1 default and is omitted from the response and the capture; `sha-384` and `sha-512` are recorded as `digest_algorithm` in both. Credential Issuer Metadata keeps advertising SHA-256 only, so a credential digested with anything else is one a Wallet can present only if it supports that hash function, which is what `WS_RP_SH_Cryptography_CryptographicHash_010` asks for. An unsupported value is refused with `unsupported_digest_algorithm` and the supported list; `sha-1` is not offered, because SD-JWT requires a hash function that is secure at issuance. An mdoc configuration is refused with `digest_algorithm_unsupported_for_mdoc`: those digests belong to the Mobile Security Object, not to `_sd_alg`.
 
 `evidence_mode: "full"` keeps the session's own OpenID4VCI evidence unredacted, as described under [FCAF ws_ap evidence](#fcaf-ws_ap-evidence). It is refused with `evidence_mode_not_enabled` unless the deployment sets `FCAF_SCENARIOS_ENABLED`, and an unknown value with `unsupported_evidence_mode` and the supported list. `full` is returned and recorded as `evidence_mode`; the default `redacted` is omitted from both and keeps every existing captured value redacted as before.
+
+`offer_scheme` is the URL scheme of `deeplink`, passed to Credo-TS as the offer `baseUri`; a by-value offer keeps it. An unknown value is refused with `unsupported_offer_scheme` and the supported list. A scheme other than the default is returned and recorded as `offer_scheme`, and in the `credential_offer_generated` event.
+
+`offer_mutation` edits the Credential Offer carried by value in `deeplink`, for the FCAF tests that need an offer with a member missing or wrong. It takes `set` and `unset` with the rules of a [`request_mutation`](#deliberate-request-mutations) target, for example `{"unset":["/credential_issuer"]}` or `{"unset":["/credential_configuration_ids"]}`. It is refused with `offer_mutation_not_enabled` unless the deployment sets `FCAF_SCENARIOS_ENABLED`, with `invalid_offer_mutation` when the shape or a pointer is not valid, and with `offer_mutation_requires_by_value_offer` for `credential_offer_mode: "credential_offer_uri"`, whose offer Credo-TS serves itself. Credo keeps the generated offer: `GET /sessions/{sessionId}/offer`, `credential_offer` in `GET /sessions/{sessionId}/deeplink`, and the Credential Offer endpoint still return it, and the capture records `offer_mutation`, `raw.credential_offer` (generated), `raw.credential_offer_delivered` (in the deeplink), and a `credential_offer_mutation_applied` event with the pointers touched.
 
 [FCAF_FIXTURES.md](FCAF_FIXTURES.md) catalogues every credential, claim-set fixture, and status-list fixture together with the conformance tests each serves.
 
@@ -253,6 +259,9 @@ has accepted the proof.
 | Attributed nonce `response.body.c_nonce` and `raw.credential_request_proofs` `attestation[].payload.nonce` (`full`) | `WS_AP_SM_DeviceBinding_013a` |
 | `issuance_response_scenario.par` omitting `/request_uri`; later `raw.oid4vci_requests` and ledger entries | `WS_AP_IA_Supportive_011b_UF` |
 | `issuance_response_scenario.credential` denying with `credential_request_denied`; later `raw.oid4vci_requests` entries | `WS_AP_IA_MainInteraction_031b_UF` |
+| `offer_scheme: "haip-vci://"` and `"eu-eaa-offer://"` deeplinks; the session's later `raw.oid4vci_requests` | `WS_AP_IA_Engagement_007a`, `_007b` |
+| Default by-value `deeplink` and `GET /sessions/{sessionId}/offer`; the session's later requests | `WS_AP_MS_ProtocolMessages_033a` |
+| `offer_mutation` `{"unset":["/credential_configuration_ids"]}`, `raw.credential_offer_delivered`; the absence of later requests | `WS_AP_MS_ProtocolMessages_033c_UF` |
 
 #### Issuer response scenarios
 

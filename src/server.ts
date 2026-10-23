@@ -74,7 +74,11 @@ import {
   generateUnrelatedSigningKey,
   verifierChainWithTrustAnchor,
 } from "./request-certificates.js";
-import { requestMutationOrNull, requestMutationPointers } from "./request-mutation.js";
+import {
+  offerMutationOrNull,
+  requestMutationOrNull,
+  requestMutationPointers,
+} from "./request-mutation.js";
 import { negotiateRequestObjectEncryption } from "./request-object-encryption.js";
 import { issuanceResponseScenarioOrNull, responseScenarioOrNull } from "./response-scenario.js";
 import { CaptureStore, asStringOrNull } from "./state.js";
@@ -83,6 +87,7 @@ import { STATUS_REFERENCE_FIXTURES, statusReferenceFixtureOrNull } from "./statu
 import type {
   AppConfig,
   CredentialOfferMode,
+  CredentialOfferScheme,
   EvidenceMode,
   IssuanceEndpointResponseScenario,
   IssuanceResponseScenario,
@@ -102,6 +107,7 @@ import type {
   VpRequestBehavior,
   VpRequestDelivery,
   VpRequestMutation,
+  VpRequestMutationEdits,
   VpResponseScenario,
   VpSessionCapture,
   VpVerifierAttestation,
@@ -608,6 +614,23 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       if (issuanceResponseScenario && !config.fcaf_scenarios_enabled) {
         return res.status(400).json({ error: "issuance_response_scenario_not_enabled" });
       }
+      const offerScheme = offerSchemeOrNull(body.offer_scheme ?? DEFAULT_OFFER_SCHEME);
+      if (!offerScheme) {
+        return res.status(400).json({
+          error: "unsupported_offer_scheme",
+          supported_offer_schemes: OFFER_SCHEMES,
+        });
+      }
+      const offerMutation = offerMutationOrNull(body.offer_mutation);
+      if (offerMutation === null) {
+        return res.status(400).json({ error: "invalid_offer_mutation" });
+      }
+      if (offerMutation && !config.fcaf_scenarios_enabled) {
+        return res.status(400).json({ error: "offer_mutation_not_enabled" });
+      }
+      if (offerMutation && credentialOfferMode === "credential_offer_uri") {
+        return res.status(400).json({ error: "offer_mutation_requires_by_value_offer" });
+      }
 
       const session = await createIssuanceSession(
         config,
@@ -621,6 +644,8 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         statusReference,
         digestAlgorithm,
         evidenceMode,
+        offerScheme,
+        offerMutation,
       );
       if (issuanceResponseScenario) {
         session.issuance_response_scenario = issuanceResponseScenario;
@@ -640,6 +665,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         ...(session.status_reference ? { status_reference: session.status_reference } : {}),
         ...(session.digest_algorithm ? { digest_algorithm: session.digest_algorithm } : {}),
         ...(session.evidence_mode ? { evidence_mode: session.evidence_mode } : {}),
+        ...(session.offer_scheme ? { offer_scheme: session.offer_scheme } : {}),
         offer_url: offer.credential_offer_uri,
         deeplink: offer.credential_offer,
         status: session.status,
@@ -1550,6 +1576,8 @@ async function createIssuanceSession(
   statusReference?: StatusReferenceFixture,
   digestAlgorithm?: SdJwtDigestAlgorithm,
   evidenceMode: EvidenceMode = "redacted",
+  offerScheme: CredentialOfferScheme = DEFAULT_OFFER_SCHEME,
+  offerMutation?: VpRequestMutationEdits,
 ): Promise<SessionCapture> {
   const session = store.createSession(
     issuer,
@@ -1562,6 +1590,7 @@ async function createIssuanceSession(
     digestAlgorithm,
     evidenceMode,
   );
+  if (offerScheme !== DEFAULT_OFFER_SCHEME) session.offer_scheme = offerScheme;
 
   const offer = await (await credoOpenId4VciIssuer(config, store)).createCredentialOffer({
     issuerConfigurationId: issuer.id,
@@ -1569,6 +1598,8 @@ async function createIssuanceSession(
     credentialConfigurationId: session.credential_configuration_id,
     flow: session.flow,
     credentialOfferMode: session.credential_offer_mode,
+    offerScheme,
+    offerMutation,
   });
   store.credoIssuanceOffers.set(session.session_id, {
     credential_offer: offer.credentialOffer,
@@ -1579,8 +1610,18 @@ async function createIssuanceSession(
   store.addEvent(session, "credential_offer_generated", {
     flow: session.flow,
     credential_offer_mode: session.credential_offer_mode,
+    ...(session.offer_scheme ? { offer_scheme: session.offer_scheme } : {}),
     implementation: "credo-ts",
   });
+  if (offerMutation && offer.deliveredCredentialOfferObject) {
+    session.offer_mutation = offerMutation;
+    session.raw ??= {};
+    session.raw.credential_offer = offer.credentialOfferObject;
+    session.raw.credential_offer_delivered = offer.deliveredCredentialOfferObject;
+    store.addEvent(session, "credential_offer_mutation_applied", {
+      pointers: [...Object.keys(offerMutation.set ?? {}), ...(offerMutation.unset ?? [])],
+    });
+  }
   return session;
 }
 
@@ -1601,6 +1642,17 @@ const EVIDENCE_MODES: EvidenceMode[] = ["redacted", "full"];
 
 function evidenceModeOrNull(value: unknown): EvidenceMode | null {
   return EVIDENCE_MODES.find((mode) => mode === value) ?? null;
+}
+
+const DEFAULT_OFFER_SCHEME: CredentialOfferScheme = "openid-credential-offer://";
+const OFFER_SCHEMES: CredentialOfferScheme[] = [
+  DEFAULT_OFFER_SCHEME,
+  "eu-eaa-offer://",
+  "haip-vci://",
+];
+
+function offerSchemeOrNull(value: unknown): CredentialOfferScheme | null {
+  return OFFER_SCHEMES.find((scheme) => scheme === value) ?? null;
 }
 
 function booleanOrNull(value: unknown): boolean | null {

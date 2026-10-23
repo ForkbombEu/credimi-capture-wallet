@@ -1,6 +1,12 @@
 export type JsonRecord = Record<string, unknown>;
 export type CredentialOfferMode = "credential_offer" | "credential_offer_uri";
 
+/** URL scheme of the Credential Offer deeplink. `openid-credential-offer://` is the default. */
+export type CredentialOfferScheme =
+  | "openid-credential-offer://"
+  | "eu-eaa-offer://"
+  | "haip-vci://";
+
 /**
  * How much of the Wallet's OpenID4VCI traffic an issuance session keeps. `redacted` is the default
  * and the only form the global request ledger ever holds. `full` keeps the protocol material FCAF
@@ -308,6 +314,14 @@ export interface SessionCapture {
    * test-controlled. Credo-TS still handles the request; only what the Wallet receives changes.
    */
   issuance_response_scenario?: IssuanceResponseScenario;
+  /** Scheme of the delivered offer deeplink. Absent means `openid-credential-offer://`. */
+  offer_scheme?: CredentialOfferScheme;
+  /**
+   * Present when the by-value Credential Offer delivered in the deeplink was deliberately edited
+   * for an FCAF scenario. `raw.credential_offer` keeps the generated offer and
+   * `raw.credential_offer_delivered` the edited one.
+   */
+  offer_mutation?: VpRequestMutationEdits;
   status_list_allocation_ids?: string[];
   /**
    * The reference allocated for each issued credential, at the credential's index. This is the
@@ -364,6 +378,10 @@ export interface SessionCapture {
      */
     credential_request_proofs?: CredentialRequestProofsCapture;
     oid4vci_requests?: Oid4vciHttpRequestCapture[];
+    /** With `offer_mutation` only: the Credential Offer Credo-TS generated. */
+    credential_offer?: JsonRecord;
+    /** With `offer_mutation` only: the edited Credential Offer delivered in the deeplink. */
+    credential_offer_delivered?: JsonRecord;
   };
 }
 

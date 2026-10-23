@@ -1067,6 +1067,16 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             issuance_response_scenario: {
               $ref: "#/components/schemas/IssuanceResponseScenario",
             },
+            offer_scheme: {
+              type: "string",
+              enum: ["openid-credential-offer://", "eu-eaa-offer://", "haip-vci://"],
+              default: "openid-credential-offer://",
+              description:
+                "URL scheme of the offer deeplink, passed to Credo-TS as the offer baseUri. A by-value offer keeps it.",
+            },
+            offer_mutation: {
+              $ref: "#/components/schemas/CredentialOfferMutation",
+            },
           },
         },
         IssuanceResponseScenario: {
@@ -1078,6 +1088,25 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           properties: {
             par: { $ref: "#/components/schemas/IssuanceEndpointResponseScenario" },
             credential: { $ref: "#/components/schemas/IssuanceEndpointResponseScenario" },
+          },
+        },
+        CredentialOfferMutation: {
+          type: "object",
+          minProperties: 1,
+          additionalProperties: false,
+          description:
+            "Test-only, refused with offer_mutation_not_enabled unless the deployment sets FCAF_SCENARIOS_ENABLED, with invalid_offer_mutation when malformed, and with offer_mutation_requires_by_value_offer for credential_offer_uri mode. RFC 6901 JSON Pointer edits to the Credential Offer carried by value in the deeplink; writes first, then removals. Credo-TS keeps serving the generated offer, recorded in raw.credential_offer, with the delivered one in raw.credential_offer_delivered.",
+          properties: {
+            set: {
+              type: "object",
+              additionalProperties: true,
+              description: "JSON Pointer to the value written there, including null.",
+            },
+            unset: {
+              type: "array",
+              items: { type: "string", pattern: "^/" },
+              description: "JSON Pointers whose member is removed.",
+            },
           },
         },
         IssuanceEndpointResponseScenario: {
@@ -1135,6 +1164,11 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             status_reference: { type: "string" },
             digest_algorithm: { type: "string" },
             evidence_mode: { type: "string", const: "full" },
+            offer_scheme: {
+              type: "string",
+              description:
+                "Present only when a scheme other than openid-credential-offer:// was selected.",
+            },
             offer_url: { type: "string", format: "uri" },
             deeplink: { type: "string" },
             status: { type: "string", const: "created" },
@@ -1164,6 +1198,12 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             issuance_response_scenario: {
               $ref: "#/components/schemas/IssuanceResponseScenario",
             },
+            offer_scheme: {
+              type: "string",
+              description:
+                "Present only when a scheme other than openid-credential-offer:// was selected.",
+            },
+            offer_mutation: { $ref: "#/components/schemas/CredentialOfferMutation" },
             observed: {
               type: "object",
               additionalProperties: true,

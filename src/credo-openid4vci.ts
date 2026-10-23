@@ -47,14 +47,17 @@ import {
   supportedCredentialsForIssuer,
 } from "./metadata.js";
 import { captureProofHeaders, decodeDpopHeader, decodeJwtForEvidence } from "./proofs.js";
+import { applyRequestMutationEdits } from "./request-mutation.js";
 import { type CaptureStore, asStringOrNull } from "./state.js";
 import { allocateStatusListReference, statusListCredentialType } from "./status-list.js";
 import type {
   AppConfig,
   CredentialOfferMode,
+  CredentialOfferScheme,
   JsonRecord,
   Oid4vciHttpRequestCapture,
   SessionCapture,
+  VpRequestMutationEdits,
 } from "./types.js";
 
 const issuers = new WeakMap<CaptureStore, Promise<CredoOpenId4VciIssuer>>();
@@ -88,6 +91,8 @@ type RequestContext = {
 export interface CredoCredentialOffer {
   credentialOffer: string;
   credentialOfferObject: JsonRecord;
+  /** The edited by-value offer the deeplink carries, present only for an offer mutation. */
+  deliveredCredentialOfferObject?: JsonRecord;
   credentialOfferUri: string;
   issuanceSessionId: string;
 }
@@ -234,6 +239,9 @@ export class CredoOpenId4VciIssuer {
     credentialConfigurationId: string;
     flow: SessionCapture["flow"];
     credentialOfferMode: CredentialOfferMode;
+    offerScheme: CredentialOfferScheme;
+    /** JSON Pointer edits to the by-value offer only; Credo keeps serving the generated one. */
+    offerMutation?: VpRequestMutationEdits;
   }): Promise<CredoCredentialOffer> {
     const issuer = this.requiredIssuer(options.issuerConfigurationId);
     const credential = supportedCredentialById(
@@ -262,6 +270,7 @@ export class CredoOpenId4VciIssuer {
         captureSessionId: options.captureSessionId,
         issuerConfigurationId: issuer.id,
       },
+      baseUri: options.offerScheme,
       version: "v1",
     });
     this.store.linkCredoIssuanceSession(
@@ -269,15 +278,20 @@ export class CredoOpenId4VciIssuer {
       created.issuanceSession.id,
       created.issuanceSession.credentialOfferId,
     );
+    const credentialOfferObject = created.issuanceSession.credentialOfferPayload as JsonRecord;
+    const deliveredCredentialOfferObject = options.offerMutation
+      ? applyRequestMutationEdits(credentialOfferObject, options.offerMutation)
+      : undefined;
     return {
       credentialOffer:
         options.credentialOfferMode === "credential_offer"
           ? credentialOfferByValue(
               created.credentialOffer,
-              created.issuanceSession.credentialOfferPayload as JsonRecord,
+              deliveredCredentialOfferObject ?? credentialOfferObject,
             )
           : created.credentialOffer,
-      credentialOfferObject: created.issuanceSession.credentialOfferPayload as JsonRecord,
+      credentialOfferObject,
+      ...(deliveredCredentialOfferObject ? { deliveredCredentialOfferObject } : {}),
       credentialOfferUri: created.issuanceSession.credentialOfferUri,
       issuanceSessionId: created.issuanceSession.id,
     };

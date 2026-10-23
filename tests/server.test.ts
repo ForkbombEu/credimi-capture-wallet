@@ -3756,6 +3756,96 @@ describe("capture issuer server", () => {
           .length,
       ).toBe(2);
     });
+
+    it.each([
+      ["eu-eaa-offer://", "credential_offer"],
+      ["haip-vci://", "credential_offer"],
+      ["haip-vci://", "credential_offer_uri"],
+    ])("delivers the offer with the %s scheme by %s", async (scheme, mode) => {
+      const app = createApp(config);
+
+      const session = await postJson<SessionCreateResponse>(app, "/sessions", {
+        offer_scheme: scheme,
+        credential_offer_mode: mode,
+      });
+
+      expect(session.offer_scheme).toBe(scheme);
+      expect(session.deeplink.startsWith(`${scheme}?`)).toBe(true);
+      const deeplink = new URL(session.deeplink);
+      if (mode === "credential_offer") {
+        expect(JSON.parse(String(deeplink.searchParams.get("credential_offer")))).toEqual(
+          await getJson<JsonRecord>(app, `/sessions/${session.session_id}/offer`),
+        );
+      } else {
+        expect(deeplink.searchParams.get("credential_offer_uri")).toBe(session.offer_url);
+      }
+      const capture = await getJson<SessionCapture>(app, `/sessions/${session.session_id}`);
+      expect(capture.offer_scheme).toBe(scheme);
+    });
+
+    it("keeps the default offer scheme out of the response and capture", async () => {
+      const app = createApp(config);
+      const session = await postJson<SessionCreateResponse>(app, "/sessions", {});
+
+      expect(session.deeplink.startsWith("openid-credential-offer://?")).toBe(true);
+      expect(session).not.toHaveProperty("offer_scheme");
+      const unsupported = await request(app).post("/sessions").send({ offer_scheme: "https://" });
+      expect(unsupported.status).toBe(400);
+      expect(unsupported.body).toMatchObject({
+        error: "unsupported_offer_scheme",
+        supported_offer_schemes: ["openid-credential-offer://", "eu-eaa-offer://", "haip-vci://"],
+      });
+    });
+
+    it.each([
+      [config, {}, { unset: ["/credential_issuer"] }, "offer_mutation_not_enabled"],
+      [scenarioConfig, {}, { unset: ["credential_issuer"] }, "invalid_offer_mutation"],
+      [scenarioConfig, {}, { remove: ["/credential_issuer"] }, "invalid_offer_mutation"],
+      [
+        scenarioConfig,
+        { credential_offer_mode: "credential_offer_uri" },
+        { unset: ["/credential_issuer"] },
+        "offer_mutation_requires_by_value_offer",
+      ],
+    ])("refuses an offer_mutation it cannot apply", async (appConfig, body, mutation, error) => {
+      const response = await request(createApp(appConfig))
+        .post("/sessions")
+        .send({ ...body, offer_mutation: mutation });
+
+      expect(response.status).toBe(400);
+      expect(response.body).toEqual({ error });
+    });
+
+    it.each(["/credential_issuer", "/credential_configuration_ids"])(
+      "delivers a by-value offer without %s and keeps the generated one",
+      async (pointer) => {
+        const app = createApp(scenarioConfig);
+
+        const session = await postJson<SessionCreateResponse>(app, "/sessions", {
+          offer_scheme: "eu-eaa-offer://",
+          offer_mutation: { unset: [pointer] },
+        });
+
+        const delivered = JSON.parse(
+          String(new URL(session.deeplink).searchParams.get("credential_offer")),
+        ) as JsonRecord;
+        const member = pointer.slice(1);
+        expect(session.deeplink.startsWith("eu-eaa-offer://?")).toBe(true);
+        expect(delivered).not.toHaveProperty(member);
+        const generated = await getJson<JsonRecord>(app, `/sessions/${session.session_id}/offer`);
+        expect(generated).toHaveProperty(member);
+        const capture = await getJson<SessionCapture>(app, `/sessions/${session.session_id}`);
+        expect(capture.offer_mutation).toEqual({ unset: [pointer] });
+        expect(capture.raw?.credential_offer).toEqual(generated);
+        expect(capture.raw?.credential_offer_delivered).toEqual(delivered);
+        expect(capture.events).toContainEqual(
+          expect.objectContaining({
+            type: "credential_offer_mutation_applied",
+            detail: { pointers: [pointer] },
+          }),
+        );
+      },
+    );
   });
 
   it("enforces the selected JWT proof key-attestation policy", async () => {

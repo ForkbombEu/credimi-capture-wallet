@@ -64,6 +64,15 @@ export function requestMutationOrNull(value: unknown): VpRequestMutation | null 
   return Object.keys(mutation).length === 0 ? null : mutation;
 }
 
+/**
+ * Validates an `offer_mutation`: one set of JSON Pointer edits to the by-value Credential Offer,
+ * with the same rules as each `request_mutation` target.
+ */
+export function offerMutationOrNull(value: unknown): VpRequestMutationEdits | null | undefined {
+  if (value === undefined) return undefined;
+  return mutationEditsOrNull(value);
+}
+
 function mutationEditsOrNull(value: unknown): VpRequestMutationEdits | null {
   const members = jsonObjectMembers(value);
   if (!members) return null;
