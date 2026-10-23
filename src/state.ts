@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { recordClientAuthentication } from "./client-attestation.js";
 import {
   DEFAULT_ISSUER_CONFIGURATION_ID,
   resolvedIssuerConfigurationById,
@@ -12,6 +13,7 @@ import type {
   CaptureEvent,
   CredentialOfferMode,
   CredoIssuanceOffer,
+  EvidenceMode,
   JsonRecord,
   Oid4vciHttpRequestCapture,
   OpenId4VpResponseMode,
@@ -41,6 +43,15 @@ export class CaptureStore {
   readonly captureSessionIdsByCredoSession = new Map<string, string>();
   readonly captureSessionIdsByCredentialOffer = new Map<string, string>();
   readonly credoIssuanceOffers = new Map<string, CredoIssuanceOffer>();
+  /**
+   * The `full` form of each ledger capture. It is kept apart from the ledger, which only ever
+   * holds the redacted form, and is exposed only through a session created with
+   * `evidence_mode: "full"`. Weakly held, so it is released with its ledger capture.
+   */
+  readonly fullOid4vciRequests = new WeakMap<
+    Oid4vciHttpRequestCapture,
+    Oid4vciHttpRequestCapture
+  >();
 
   constructor(private readonly config: AppConfig) {}
 
@@ -53,6 +64,7 @@ export class CaptureStore {
     fixtureId?: string,
     statusReference?: StatusReferenceFixture,
     digestAlgorithm?: SdJwtDigestAlgorithm,
+    evidenceMode: EvidenceMode = "redacted",
   ): SessionCapture {
     const sessionId = randomUUID();
     const session: SessionCapture = {
@@ -72,6 +84,7 @@ export class CaptureStore {
       ...(digestAlgorithm && digestAlgorithm !== DEFAULT_SD_JWT_DIGEST_ALGORITHM
         ? { digest_algorithm: digestAlgorithm }
         : {}),
+      ...(evidenceMode === "full" ? { evidence_mode: evidenceMode } : {}),
 
       observed: {
         client_id: { value: null, source: null, also_seen_in: [] },
@@ -114,6 +127,7 @@ export class CaptureStore {
       flow,
       credential_offer_mode: credentialOfferMode,
       status_list_enabled: statusListEnabled,
+      ...(evidenceMode === "full" ? { evidence_mode: evidenceMode } : {}),
     });
     return session;
   }
@@ -122,27 +136,44 @@ export class CaptureStore {
     return this.sessions.get(sessionId);
   }
 
-  recordOid4vciRequest(capture: Oid4vciHttpRequestCapture): void {
+  recordOid4vciRequest(
+    capture: Oid4vciHttpRequestCapture,
+    fullCapture: Oid4vciHttpRequestCapture,
+    sessionId: string | null = null,
+  ): void {
     this.oid4vciRequests.push(capture);
     if (this.oid4vciRequests.length > 1_000) this.oid4vciRequests.shift();
-    if (!capture.session_id) return;
-    const session = this.sessions.get(capture.session_id);
-    if (!session) return;
-    session.raw ??= {};
-    session.raw.oid4vci_requests ??= [];
-    session.raw.oid4vci_requests.push(capture);
+    this.fullOid4vciRequests.set(capture, fullCapture);
+    if (sessionId) this.linkOid4vciRequestToSession(capture, sessionId);
   }
 
+  /**
+   * Attributes a ledger capture to a session. The session receives the form its evidence mode
+   * selects, and its client authentication evidence is taken from the first request carrying it.
+   */
   linkOid4vciRequestToSession(capture: Oid4vciHttpRequestCapture, sessionId: string): void {
     if (capture.session_id === sessionId) return;
+    const fullCapture = this.fullOid4vciRequests.get(capture);
     capture.session_id = sessionId;
+    if (fullCapture) fullCapture.session_id = sessionId;
     const session = this.sessions.get(sessionId);
     if (!session) return;
+    const sessionCapture = this.sessionOid4vciRequest(capture, session);
     session.raw ??= {};
     session.raw.oid4vci_requests ??= [];
-    if (!session.raw.oid4vci_requests.includes(capture)) {
-      session.raw.oid4vci_requests.push(capture);
+    if (!session.raw.oid4vci_requests.includes(sessionCapture)) {
+      session.raw.oid4vci_requests.push(sessionCapture);
     }
+    if (fullCapture) recordClientAuthentication(session, fullCapture);
+  }
+
+  /** The form of a ledger capture that a session's evidence mode exposes. */
+  sessionOid4vciRequest(
+    capture: Oid4vciHttpRequestCapture,
+    session: SessionCapture,
+  ): Oid4vciHttpRequestCapture {
+    if (session.evidence_mode !== "full") return capture;
+    return this.fullOid4vciRequests.get(capture) ?? capture;
   }
 
   linkCredoIssuanceSession(

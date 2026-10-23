@@ -449,9 +449,15 @@ For each session you can get different information:
   curl "$BASE_URL/oid4vci/requests"
   ```
   Correlatable requests are also included under `raw.oid4vci_requests` in the
-  normalized session capture. DPoP, pre-authorized-code, access-token, JWT proof,
+  normalized session capture; a request is attributed to its session when it arrives, so one
+  Credo-TS rejects is still there. DPoP, pre-authorized-code, access-token, JWT proof,
   client-attestation, and other secret values are replaced with presence and length
-  metadata. The service-wide ledger retains the latest 1,000 requests.
+  metadata, and `header_counts` records how often each header field was sent. The
+  service-wide ledger retains the latest 1,000 requests. A session created with
+  `"evidence_mode":"full"` (test-only, requires `FCAF_SCENARIOS_ENABLED=true`) keeps its own
+  copy of that evidence unredacted, except for tokens, codes, `tx_code`, `code_verifier`, and
+  the `Authorization`, `DPoP`, and cookie headers; the ledger stays redacted. See
+  [FCAF ws_ap evidence](CAPTURE_WALLET_API.md#fcaf-ws_ap-evidence).
 * Captured Wallet holder-binding JWKS after the Wallet has called `/credential` with a
   proof JWT `header.jwk` or a direct attestation `attested_keys` entry:
   ```sh
@@ -913,11 +919,12 @@ From env file `.env`, that is loaded automatically when present, you can set:
   never from a request `Host` header, so a cross-device DC API deployment behind a proxy must set
   it to the HTTPS URL the End-User's browser actually reaches.
 - `FCAF_SCENARIOS_ENABLED`: enables the FCAF scenario inputs that deliberately produce malformed
-  protocol material or test-only state changes: `request_mutation`, `request_behavior`,
-  `response_scenario`, a non-`valid` `status_reference`, and `POST /sessions/{sessionId}/status`.
-  Defaults to `false`, so an ordinary deployment refuses them with `request_mutation_not_enabled`,
+  protocol material, unredacted evidence, or test-only state changes: `request_mutation`,
+  `request_behavior`, `response_scenario`, a non-`valid` `status_reference`,
+  `evidence_mode: "full"`, and `POST /sessions/{sessionId}/status`. Defaults to `false`, so an
+  ordinary deployment refuses them with `request_mutation_not_enabled`,
   `request_behavior_not_enabled`, `response_scenario_not_enabled`,
-  `status_reference_not_enabled`, or `status_update_not_enabled`.
+  `status_reference_not_enabled`, `evidence_mode_not_enabled`, or `status_update_not_enabled`.
 - `STATUS_LIST_BASE_URL`: overrides the configured Status List endpoint.
 - `STATUS_LIST_API_KEY`: overrides the configured Status List management API key.
 

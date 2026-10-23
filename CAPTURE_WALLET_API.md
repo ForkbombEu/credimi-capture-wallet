@@ -13,7 +13,7 @@ The base URL is configured by `--issuer-base-url`; production uses `https://capt
 - JSON is the default representation unless a route states another media type.
 - Unknown session IDs return `404` with an error object. Invalid protocol input normally returns `400`.
 - Session and event responses are evidence records: their `observed`, `checks`, `raw`, and event `detail` members can grow as the service captures more protocol information. Do not rely on undocumented members.
-- Never store access tokens, DPoP proofs, credential offers containing pre-authorized codes, or raw presentation payloads in logs or fixtures.
+- Never store access tokens, refresh tokens, authorization codes, pre-authorized codes, `tx_code`, `code_verifier`, DPoP proofs, credential offers containing pre-authorized codes, or raw presentation payloads in logs or fixtures. Two captures hold raw Wallet input on purpose and must be treated as sensitive evidence: an issuance session created with `evidence_mode: "full"` keeps the OpenID4VCI material listed under [FCAF ws_ap evidence](#fcaf-ws_ap-evidence) in clear in its own capture, while still redacting tokens, codes, `tx_code`, `code_verifier`, and the `Authorization`, `DPoP`, and cookie headers; and a presentation capture preserves raw Wallet form payloads. The global `/oid4vci/requests` ledger is always redacted.
 
 ## Service and discovery
 
@@ -23,7 +23,7 @@ The base URL is configured by `--issuer-base-url`; production uses `https://capt
 | `GET` | `/openapi.json` | OpenAPI 3.1 contract for the public REST and protocol surface. |
 | `GET` | `/docs` | Interactive API documentation. |
 | `GET` | `/issuers` | Lists the always-on issuer configurations, metadata URLs, warnings, and credential configuration IDs. |
-| `GET` | `/oid4vci/requests` | Bounded chronological OpenID4VCI request ledger. Sensitive fields are redacted to presence/length metadata. |
+| `GET` | `/oid4vci/requests` | Bounded chronological OpenID4VCI request ledger. Sensitive fields are redacted to presence/length metadata, whatever a session's `evidence_mode`. |
 
 For each `{issuerConfigurationId}`:
 
@@ -51,6 +51,7 @@ For each `{issuerConfigurationId}`:
 | `fixture_id` | Predefined PID claim set the issued credential carries | `pid_default` |
 | `status_reference` | Shape of the `status` structure in an issued SD-JWT VC or mdoc; anything but `valid` is test-only | `valid` |
 | `digest_algorithm` | Hash function the issued SD-JWT VC digests its disclosures with: `sha-256`, `sha-384`, `sha-512` | `sha-256` |
+| `evidence_mode` | `redacted`, `full`; `full` is test-only | `redacted` |
 
 It returns `201` with `session_id`, issuer and authorization-server identifiers, the selected flow and configuration, `fixture_id`, `offer_url`, `deeplink`, and `status: "created"`. A configuration belonging to another issuer is rejected.
 
@@ -88,6 +89,8 @@ issuance capture.
 An issued credential with no `status` claim at all is `status_list_enabled: false`, which is the default and needs no fixture.
 
 `digest_algorithm` sets the `_sd_alg` of an issued SD-JWT VC. `sha-256` is the Section 4.1.1 default and is omitted from the response and the capture; `sha-384` and `sha-512` are recorded as `digest_algorithm` in both. Credential Issuer Metadata keeps advertising SHA-256 only, so a credential digested with anything else is one a Wallet can present only if it supports that hash function, which is what `WS_RP_SH_Cryptography_CryptographicHash_010` asks for. An unsupported value is refused with `unsupported_digest_algorithm` and the supported list; `sha-1` is not offered, because SD-JWT requires a hash function that is secure at issuance. An mdoc configuration is refused with `digest_algorithm_unsupported_for_mdoc`: those digests belong to the Mobile Security Object, not to `_sd_alg`.
+
+`evidence_mode: "full"` keeps the session's own OpenID4VCI evidence unredacted, as described under [FCAF ws_ap evidence](#fcaf-ws_ap-evidence). It is refused with `evidence_mode_not_enabled` unless the deployment sets `FCAF_SCENARIOS_ENABLED`, and an unknown value with `unsupported_evidence_mode` and the supported list. `full` is returned and recorded as `evidence_mode`; the default `redacted` is omitted from both and keeps every existing captured value redacted as before.
 
 [FCAF_FIXTURES.md](FCAF_FIXTURES.md) catalogues every credential, claim-set fixture, and status-list fixture together with the conformance tests each serves.
 
@@ -154,6 +157,54 @@ The token endpoint accepts either:
 The credential request normally uses `application/json` with `credential_configuration_id` and one `proofs.jwt` or `proofs.attestation` entry. For encrypted credential requests, send an `application/jwt` compact JWE; the encrypted response is also a compact JWE. The selected issuer's metadata determines supported proof and encryption capabilities.
 
 Credo enforces the wallet's PKCE: a PAR request without `code_challenge` gets `400 invalid_request`, and a token request whose `code_verifier` does not match gets `400 invalid_grant`. A Credential Request without a valid DPoP-bound access token gets `401`. Time claims of Wallet Attestations, Client Attestation PoPs, and DPoP proofs are checked with a 60-second clock skew.
+
+### FCAF ws_ap evidence
+
+The EUDI FCAF Wallet Solution → Attestation Provider (`ws_ap`) tests evaluate what a Wallet sends
+to, and how it reacts to, this issuer. The service never decides them: Credo-TS keeps verifying
+every request as usual, and the capture records what arrived and what was returned so that Credimi
+can evaluate it. Decoded values are decoded only; whether a signature verifies, an algorithm is
+acceptable, or a claim conforms is for the consumer to establish from the raw values.
+
+Each request is attributed to its issuance session when it arrives, before Credo-TS handles it, so
+a request Credo rejects is still in the session's `raw.oid4vci_requests`. Attribution uses the same
+Credo issuance-session lookups Credo's endpoints use: `issuer_state` at PAR, the PAR `request_uri`
+at `/authorize`, the chained `state` at `/redirect`, the `pre-authorized_code` or `code` at
+`/token`, and the grant the access token names at `/credential` (the token is decoded for this,
+not verified). A request that identifies no session, or one Credo cannot match, stays in the
+ledger with `session_id: null`.
+
+Every capture, in both modes, records `header_counts`: the occurrences of each header field by
+lower-case name, counted from the raw header list. Node joins repeated header fields into one
+value, so `headers` alone cannot show that a field was sent exactly once.
+
+A session created with `evidence_mode: "full"` exposes, in its own `raw.oid4vci_requests`, a
+`full` form of each request with the same `id` and `at` as the ledger entry:
+
+| Member | Content |
+| --- | --- |
+| `raw_headers` | Every header field in received order, `{name, value}`, with the original name casing. `Authorization`, `DPoP`, `Cookie`, and `Proxy-Authorization` values are replaced with presence and length metadata. |
+| `headers` | As in the ledger, but with the `OAuth-Client-Attestation` and `OAuth-Client-Attestation-PoP` values in clear. |
+| `query`, `body` | Proofs, attestations, `client_assertion`, and `request_uri` in clear. Access and refresh tokens, authorization and pre-authorized codes, `tx_code`, `code_verifier`, `client_secret`, and `password` stay redacted. |
+
+`observed.client_authentication` records the first request carrying `OAuth-Client-Attestation` or
+`OAuth-Client-Attestation-PoP`, in both modes: `method: "wallet_attestation"`, and for each of
+`wallet_attestation` and `wallet_attestation_pop` whether it is `present`, its `source`, the
+decoded JOSE `header` and `claims`, and the decode `error`. When a header is repeated, the first
+value is decoded and `source` ends in `[0]`. `wallet_attestation.cnf_jwk` is the attestation's
+`cnf.jwk`; `client_id_matches` compares its `sub` with the request's `client_id`, and is `null` when
+the request states none; `wallet_attestation_pop.audience_matches` compares the PoP `aud` with the
+authorization server identifier; `challenge` is the PoP `challenge`. The same comparisons are in
+`checks.wallet_attestation_present`, `wallet_attestation_pop_present`,
+`wallet_attestation_client_id_matches`, and `wallet_attestation_pop_audience_matches`.
+
+| Evidence | FCAF tests |
+| --- | --- |
+| PAR `header_counts["oauth-client-attestation"]` and `["oauth-client-attestation-pop"]` | `WS_AP_MS_ProtocolMessages_035a`, `_036a` |
+| `full`: PAR `raw_headers` attestation and PoP compact values | `WS_AP_MS_ProtocolMessages_035b`, `_036b`; `WS_AP_SM_DeviceBinding_001a`, `_001b`, `_002b`, `_003b` |
+| `observed.client_authentication.wallet_attestation` `header`, `claims` | `WS_AP_MS_ProtocolMessages_037a`, `_037b`, `_037c`; `WS_AP_SM_DeviceBinding_002a` |
+| `observed.client_authentication.wallet_attestation_pop` `header`, `claims`, `audience_matches`, `challenge` | `WS_AP_MS_ProtocolMessages_038a`; `WS_AP_SM_DeviceBinding_003a` |
+| `observed.client_authentication.wallet_attestation.cnf_jwk` | `WS_AP_SM_DeviceBinding_003b` |
 
 ## OpenID4VP presentation capture
 

@@ -45,7 +45,7 @@ import {
 } from "./metadata.js";
 import {
   completeOid4vciRequestCapture,
-  createOid4vciRequestCapture,
+  createOid4vciRequestCaptures,
   isOid4vciProtocolPath,
   redactHttpHeaders,
   redactOid4vciValue,
@@ -78,6 +78,7 @@ import { STATUS_REFERENCE_FIXTURES, statusReferenceFixtureOrNull } from "./statu
 import type {
   AppConfig,
   CredentialOfferMode,
+  EvidenceMode,
   JsonRecord,
   Oid4vciHttpRequestCapture,
   PresentationResponseHttpCapture,
@@ -127,16 +128,30 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     }),
   );
   app.use(express.text({ type: "application/jwt" }));
-  app.use((req, res, next) => {
+  // Every OpenID4VCI request is recorded before any handler runs, and attributed to its capture
+  // session there too, so a request Credo-TS rejects still leaves session evidence.
+  app.use(async (req, res, next) => {
     if (!isOid4vciProtocolPath(req.path)) return next();
-    const capture = createOid4vciRequestCapture(
+    const captures = createOid4vciRequestCaptures(
       req,
-      oid4vciRequestSessionId(store, req),
       oid4vciRequestIssuerConfigurationId(store, req),
     );
-    oid4vciCaptures.set(req, capture);
-    store.recordOid4vciRequest(capture);
-    res.once("finish", () => completeOid4vciRequestCapture(capture, res));
+    oid4vciCaptures.set(req, captures.redacted);
+    store.recordOid4vciRequest(captures.redacted, captures.full);
+    res.once("finish", () => {
+      completeOid4vciRequestCapture(captures.redacted, res);
+      completeOid4vciRequestCapture(captures.full, res);
+    });
+    try {
+      const sessionId =
+        oid4vciRequestSessionId(store, req) ??
+        (isCredoSessionEndpoint(req.path)
+          ? await (await credoOpenId4VciIssuer(config, store)).captureSessionIdForRequest(req)
+          : null);
+      if (sessionId) store.linkOid4vciRequestToSession(captures.redacted, sessionId);
+    } catch (error) {
+      return next(error);
+    }
     return next();
   });
   registerFakeOAuthServer(app, config, store);
@@ -516,6 +531,16 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       ) {
         return res.status(400).json({ error: "digest_algorithm_unsupported_for_mdoc" });
       }
+      const evidenceMode = evidenceModeOrNull(body.evidence_mode ?? "redacted");
+      if (!evidenceMode) {
+        return res.status(400).json({
+          error: "unsupported_evidence_mode",
+          supported_evidence_modes: EVIDENCE_MODES,
+        });
+      }
+      if (evidenceMode === "full" && !config.fcaf_scenarios_enabled) {
+        return res.status(400).json({ error: "evidence_mode_not_enabled" });
+      }
 
       const session = await createIssuanceSession(
         config,
@@ -528,6 +553,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         fixtureId,
         statusReference,
         digestAlgorithm,
+        evidenceMode,
       );
       const offer = store.credoIssuanceOffers.get(session.session_id);
       if (!offer) throw new Error("Credo credential offer was not stored");
@@ -543,6 +569,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         fixture_id: session.fixture_id,
         ...(session.status_reference ? { status_reference: session.status_reference } : {}),
         ...(session.digest_algorithm ? { digest_algorithm: session.digest_algorithm } : {}),
+        ...(session.evidence_mode ? { evidence_mode: session.evidence_mode } : {}),
         offer_url: offer.credential_offer_uri,
         deeplink: offer.credential_offer,
         status: session.status,
@@ -1207,7 +1234,11 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
 
     const capture = oid4vciCaptures.get(req) ?? null;
     const credentialRequestRaw = encryptedRequest ? capture?.body : undefined;
-    if (capture) capture.body = redactOid4vciValue(body);
+    if (capture) {
+      capture.body = redactOid4vciValue(body);
+      const fullCapture = store.fullOid4vciRequests.get(capture);
+      if (fullCapture) fullCapture.body = redactOid4vciValue(body, undefined, "full");
+    }
     const { credential_response_encryption: _credentialResponseEncryption, ...credoBody } = body;
     req.body = credoBody;
     req.headers["content-type"] = "application/json";
@@ -1292,6 +1323,13 @@ function isCredoIssuerEndpoint(path: string): boolean {
   );
 }
 
+/** Issuer endpoints whose requests carry something Credo-TS can map back to an issuance session. */
+function isCredoSessionEndpoint(path: string): boolean {
+  return /^\/issuers\/[^/]+\/(?:par|authorize|redirect|token|credential|deferred-credential)$/.test(
+    path,
+  );
+}
+
 function interceptCredentialResponse(
   res: Response,
   next: NextFunction,
@@ -1363,6 +1401,7 @@ async function createIssuanceSession(
   fixtureId?: string,
   statusReference?: StatusReferenceFixture,
   digestAlgorithm?: SdJwtDigestAlgorithm,
+  evidenceMode: EvidenceMode = "redacted",
 ): Promise<SessionCapture> {
   const session = store.createSession(
     issuer,
@@ -1373,6 +1412,7 @@ async function createIssuanceSession(
     fixtureId,
     statusReference,
     digestAlgorithm,
+    evidenceMode,
   );
 
   const offer = await (await credoOpenId4VciIssuer(config, store)).createCredentialOffer({
@@ -1407,6 +1447,12 @@ function issuanceFlowOrNull(value: unknown): SessionCapture["flow"] | null {
 
 function credentialOfferModeOrNull(value: unknown): CredentialOfferMode | null {
   return value === "credential_offer" || value === "credential_offer_uri" ? value : null;
+}
+
+const EVIDENCE_MODES: EvidenceMode[] = ["redacted", "full"];
+
+function evidenceModeOrNull(value: unknown): EvidenceMode | null {
+  return EVIDENCE_MODES.find((mode) => mode === value) ?? null;
 }
 
 function booleanOrNull(value: unknown): boolean | null {

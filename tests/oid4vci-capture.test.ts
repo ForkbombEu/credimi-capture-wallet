@@ -36,6 +36,40 @@ describe("OpenID4VCI HTTP capture redaction", () => {
     expect(JSON.stringify(captured)).not.toContain("header.payload.signature");
   });
 
+  it("keeps evaluated protocol material in full evidence but never bearer secrets", () => {
+    const captured = redactOid4vciValue(
+      {
+        request_uri: "urn:ietf:params:oauth:request_uri:reference",
+        client_assertion: "assertion.payload.signature",
+        proofs: { jwt: ["header.payload.signature"], attestation: ["key.attestation.jwt"] },
+        code: "authorization-code",
+        "pre-authorized_code": "pre-authorized-code",
+        tx_code: "1234",
+        code_verifier: "pkce-secret",
+        access_token: "access-token",
+        refresh_token: "refresh-token",
+      },
+      undefined,
+      "full",
+    );
+
+    expect(captured).toMatchObject({
+      request_uri: "urn:ietf:params:oauth:request_uri:reference",
+      client_assertion: "assertion.payload.signature",
+      proofs: { jwt: ["header.payload.signature"], attestation: ["key.attestation.jwt"] },
+    });
+    for (const secret of [
+      "authorization-code",
+      "pre-authorized-code",
+      "1234",
+      "pkce-secret",
+      "access-token",
+      "refresh-token",
+    ]) {
+      expect(JSON.stringify(captured)).not.toContain(secret);
+    }
+  });
+
   it("recognizes every public OpenID4VCI protocol route", () => {
     for (const path of [
       "/.well-known/openid-credential-issuer/issuers/eu-pid-device-bound",

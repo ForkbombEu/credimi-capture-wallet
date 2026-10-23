@@ -11,6 +11,7 @@ import {
 } from "@credo-ts/core";
 import {
   type OpenId4VcIssuanceSessionRecord,
+  OpenId4VcIssuanceSessionRepository,
   OpenId4VcIssuanceSessionState,
   type OpenId4VcIssuanceSessionStateChangedEvent,
   OpenId4VcIssuerEvents,
@@ -45,8 +46,8 @@ import {
   supportedCredentialById,
   supportedCredentialsForIssuer,
 } from "./metadata.js";
-import { captureProofHeaders, decodeDpopHeader } from "./proofs.js";
-import type { CaptureStore } from "./state.js";
+import { captureProofHeaders, decodeDpopHeader, decodeJwtForEvidence } from "./proofs.js";
+import { type CaptureStore, asStringOrNull } from "./state.js";
 import { allocateStatusListReference, statusListCredentialType } from "./status-list.js";
 import type {
   AppConfig,
@@ -63,6 +64,17 @@ const issuers = new WeakMap<CaptureStore, Promise<CredoOpenId4VciIssuer>>();
  * Client Attestation PoP, and DPoP proofs at the issuer's authorization server.
  */
 const VALIDITY_SKEW_SECONDS = 60;
+
+/** RFC 9126 Section 2.2 prefix of a PAR `request_uri`; Credo-TS issues its reference after it. */
+const PUSHED_AUTHORIZATION_REQUEST_URI_PREFIX = "urn:ietf:params:oauth:request_uri:";
+
+type IssuanceSessionQuery = {
+  issuerState?: string;
+  preAuthorizedCode?: string;
+  authorizationCode?: string;
+  chainedIdentityRequestUriReferenceValue?: string;
+  chainedIdentityState?: string;
+};
 
 type RequestContext = {
   capture: Oid4vciHttpRequestCapture | null;
@@ -323,6 +335,32 @@ export class CredoOpenId4VciIssuer {
     );
   }
 
+  /**
+   * The capture session an issuer endpoint request belongs to, resolved before Credo-TS handles
+   * it, so that a request Credo rejects is still attributed. It looks the Credo issuance session up
+   * by the same record tags Credo's own endpoints use: `issuer_state` at PAR, the PAR
+   * `request_uri` at authorization, the chained `state` at the redirect, the code at the token
+   * endpoint, and the grant the access token names at the Credential endpoint. The access token is
+   * decoded, not verified: this only attributes evidence, and Credo still authenticates the
+   * request. Returns null when nothing in the request identifies exactly one session.
+   */
+  async captureSessionIdForRequest(req: Request): Promise<string | null> {
+    const endpoint = /^\/issuers\/([^/]+)\/([^/]+)$/.exec(req.path);
+    if (!endpoint?.[1] || !endpoint[2]) return null;
+    const query = issuanceSessionQuery(endpoint[2], req);
+    if (!query) return null;
+    const issuanceSessions = await this.agent.dependencyManager
+      .resolve(OpenId4VcIssuanceSessionRepository)
+      .findByQuery(this.agent.context, {
+        issuerId: decodeURIComponent(endpoint[1]),
+        ...query,
+      });
+    const [issuanceSession] = issuanceSessions;
+    return issuanceSessions.length === 1 && issuanceSession
+      ? captureSessionIdFromCredo(issuanceSession)
+      : null;
+  }
+
   private async createIssuerRecord(issuer: ResolvedIssuerConfiguration): Promise<void> {
     const issuerConfig = issuerAppConfig(this.config, issuer);
     const metadata = credentialIssuerMetadata(issuerConfig, issuer);
@@ -528,7 +566,10 @@ export class CredoOpenId4VciIssuer {
     this.store.linkOid4vciRequestToSession(context.capture, captureSessionId);
     const captureSession = this.store.getSession(captureSessionId);
     if (!captureSession) return;
-    captureAuthorizationEvidence(captureSession, context.capture);
+    captureAuthorizationEvidence(
+      captureSession,
+      this.store.sessionOid4vciRequest(context.capture, captureSession),
+    );
     if (!context.dpop) return;
     const dpop = await decodeDpopHeader(context.dpop);
     if (!dpop.jwk) return;
@@ -575,6 +616,52 @@ function credentialOfferByValue(byReference: string, offer: JsonRecord): string 
 function captureSessionIdFromCredo(issuanceSession: OpenId4VcIssuanceSessionRecord): string | null {
   const value = issuanceSession.issuanceMetadata?.captureSessionId;
   return typeof value === "string" ? value : null;
+}
+
+function issuanceSessionQuery(endpoint: string, req: Request): IssuanceSessionQuery | null {
+  const body = isRecord(req.body) ? req.body : {};
+  switch (endpoint) {
+    case "par": {
+      const issuerState = asStringOrNull(body.issuer_state);
+      return issuerState ? { issuerState } : null;
+    }
+    case "authorize": {
+      const requestUri = asStringOrNull(req.query.request_uri);
+      return requestUri?.startsWith(PUSHED_AUTHORIZATION_REQUEST_URI_PREFIX)
+        ? {
+            chainedIdentityRequestUriReferenceValue: requestUri.slice(
+              PUSHED_AUTHORIZATION_REQUEST_URI_PREFIX.length,
+            ),
+          }
+        : null;
+    }
+    case "redirect": {
+      const state = asStringOrNull(req.query.state);
+      return state ? { chainedIdentityState: state } : null;
+    }
+    case "token": {
+      const preAuthorizedCode = asStringOrNull(body["pre-authorized_code"]);
+      if (preAuthorizedCode) return { preAuthorizedCode };
+      const code = asStringOrNull(body.code);
+      return code ? { authorizationCode: code } : null;
+    }
+    case "credential":
+    case "deferred-credential":
+      return accessTokenSessionQuery(req.header("authorization"));
+    default:
+      return null;
+  }
+}
+
+/** The grant an access token names, as Credo-TS's Credential endpoint reads it. */
+function accessTokenSessionQuery(authorization: string | undefined): IssuanceSessionQuery | null {
+  const accessToken = /^(?:DPoP|Bearer) (.+)$/i.exec(authorization ?? "")?.[1];
+  if (!accessToken) return null;
+  const { payload } = decodeJwtForEvidence(accessToken);
+  const preAuthorizedCode = asStringOrNull(payload?.["pre-authorized_code"]);
+  if (preAuthorizedCode) return { preAuthorizedCode };
+  const issuerState = asStringOrNull(payload?.issuer_state);
+  return issuerState ? { issuerState } : null;
 }
 
 function captureStatus(state: OpenId4VcIssuanceSessionState): string {

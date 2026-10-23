@@ -74,7 +74,7 @@ import {
 } from "../src/metadata.js";
 import { createApp } from "../src/server.js";
 import { CaptureStore } from "../src/state.js";
-import type { JsonRecord, SessionCapture } from "../src/types.js";
+import type { JsonRecord, Oid4vciHttpRequestCapture, SessionCapture } from "../src/types.js";
 import { unsignedJwt } from "./helpers.js";
 
 const credentialEncryptionTestState = vi.hoisted(() => ({ responseDelayMs: 0 }));
@@ -3062,6 +3062,201 @@ describe("capture issuer server", () => {
     expect(response.body).toMatchObject({
       access_token: expect.any(String),
       token_type: "DPoP",
+    });
+  });
+
+  describe("FCAF ws_ap evidence", () => {
+    const scenarioConfig = { ...config, fcaf_scenarios_enabled: true };
+    const walletClientId = "https://wallet.example.test";
+
+    async function pushAuthorization(
+      app: Express,
+      session: SessionCreateResponse,
+      headers: Record<string, string | string[]>,
+    ) {
+      const offer = JSON.parse(
+        String(new URL(session.deeplink).searchParams.get("credential_offer")),
+      ) as CredentialOfferResponse;
+      const parPath = issuerProtocolPath(session, "/par");
+      const pending = request(app)
+        .post(parPath)
+        .set("DPoP", await dpopProof(await dpopKey(), "POST", parPath));
+      // The object form passes an array through, which Node sends as repeated header fields.
+      for (const [name, value] of Object.entries(headers)) pending.set({ [name]: value });
+      return pending.type("form").send({
+        response_type: "code",
+        client_id: walletClientId,
+        redirect_uri: `${walletClientId}/callback`,
+        scope: session.credential_configuration_id,
+        issuer_state: String(offer.grants.authorization_code.issuer_state),
+        code_challenge: createHash("sha256").update("verifier").digest("base64url"),
+        code_challenge_method: "S256",
+      });
+    }
+
+    it.each([
+      [config, { evidence_mode: "full" }, "evidence_mode_not_enabled"],
+      [scenarioConfig, { evidence_mode: "raw" }, "unsupported_evidence_mode"],
+    ])("refuses an unavailable evidence mode", async (appConfig, body, error) => {
+      const response = await request(createApp(appConfig)).post("/sessions").send(body);
+
+      expect(response.status).toBe(400);
+      expect(response.body).toMatchObject({ error });
+    });
+
+    it("decodes client attestations into a default session while the ledger stays redacted", async () => {
+      const app = createApp(config);
+      const session = await postJson<SessionCreateResponse>(app, "/sessions", {});
+      const walletInstanceKey = await dpopKey();
+      const attestation = await walletAttestationJwt(walletInstanceKey, walletClientId);
+      const pop = await walletAttestationPopJwt(walletInstanceKey, walletClientId);
+
+      const pushed = await pushAuthorization(app, session, {
+        "OAuth-Client-Attestation": attestation,
+        "OAuth-Client-Attestation-PoP": pop,
+      });
+
+      expect(pushed.status, JSON.stringify(pushed.body)).toBe(201);
+      expect(session).not.toHaveProperty("evidence_mode");
+      const capture = await getJson<SessionCapture>(app, `/sessions/${session.session_id}`);
+      expect(capture).not.toHaveProperty("evidence_mode");
+      expect(capture.observed.client_authentication).toMatchObject({
+        method: "wallet_attestation",
+        wallet_attestation: {
+          present: true,
+          source: `${issuerProtocolPath(session, "/par")}.headers.oauth-client-attestation`,
+          header: { typ: "oauth-client-attestation+jwt" },
+          claims: { sub: walletClientId },
+          cnf_jwk: walletInstanceKey.publicJwk,
+          client_id_matches: true,
+          error: null,
+        },
+        wallet_attestation_pop: {
+          present: true,
+          header: { typ: "oauth-client-attestation-pop+jwt" },
+          audience_matches: true,
+          challenge: null,
+        },
+      });
+      expect(capture.checks).toMatchObject({
+        wallet_attestation_present: true,
+        wallet_attestation_pop_present: true,
+        wallet_attestation_client_id_matches: true,
+        wallet_attestation_pop_audience_matches: true,
+      });
+      const parCapture = capture.raw?.oid4vci_requests?.find((entry) =>
+        entry.path.endsWith("/par"),
+      );
+      expect(parCapture).toMatchObject({
+        headers: { "oauth-client-attestation": { redacted: true, present: true } },
+        header_counts: { "oauth-client-attestation": 1, "oauth-client-attestation-pop": 1 },
+      });
+      expect(parCapture).not.toHaveProperty("raw_headers");
+      const ledger = await getJson<JsonRecord[]>(app, "/oid4vci/requests");
+      expect(JSON.stringify([ledger, capture.raw])).not.toContain(attestation);
+    });
+
+    it("keeps every attestation header in clear for a full-evidence session Credo rejects", async () => {
+      const app = createApp(scenarioConfig);
+      const session = await postJson<SessionCreateResponse>(app, "/sessions", {
+        evidence_mode: "full",
+      });
+      const walletInstanceKey = await dpopKey();
+      const attestation = await walletAttestationJwt(walletInstanceKey, walletClientId);
+      const otherAttestation = await walletAttestationJwt(await dpopKey(), "other-client");
+      const pop = await walletAttestationPopJwt(walletInstanceKey, walletClientId);
+
+      const pushed = await pushAuthorization(app, session, {
+        "OAuth-Client-Attestation": [attestation, otherAttestation],
+        "OAuth-Client-Attestation-PoP": pop,
+      });
+
+      expect(pushed.status).toBeGreaterThanOrEqual(400);
+      expect(session.evidence_mode).toBe("full");
+      const capture = await getJson<SessionCapture>(app, `/sessions/${session.session_id}`);
+      const parPath = issuerProtocolPath(session, "/par");
+      const parCapture = capture.raw?.oid4vci_requests?.find((entry) => entry.path === parPath);
+      expect(parCapture?.header_counts["oauth-client-attestation"]).toBe(2);
+      expect(
+        parCapture?.raw_headers?.filter(
+          (header) => header.name.toLowerCase() === "oauth-client-attestation",
+        ),
+      ).toEqual([
+        { name: expect.stringMatching(/^oauth-client-attestation$/i), value: attestation },
+        { name: expect.stringMatching(/^oauth-client-attestation$/i), value: otherAttestation },
+      ]);
+      expect(parCapture?.raw_headers).toContainEqual({
+        name: expect.stringMatching(/^dpop$/i),
+        value: { redacted: true, present: true, length: expect.any(Number) },
+      });
+      expect(capture.observed.client_authentication.wallet_attestation).toMatchObject({
+        present: true,
+        source: `${parPath}.headers.oauth-client-attestation[0]`,
+        claims: { sub: walletClientId },
+      });
+      const ledger = await getJson<Oid4vciHttpRequestCapture[]>(app, "/oid4vci/requests");
+      const ledgerEntry = ledger.find((entry) => entry.id === parCapture?.id);
+      expect(ledgerEntry).toMatchObject({
+        session_id: session.session_id,
+        header_counts: { "oauth-client-attestation": 2 },
+      });
+      expect(JSON.stringify(ledger)).not.toContain(attestation);
+    });
+
+    it("attributes a PoP Credo rejects for its audience", async () => {
+      const app = createApp(config);
+      const session = await postJson<SessionCreateResponse>(app, "/sessions", {});
+      const walletInstanceKey = await dpopKey();
+      const pop = await new SignJWT({
+        iss: walletClientId,
+        aud: "https://elsewhere.example.test",
+        iat: Math.floor(Date.now() / 1000),
+        jti: randomUUID(),
+        challenge: "issuer-challenge",
+      })
+        .setProtectedHeader({ alg: "ES256", typ: "oauth-client-attestation-pop+jwt" })
+        .sign(walletInstanceKey.privateKey);
+
+      const pushed = await pushAuthorization(app, session, {
+        "OAuth-Client-Attestation": await walletAttestationJwt(walletInstanceKey, walletClientId),
+        "OAuth-Client-Attestation-PoP": pop,
+      });
+
+      expect(pushed.status).toBeGreaterThanOrEqual(400);
+      const capture = await getJson<SessionCapture>(app, `/sessions/${session.session_id}`);
+      expect(capture.observed.client_authentication.wallet_attestation_pop).toMatchObject({
+        present: true,
+        audience_matches: false,
+        challenge: "issuer-challenge",
+      });
+      expect(capture.checks.wallet_attestation_pop_audience_matches).toBe(false);
+    });
+
+    it("records a missing attestation header as absent", async () => {
+      const app = createApp(config);
+      const session = await postJson<SessionCreateResponse>(app, "/sessions", {});
+      const walletInstanceKey = await dpopKey();
+
+      await pushAuthorization(app, session, {
+        "OAuth-Client-Attestation-PoP": await walletAttestationPopJwt(
+          walletInstanceKey,
+          walletClientId,
+        ),
+      });
+
+      const capture = await getJson<SessionCapture>(app, `/sessions/${session.session_id}`);
+      expect(capture.observed.client_authentication).toMatchObject({
+        method: "wallet_attestation",
+        wallet_attestation: { present: false, source: null },
+        wallet_attestation_pop: { present: true },
+      });
+      expect(capture.checks).toMatchObject({
+        wallet_attestation_present: false,
+        wallet_attestation_pop_present: true,
+      });
+      expect(
+        capture.raw?.oid4vci_requests?.find((entry) => entry.path.endsWith("/par"))?.header_counts,
+      ).not.toHaveProperty("oauth-client-attestation");
     });
   });
 

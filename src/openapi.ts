@@ -194,7 +194,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           operationId: "getOid4vciRequests",
           summary: "Get redacted OpenID4VCI HTTP evidence",
           description:
-            "Returns the bounded chronological request ledger. Security-sensitive headers and fields are replaced with presence and length metadata.",
+            "Returns the bounded chronological request ledger. Security-sensitive headers and fields are replaced with presence and length metadata, whatever a session's evidence_mode: unredacted evidence is only ever exposed through the session that selected it.",
           responses: {
             "200": response("Redacted OpenID4VCI request evidence.", {
               type: "array",
@@ -229,7 +229,10 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             "201": response("New issuance session and credential-offer deeplink.", {
               $ref: "#/components/schemas/IssuanceSessionCreated",
             }),
-            "400": errorResponses["400"],
+            "400": response(
+              "Invalid input, or a test-only value refused because FCAF_SCENARIOS_ENABLED is off, such as evidence_mode_not_enabled.",
+              { $ref: "#/components/schemas/Error" },
+            ),
           },
         },
       },
@@ -930,6 +933,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             "session_id",
             "issuer_configuration_id",
             "headers",
+            "header_counts",
             "query",
             "body",
             "response",
@@ -942,6 +946,25 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             session_id: { type: ["string", "null"] },
             issuer_configuration_id: { type: ["string", "null"] },
             headers: { type: "object", additionalProperties: true },
+            header_counts: {
+              type: "object",
+              additionalProperties: { type: "integer", minimum: 1 },
+              description:
+                "Occurrences of each header field, keyed by lower-case name and counted from the raw header list. Node joins repeated fields into one value, so headers cannot show a field was sent more than once.",
+            },
+            raw_headers: {
+              type: "array",
+              description:
+                "Only in a session created with evidence_mode full: every header field in received order with its original name casing. Authorization, DPoP, Cookie, and Proxy-Authorization values are presence and length metadata.",
+              items: {
+                type: "object",
+                required: ["name", "value"],
+                properties: {
+                  name: { type: "string" },
+                  value: { oneOf: [{ type: "string" }, { type: "object" }] },
+                },
+              },
+            },
             query: {},
             body: {},
             response: {
@@ -1017,6 +1040,13 @@ export function openApiDocument(config: AppConfig): JsonRecord {
               description:
                 "When true, allocate and embed a Token Status List reference in each issued credential.",
             },
+            evidence_mode: {
+              type: "string",
+              enum: ["redacted", "full"],
+              default: "redacted",
+              description:
+                "Test-only full is refused with evidence_mode_not_enabled unless the deployment sets FCAF_SCENARIOS_ENABLED. full keeps this session's own OpenID4VCI evidence unredacted except for access and refresh tokens, authorization and pre-authorized codes, tx_code, code_verifier, and the Authorization, DPoP, and cookie headers. The global /oid4vci/requests ledger stays redacted.",
+            },
           },
         },
         IssuanceSessionCreated: {
@@ -1052,6 +1082,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             fixture_id: { type: "string" },
             status_reference: { type: "string" },
             digest_algorithm: { type: "string" },
+            evidence_mode: { type: "string", const: "full" },
             offer_url: { type: "string", format: "uri" },
             deeplink: { type: "string" },
             status: { type: "string", const: "created" },
@@ -1073,6 +1104,23 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             "events",
           ],
           properties: {
+            evidence_mode: {
+              type: "string",
+              const: "full",
+              description: "Present only for a session created with evidence_mode full.",
+            },
+            observed: {
+              type: "object",
+              additionalProperties: true,
+              properties: {
+                client_authentication: {
+                  type: "object",
+                  additionalProperties: true,
+                  description:
+                    "The first request carrying OAuth-Client-Attestation or OAuth-Client-Attestation-PoP, decoded and not verified: method wallet_attestation, and for wallet_attestation and wallet_attestation_pop their presence, source, JOSE header, claims, and decode error. wallet_attestation adds cnf_jwk and client_id_matches (sub against the request client_id, null when the request states none); wallet_attestation_pop adds audience_matches (aud against the authorization server identifier) and challenge.",
+                },
+              },
+            },
             status_list_references: {
               type: "array",
               description:

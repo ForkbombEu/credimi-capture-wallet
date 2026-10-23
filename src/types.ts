@@ -1,6 +1,15 @@
 export type JsonRecord = Record<string, unknown>;
 export type CredentialOfferMode = "credential_offer" | "credential_offer_uri";
 
+/**
+ * How much of the Wallet's OpenID4VCI traffic an issuance session keeps. `redacted` is the default
+ * and the only form the global request ledger ever holds. `full` keeps the protocol material FCAF
+ * evaluation needs in clear in that session's own capture, still redacting the bearer secrets
+ * that would let a reader act as the Wallet: tokens, codes, `tx_code`, `code_verifier`, and the
+ * `Authorization`, `DPoP`, and cookie headers.
+ */
+export type EvidenceMode = "redacted" | "full";
+
 export interface StatusListReference {
   uri: string;
   idx: number;
@@ -118,6 +127,13 @@ export interface CaptureEvent {
   detail: JsonRecord;
 }
 
+/** One request header field exactly as received, before Node merges repeated fields. */
+export interface RawHttpHeader {
+  name: string;
+  /** The received value, or presence and length metadata when the header is a bearer secret. */
+  value: string | JsonRecord;
+}
+
 export interface Oid4vciHttpRequestCapture {
   id: string;
   at: string;
@@ -126,6 +142,14 @@ export interface Oid4vciHttpRequestCapture {
   session_id: string | null;
   issuer_configuration_id: string | null;
   headers: JsonRecord;
+  /**
+   * Occurrences of each header field, keyed by lower-case name and counted from the raw header
+   * list. Node joins repeated fields into one value, so `headers` cannot show that a field was
+   * sent more than once.
+   */
+  header_counts: Record<string, number>;
+  /** `full` evidence only: every header field in received order, with its original name casing. */
+  raw_headers?: RawHttpHeader[];
   query: unknown;
   body: unknown;
   response: {
@@ -224,6 +248,11 @@ export interface SessionCapture {
    * Section 4.1.1 default, which is what every session issued before this field existed used.
    */
   digest_algorithm?: SdJwtDigestAlgorithm;
+  /**
+   * Present, as `full`, only when the session keeps unredacted evidence. Absent means `redacted`,
+   * which is what every session created before this field existed kept.
+   */
+  evidence_mode?: "full";
   status_list_allocation_ids?: string[];
   /**
    * The reference allocated for each issued credential, at the credential's index. This is the

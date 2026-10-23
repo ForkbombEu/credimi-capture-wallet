@@ -7,6 +7,38 @@ export function decodeJwtHeader(jwt: string): JsonRecord {
   return JSON.parse(Buffer.from(header, "base64url").toString("utf8")) as JsonRecord;
 }
 
+export interface DecodedJwt {
+  header: JsonRecord | null;
+  payload: JsonRecord | null;
+  /** Why the header or payload could not be decoded, with whatever did decode kept. */
+  error: string | null;
+}
+
+/**
+ * Decodes a compact JWT's header and payload without verifying anything, for evidence. Credo-TS's
+ * `Jwt.fromSerializedJwt` is not used here because it rejects payloads whose registered claims have
+ * the wrong JSON type, which are exactly the defects a conformance test needs to see.
+ */
+export function decodeJwtForEvidence(jwt: string): DecodedJwt {
+  const [header, payload] = jwt.split(".");
+  const decoded: DecodedJwt = { header: null, payload: null, error: null };
+  try {
+    decoded.header = decodeJsonObjectSegment(header, "JOSE header");
+    decoded.payload = decodeJsonObjectSegment(payload, "payload");
+  } catch (error) {
+    decoded.error = error instanceof Error ? error.message : String(error);
+  }
+  return decoded;
+}
+
+function decodeJsonObjectSegment(segment: string | undefined, name: string): JsonRecord {
+  if (!segment) throw new Error(`JWT is missing a ${name}`);
+  const value: unknown = JSON.parse(Buffer.from(segment, "base64url").toString("utf8"));
+  const record = asRecord(value);
+  if (!record) throw new Error(`JWT ${name} is not a JSON object`);
+  return record;
+}
+
 export function extractProofJwts(body: JsonRecord): Array<{ jwt: string; source: string }> {
   const result: Array<{ jwt: string; source: string }> = [];
   const proof = body.proof as JsonRecord | undefined;
