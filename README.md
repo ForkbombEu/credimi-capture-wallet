@@ -922,10 +922,11 @@ From env file `.env`, that is loaded automatically when present, you can set:
 - `FCAF_SCENARIOS_ENABLED`: enables the FCAF scenario inputs that deliberately produce malformed
   protocol material, unredacted evidence, or test-only state changes: `request_mutation`,
   `request_behavior`, `response_scenario`, a non-`valid` `status_reference`,
-  `evidence_mode: "full"`, and `POST /sessions/{sessionId}/status`. Defaults to `false`, so an
-  ordinary deployment refuses them with `request_mutation_not_enabled`,
+  `evidence_mode: "full"`, `issuance_response_scenario`, and `POST /sessions/{sessionId}/status`.
+  Defaults to `false`, so an ordinary deployment refuses them with `request_mutation_not_enabled`,
   `request_behavior_not_enabled`, `response_scenario_not_enabled`,
-  `status_reference_not_enabled`, `evidence_mode_not_enabled`, or `status_update_not_enabled`.
+  `status_reference_not_enabled`, `evidence_mode_not_enabled`,
+  `issuance_response_scenario_not_enabled`, or `status_update_not_enabled`.
 - `STATUS_LIST_BASE_URL`: overrides the configured Status List endpoint.
 - `STATUS_LIST_API_KEY`: overrides the configured Status List management API key.
 

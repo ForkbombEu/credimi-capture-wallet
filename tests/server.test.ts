@@ -3640,6 +3640,122 @@ describe("capture issuer server", () => {
         )?.session_id,
       ).toBeNull();
     });
+
+    it.each([
+      [
+        config,
+        { par: { omit_parameters: ["/request_uri"] } },
+        "issuance_response_scenario_not_enabled",
+      ],
+      [scenarioConfig, { token: { status: 400 } }, "invalid_issuance_response_scenario"],
+      [
+        scenarioConfig,
+        { par: { omit_parameters: ["request_uri"] } },
+        "invalid_issuance_response_scenario",
+      ],
+      [scenarioConfig, { credential: { status: 700 } }, "invalid_issuance_response_scenario"],
+      [scenarioConfig, { par: {} }, "invalid_issuance_response_scenario"],
+    ])("refuses issuance_response_scenario %j", async (appConfig, scenario, error) => {
+      const response = await request(createApp(appConfig))
+        .post("/sessions")
+        .send({ issuance_response_scenario: scenario });
+
+      expect(response.status).toBe(400);
+      expect(response.body).toEqual({ error });
+    });
+
+    it("delivers a PAR response without request_uri while recording Credo's real one", async () => {
+      const app = createApp(scenarioConfig);
+      const session = await postJson<SessionCreateResponse>(app, "/sessions", {
+        evidence_mode: "full",
+        issuance_response_scenario: { par: { omit_parameters: ["/request_uri"] } },
+      });
+
+      const pushed = await pushAuthorization(app, session, {});
+      const authorize = await request(app)
+        .get(issuerProtocolPath(session, "/authorize"))
+        .query({ client_id: walletClientId })
+        .redirects(0);
+
+      expect(pushed.status).toBe(201);
+      expect(pushed.body).toEqual({ expires_in: expect.any(Number) });
+      expect(authorize.status).toBeGreaterThanOrEqual(400);
+      const capture = await getJson<SessionCapture>(app, `/sessions/${session.session_id}`);
+      expect(capture.issuance_response_scenario).toEqual({
+        par: { omit_parameters: ["/request_uri"] },
+      });
+      const parCapture = capture.raw?.oid4vci_requests?.find((entry) =>
+        entry.path.endsWith("/par"),
+      );
+      expect(parCapture?.response).toMatchObject({ status: 201, body: pushed.body });
+      expect(
+        capture.events.find((event) => event.type === "issuance_response_scenario_applied"),
+      ).toMatchObject({
+        detail: {
+          endpoint: "par",
+          request_id: parCapture?.id,
+          original: {
+            status: 201,
+            body: { request_uri: expect.stringMatching(/^urn:ietf:params:oauth:request_uri:/) },
+          },
+          delivered: { status: 201, body: { expires_in: pushed.body.expires_in } },
+        },
+      });
+      const ledger = await getJson<Oid4vciHttpRequestCapture[]>(app, "/oid4vci/requests");
+      expect(
+        ledger.find((entry) => entry.path.endsWith("/authorize") && entry.id !== parCapture?.id)
+          ?.response.status,
+      ).toBe(authorize.status);
+    });
+
+    it("denies a credential Credo issued and attributes the Wallet's retry", async () => {
+      const app = createApp(scenarioConfig);
+      const session = await postJson<SessionCreateResponse>(app, "/sessions", {
+        flow: "pre_authorized_code",
+        issuance_response_scenario: {
+          credential: {
+            status: 400,
+            content_type: "application/json",
+            body: '{"error":"credential_request_denied"}',
+          },
+        },
+      });
+      const dpop = await dpopKey();
+      const tokenResponse = await preAuthorizedToken(app, session, dpop);
+      const proofs = async () => ({
+        proofs: { jwt: [await credentialProofJwt(await dpopKey(), tokenResponse.c_nonce)] },
+      });
+
+      const denied = await requestCredential(app, session, await proofs(), {
+        dpop,
+        response: tokenResponse,
+      });
+      const retried = await requestCredential(app, session, await proofs(), {
+        dpop,
+        response: tokenResponse,
+      });
+
+      expect(denied.response.status).toBe(400);
+      expect(denied.response.body).toEqual({ error: "credential_request_denied" });
+      expect(denied.capture.status).toBe("credential_issued");
+      const applied = retried.capture.events.filter(
+        (event) => event.type === "issuance_response_scenario_applied",
+      );
+      expect(applied[0]).toMatchObject({
+        detail: {
+          endpoint: "credential",
+          original: {
+            status: 200,
+            body: { credentials: [{ credential: { redacted: true, present: true } }] },
+          },
+          delivered: { status: 400, body: { error: "credential_request_denied" } },
+        },
+      });
+      expect(
+        retried.capture.raw?.oid4vci_requests?.filter((entry) => entry.path.endsWith("/credential"))
+          .length,
+      ).toBe(2);
+    });
   });
 
   it("enforces the selected JWT proof key-attestation policy", async () => {

@@ -303,6 +303,11 @@ export interface SessionCapture {
    * which is what every session created before this field existed kept.
    */
   evidence_mode?: "full";
+  /**
+   * Present when the HTTP responses of this session's PAR or Credential endpoint are deliberately
+   * test-controlled. Credo-TS still handles the request; only what the Wallet receives changes.
+   */
+  issuance_response_scenario?: IssuanceResponseScenario;
   status_list_allocation_ids?: string[];
   /**
    * The reference allocated for each issued credential, at the credential's index. This is the
@@ -465,6 +470,20 @@ export interface VpResponseScenario {
   body?: string;
   /** Members merged into the normal JSON body, for an unrecognised response parameter. */
   extra_parameters?: JsonRecord;
+}
+
+/**
+ * Test-only control over one issuer endpoint's HTTP response, applied at the HTTP boundary after
+ * Credo-TS has produced the real response.
+ */
+export interface IssuanceEndpointResponseScenario extends VpResponseScenario {
+  /** JSON Pointers removed from the normal JSON body, after `extra_parameters` are merged. */
+  omit_parameters?: string[];
+}
+
+export interface IssuanceResponseScenario {
+  par?: IssuanceEndpointResponseScenario;
+  credential?: IssuanceEndpointResponseScenario;
 }
 
 export type VpDcApiProtocol =

@@ -52,6 +52,7 @@ For each `{issuerConfigurationId}`:
 | `status_reference` | Shape of the `status` structure in an issued SD-JWT VC or mdoc; anything but `valid` is test-only | `valid` |
 | `digest_algorithm` | Hash function the issued SD-JWT VC digests its disclosures with: `sha-256`, `sha-384`, `sha-512` | `sha-256` |
 | `evidence_mode` | `redacted`, `full`; `full` is test-only | `redacted` |
+| `issuance_response_scenario` | HTTP responses the PAR and Credential endpoints deliver; test-only | — |
 
 It returns `201` with `session_id`, issuer and authorization-server identifiers, the selected flow and configuration, `fixture_id`, `offer_url`, `deeplink`, and `status: "created"`. A configuration belonging to another issuer is rejected.
 
@@ -250,6 +251,53 @@ has accepted the proof.
 | `full`: PAR `response.body.request_uri` and the `/authorize` `query.request_uri` | `WS_AP_IA_MainInteraction_010c`, `WS_AP_IA_Supportive_011a` |
 | Attributed nonce `response.body.c_nonce` and `raw.credential_request_proofs` `jwt[].payload.nonce` (`full`) | `WS_AP_SM_DeviceBinding_012a` |
 | Attributed nonce `response.body.c_nonce` and `raw.credential_request_proofs` `attestation[].payload.nonce` (`full`) | `WS_AP_SM_DeviceBinding_013a` |
+| `issuance_response_scenario.par` omitting `/request_uri`; later `raw.oid4vci_requests` and ledger entries | `WS_AP_IA_Supportive_011b_UF` |
+| `issuance_response_scenario.credential` denying with `credential_request_denied`; later `raw.oid4vci_requests` entries | `WS_AP_IA_MainInteraction_031b_UF` |
+
+#### Issuer response scenarios
+
+`issuance_response_scenario` controls what the Wallet receives from the session's PAR and Credential
+endpoints, so a test can check how a Wallet reacts to a defective or refusing issuer. It is refused
+with `issuance_response_scenario_not_enabled` unless the deployment sets `FCAF_SCENARIOS_ENABLED`,
+and with `invalid_issuance_response_scenario` when the shape, an endpoint name, a member, or a
+pointer is not valid. Each of `par` and `credential` takes the members of the verifier's
+[`response_scenario`](#verifier-response-scenarios) plus `omit_parameters`:
+
+| Member | Effect |
+| --- | --- |
+| `status` | The delivered HTTP status, 100 to 599. |
+| `content_type` | The delivered media type. |
+| `body` | The exact delivered body, replacing the response Credo-TS produced. |
+| `extra_parameters` | Members merged into the produced JSON body. |
+| `omit_parameters` | RFC 6901 JSON Pointers removed from the produced JSON body, after `extra_parameters`. |
+
+The required FCAF cases are data, not named modes:
+
+```json
+{ "issuance_response_scenario": { "par": { "omit_parameters": ["/request_uri"] } } }
+```
+
+delivers the PAR `201` with `expires_in` and no `request_uri`, and
+
+```json
+{ "issuance_response_scenario": { "credential": {
+  "status": 400, "content_type": "application/json",
+  "body": "{\"error\":\"credential_request_denied\"}" } } }
+```
+
+answers every Credential Request with that Credential Error Response.
+
+The scenario is applied at the HTTP boundary only. Credo-TS still handles the request and its state
+moves as usual, so the session's `status` and `checks` describe what really happened: a denied
+Credential Request whose credential Credo issued leaves the session `credential_issued`. An
+encrypted Credential Response is encrypted after the scenario is applied. Each application logs an
+`issuance_response_scenario_applied` event with `endpoint`, `request_id` (the
+`raw.oid4vci_requests` entry), the `scenario`, and `original` and `delivered` responses, each
+`{status, content_type, body}` with the body redacted for the session's evidence mode. The
+delivered response is also the request's captured `response`. Every later request of the session,
+including a retried `/token` or `/credential`, is attributed and captured as usual; a request that
+carries nothing identifying the session, such as an `/authorize` without the omitted `request_uri`,
+stays in the ledger with `session_id: null`.
 
 ## OpenID4VP presentation capture
 

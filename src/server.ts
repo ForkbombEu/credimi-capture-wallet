@@ -35,6 +35,7 @@ import {
   sdJwtDigestAlgorithmOrNull,
 } from "./digest-algorithm.js";
 import { registerFakeOAuthServer } from "./fake-oauth-server.js";
+import { unsetJsonPointer } from "./json-pointer.js";
 import {
   jwtVcIssuerMetadata,
   signCredentialIssuerMetadata,
@@ -51,6 +52,7 @@ import {
   recordResponseBody,
   redactHttpHeaders,
   redactOid4vciValue,
+  responseBodyEvidence,
 } from "./oid4vci-capture.js";
 import { apiDocsPage, openApiDocument } from "./openapi.js";
 import {
@@ -74,7 +76,7 @@ import {
 } from "./request-certificates.js";
 import { requestMutationOrNull, requestMutationPointers } from "./request-mutation.js";
 import { negotiateRequestObjectEncryption } from "./request-object-encryption.js";
-import { responseScenarioOrNull } from "./response-scenario.js";
+import { issuanceResponseScenarioOrNull, responseScenarioOrNull } from "./response-scenario.js";
 import { CaptureStore, asStringOrNull } from "./state.js";
 import { revokeStatusListReference } from "./status-list.js";
 import { STATUS_REFERENCE_FIXTURES, statusReferenceFixtureOrNull } from "./status-reference.js";
@@ -82,6 +84,8 @@ import type {
   AppConfig,
   CredentialOfferMode,
   EvidenceMode,
+  IssuanceEndpointResponseScenario,
+  IssuanceResponseScenario,
   JsonRecord,
   Oid4vciHttpRequestCapture,
   PresentationResponseHttpCapture,
@@ -136,6 +140,35 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         ? await (await credoOpenId4VciIssuer(config, store)).captureSessionIdForRequest(req)
         : null);
     if (sessionId) store.linkOid4vciRequestToSession(captures.redacted, sessionId);
+  };
+
+  // A session's issuance_response_scenario replaces what the Wallet receives from its PAR or
+  // Credential endpoint. Credo-TS has already produced the real response, which is recorded next to
+  // the delivered one, redacted for the session's evidence mode.
+  const applyIssuanceResponseScenario = (
+    req: Request,
+    res: Response,
+    endpoint: keyof IssuanceResponseScenario,
+  ): void => {
+    const capture = oid4vciCaptures.get(req);
+    const session = capture?.session_id ? store.getSession(capture.session_id) : undefined;
+    const scenario = session?.issuance_response_scenario?.[endpoint];
+    if (!capture || !session || !scenario) return;
+    const mode = session.evidence_mode ?? "redacted";
+    const evidence = (response: ScenarioHttpResponse): JsonRecord => ({
+      status: response.status,
+      content_type: response.content_type,
+      body: responseBodyEvidence(Buffer.from(response.body), response.content_type, mode),
+    });
+    interceptIssuanceResponse(res, scenario, (original, delivered) => {
+      store.addEvent(session, "issuance_response_scenario_applied", {
+        endpoint,
+        request_id: capture.id,
+        scenario: { ...scenario },
+        original: evidence(original),
+        delivered: evidence(delivered),
+      });
+    });
   };
 
   app.use(
@@ -566,6 +599,15 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       if (evidenceMode === "full" && !config.fcaf_scenarios_enabled) {
         return res.status(400).json({ error: "evidence_mode_not_enabled" });
       }
+      const issuanceResponseScenario = issuanceResponseScenarioOrNull(
+        body.issuance_response_scenario,
+      );
+      if (issuanceResponseScenario === null) {
+        return res.status(400).json({ error: "invalid_issuance_response_scenario" });
+      }
+      if (issuanceResponseScenario && !config.fcaf_scenarios_enabled) {
+        return res.status(400).json({ error: "issuance_response_scenario_not_enabled" });
+      }
 
       const session = await createIssuanceSession(
         config,
@@ -580,6 +622,9 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         digestAlgorithm,
         evidenceMode,
       );
+      if (issuanceResponseScenario) {
+        session.issuance_response_scenario = issuanceResponseScenario;
+      }
       const offer = store.credoIssuanceOffers.get(session.session_id);
       if (!offer) throw new Error("Credo credential offer was not stored");
       return res.status(201).json({
@@ -1286,6 +1331,9 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     const encryptedResponse = responseEncryption
       ? interceptCredentialResponse(res, next, issuerConfig, responseEncryption)
       : null;
+    // Installed after the encryption interceptor so a scenario edits the plaintext response,
+    // which is then encrypted as usual.
+    applyIssuanceResponseScenario(req, res, "credential");
     const credentialEndpointNext: NextFunction = (error) => {
       if (encryptedResponse?.isPending()) return;
       if (error) return next(error);
@@ -1310,6 +1358,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
 
   app.use(async (req, res, next) => {
     if (!isCredoIssuerEndpoint(req.path)) return next();
+    if (req.path.endsWith("/par")) applyIssuanceResponseScenario(req, res, "par");
     try {
       return (await credoOpenId4VciIssuer(config, store)).forward(
         req,
@@ -1369,6 +1418,62 @@ function isCredoSessionEndpoint(path: string): boolean {
   return /^\/issuers\/[^/]+\/(?:par|authorize|redirect|token|credential|deferred-credential)$/.test(
     path,
   );
+}
+
+interface ScenarioHttpResponse {
+  status: number;
+  content_type: string | null;
+  body: string;
+}
+
+/**
+ * The single HTTP boundary for an `issuance_response_scenario`. The response Credo-TS produced is
+ * replaced once, as it is sent, so Credo's own state and the session's checks keep the real
+ * outcome. `body` replaces the body exactly; otherwise `extra_parameters` are merged into the JSON
+ * body and `omit_parameters` then removed from it.
+ */
+function interceptIssuanceResponse(
+  res: Response,
+  scenario: IssuanceEndpointResponseScenario,
+  onApplied: (original: ScenarioHttpResponse, delivered: ScenarioHttpResponse) => void,
+): void {
+  const send = res.send;
+  res.send = function (this: Response, responseBody?: unknown) {
+    res.send = send;
+    const original = {
+      status: res.statusCode,
+      content_type: res.get("Content-Type") ?? null,
+      body:
+        typeof responseBody === "string"
+          ? responseBody
+          : Buffer.isBuffer(responseBody)
+            ? responseBody.toString("utf8")
+            : (JSON.stringify(responseBody) ?? ""),
+    };
+    const body = scenario.body ?? scenarioJsonBody(original.body, scenario);
+    if (scenario.status !== undefined) res.status(scenario.status);
+    if (scenario.content_type !== undefined) res.type(scenario.content_type);
+    onApplied(original, {
+      status: res.statusCode,
+      content_type: res.get("Content-Type") ?? null,
+      body,
+    });
+    return send.call(this, body);
+  } as Response["send"];
+}
+
+function scenarioJsonBody(text: string, scenario: IssuanceEndpointResponseScenario): string {
+  if (!scenario.extra_parameters && !scenario.omit_parameters) return text;
+  let json: unknown;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    return text;
+  }
+  if (typeof json !== "object" || json === null || Array.isArray(json)) return text;
+  const edited: JsonRecord = { ...json, ...(scenario.extra_parameters ?? {}) };
+  for (const pointer of scenario.omit_parameters ?? []) unsetJsonPointer(edited, pointer);
+  return JSON.stringify(edited);
 }
 
 function interceptCredentialResponse(

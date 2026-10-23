@@ -1062,7 +1062,42 @@ export function openApiDocument(config: AppConfig): JsonRecord {
               enum: ["redacted", "full"],
               default: "redacted",
               description:
-                "Test-only full is refused with evidence_mode_not_enabled unless the deployment sets FCAF_SCENARIOS_ENABLED. full keeps this session's own OpenID4VCI evidence unredacted except for access and refresh tokens, authorization and pre-authorized codes, tx_code, code_verifier, and the Authorization, DPoP, and cookie headers. The global /oid4vci/requests ledger stays redacted.",
+                "Test-only full is refused with evidence_mode_not_enabled unless the deployment sets FCAF_SCENARIOS_ENABLED. full keeps this session's own OpenID4VCI evidence unredacted except for access and refresh tokens, authorization and pre-authorized codes, tx_code, code_verifier, issued credentials, and the Authorization, DPoP, and cookie headers. The global /oid4vci/requests ledger stays redacted.",
+            },
+            issuance_response_scenario: {
+              $ref: "#/components/schemas/IssuanceResponseScenario",
+            },
+          },
+        },
+        IssuanceResponseScenario: {
+          type: "object",
+          minProperties: 1,
+          additionalProperties: false,
+          description:
+            'Test-only, refused with issuance_response_scenario_not_enabled unless the deployment sets FCAF_SCENARIOS_ENABLED, and with invalid_issuance_response_scenario when malformed. Replaces what the Wallet receives from the session\'s PAR or Credential endpoint at the HTTP boundary; Credo-TS still handles the request, and each application is logged as an issuance_response_scenario_applied event with the original and delivered responses. Example: {"par":{"omit_parameters":["/request_uri"]}} or {"credential":{"status":400,"content_type":"application/json","body":"{\\"error\\":\\"credential_request_denied\\"}"}}.',
+          properties: {
+            par: { $ref: "#/components/schemas/IssuanceEndpointResponseScenario" },
+            credential: { $ref: "#/components/schemas/IssuanceEndpointResponseScenario" },
+          },
+        },
+        IssuanceEndpointResponseScenario: {
+          type: "object",
+          minProperties: 1,
+          additionalProperties: false,
+          properties: {
+            status: { type: "integer", minimum: 100, maximum: 599 },
+            content_type: { type: "string" },
+            body: { type: "string", description: "Exact delivered body." },
+            extra_parameters: {
+              type: "object",
+              additionalProperties: true,
+              description: "Members merged into the produced JSON body.",
+            },
+            omit_parameters: {
+              type: "array",
+              items: { type: "string", pattern: "^/" },
+              description:
+                "RFC 6901 JSON Pointers removed from the produced JSON body after extra_parameters are merged.",
             },
           },
         },
@@ -1125,6 +1160,9 @@ export function openApiDocument(config: AppConfig): JsonRecord {
               type: "string",
               const: "full",
               description: "Present only for a session created with evidence_mode full.",
+            },
+            issuance_response_scenario: {
+              $ref: "#/components/schemas/IssuanceResponseScenario",
             },
             observed: {
               type: "object",
