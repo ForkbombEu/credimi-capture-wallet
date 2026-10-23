@@ -4,6 +4,7 @@ import type {
   EvidenceMode,
   JsonRecord,
   Oid4vciHttpRequestCapture,
+  RawHttpBody,
   RawHttpHeader,
 } from "./types.js";
 
@@ -62,6 +63,9 @@ const FULL_EVIDENCE_SENSITIVE_VALUES = new Set([
   "tx_code",
 ]);
 
+/** Requests whose exact body `full` evidence keeps: PAR, token, and Credential Requests. */
+const RAW_BODY_PATH = /^\/issuers\/[^/]+\/(?:par|token|credential)$/;
+
 export function isOid4vciProtocolPath(path: string): boolean {
   return (
     /^\/\.well-known\/(?:openid-credential-issuer|oauth-authorization-server|jwt-vc-issuer)\/issuers\/[^/]+$/.test(
@@ -75,6 +79,10 @@ export function isOid4vciProtocolPath(path: string): boolean {
     /^\/authorization-servers\/[^/]+\/(?:authorize|token)$/.test(path) ||
     /^\/sessions\/[^/]+\/(?:offer|deeplink)$/.test(path)
   );
+}
+
+export function isRawBodyEvidencePath(path: string): boolean {
+  return RAW_BODY_PATH.test(path);
 }
 
 /**
@@ -98,6 +106,7 @@ export function createOid4vciRequestCaptures(
     headers: redactHttpHeaders(req.headers, mode),
     header_counts: headerCounts(req.rawHeaders),
     ...(mode === "full" ? { raw_headers: rawHttpHeaders(req.rawHeaders) } : {}),
+    ...(mode === "full" && RAW_BODY_PATH.test(req.path) ? { raw_body: rawHttpBody(req) } : {}),
     query: redactOid4vciValue(queryRecord(req), undefined, mode),
     body:
       (req.is("application/jwt") === "application/jwt"
@@ -115,6 +124,24 @@ export function completeOid4vciRequestCapture(
   capture.response.status = res.statusCode;
   const contentType = res.getHeader("content-type");
   capture.response.content_type = typeof contentType === "string" ? contentType : null;
+}
+
+/**
+ * The exact received body, which JSON well-formedness checks (duplicate member names, UTF-8, no
+ * byte order mark) need and a parsed body cannot show. An `application/jwt` body is kept as text.
+ * A token request body is only described: it carries the codes and verifier that `full` evidence
+ * still redacts, and no byte-level check applies to its form encoding.
+ */
+function rawHttpBody(req: Request): RawHttpBody {
+  const contentType = req.header("content-type") ?? null;
+  const bytes = (req as Request & { rawBodyBytes?: Buffer }).rawBodyBytes;
+  if (req.path.endsWith("/token")) {
+    return { content_type: contentType, redacted: true, length: bytes?.length ?? 0 };
+  }
+  if (req.is("application/jwt") === "application/jwt") {
+    return { content_type: contentType, text: typeof req.body === "string" ? req.body : "" };
+  }
+  return { content_type: contentType, base64: bytes?.toString("base64") ?? "" };
 }
 
 /** Every received value of one header field, in order, from a `full` capture. */

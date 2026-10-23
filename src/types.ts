@@ -134,6 +134,21 @@ export interface RawHttpHeader {
   value: string | JsonRecord;
 }
 
+export interface RawHttpBody {
+  /** The declared `Content-Type` header, as sent. */
+  content_type: string | null;
+  /** The exact body bytes, base64-encoded; empty when the request had no body. */
+  base64?: string;
+  /** The text of an `application/jwt` body. */
+  text?: string;
+  /**
+   * Set for a token request, whose body is described rather than kept: it carries the codes and
+   * PKCE verifier that `full` evidence still redacts. `length` is its size in bytes.
+   */
+  redacted?: true;
+  length?: number;
+}
+
 export interface Oid4vciHttpRequestCapture {
   id: string;
   at: string;
@@ -150,6 +165,8 @@ export interface Oid4vciHttpRequestCapture {
   header_counts: Record<string, number>;
   /** `full` evidence only: every header field in received order, with its original name casing. */
   raw_headers?: RawHttpHeader[];
+  /** `full` evidence only: the body of a PAR, token, or Credential Request as received. */
+  raw_body?: RawHttpBody;
   query: unknown;
   body: unknown;
   response: {

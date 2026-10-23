@@ -47,6 +47,7 @@ import {
   completeOid4vciRequestCapture,
   createOid4vciRequestCaptures,
   isOid4vciProtocolPath,
+  isRawBodyEvidencePath,
   redactHttpHeaders,
   redactOid4vciValue,
 } from "./oid4vci-capture.js";
@@ -114,6 +115,26 @@ import { RESPONSE_URI_PLACEHOLDER } from "./verifier-attestation.js";
 export function createApp(config: AppConfig, store = new CaptureStore(config)): express.Express {
   const app = express();
   const oid4vciCaptures = new WeakMap<Request, Oid4vciHttpRequestCapture>();
+  // Every OpenID4VCI request is recorded before any handler runs, and attributed to its capture
+  // session there too, so a request Credo-TS rejects still leaves session evidence.
+  const captureOid4vciRequest = async (req: Request, res: Response): Promise<void> => {
+    const captures = createOid4vciRequestCaptures(
+      req,
+      oid4vciRequestIssuerConfigurationId(store, req),
+    );
+    oid4vciCaptures.set(req, captures.redacted);
+    store.recordOid4vciRequest(captures.redacted, captures.full);
+    res.once("finish", () => {
+      completeOid4vciRequestCapture(captures.redacted, res);
+      completeOid4vciRequestCapture(captures.full, res);
+    });
+    const sessionId =
+      oid4vciRequestSessionId(store, req) ??
+      (isCredoSessionEndpoint(req.path)
+        ? await (await credoOpenId4VciIssuer(config, store)).captureSessionIdForRequest(req)
+        : null);
+    if (sessionId) store.linkOid4vciRequestToSession(captures.redacted, sessionId);
+  };
 
   app.use(
     express.json({
@@ -129,27 +150,28 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     }),
   );
   app.use(express.text({ type: "application/jwt" }));
-  // Every OpenID4VCI request is recorded before any handler runs, and attributed to its capture
-  // session there too, so a request Credo-TS rejects still leaves session evidence.
+  // The exact bytes of a PAR, token, or Credential Request are evidence even when its media type
+  // matches none of the parsers above. Such a body is read only to keep those bytes; handlers see
+  // the same empty body as before.
+  const evidenceBodyParser = express.raw({ type: () => true, verify: rawBodyCapture });
+  app.use((req, res, next) => {
+    if (!isRawBodyEvidencePath(req.path)) return next();
+    return evidenceBodyParser(req, res, (error?: unknown) => {
+      if (Buffer.isBuffer(req.body)) req.body = {};
+      next(error);
+    });
+  });
+  // A body a parser rejects skips the capture below, so it is recorded here, with no parsed body,
+  // before the error continues to the error handler.
+  app.use((error: Error, req: Request, res: Response, next: NextFunction) => {
+    if (!isOid4vciProtocolPath(req.path)) return next(error);
+    req.body = undefined;
+    captureOid4vciRequest(req, res).then(() => next(error), next);
+  });
   app.use(async (req, res, next) => {
     if (!isOid4vciProtocolPath(req.path)) return next();
-    const captures = createOid4vciRequestCaptures(
-      req,
-      oid4vciRequestIssuerConfigurationId(store, req),
-    );
-    oid4vciCaptures.set(req, captures.redacted);
-    store.recordOid4vciRequest(captures.redacted, captures.full);
-    res.once("finish", () => {
-      completeOid4vciRequestCapture(captures.redacted, res);
-      completeOid4vciRequestCapture(captures.full, res);
-    });
     try {
-      const sessionId =
-        oid4vciRequestSessionId(store, req) ??
-        (isCredoSessionEndpoint(req.path)
-          ? await (await credoOpenId4VciIssuer(config, store)).captureSessionIdForRequest(req)
-          : null);
-      if (sessionId) store.linkOid4vciRequestToSession(captures.redacted, sessionId);
+      await captureOid4vciRequest(req, res);
     } catch (error) {
       return next(error);
     }
@@ -1394,7 +1416,9 @@ function requestParams(req: Request): JsonRecord {
 }
 
 function rawBodyCapture(req: Request, _res: express.Response, buffer: Buffer): void {
-  (req as Request & { rawBody?: string }).rawBody = buffer.toString("utf8");
+  const rawBodyRequest = req as Request & { rawBody?: string; rawBodyBytes?: Buffer };
+  rawBodyRequest.rawBody = buffer.toString("utf8");
+  rawBodyRequest.rawBodyBytes = buffer;
 }
 
 async function createIssuanceSession(

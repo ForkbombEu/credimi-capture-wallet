@@ -965,6 +965,19 @@ export function openApiDocument(config: AppConfig): JsonRecord {
                 },
               },
             },
+            raw_body: {
+              type: "object",
+              required: ["content_type"],
+              description:
+                "Only in a session created with evidence_mode full, for PAR, token, and Credential Requests: the declared Content-Type and the exact received bytes as base64, or the text of an application/jwt body. A token request body is described with redacted true and its length, because it carries codes that stay redacted. Present even when the media type matched no parser or the body failed to parse.",
+              properties: {
+                content_type: { type: ["string", "null"] },
+                base64: { type: "string", contentEncoding: "base64" },
+                text: { type: "string" },
+                redacted: { type: "boolean", const: true },
+                length: { type: "integer", minimum: 0 },
+              },
+            },
             query: {},
             body: {},
             response: {

@@ -185,7 +185,12 @@ A session created with `evidence_mode: "full"` exposes, in its own `raw.oid4vci_
 | --- | --- |
 | `raw_headers` | Every header field in received order, `{name, value}`, with the original name casing. `Authorization`, `DPoP`, `Cookie`, and `Proxy-Authorization` values are replaced with presence and length metadata. |
 | `headers` | As in the ledger, but with the `OAuth-Client-Attestation` and `OAuth-Client-Attestation-PoP` values in clear. |
-| `query`, `body` | Proofs, attestations, `client_assertion`, and `request_uri` in clear. Access and refresh tokens, authorization and pre-authorized codes, `tx_code`, `code_verifier`, `client_secret`, and `password` stay redacted. |
+| `query`, `body` | Proofs, attestations, `client_assertion`, and the `/authorize` `request_uri` in clear. Access and refresh tokens, authorization and pre-authorized codes, `tx_code`, `code_verifier`, `client_secret`, and `password` stay redacted. |
+| `raw_body` | PAR, token, and Credential Requests only: `content_type`, the declared `Content-Type`, and `base64`, the exact received body bytes, so duplicate member names, invalid UTF-8, or a byte order mark stay visible. An `application/jwt` body is kept as `text` instead. A token request body is described as `{content_type, redacted: true, length}`, because it carries the codes and verifier that stay redacted. |
+
+A body is read for `raw_body` even when its media type matches no parser, and a request whose
+body a parser rejects, such as malformed JSON, is still captured and attributed, with `body: null`
+and the error response the service returned.
 
 `observed.client_authentication` records the first request carrying `OAuth-Client-Attestation` or
 `OAuth-Client-Attestation-PoP`, in both modes: `method: "wallet_attestation"`, and for each of
@@ -218,6 +223,8 @@ has accepted the proof.
 | `observed.client_authentication.wallet_attestation` `header`, `claims` | `WS_AP_MS_ProtocolMessages_037a`, `_037b`, `_037c`; `WS_AP_SM_DeviceBinding_002a` |
 | `observed.client_authentication.wallet_attestation_pop` `header`, `claims`, `audience_matches`, `challenge` | `WS_AP_MS_ProtocolMessages_038a`; `WS_AP_SM_DeviceBinding_003a` |
 | `observed.client_authentication.wallet_attestation.cnf_jwk` | `WS_AP_SM_DeviceBinding_003b` |
+| `full`: `/authorize` `query.request_uri` | `WS_AP_MS_ProtocolMessages_039b` |
+| `full`: Credential Request `raw_body` and its `content_type` | `WS_AP_IA_MainInteraction_030b` |
 | `full`: `raw.credential_request_proofs.proofs` | `WS_AP_MS_ProtocolMessages_051a`, `_051b`, `_051c` |
 | `full`: `raw.credential_request_proofs.jwt[]` `payload` | `WS_AP_MS_ProtocolMessages_053a`, `_053b`, `_053c`, `_053d` |
 | `full`: `raw.credential_request_proofs.jwt[]` `compact` and `key_attestation` | `WS_AP_SM_DeviceBinding_010a`, `_010c`, `_011a`, `_011b` |

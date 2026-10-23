@@ -3415,6 +3415,116 @@ describe("capture issuer server", () => {
         capture.raw?.oid4vci_requests?.find((entry) => entry.path.endsWith("/credential"))?.body,
       ).toMatchObject({ proofs: { jwt: { redacted: true, present: true } } });
     });
+
+    async function sendRawCredentialRequest(app: Express, contentType: string, bytes: Buffer) {
+      const session = await preAuthorizedFull(app);
+      const dpop = await dpopKey();
+      const tokenResponse = await preAuthorizedToken(app, session, dpop);
+      const credentialPath = issuerProtocolPath(session, "/credential");
+      const response = await request(app)
+        .post(credentialPath)
+        .set("authorization", `DPoP ${tokenResponse.access_token}`)
+        .set("DPoP", await dpopProof(dpop, "POST", credentialPath, tokenResponse.access_token))
+        .set("Content-Type", contentType)
+        // superagent writes a Buffer as-is once no serializer touches it; its type names strings.
+        .serialize((body) => body)
+        .send(bytes as unknown as string);
+      const capture = await getJson<SessionCapture>(app, `/sessions/${session.session_id}`);
+      return {
+        session,
+        response,
+        credentialCapture: capture.raw?.oid4vci_requests?.find(
+          (entry) => entry.path === credentialPath,
+        ),
+      };
+    }
+
+    it("keeps the exact Credential Request bytes, including a BOM and duplicate members", async () => {
+      const app = createApp(scenarioConfig);
+      const configurationId = sdJwtCredentialConfigurationId(config, "key-attestation-required");
+      const bytes = Buffer.from(
+        `\ufeff{"credential_configuration_id":"x","credential_configuration_id":"${configurationId}","proofs":{"jwt":["a.b.c"]}}`,
+      );
+
+      const { credentialCapture } = await sendRawCredentialRequest(app, "application/json", bytes);
+
+      expect(credentialCapture?.raw_body).toEqual({
+        content_type: "application/json",
+        base64: bytes.toString("base64"),
+      });
+      expect(credentialCapture?.body).toMatchObject({
+        credential_configuration_id: configurationId,
+      });
+    });
+
+    it("keeps a Credential Request body that is not JSON or not parseable", async () => {
+      const app = createApp(scenarioConfig);
+      const malformed = Buffer.from('{"credential_configuration_id":');
+      const plain = Buffer.from('{"proofs":{}}');
+
+      const rejected = await sendRawCredentialRequest(app, "application/json", malformed);
+      const untyped = await sendRawCredentialRequest(app, "text/plain", plain);
+
+      expect(rejected.response.status).toBeGreaterThanOrEqual(400);
+      expect(rejected.credentialCapture).toMatchObject({
+        session_id: rejected.session.session_id,
+        body: null,
+        raw_body: { content_type: "application/json", base64: malformed.toString("base64") },
+        response: { status: rejected.response.status },
+      });
+      expect(untyped.response.status).toBeGreaterThanOrEqual(400);
+      expect(untyped.credentialCapture?.raw_body).toEqual({
+        content_type: "text/plain",
+        base64: plain.toString("base64"),
+      });
+    });
+
+    it("keeps PAR bytes and the authorize request_uri in clear but describes the token body", async () => {
+      const app = createApp(scenarioConfig);
+      const session = await postJson<SessionCreateResponse>(app, "/sessions", {
+        evidence_mode: "full",
+      });
+      const pushed = await pushAuthorization(app, session, {});
+      const requestUri = String(pushed.body.request_uri);
+      await request(app)
+        .get(issuerProtocolPath(session, "/authorize"))
+        .query({ client_id: walletClientId, request_uri: requestUri })
+        .redirects(0);
+      const preAuthorized = await preAuthorizedFull(app);
+      await preAuthorizedToken(app, preAuthorized, await dpopKey());
+
+      const capture = await getJson<SessionCapture>(app, `/sessions/${session.session_id}`);
+      const parCapture = capture.raw?.oid4vci_requests?.find((entry) =>
+        entry.path.endsWith("/par"),
+      );
+      expect(parCapture?.raw_body?.content_type).toBe("application/x-www-form-urlencoded");
+      expect(
+        new URLSearchParams(
+          Buffer.from(String(parCapture?.raw_body?.base64), "base64").toString(),
+        ).get("client_id"),
+      ).toBe(walletClientId);
+      const authorizeCapture = capture.raw?.oid4vci_requests?.find((entry) =>
+        entry.path.endsWith("/authorize"),
+      );
+      expect(authorizeCapture?.query).toMatchObject({ request_uri: requestUri });
+      expect(authorizeCapture).not.toHaveProperty("raw_body");
+      const ledger = await getJson<Oid4vciHttpRequestCapture[]>(app, "/oid4vci/requests");
+      expect(ledger.find((entry) => entry.id === authorizeCapture?.id)?.query).toMatchObject({
+        request_uri: { redacted: true, present: true },
+      });
+      expect(ledger.some((entry) => "raw_body" in entry)).toBe(false);
+      const tokenCapture = (
+        await getJson<SessionCapture>(app, `/sessions/${preAuthorized.session_id}`)
+      ).raw?.oid4vci_requests?.find((entry) => entry.path.endsWith("/token"));
+      expect(tokenCapture?.raw_body).toEqual({
+        content_type: "application/x-www-form-urlencoded",
+        redacted: true,
+        length: expect.any(Number),
+      });
+      expect(tokenCapture?.body).toMatchObject({
+        "pre-authorized_code": { redacted: true, present: true },
+      });
+    });
   });
 
   it("enforces the selected JWT proof key-attestation policy", async () => {
