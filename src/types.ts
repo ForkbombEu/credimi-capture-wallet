@@ -205,6 +205,34 @@ export interface JwtCapture {
   error: string | null;
 }
 
+/** A compact JWT exactly as received, with its header and payload decoded but never verified. */
+export interface JwtEvidence {
+  compact: string;
+  header: JsonRecord | null;
+  payload: JsonRecord | null;
+  error: string | null;
+}
+
+export interface ProofJwtEvidence extends JwtEvidence {
+  /** Where the JWT sits in the Credential Request, such as `proofs.jwt[0]`. */
+  source: string;
+  /** The Key Attestation in a `jwt` proof's `key_attestation` JOSE header, when it is a string. */
+  key_attestation?: JwtEvidence;
+}
+
+/** The proofs of one Credential Request, as received and before Credo-TS verifies them. */
+export interface CredentialRequestProofsCapture {
+  /** `id` of the request's `raw.oid4vci_requests` entry. */
+  request_id: string;
+  at: string;
+  /** The `proofs` member exactly as received, with its JSON types; absent when there was none. */
+  proofs?: unknown;
+  /** Each string in `proofs.jwt`, or `proofs.jwt` itself when it is a string. */
+  jwt: ProofJwtEvidence[];
+  /** Each Key Attestation string in `proofs.attestation`, or the member itself when a string. */
+  attestation: ProofJwtEvidence[];
+}
+
 export interface ClientAuthenticationCapture {
   method: "none" | "private_key_jwt" | "wallet_attestation" | "multiple";
   private_key_jwt: JwtCapture & {
@@ -303,6 +331,11 @@ export interface SessionCapture {
     credential_request?: JsonRecord;
     credential_request_raw?: unknown;
     proof_headers?: ProofHeaderCapture[];
+    /**
+     * `full` evidence only: the latest Credential Request's proofs, recorded when the request
+     * arrives, so a proof Credo-TS rejects is kept too.
+     */
+    credential_request_proofs?: CredentialRequestProofsCapture;
     oid4vci_requests?: Oid4vciHttpRequestCapture[];
   };
 }

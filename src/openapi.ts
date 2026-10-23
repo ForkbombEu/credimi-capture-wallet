@@ -1121,6 +1121,21 @@ export function openApiDocument(config: AppConfig): JsonRecord {
                 },
               },
             },
+            raw: {
+              type: "object",
+              additionalProperties: true,
+              properties: {
+                oid4vci_requests: {
+                  type: "array",
+                  description:
+                    "The session's OpenID4VCI requests, attributed when each arrives. For evidence_mode full, the unredacted form of each ledger entry.",
+                  items: { $ref: "#/components/schemas/Oid4vciHttpRequestCapture" },
+                },
+                credential_request_proofs: {
+                  $ref: "#/components/schemas/CredentialRequestProofs",
+                },
+              },
+            },
             status_list_references: {
               type: "array",
               description:
@@ -1142,6 +1157,66 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             },
           },
           additionalProperties: true,
+        },
+        JwtEvidence: {
+          type: "object",
+          required: ["compact", "header", "payload", "error"],
+          description: "A compact JWT exactly as received, decoded and never verified.",
+          properties: {
+            compact: { type: "string" },
+            header: { type: ["object", "null"], additionalProperties: true },
+            payload: { type: ["object", "null"], additionalProperties: true },
+            error: { type: ["string", "null"] },
+          },
+        },
+        CredentialRequestProofs: {
+          type: "object",
+          required: ["request_id", "at", "jwt", "attestation"],
+          description:
+            "Only for evidence_mode full: the latest Credential Request's proofs, recorded when it arrives and before Credo-TS verifies them, so a rejected proof is kept too.",
+          properties: {
+            request_id: {
+              type: "string",
+              format: "uuid",
+              description: "id of the request's raw.oid4vci_requests entry.",
+            },
+            at: { type: "string", format: "date-time" },
+            proofs: {
+              description: "The proofs member exactly as received, with its JSON types.",
+            },
+            jwt: {
+              type: "array",
+              description:
+                "Each string in proofs.jwt, or proofs.jwt itself when it is a string. key_attestation is the decoded key_attestation JOSE header parameter.",
+              items: {
+                allOf: [
+                  { $ref: "#/components/schemas/JwtEvidence" },
+                  {
+                    type: "object",
+                    required: ["source"],
+                    properties: {
+                      source: { type: "string" },
+                      key_attestation: { $ref: "#/components/schemas/JwtEvidence" },
+                    },
+                  },
+                ],
+              },
+            },
+            attestation: {
+              type: "array",
+              description: "Each Key Attestation string in proofs.attestation.",
+              items: {
+                allOf: [
+                  { $ref: "#/components/schemas/JwtEvidence" },
+                  {
+                    type: "object",
+                    required: ["source"],
+                    properties: { source: { type: "string" } },
+                  },
+                ],
+              },
+            },
+          },
         },
         StatusListUpdate: {
           type: "object",

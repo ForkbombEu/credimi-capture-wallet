@@ -198,6 +198,19 @@ authorization server identifier; `challenge` is the PoP `challenge`. The same co
 `checks.wallet_attestation_present`, `wallet_attestation_pop_present`,
 `wallet_attestation_client_id_matches`, and `wallet_attestation_pop_audience_matches`.
 
+In a `full` session, `raw.credential_request_proofs` records the latest Credential Request's proofs
+when the request arrives, after an encrypted request is decrypted and before Credo-TS verifies
+anything, so a proof Credo rejects is kept as fully as one it accepts. It carries `request_id`, the
+`id` of the request's `raw.oid4vci_requests` entry, and `at`; `proofs`, the member exactly as
+received with its JSON types, so a non-array `jwt` or a non-string element is visible; `jwt`, one
+entry per string in `proofs.jwt` (or `proofs.jwt` itself when it is a string) with its `compact`
+value, decoded `header` and `payload`, decode `error`, and `source` such as `proofs.jwt[0]`, plus
+`key_attestation` decoded the same way when the JOSE header carries one as a string; and
+`attestation`, the Key Attestations of `proofs.attestation` decoded the same way. The Key
+Attestation's `x5c`, `attested_keys`, and `nonce` are in its decoded `header` and `payload`.
+`raw.proof_headers` and the proof `checks` are unchanged: they are still written only once Credo
+has accepted the proof.
+
 | Evidence | FCAF tests |
 | --- | --- |
 | PAR `header_counts["oauth-client-attestation"]` and `["oauth-client-attestation-pop"]` | `WS_AP_MS_ProtocolMessages_035a`, `_036a` |
@@ -205,6 +218,10 @@ authorization server identifier; `challenge` is the PoP `challenge`. The same co
 | `observed.client_authentication.wallet_attestation` `header`, `claims` | `WS_AP_MS_ProtocolMessages_037a`, `_037b`, `_037c`; `WS_AP_SM_DeviceBinding_002a` |
 | `observed.client_authentication.wallet_attestation_pop` `header`, `claims`, `audience_matches`, `challenge` | `WS_AP_MS_ProtocolMessages_038a`; `WS_AP_SM_DeviceBinding_003a` |
 | `observed.client_authentication.wallet_attestation.cnf_jwk` | `WS_AP_SM_DeviceBinding_003b` |
+| `full`: `raw.credential_request_proofs.proofs` | `WS_AP_MS_ProtocolMessages_051a`, `_051b`, `_051c` |
+| `full`: `raw.credential_request_proofs.jwt[]` `payload` | `WS_AP_MS_ProtocolMessages_053a`, `_053b`, `_053c`, `_053d` |
+| `full`: `raw.credential_request_proofs.jwt[]` `compact` and `key_attestation` | `WS_AP_SM_DeviceBinding_010a`, `_010c`, `_011a`, `_011b` |
+| `full`: `raw.credential_request_proofs.attestation[]` | `WS_AP_SM_DeviceBinding_011a`, `_011b` |
 
 ## OpenID4VP presentation capture
 

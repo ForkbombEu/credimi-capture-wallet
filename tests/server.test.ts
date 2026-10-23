@@ -3258,6 +3258,163 @@ describe("capture issuer server", () => {
         capture.raw?.oid4vci_requests?.find((entry) => entry.path.endsWith("/par"))?.header_counts,
       ).not.toHaveProperty("oauth-client-attestation");
     });
+
+    async function requestCredential(
+      app: Express,
+      session: SessionCreateResponse,
+      body: JsonRecord,
+      token?: { dpop: DpopKey; response: TokenResponse },
+    ) {
+      const dpop = token?.dpop ?? (await dpopKey());
+      const tokenResponse = token?.response ?? (await preAuthorizedToken(app, session, dpop));
+      const credentialPath = issuerProtocolPath(session, "/credential");
+      const response = await request(app)
+        .post(credentialPath)
+        .set("authorization", `DPoP ${tokenResponse.access_token}`)
+        .set("DPoP", await dpopProof(dpop, "POST", credentialPath, tokenResponse.access_token))
+        .send({ credential_configuration_id: session.credential_configuration_id, ...body });
+      return {
+        response,
+        capture: await getJson<SessionCapture>(app, `/sessions/${session.session_id}`),
+      };
+    }
+
+    async function preAuthorizedFull(app: Express): Promise<SessionCreateResponse> {
+      return postJson<SessionCreateResponse>(app, "/sessions", {
+        flow: "pre_authorized_code",
+        evidence_mode: "full",
+      });
+    }
+
+    it("keeps a jwt proof Credo rejects, with its key attestation decoded", async () => {
+      const app = createApp(scenarioConfig);
+      const session = await preAuthorizedFull(app);
+      const dpop = await dpopKey();
+      const tokenResponse = await preAuthorizedToken(app, session, dpop);
+      const holderKey = await dpopKey();
+      const keyAttestation = await keyAttestationJwt(holderKey, tokenResponse.c_nonce);
+      const proof = await new SignJWT({
+        aud: `${config.issuer_base_url}${conformingIssuerPath}`,
+        nonce: tokenResponse.c_nonce,
+        iat: Math.floor(Date.now() / 1000),
+      })
+        .setProtectedHeader({
+          alg: "ES256",
+          typ: "openid4vci-proof+jwt",
+          jwk: holderKey.publicJwk as unknown as JWK,
+          key_attestation: keyAttestation,
+        })
+        .sign((await dpopKey()).privateKey);
+
+      const { response, capture } = await requestCredential(
+        app,
+        session,
+        { proofs: { jwt: [proof, 42] } },
+        { dpop, response: tokenResponse },
+      );
+
+      expect(response.status).toBe(400);
+      expect(capture.raw?.proof_headers).toBeUndefined();
+      const credentialCapture = capture.raw?.oid4vci_requests?.find((entry) =>
+        entry.path.endsWith("/credential"),
+      );
+      expect(capture.raw?.credential_request_proofs).toEqual({
+        request_id: credentialCapture?.id,
+        at: credentialCapture?.at,
+        proofs: { jwt: [proof, 42] },
+        jwt: [
+          {
+            compact: proof,
+            header: expect.objectContaining({
+              typ: "openid4vci-proof+jwt",
+              key_attestation: keyAttestation,
+            }),
+            payload: expect.objectContaining({ nonce: tokenResponse.c_nonce }),
+            error: null,
+            source: "proofs.jwt[0]",
+            key_attestation: {
+              compact: keyAttestation,
+              header: expect.objectContaining({
+                typ: "key-attestation+jwt",
+                x5c: expect.any(Array),
+              }),
+              payload: expect.objectContaining({
+                nonce: tokenResponse.c_nonce,
+                attested_keys: [holderKey.publicJwk],
+              }),
+              error: null,
+            },
+          },
+        ],
+        attestation: [],
+      });
+      expect(credentialCapture?.body).toMatchObject({ proofs: { jwt: [proof, 42] } });
+      const ledger = await getJson<JsonRecord[]>(app, "/oid4vci/requests");
+      expect(JSON.stringify(ledger)).not.toContain(proof);
+    });
+
+    it("keeps a proofs.jwt that is not an array exactly as sent", async () => {
+      const app = createApp(scenarioConfig);
+      const session = await preAuthorizedFull(app);
+
+      const { response, capture } = await requestCredential(app, session, {
+        proofs: { jwt: "not.a.jwt" },
+      });
+
+      expect(response.status).toBe(400);
+      expect(capture.raw?.credential_request_proofs).toMatchObject({
+        proofs: { jwt: "not.a.jwt" },
+        jwt: [
+          { compact: "not.a.jwt", source: "proofs.jwt", header: null, error: expect.any(String) },
+        ],
+      });
+    });
+
+    it("keeps an attestation proof and still records the accepted proof headers", async () => {
+      const app = createApp(scenarioConfig);
+      const session = await preAuthorizedFull(app);
+      const dpop = await dpopKey();
+      const tokenResponse = await preAuthorizedToken(app, session, dpop);
+      const keyAttestation = await keyAttestationJwt(await dpopKey(), tokenResponse.c_nonce);
+
+      const { response, capture } = await requestCredential(
+        app,
+        session,
+        { proofs: { attestation: [keyAttestation] } },
+        { dpop, response: tokenResponse },
+      );
+
+      expect(response.status, JSON.stringify(response.body)).toBe(200);
+      expect(capture.raw?.credential_request_proofs?.attestation).toEqual([
+        {
+          compact: keyAttestation,
+          header: expect.objectContaining({ typ: "key-attestation+jwt" }),
+          payload: expect.objectContaining({ nonce: tokenResponse.c_nonce }),
+          error: null,
+          source: "proofs.attestation[0]",
+        },
+      ]);
+      expect(capture.raw?.proof_headers).toEqual([
+        expect.objectContaining({ proof_type: "attestation", typ: "key-attestation+jwt" }),
+      ]);
+    });
+
+    it("records no proof evidence for a default session", async () => {
+      const app = createApp(scenarioConfig);
+      const session = await postJson<SessionCreateResponse>(app, "/sessions", {
+        flow: "pre_authorized_code",
+      });
+
+      const { response, capture } = await requestCredential(app, session, {
+        proofs: { jwt: ["not.a.jwt"] },
+      });
+
+      expect(response.status).toBe(400);
+      expect(capture.raw?.credential_request_proofs).toBeUndefined();
+      expect(
+        capture.raw?.oid4vci_requests?.find((entry) => entry.path.endsWith("/credential"))?.body,
+      ).toMatchObject({ proofs: { jwt: { redacted: true, present: true } } });
+    });
   });
 
   it("enforces the selected JWT proof key-attestation policy", async () => {

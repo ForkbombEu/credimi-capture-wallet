@@ -1,5 +1,12 @@
 import { type JWK, calculateJwkThumbprint } from "jose";
-import type { JsonRecord, ProofHeaderCapture } from "./types.js";
+import type {
+  CredentialRequestProofsCapture,
+  JsonRecord,
+  JwtEvidence,
+  Oid4vciHttpRequestCapture,
+  ProofHeaderCapture,
+  ProofJwtEvidence,
+} from "./types.js";
 
 export function decodeJwtHeader(jwt: string): JsonRecord {
   const [header] = jwt.split(".");
@@ -37,6 +44,49 @@ function decodeJsonObjectSegment(segment: string | undefined, name: string): Jso
   const record = asRecord(value);
   if (!record) throw new Error(`JWT ${name} is not a JSON object`);
   return record;
+}
+
+/**
+ * The proofs of one Credential Request as received, for evidence. Every JWT is decoded and never
+ * verified, so a proof Credo-TS goes on to reject is recorded in the same detail as one it
+ * accepts. Non-string entries are left to `proofs`, which keeps the member's JSON types.
+ */
+export function credentialRequestProofsCapture(
+  capture: Pick<Oid4vciHttpRequestCapture, "id" | "at">,
+  body: JsonRecord,
+): CredentialRequestProofsCapture {
+  const proofs = asRecord(body.proofs);
+  return {
+    request_id: capture.id,
+    at: capture.at,
+    ...(body.proofs === undefined ? {} : { proofs: structuredClone(body.proofs) }),
+    jwt: proofJwtStrings(proofs?.jwt, "proofs.jwt").map(({ jwt, source }) => {
+      const evidence = jwtEvidence(jwt);
+      const keyAttestation = evidence.header?.key_attestation;
+      return {
+        ...evidence,
+        source,
+        ...(typeof keyAttestation === "string"
+          ? { key_attestation: jwtEvidence(keyAttestation) }
+          : {}),
+      };
+    }),
+    attestation: proofJwtStrings(proofs?.attestation, "proofs.attestation").map(
+      ({ jwt, source }): ProofJwtEvidence => ({ ...jwtEvidence(jwt), source }),
+    ),
+  };
+}
+
+function proofJwtStrings(value: unknown, source: string): Array<{ jwt: string; source: string }> {
+  if (typeof value === "string") return [{ jwt: value, source }];
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((jwt, index) =>
+    typeof jwt === "string" ? [{ jwt, source: `${source}[${index}]` }] : [],
+  );
+}
+
+function jwtEvidence(compact: string): JwtEvidence {
+  return { compact, ...decodeJwtForEvidence(compact) };
 }
 
 export function extractProofJwts(body: JsonRecord): Array<{ jwt: string; source: string }> {

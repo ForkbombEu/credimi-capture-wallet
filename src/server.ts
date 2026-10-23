@@ -63,6 +63,7 @@ import {
   signPresentationAuthorizationRequest,
   verifierClientIdentifiers,
 } from "./openid4vp.js";
+import { credentialRequestProofsCapture } from "./proofs.js";
 import { corruptJwsSignature, requestBehaviorOrNull } from "./request-behavior.js";
 import {
   generateRequestCertificateMaterial,
@@ -1238,6 +1239,12 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       capture.body = redactOid4vciValue(body);
       const fullCapture = store.fullOid4vciRequests.get(capture);
       if (fullCapture) fullCapture.body = redactOid4vciValue(body, undefined, "full");
+      // Recorded before Credo-TS verifies the proofs, so a rejected proof leaves evidence too.
+      const session = capture.session_id ? store.getSession(capture.session_id) : undefined;
+      if (session?.evidence_mode === "full") {
+        session.raw ??= {};
+        session.raw.credential_request_proofs = credentialRequestProofsCapture(capture, body);
+      }
     }
     const { credential_response_encryption: _credentialResponseEncryption, ...credoBody } = body;
     req.body = credoBody;
