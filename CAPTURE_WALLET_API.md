@@ -162,7 +162,7 @@ The token endpoint accepts either:
 - `grant_type=urn:ietf:params:oauth:grant-type:pre-authorized_code` and `pre-authorized_code`, with optional `tx_code`; or
 - `grant_type=authorization_code`, `code`, `code_verifier`, and `redirect_uri`, with optional `client_id`.
 
-The credential request normally uses `application/json` with `credential_configuration_id` and one `proofs.jwt` or `proofs.attestation` entry. For encrypted credential requests, send an `application/jwt` compact JWE; the encrypted response is also a compact JWE. The selected issuer's metadata determines supported proof and encryption capabilities.
+The credential request normally uses `application/json` with `credential_configuration_id` and one `proofs.jwt` or `proofs.attestation` entry. For encrypted credential requests, send an `application/jwt` compact JWE; a successful response is then also a compact JWE. A Credential Error Response (any non-2xx status) is never encrypted, as OpenID4VCI 1.0 Section 8.3.1 requires, and keeps its JSON body. The selected issuer's metadata determines supported proof and encryption capabilities.
 
 Credo enforces the wallet's PKCE: a PAR request without `code_challenge` gets `400 invalid_request`, and a token request whose `code_verifier` does not match gets `400 invalid_grant`. A Credential Request without a valid DPoP-bound access token gets `401`. Time claims of Wallet Attestations, Client Attestation PoPs, and DPoP proofs are checked with a 60-second clock skew.
 
@@ -321,8 +321,11 @@ answers every Credential Request with that Credential Error Response.
 
 The scenario is applied at the HTTP boundary only. Credo-TS still handles the request and its state
 moves as usual, so the session's `status` and `checks` describe what really happened: a denied
-Credential Request whose credential Credo issued leaves the session `credential_issued`. An
-encrypted Credential Response is encrypted after the scenario is applied. Each application logs an
+Credential Request whose credential Credo issued leaves the session `credential_issued`. When the
+Wallet asked for an encrypted Credential Response, the scenario is applied to the plaintext first:
+a delivered 2xx response is then encrypted, while a delivered error status, such as the 400 above,
+is sent as plain JSON because Credential Error Responses are never encrypted (OpenID4VCI 1.0
+Section 8.3.1). Each application logs an
 `issuance_response_scenario_applied` event with `endpoint`, `request_id` (the
 `raw.oid4vci_requests` entry), the `scenario`, and `original` and `delivered` responses, each
 `{status, content_type, body}` with the body redacted for the session's evidence mode. The

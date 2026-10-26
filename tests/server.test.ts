@@ -3757,6 +3757,63 @@ describe("capture issuer server", () => {
       ).toBe(2);
     });
 
+    it("sends a scenario's Credential Error Response unencrypted when encryption was requested", async () => {
+      const app = createApp(scenarioConfig);
+      const session = await postJson<SessionCreateResponse>(app, "/sessions", {
+        flow: "pre_authorized_code",
+        issuance_response_scenario: {
+          credential: {
+            status: 400,
+            content_type: "application/json",
+            body: '{"error":"credential_request_denied"}',
+          },
+        },
+      });
+      const dpop = await dpopKey();
+      const token = await preAuthorizedToken(app, session, dpop);
+      const responseEncryptionKeyPair = await generateKeyPair("ECDH-ES", {
+        crv: "P-256",
+        extractable: true,
+      });
+      const metadata = await getJson<JsonRecord>(app, conformingMetadataPath);
+      // Shape asserted by the issuer metadata tests; this test only needs the published key.
+      const requestEncryption = metadata.credential_request_encryption as {
+        jwks: { keys: JWK[] };
+      };
+      const issuerEncryptionJwk = requestEncryption.jwks.keys[0];
+      const credentialRequest = {
+        credential_configuration_id: session.credential_configuration_id,
+        proofs: { jwt: [await credentialProofJwt(await dpopKey(), token.c_nonce)] },
+        credential_response_encryption: {
+          jwk: {
+            ...(await exportJWK(responseEncryptionKeyPair.publicKey)),
+            alg: "ECDH-ES",
+            use: "enc",
+          },
+          enc: "A256GCM",
+        },
+      };
+      const encryptedRequest = await new CompactEncrypt(
+        Buffer.from(JSON.stringify(credentialRequest), "utf8"),
+      )
+        .setProtectedHeader({ alg: "ECDH-ES", enc: "A256GCM", kid: issuerEncryptionJwk.kid })
+        .encrypt(await importJWK(issuerEncryptionJwk, "ECDH-ES"));
+      const credentialPath = issuerProtocolPath(session, "/credential");
+
+      const response = await request(app)
+        .post(credentialPath)
+        .set("authorization", `DPoP ${token.access_token}`)
+        .set("DPoP", await dpopProof(dpop, "POST", credentialPath, token.access_token))
+        .type("application/jwt")
+        .send(encryptedRequest);
+
+      expect(response.status, response.text).toBe(400);
+      expect(response.type).toBe("application/json");
+      expect(response.body).toEqual({ error: "credential_request_denied" });
+      const capture = await getJson<SessionCapture>(app, `/sessions/${session.session_id}`);
+      expect(capture.status).toBe("credential_issued");
+    });
+
     it.each([
       ["eu-eaa-offer://", "credential_offer"],
       ["haip-vci://", "credential_offer"],

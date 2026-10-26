@@ -1421,7 +1421,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       ? interceptCredentialResponse(res, next, issuerConfig, responseEncryption)
       : null;
     // Installed after the encryption interceptor so a scenario edits the plaintext response,
-    // which is then encrypted as usual.
+    // which is then encrypted only if it is still a success (OpenID4VCI 1.0 Section 8.3.1).
     applyIssuanceResponseScenario(req, res, "credential");
     const credentialEndpointNext: NextFunction = (error) => {
       if (encryptedResponse?.isPending()) return;
@@ -1591,6 +1591,13 @@ function interceptCredentialResponse(
   let settled = false;
   res.send = ((responseBody: unknown) => {
     if (pending || settled) return res;
+    // OpenID4VCI 1.0 Section 8.3.1: Credential Error Responses are never encrypted, even when a
+    // valid Credential Response would have been.
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      settled = true;
+      res.send = send;
+      return send(responseBody);
+    }
     const serialized =
       typeof responseBody === "string"
         ? responseBody

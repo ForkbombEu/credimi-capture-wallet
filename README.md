@@ -348,8 +348,9 @@ To request an encrypted Credential Response, include `credential_response_encryp
 with a public JWK whose `alg` is `ECDH-ES` and set `enc` to `A256GCM`. OpenID4VCI 1.0
 requires the containing Credential Request to also be encrypted: send it as an
 `application/jwt` compact JWE using the public key from
-`credential_request_encryption.jwks` in the issuer metadata. The response is an
-`application/jwt` compact JWE. Plain JSON requests and responses remain supported when
+`credential_request_encryption.jwks` in the issuer metadata. A successful response is an
+`application/jwt` compact JWE; a Credential Error Response is never encrypted (OpenID4VCI 1.0
+Section 8.3.1) and stays JSON. Plain JSON requests and responses remain supported when
 response encryption is not requested.
 
 A successful response returns HTTP 201 and includes:
