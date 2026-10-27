@@ -37,7 +37,7 @@ const issuerConfigurationIdParameter: JsonRecord = {
   description: "Always-on issuer configuration identifier returned by GET /issuers.",
   schema: {
     type: "string",
-    enum: ["eu-pid-device-bound", "eu-pid-jwt-proof-only"],
+    enum: ["eu-pid-device-bound", "eu-pid-jwt-key-attestation", "eu-pid-jwt-proof-only"],
   },
 };
 
@@ -1046,7 +1046,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           properties: {
             issuer_configuration_id: {
               type: "string",
-              enum: ["eu-pid-device-bound", "eu-pid-jwt-proof-only"],
+              enum: ["eu-pid-device-bound", "eu-pid-jwt-key-attestation", "eu-pid-jwt-proof-only"],
               default: "eu-pid-device-bound",
               description: "Selects one of the always-on isolated issuer configurations.",
             },

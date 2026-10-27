@@ -1,5 +1,6 @@
 import type { AppConfig } from "../types.js";
 import { euPidDeviceBound } from "./eu-pid-device-bound/index.js";
+import { euPidJwtKeyAttestation } from "./eu-pid-jwt-key-attestation/index.js";
 import { euPidJwtProofOnly } from "./eu-pid-jwt-proof-only/index.js";
 import { resolveIssuerConfiguration } from "./resolve-urls.js";
 import type {
@@ -10,7 +11,11 @@ import type {
 } from "./types.js";
 import { validateIssuerConfigurations } from "./validate.js";
 
-export const issuerConfigurations = [euPidDeviceBound, euPidJwtProofOnly] as const;
+export const issuerConfigurations = [
+  euPidDeviceBound,
+  euPidJwtKeyAttestation,
+  euPidJwtProofOnly,
+] as const;
 
 export const DEFAULT_ISSUER_CONFIGURATION_ID: IssuerConfigurationId = "eu-pid-device-bound";
 

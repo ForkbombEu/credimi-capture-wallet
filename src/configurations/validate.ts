@@ -32,7 +32,7 @@ export function validateIssuerConfigurations(configurations: readonly IssuerConf
 
     if (
       configuration.compliance === "eudi-pid-device-bound" &&
-      configuration.proofPolicy !== "key-attestation-required"
+      configuration.proofPolicy === "jwt-proof"
     ) {
       throw new Error(`Conforming issuer '${configuration.id}' must require key attestation`);
     }

@@ -8,7 +8,7 @@ This is a companion to the machine-readable [OpenAPI document](/openapi.json). T
 
 The base URL is configured by `--issuer-base-url`; production uses `https://capture-wallet.credimi.io`. Paths below are relative to that URL.
 
-- Issuer configuration IDs are `eu-pid-device-bound` and `eu-pid-jwt-proof-only`.
+- Issuer configuration IDs are `eu-pid-device-bound`, `eu-pid-jwt-key-attestation`, and `eu-pid-jwt-proof-only`.
 - `sessionId` is a UUID returned by a session-creation response.
 - JSON is the default representation unless a route states another media type.
 - Unknown session IDs return `404` with an error object. Invalid protocol input normally returns `400`.
@@ -43,7 +43,7 @@ For each `{issuerConfigurationId}`:
 
 | Field | Values | Default |
 | --- | --- | --- |
-| `issuer_configuration_id` | `eu-pid-device-bound`, `eu-pid-jwt-proof-only` | `eu-pid-device-bound` |
+| `issuer_configuration_id` | `eu-pid-device-bound`, `eu-pid-jwt-key-attestation`, `eu-pid-jwt-proof-only` | `eu-pid-device-bound` |
 | `flow` | `pre_authorized_code`, `authorization_code` | `authorization_code` |
 | `credential_offer_mode` | `credential_offer`, `credential_offer_uri` | `credential_offer` |
 | `credential_configuration_id` | A configuration advertised by the selected issuer metadata | First configuration for the issuer |
@@ -56,7 +56,7 @@ For each `{issuerConfigurationId}`:
 | `offer_scheme` | URL scheme of the offer deeplink: `openid-credential-offer://`, `eu-eaa-offer://`, `haip-vci://` | `openid-credential-offer://` |
 | `offer_mutation` | JSON Pointer `set`/`unset` edits to the by-value Credential Offer; test-only | — |
 
-It returns `201` with `session_id`, issuer and authorization-server identifiers, the selected flow and configuration, `fixture_id`, `offer_url`, `deeplink`, and `status: "created"`. A configuration belonging to another issuer is rejected.
+It returns `201` with `session_id`, issuer and authorization-server identifiers, the selected flow and configuration, `fixture_id`, `offer_url`, `deeplink`, and `status: "created"`. A configuration belonging to another issuer is rejected. Select `eu-pid-jwt-key-attestation` to offer only the SD-JWT VC or mdoc PID with `proof_types_supported` restricted to `jwt` and `key_attestations_required: {}`, as needed for the FCAF JWT-with-key-attestation cases.
 
 `fixture_id` names a predefined PID claim set; an unknown value is rejected with `unsupported_fixture_id` and the supported list. Every fixture is a fully valid, normally signed PID and differs from the baseline along one value axis, which is what the DCQL value-matching tests need: `pid_default`, `pid_person_b` (a second complete identity), `pid_under_18` (`age_over_18: false`), `pid_family_name_uppercase`, `pid_family_name_trailing_space`, `pid_locality_diacritics`, `pid_locality_no_diacritics`, `pid_multiple_nationalities`, and `pid_expiry_2032`. Each carries a distinct `document_number`. There is no caller-supplied claim override, so an issued credential always corresponds to a named fixture, and the selected one is recorded as `fixture_id` in the issuance capture.
 

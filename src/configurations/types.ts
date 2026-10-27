@@ -1,6 +1,9 @@
 import type { CredentialProofPolicy } from "../metadata.js";
 
-export type IssuerConfigurationId = "eu-pid-device-bound" | "eu-pid-jwt-proof-only";
+export type IssuerConfigurationId =
+  | "eu-pid-device-bound"
+  | "eu-pid-jwt-key-attestation"
+  | "eu-pid-jwt-proof-only";
 
 export type IssuerCompliance = "eudi-pid-device-bound" | "deliberately-nonconforming";
 

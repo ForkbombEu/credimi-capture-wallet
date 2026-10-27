@@ -102,8 +102,10 @@ const config = {
   data_dir: dataDir,
 };
 const conformingIssuerId = "eu-pid-device-bound";
+const jwtKeyAttestationIssuerId = "eu-pid-jwt-key-attestation";
 const jwtOnlyIssuerId = "eu-pid-jwt-proof-only";
 const conformingIssuerPath = `/issuers/${conformingIssuerId}`;
+const jwtKeyAttestationIssuerPath = `/issuers/${jwtKeyAttestationIssuerId}`;
 const jwtOnlyIssuerPath = `/issuers/${jwtOnlyIssuerId}`;
 const conformingMetadataPath = `/.well-known/openid-credential-issuer/issuers/${conformingIssuerId}`;
 const conformingAuthorizationServerMetadataPath = `/.well-known/oauth-authorization-server/issuers/${conformingIssuerId}`;
@@ -218,7 +220,7 @@ describe("capture issuer server", () => {
     expect(
       openApi.body.components.schemas.IssuanceSessionRequest.properties.issuer_configuration_id,
     ).toMatchObject({
-      enum: [conformingIssuerId, jwtOnlyIssuerId],
+      enum: [conformingIssuerId, jwtKeyAttestationIssuerId, jwtOnlyIssuerId],
       default: conformingIssuerId,
     });
     expect(
@@ -351,7 +353,7 @@ describe("capture issuer server", () => {
     }
   });
 
-  it("exposes only the two path-based issuers and removes the legacy root issuer", async () => {
+  it("exposes only the three path-based issuers and removes the legacy root issuer", async () => {
     const app = createApp(config);
     const catalogue = await getJson<JsonRecord[]>(app, "/issuers");
 
@@ -360,6 +362,11 @@ describe("capture issuer server", () => {
         id: conformingIssuerId,
         compliance: "eudi-pid-device-bound",
         credential_issuer: `${config.issuer_base_url}${conformingIssuerPath}`,
+      }),
+      expect.objectContaining({
+        id: jwtKeyAttestationIssuerId,
+        compliance: "eudi-pid-device-bound",
+        credential_issuer: `${config.issuer_base_url}${jwtKeyAttestationIssuerPath}`,
       }),
       expect.objectContaining({
         id: jwtOnlyIssuerId,
@@ -376,12 +383,18 @@ describe("capture issuer server", () => {
   it("partitions otherwise identical PID metadata by proof policy", async () => {
     const app = createApp(config);
     const deviceBoundMetadata = await getJson<JsonRecord>(app, conformingMetadataPath);
+    const jwtKeyAttestationMetadata = await getJson<JsonRecord>(
+      app,
+      `/.well-known/openid-credential-issuer/issuers/${jwtKeyAttestationIssuerId}`,
+    );
     const jwtOnlyMetadata = await getJson<JsonRecord>(
       app,
       `/.well-known/openid-credential-issuer/issuers/${jwtOnlyIssuerId}`,
     );
     const deviceBoundConfigurations =
       deviceBoundMetadata.credential_configurations_supported as Record<string, JsonRecord>;
+    const jwtKeyAttestationConfigurations =
+      jwtKeyAttestationMetadata.credential_configurations_supported as Record<string, JsonRecord>;
     const jwtOnlyConfigurations = jwtOnlyMetadata.credential_configurations_supported as Record<
       string,
       JsonRecord
@@ -394,6 +407,10 @@ describe("capture issuer server", () => {
       numericSdJwtCredentialConfigurationId(config, "key-attestation-required"),
       domesticPidCredentialConfigurationId("dc+sd-jwt", "key-attestation-required"),
       domesticPidCredentialConfigurationId("mso_mdoc", "key-attestation-required"),
+    ]);
+    expect(Object.keys(jwtKeyAttestationConfigurations)).toEqual([
+      sdJwtCredentialConfigurationId(config, "jwt-key-attestation-required"),
+      mdocCredentialConfigurationId(config, "jwt-key-attestation-required"),
     ]);
     expect(Object.keys(jwtOnlyConfigurations)).toEqual([
       sdJwtCredentialConfigurationId(config, "jwt-proof"),
@@ -430,6 +447,22 @@ describe("capture issuer server", () => {
         key_attestations_required: {},
       },
     });
+    const jwtKeyAttestationProofTypes = {
+      jwt: {
+        proof_signing_alg_values_supported: ["ES256"],
+        key_attestations_required: {},
+      },
+    };
+    expect(
+      jwtKeyAttestationConfigurations[
+        sdJwtCredentialConfigurationId(config, "jwt-key-attestation-required")
+      ]?.proof_types_supported,
+    ).toEqual(jwtKeyAttestationProofTypes);
+    expect(
+      jwtKeyAttestationConfigurations[
+        mdocCredentialConfigurationId(config, "jwt-key-attestation-required")
+      ]?.proof_types_supported,
+    ).toEqual(jwtKeyAttestationProofTypes);
     expect(
       jwtOnlyConfigurations[sdJwtCredentialConfigurationId(config, "jwt-proof")]
         ?.proof_types_supported,
@@ -602,6 +635,7 @@ describe("capture issuer server", () => {
     expect(response.text).not.toContain("<dt>presentation_submission</dt>");
     expect(response.text).toContain('<select name="credential_configuration_id">');
     expect(response.text).toContain('<optgroup label="EUDI PID — device-bound conforming">');
+    expect(response.text).toContain('<optgroup label="EUDI PID — JWT key attestation">');
     expect(response.text).toContain(
       '<optgroup label="EUDI PID — JWT proof only — deliberately non-conforming">',
     );
@@ -609,7 +643,7 @@ describe("capture issuer server", () => {
       '<section class="issuer-catalogue" aria-labelledby="issuer-catalogue-title">',
     );
     expect(response.text).toContain('<h2 id="issuer-catalogue-title">Available issuers</h2>');
-    expect(response.text.match(/<article class="issuer-card">/g)).toHaveLength(2);
+    expect(response.text.match(/<article class="issuer-card">/g)).toHaveLength(3);
     expect(response.text).toContain("EUDI PID — device-bound conforming");
     expect(response.text).not.toContain('class="issuer-compliance');
     expect(response.text).not.toContain('class="issuer-warning"');
@@ -629,9 +663,9 @@ describe("capture issuer server", () => {
     expect(response.text).toContain(
       "in particular <code>TR_KA-4</code>: both <code>jwt</code> and <code>attestation</code> proof types are present and both include <code>key_attestations_required</code>.",
     );
-    expect(response.text.match(/class="issuer-link"/g)).toHaveLength(6);
+    expect(response.text.match(/class="issuer-link"/g)).toHaveLength(9);
 
-    for (const issuerId of [conformingIssuerId, jwtOnlyIssuerId]) {
+    for (const issuerId of [conformingIssuerId, jwtKeyAttestationIssuerId, jwtOnlyIssuerId]) {
       expect(response.text).toContain(
         `href="${config.issuer_base_url}/issuers/${issuerId}" target="_blank" rel="noreferrer">Issuer</a>`,
       );
@@ -2432,6 +2466,31 @@ describe("capture issuer server", () => {
     expect(deeplink.searchParams.get("credential_offer_uri")).toBeNull();
     expect(JSON.parse(String(deeplink.searchParams.get("credential_offer")))).toEqual(offer);
   });
+  it("creates a PID offer for the JWT key-attestation issuer", async () => {
+    const app = createApp(config);
+    const credentialConfigurationId = sdJwtCredentialConfigurationId(
+      config,
+      "jwt-key-attestation-required",
+    );
+
+    const session = await postJson<SessionCreateResponse>(app, "/sessions", {
+      issuer_configuration_id: jwtKeyAttestationIssuerId,
+      credential_configuration_id: credentialConfigurationId,
+    });
+    const offer = await getJson<CredentialOfferResponse>(
+      app,
+      `/sessions/${session.session_id}/offer`,
+    );
+
+    expect(session.issuer_configuration_id).toBe(jwtKeyAttestationIssuerId);
+    expect(session.issuer_identifier).toBe(
+      `${config.issuer_base_url}${jwtKeyAttestationIssuerPath}`,
+    );
+    expect(session.credential_configuration_id).toBe(credentialConfigurationId);
+    expect(offer.credential_issuer).toBe(session.issuer_identifier);
+    expect(offer.credential_configuration_ids).toEqual([credentialConfigurationId]);
+  });
+
   it("keeps status-list references opt-in per issuance session", async () => {
     const app = createApp(config);
 
@@ -4409,7 +4468,11 @@ describe("capture issuer server", () => {
     expect(unknownIssuer.status).toBe(400);
     expect(unknownIssuer.body).toMatchObject({
       error: "unsupported_issuer_configuration",
-      supported_issuer_configuration_ids: [conformingIssuerId, jwtOnlyIssuerId],
+      supported_issuer_configuration_ids: [
+        conformingIssuerId,
+        jwtKeyAttestationIssuerId,
+        jwtOnlyIssuerId,
+      ],
     });
     expect(crossIssuerCredential.status).toBe(400);
     expect(crossIssuerCredential.body).toMatchObject({

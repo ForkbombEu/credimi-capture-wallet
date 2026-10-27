@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CONFIG } from "../src/config.js";
 import { euPidDeviceBound } from "../src/configurations/eu-pid-device-bound/index.js";
+import { euPidJwtKeyAttestation } from "../src/configurations/eu-pid-jwt-key-attestation/index.js";
 import { euPidJwtProofOnly } from "../src/configurations/eu-pid-jwt-proof-only/index.js";
 import {
   DEGREE_SD_JWT_CLAIMS,
@@ -104,6 +105,31 @@ describe("metadata", () => {
     expect((credentialMetadata.claims as JsonRecord[]).map((claim) => claim.path)).toEqual(
       PID_SD_JWT_CLAIMS.map((claim) => claim.split(".")),
     );
+  });
+
+  it("advertises only JWT proofs with key attestation for the dedicated PID issuer", () => {
+    const metadata = credentialIssuerMetadata(DEFAULT_CONFIG, euPidJwtKeyAttestation) as JsonRecord;
+    const configurations = metadata.credential_configurations_supported as JsonRecord;
+    const sdJwtId = sdJwtCredentialConfigurationId(DEFAULT_CONFIG, "jwt-key-attestation-required");
+    const mdocId = mdocCredentialConfigurationId(DEFAULT_CONFIG, "jwt-key-attestation-required");
+    const sdJwt = configurations[sdJwtId] as JsonRecord;
+    const mdoc = configurations[mdocId] as JsonRecord;
+    const proofTypes = {
+      jwt: {
+        proof_signing_alg_values_supported: ["ES256"],
+        key_attestations_required: {},
+      },
+    };
+
+    expect(Object.keys(configurations)).toEqual([sdJwtId, mdocId]);
+    expect(sdJwt.scope).toBe(
+      `${DEFAULT_CONFIG.credential_scope}.sd-jwt.jwt-key-attestation-required`,
+    );
+    expect(mdoc.scope).toBe(`${DEFAULT_CONFIG.credential_scope}.mdoc.jwt-key-attestation-required`);
+    expect(sdJwt.vct).toBe(PID_SD_JWT_VCT);
+    expect(mdoc.doctype).toBe(PID_MDOC_DOCTYPE);
+    expect(sdJwt.proof_types_supported).toEqual(proofTypes);
+    expect(mdoc.proof_types_supported).toEqual(proofTypes);
   });
 
   it("advertises separate JWT-only and key-attestation-required configurations", () => {

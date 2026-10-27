@@ -26,7 +26,10 @@ import {
 import type { AppConfig, JsonRecord } from "./types.js";
 
 export type CredentialFormat = "dc+sd-jwt" | "mso_mdoc";
-export type CredentialProofPolicy = "jwt-proof" | "key-attestation-required";
+export type CredentialProofPolicy =
+  | "jwt-proof"
+  | "jwt-key-attestation-required"
+  | "key-attestation-required";
 
 export interface SupportedCredential {
   id: string;
@@ -223,6 +226,15 @@ export function supportedCredentials(config: AppConfig): SupportedCredential[] {
       claimPaths: sdJwtClaimPaths(PID_SD_JWT_CLAIMS),
     },
     {
+      id: sdJwtCredentialConfigurationId(config, "jwt-key-attestation-required"),
+      scope: credentialScope(config, "dc+sd-jwt", "jwt-key-attestation-required"),
+      format: "dc+sd-jwt",
+      proofPolicy: "jwt-key-attestation-required",
+      displayName: "Credimi Demo PID (SD-JWT VC, JWT proof, key attestation required)",
+      vct: PID_SD_JWT_VCT,
+      claimPaths: sdJwtClaimPaths(PID_SD_JWT_CLAIMS),
+    },
+    {
       id: sdJwtCredentialConfigurationId(config, "jwt-proof"),
       scope: credentialScope(config, "dc+sd-jwt", "jwt-proof"),
       format: "dc+sd-jwt",
@@ -237,6 +249,14 @@ export function supportedCredentials(config: AppConfig): SupportedCredential[] {
       format: "mso_mdoc",
       proofPolicy: "key-attestation-required",
       displayName: "Credimi Demo PID (MDOC, JWT or attestation proof, key attestation required)",
+      claimPaths: mdocClaimPaths(PID_MDOC_NAMESPACE, PID_MDOC_CLAIMS),
+    },
+    {
+      id: mdocCredentialConfigurationId(config, "jwt-key-attestation-required"),
+      scope: credentialScope(config, "mso_mdoc", "jwt-key-attestation-required"),
+      format: "mso_mdoc",
+      proofPolicy: "jwt-key-attestation-required",
+      displayName: "Credimi Demo PID (MDOC, JWT proof, key attestation required)",
       claimPaths: mdocClaimPaths(PID_MDOC_NAMESPACE, PID_MDOC_CLAIMS),
     },
     {
@@ -361,6 +381,15 @@ function proofTypesSupported(proofPolicy: CredentialProofPolicy): Record<
     return {
       jwt: {
         proof_signing_alg_values_supported: ["ES256"],
+      },
+    };
+  }
+
+  if (proofPolicy === "jwt-key-attestation-required") {
+    return {
+      jwt: {
+        proof_signing_alg_values_supported: ["ES256"],
+        key_attestations_required: {},
       },
     };
   }

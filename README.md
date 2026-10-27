@@ -144,17 +144,20 @@ endpoint, and to DPoP proof verification
 ([credo-ts#2998](https://github.com/openwallet-foundation/credo-ts/pull/2998)).
 When initialized with issuer encryption material, the metadata also advertises optional
 Credential Request and Credential Response encryption using `ECDH-ES` and `A256GCM`.
-The service runs two Credo-TS issuer records at all times. Each has its own identifier,
+The service runs three Credo-TS issuer records at all times. Each has its own identifier,
 authorization server, chained auto-approving OAuth server, signing and encryption
 keys, access-token key, and certificate:
 
 | Issuer configuration ID | Credential issuer | Advertised proof policy |
 | --- | --- | --- |
 | `eu-pid-device-bound` | `/issuers/eu-pid-device-bound` | `jwt` and `attestation`, both with `key_attestations_required: {}` |
+| `eu-pid-jwt-key-attestation` | `/issuers/eu-pid-jwt-key-attestation` | `jwt` only, with `key_attestations_required: {}` |
 | `eu-pid-jwt-proof-only` | `/issuers/eu-pid-jwt-proof-only` | `jwt` without a key-attestation requirement |
 
-The device-bound issuer is the default. The JWT-proof-only issuer is deliberately
-non-conforming for a device-bound EUDI PID and exists for interoperability testing.
+The device-bound issuer is the default. The JWT-key-attestation issuer offers only the two PID
+formats and forces the Wallet's JWT-with-key-attestation path used by the FCAF Attestation
+Provider cases. The JWT-proof-only issuer is deliberately non-conforming for a device-bound EUDI
+PID and exists for interoperability testing.
 The legacy root issuer no longer exists.
 
 ### 🪪 OpenID4VCI Issuance Flow
@@ -163,14 +166,17 @@ The legacy root issuer no longer exists.
 > BASE_URL must be the `--services-base-url` you set during the setup, to use our hosted services use `https://capture-wallet.credimi.io`
 
 
-The configured `--credential-configuration-id` is the base for four PID Credential
-Configuration Identifiers. Each issuer additionally offers fixed degree, numeric, and domestic
-PID test credential configurations for DCQL conformance cases:
+The configured `--credential-configuration-id` is the base for six PID Credential
+Configuration Identifiers across the three issuers. The device-bound and JWT-proof-only issuers
+additionally offer fixed degree, numeric, and domestic PID test credential configurations for DCQL
+conformance cases:
 
 | Issuer | Format | Configuration ID and scope suffix | Credential type |
 | --- | --- | --- | --- |
 | `eu-pid-device-bound` | SD-JWT VC | `.sd-jwt.key-attestation-required` | `vct: urn:eudi:pid:1` |
 | `eu-pid-device-bound` | mdoc | `.mdoc.key-attestation-required` | `doctype: eu.europa.ec.eudi.pid.1` |
+| `eu-pid-jwt-key-attestation` | SD-JWT VC | `.sd-jwt.jwt-key-attestation-required` | `vct: urn:eudi:pid:1` |
+| `eu-pid-jwt-key-attestation` | mdoc | `.mdoc.jwt-key-attestation-required` | `doctype: eu.europa.ec.eudi.pid.1` |
 | `eu-pid-jwt-proof-only` | SD-JWT VC | `.sd-jwt.jwt-proof` | `vct: urn:eudi:pid:1` |
 | `eu-pid-jwt-proof-only` | mdoc | `.mdoc.jwt-proof` | `doctype: eu.europa.ec.eudi.pid.1` |
 | `eu-pid-device-bound` | SD-JWT VC | `urn:credimi:degree:1.sd-jwt.key-attestation-required` | `vct: urn:credimi:degree:1` |
@@ -274,9 +280,9 @@ with `Cache-Control: max-age=43200` (12 hours) and a weak `ETag`, and its CWT to
 cached copy, still showing the credential valid, until the max-age elapses, unless it revalidates
 with `If-None-Match`. Revoke before the list is first fetched, or allow for that window.
 
-`issuer_configuration_id` is optional and accepts `eu-pid-device-bound` or
-`eu-pid-jwt-proof-only`. A credential configuration must belong to the selected
-issuer; the service rejects cross-issuer combinations.
+`issuer_configuration_id` is optional and accepts `eu-pid-device-bound`,
+`eu-pid-jwt-key-attestation`, or `eu-pid-jwt-proof-only`. A credential configuration must belong
+to the selected issuer; the service rejects cross-issuer combinations.
 
 `flow` is optional and defaults to `authorization_code`, whose authorization is
 handled by Credo-TS through the service's auto-approving chained OAuth server. Set it
@@ -872,7 +878,7 @@ provision the two issuer-specific material directories without rotating material
 already exists there. Legacy root issuer files are ignored; they are not served and
 are not deleted automatically.
 
-Startup validates that both issuer directories are complete, that certificates match
+Startup validates that all three issuer directories are complete, that certificates match
 their signing keys and exact issuer URI SANs, and that signing, encryption, and
 access-token public keys are not reused between issuer roles. A deployment-hostname
 `dNSName` SAN is optional and is not checked, allowing externally issued certificates
@@ -887,6 +893,13 @@ Issuer material is stored independently for each issuer:
 
 ```text
 data/issuers/eu-pid-device-bound/
+├── access-token-private-jwk.json
+├── issuer-certificate.pem
+├── issuer-encryption-private-jwk.json
+├── issuer-private-jwk.json
+└── jwks.json
+
+data/issuers/eu-pid-jwt-key-attestation/
 ├── access-token-private-jwk.json
 ├── issuer-certificate.pem
 ├── issuer-encryption-private-jwk.json

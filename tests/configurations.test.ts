@@ -13,13 +13,15 @@ import type { IssuerConfiguration } from "../src/configurations/types.js";
 import { validateIssuerConfigurations } from "../src/configurations/validate.js";
 
 describe("always-on issuer configurations", () => {
-  it("registers exactly the conforming and deliberately non-conforming PID issuers", () => {
+  it("registers the conforming and deliberately non-conforming PID issuers", () => {
     expect(DEFAULT_ISSUER_CONFIGURATION_ID).toBe("eu-pid-device-bound");
     expect(issuerConfigurations.map((issuer) => issuer.id)).toEqual([
       "eu-pid-device-bound",
+      "eu-pid-jwt-key-attestation",
       "eu-pid-jwt-proof-only",
     ]);
     expect(issuerConfigurations.map((issuer) => issuer.compliance)).toEqual([
+      "eudi-pid-device-bound",
       "eudi-pid-device-bound",
       "deliberately-nonconforming",
     ]);
@@ -41,7 +43,10 @@ describe("always-on issuer configurations", () => {
       upstreamAuthorizationServerIdentifier:
         "https://capture.example.test/authorization-servers/eu-pid-device-bound",
     });
-    expect(issuers[1]?.materialDirectory).toBe("/var/lib/capture/issuers/eu-pid-jwt-proof-only");
+    expect(issuers[1]?.materialDirectory).toBe(
+      "/var/lib/capture/issuers/eu-pid-jwt-key-attestation",
+    );
+    expect(issuers[2]?.materialDirectory).toBe("/var/lib/capture/issuers/eu-pid-jwt-proof-only");
   });
 
   it("rejects unsafe, duplicate, and incorrectly labelled issuer configurations", () => {
