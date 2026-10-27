@@ -14,6 +14,9 @@ importers:
       '@credo-ts/openid4vc':
         specifier: 0.8.0-alpha-20261008082859
         version: 0.8.0-alpha-20261008082859(typescript@5.9.3)
+      '@openid4vc/openid4vci':
+        specifier: 0.7.0
+        version: 0.7.0
       '@owf/cose':
         specifier: 0.4.2
         version: 0.4.2

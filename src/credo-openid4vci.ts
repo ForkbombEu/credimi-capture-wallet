@@ -15,6 +15,7 @@ import {
   OpenId4VcIssuanceSessionState,
   type OpenId4VcIssuanceSessionStateChangedEvent,
   OpenId4VcIssuerEvents,
+  OpenId4VcIssuerService,
   OpenId4VcModule,
   type OpenId4VciCredentialRequestToCredentialMapperOptions,
   type OpenId4VciSignCredentials,
@@ -38,6 +39,7 @@ import {
   sdJwtCredentialSignOptions,
 } from "./credential.js";
 import { InMemoryStorageModule, NodeKmsBackend, nodeAgentDependencies } from "./credo-openid4vp.js";
+import { EudiKeyAttestationIssuerService } from "./eudi-key-attestation.js";
 import { fakeOAuthServer } from "./fake-oauth-server.js";
 import { applyMdocStatusReferenceFixture } from "./malformed-mdoc-status.js";
 import {
@@ -195,6 +197,10 @@ export class CredoOpenId4VciIssuer {
     });
 
     const runtime = new CredoOpenId4VciIssuer(config, store, agent, internalApp);
+    agent.dependencyManager.registerSingleton(
+      OpenId4VcIssuerService,
+      EudiKeyAttestationIssuerService,
+    );
     runtimeRef.current = runtime;
     await agent.initialize();
     runtime.installMdocStatusFixtureSigner();

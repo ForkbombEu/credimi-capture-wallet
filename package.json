@@ -20,6 +20,7 @@
   "dependencies": {
     "@credo-ts/core": "0.8.0-alpha-20261008082859",
     "@credo-ts/openid4vc": "0.8.0-alpha-20261008082859",
+    "@openid4vc/openid4vci": "0.7.0",
     "@owf/cose": "0.4.2",
     "@owf/mdoc": "0.8.2",
     "@types/qrcode": "1.5.5",

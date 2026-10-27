@@ -156,8 +156,10 @@ keys, access-token key, and certificate:
 
 The device-bound issuer is the default. The JWT-key-attestation issuer offers only the two PID
 formats and forces the Wallet's JWT-with-key-attestation path used by the FCAF Attestation
-Provider cases. The JWT-proof-only issuer is deliberately non-conforming for a device-bound EUDI
-PID and exists for interoperability testing.
+Provider cases. For EUDI TS3 JWT proofs that omit `jwk` and `kid`, the service verifies the outer
+signature with `key_attestation.attested_keys[0]`; Credo-TS still verifies the key attestation,
+holder binding, audience, and nonces. The JWT-proof-only issuer is deliberately non-conforming for
+a device-bound EUDI PID and exists for interoperability testing.
 The legacy root issuer no longer exists.
 
 ### 🪪 OpenID4VCI Issuance Flow

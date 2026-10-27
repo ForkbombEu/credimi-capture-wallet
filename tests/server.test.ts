@@ -4328,6 +4328,55 @@ describe("capture issuer server", () => {
     expect(capture.status).toBe("credential_issued");
   });
 
+  it.each([
+    { signedByFirstAttestedKey: true, expectedStatus: 200 },
+    { signedByFirstAttestedKey: false, expectedStatus: 400 },
+  ])(
+    "verifies an EUDI JWT proof without jwk or kid (signed by first key: $signedByFirstAttestedKey)",
+    async ({ signedByFirstAttestedKey, expectedStatus }) => {
+      const app = createApp(config);
+      const session = await postJson<SessionCreateResponse>(app, "/sessions", {
+        issuer_configuration_id: jwtKeyAttestationIssuerId,
+        credential_configuration_id: sdJwtCredentialConfigurationId(
+          config,
+          "jwt-key-attestation-required",
+        ),
+        flow: "pre_authorized_code",
+      });
+      const dpop = await dpopKey();
+      const token = await preAuthorizedToken(app, session, dpop);
+      const attestedKey = await dpopKey();
+      const signingKey = signedByFirstAttestedKey ? attestedKey : await dpopKey();
+      const proof = await eudiCredentialProofJwt(
+        attestedKey,
+        token.c_nonce,
+        `${config.issuer_base_url}${jwtKeyAttestationIssuerPath}`,
+        signingKey,
+      );
+      const credentialPath = issuerProtocolPath(session, "/credential");
+      const credential = await request(app)
+        .post(credentialPath)
+        .set("authorization", `DPoP ${token.access_token}`)
+        .set("DPoP", await dpopProof(dpop, "POST", credentialPath, token.access_token))
+        .send({
+          credential_configuration_id: session.credential_configuration_id,
+          proofs: { jwt: [proof] },
+        });
+
+      expect(credential.status, JSON.stringify(credential.body)).toBe(expectedStatus);
+      if (expectedStatus === 400) {
+        expect(credential.body).toMatchObject({ error: "invalid_proof" });
+        return;
+      }
+      const compactSdJwt = (credential.body as CredentialResponse).credentials[0].credential;
+      const decoded = new SdJwtVcService({} as never).fromCompact(compactSdJwt);
+      expect(decoded.prettyClaims).toMatchObject({ cnf: { jwk: attestedKey.publicJwk } });
+      const capture = await getJson<SessionCapture>(app, `/sessions/${session.session_id}`);
+      expect(capture.checks.proof_jwt_header_jwk_present).toBe(false);
+      expect(capture.checks.key_attestation_verified).toBe(true);
+    },
+  );
+
   it("decrypts the Credential Request and encrypts the Credential Response", async () => {
     const app = createApp(config);
     const session = await postJson<SessionCreateResponse>(app, "/sessions", {
@@ -7240,6 +7289,26 @@ async function credentialProofJwt(
       key_attestation: keyAttestation,
     })
     .sign(key.privateKey);
+}
+
+async function eudiCredentialProofJwt(
+  attestedKey: DpopKey,
+  nonce: string,
+  audience: string,
+  signingKey = attestedKey,
+): Promise<string> {
+  const keyAttestation = await keyAttestationJwt(attestedKey, nonce);
+  return new SignJWT({
+    aud: audience,
+    nonce,
+    iat: Math.floor(Date.now() / 1000),
+  })
+    .setProtectedHeader({
+      alg: "ES256",
+      typ: "openid4vci-proof+jwt",
+      key_attestation: keyAttestation,
+    })
+    .sign(signingKey.privateKey);
 }
 
 async function credentialProofJwtWithoutKeyAttestation(
