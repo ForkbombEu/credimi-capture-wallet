@@ -62,6 +62,7 @@ export class CaptureStore {
     credentialOfferMode: CredentialOfferMode = "credential_offer",
     statusListEnabled = false,
     fixtureId?: string,
+    documentNumber?: string,
     statusReference?: StatusReferenceFixture,
     digestAlgorithm?: SdJwtDigestAlgorithm,
     evidenceMode: EvidenceMode = "redacted",
@@ -78,6 +79,7 @@ export class CaptureStore {
       credential_offer_mode: credentialOfferMode,
       status_list_enabled: statusListEnabled,
       ...(fixtureId ? { fixture_id: fixtureId } : {}),
+      ...(documentNumber !== undefined ? { document_number: documentNumber } : {}),
       ...(statusReference && statusReference !== "valid"
         ? { status_reference: statusReference }
         : {}),

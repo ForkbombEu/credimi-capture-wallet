@@ -625,6 +625,13 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
           supported_fixture_ids: PID_FIXTURE_IDS,
         });
       }
+      const documentNumber =
+        typeof body.document_number === "string" && body.document_number.length > 0
+          ? body.document_number
+          : null;
+      if (body.document_number !== undefined && documentNumber === null) {
+        return res.status(400).json({ error: "invalid_document_number" });
+      }
       const digestAlgorithm = sdJwtDigestAlgorithmOrNull(
         body.digest_algorithm ?? DEFAULT_SD_JWT_DIGEST_ALGORITHM,
       );
@@ -686,6 +693,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         credentialOfferMode ?? "credential_offer",
         statusListEnabled ?? false,
         fixtureId,
+        documentNumber ?? undefined,
         statusReference,
         digestAlgorithm,
         evidenceMode,
@@ -707,6 +715,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         credential_configuration_id: session.credential_configuration_id,
         status_list_enabled: session.status_list_enabled,
         fixture_id: session.fixture_id,
+        ...(session.document_number ? { document_number: session.document_number } : {}),
         ...(session.status_reference ? { status_reference: session.status_reference } : {}),
         ...(session.digest_algorithm ? { digest_algorithm: session.digest_algorithm } : {}),
         ...(session.evidence_mode ? { evidence_mode: session.evidence_mode } : {}),
@@ -1658,6 +1667,7 @@ async function createIssuanceSession(
   credentialOfferMode: CredentialOfferMode = "credential_offer",
   statusListEnabled = false,
   fixtureId?: string,
+  documentNumber?: string,
   statusReference?: StatusReferenceFixture,
   digestAlgorithm?: SdJwtDigestAlgorithm,
   evidenceMode: EvidenceMode = "redacted",
@@ -1671,6 +1681,7 @@ async function createIssuanceSession(
     credentialOfferMode,
     statusListEnabled,
     fixtureId,
+    documentNumber,
     statusReference,
     digestAlgorithm,
     evidenceMode,

@@ -49,6 +49,7 @@ For each `{issuerConfigurationId}`:
 | `credential_configuration_id` | A configuration advertised by the selected issuer metadata | First configuration for the issuer |
 | `status_list_enabled` | Boolean; allocate and embed a Token Status List reference in each issued credential | `false` |
 | `fixture_id` | Predefined PID claim set the issued credential carries | `pid_default` |
+| `document_number` | Any nonempty string; overrides the selected fixture's document number without changing its other claims | Selected fixture's document number |
 | `status_reference` | Shape of the `status` structure in an issued SD-JWT VC or mdoc; anything but `valid` is test-only | `valid` |
 | `digest_algorithm` | Hash function the issued SD-JWT VC digests its disclosures with: `sha-256`, `sha-384`, `sha-512` | `sha-256` |
 | `evidence_mode` | `redacted`, `full`; `full` is test-only | `redacted` |
@@ -56,9 +57,9 @@ For each `{issuerConfigurationId}`:
 | `offer_scheme` | URL scheme of the offer deeplink: `openid-credential-offer://`, `eu-eaa-offer://`, `haip-vci://` | `openid-credential-offer://` |
 | `offer_mutation` | JSON Pointer `set`/`unset` edits to the by-value Credential Offer; test-only | — |
 
-It returns `201` with `session_id`, issuer and authorization-server identifiers, the selected flow and configuration, `fixture_id`, `offer_url`, `deeplink`, and `status: "created"`. A configuration belonging to another issuer is rejected. Select `eu-pid-jwt-key-attestation` to offer only the SD-JWT VC or mdoc PID with `proof_types_supported` restricted to `jwt` and `key_attestations_required: {}`, as needed for the FCAF JWT-with-key-attestation cases.
+It returns `201` with `session_id`, issuer and authorization-server identifiers, the selected flow and configuration, `fixture_id`, `document_number` when supplied, `offer_url`, `deeplink`, and `status: "created"`. A configuration belonging to another issuer is rejected. Select `eu-pid-jwt-key-attestation` to offer only the SD-JWT VC or mdoc PID with `proof_types_supported` restricted to `jwt` and `key_attestations_required: {}`, as needed for the FCAF JWT-with-key-attestation cases.
 
-`fixture_id` names a predefined PID claim set; an unknown value is rejected with `unsupported_fixture_id` and the supported list. Every fixture is a fully valid, normally signed PID and differs from the baseline along one value axis, which is what the DCQL value-matching tests need: `pid_default`, `pid_person_b` (a second complete identity), `pid_under_18` (`age_over_18: false`), `pid_family_name_uppercase`, `pid_family_name_trailing_space`, `pid_locality_diacritics`, `pid_locality_no_diacritics`, `pid_multiple_nationalities`, and `pid_expiry_2032`. Each carries a distinct `document_number`. There is no caller-supplied claim override, so an issued credential always corresponds to a named fixture, and the selected one is recorded as `fixture_id` in the issuance capture.
+`fixture_id` names a predefined PID claim set; an unknown value is rejected with `unsupported_fixture_id` and the supported list. Every fixture is a fully valid, normally signed PID and differs from the baseline along one value axis, which is what the DCQL value-matching tests need: `pid_default`, `pid_person_b` (a second complete identity), `pid_under_18` (`age_over_18: false`), `pid_family_name_uppercase`, `pid_family_name_trailing_space`, `pid_locality_diacritics`, `pid_locality_no_diacritics`, `pid_multiple_nationalities`, and `pid_expiry_2032`. Each carries a distinct `document_number`. `document_number` is the only caller-supplied PID claim override: provide it without `fixture_id` to issue the baseline PID with the supplied number. The selected fixture and supplied number are recorded in the issuance capture.
 
 `status_reference` shapes the `status` structure of an issued SD-JWT VC or mdoc. `valid` embeds
 the allocated Token Status List reference and is the default. The other values are the deliberately

@@ -236,6 +236,9 @@ describe("capture issuer server", () => {
       enum: ["credential_offer", "credential_offer_uri"],
       default: "credential_offer",
     });
+    expect(
+      openApi.body.components.schemas.IssuanceSessionRequest.properties.document_number,
+    ).toMatchObject({ type: "string", minLength: 1 });
     expect(Object.keys(openApi.body.paths)).toEqual(
       expect.arrayContaining([
         "/sessions",
@@ -4741,6 +4744,45 @@ describe("capture issuer server", () => {
     expect(capture.fixture_id).toBe("pid_under_18");
   });
 
+  it("issues the default PID with a caller-selected document number", async () => {
+    const app = createApp(config);
+    const documentNumber = "caller-selected document 42";
+    const session = await postJson<SessionCreateResponse>(app, "/sessions", {
+      flow: "pre_authorized_code",
+      document_number: documentNumber,
+    });
+    expect(session.fixture_id).toBe("pid_default");
+    expect(session.document_number).toBe(documentNumber);
+
+    const walletKey = await dpopKey();
+    const dpop = await dpopKey();
+    const token = await preAuthorizedToken(app, session, dpop);
+    const proof = await credentialProofJwt(walletKey, token.c_nonce);
+    const credentialPath = issuerProtocolPath(session, "/credential");
+    const credential = await request(app)
+      .post(credentialPath)
+      .set("authorization", `DPoP ${token.access_token}`)
+      .set("DPoP", await dpopProof(dpop, "POST", credentialPath, token.access_token))
+      .send({
+        credential_configuration_id: session.credential_configuration_id,
+        proofs: { jwt: [proof] },
+      });
+
+    expect(credential.status).toBe(200);
+    const compactSdJwt = (credential.body as CredentialResponse).credentials[0].credential;
+    const disclosed = compactSdJwt
+      .split("~")
+      .slice(1)
+      .filter((part) => part.length > 0)
+      .map((part) => JSON.parse(Buffer.from(part, "base64url").toString("utf8")) as unknown[]);
+    expect(disclosed).toEqual(
+      expect.arrayContaining([expect.arrayContaining(["document_number", documentNumber])]),
+    );
+
+    const capture = await getJson<SessionCapture>(app, `/sessions/${session.session_id}`);
+    expect(capture.document_number).toBe(documentNumber);
+  });
+
   it("digests the disclosures with the algorithm named by digest_algorithm, end to end", async () => {
     const app = createApp(config);
     const session = await postJson<SessionCreateResponse>(app, "/sessions", {
@@ -4827,6 +4869,7 @@ describe("capture issuer server", () => {
       },
       { error: "digest_algorithm_unsupported_for_mdoc" },
     ],
+    ["an empty document number", { document_number: "" }, { error: "invalid_document_number" }],
   ])("rejects %s", async (_label, body, expected) => {
     const response = await request(createApp({ ...config, fcaf_scenarios_enabled: true }))
       .post("/sessions")
@@ -7478,6 +7521,7 @@ interface SessionCreateResponse extends JsonRecord {
   credential_configuration_id: string;
   status_list_enabled: boolean;
   fixture_id?: string;
+  document_number?: string;
   digest_algorithm?: string;
   offer_url: string;
   deeplink: string;

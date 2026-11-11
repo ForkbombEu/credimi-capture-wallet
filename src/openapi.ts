@@ -1093,7 +1093,13 @@ export function openApiDocument(config: AppConfig): JsonRecord {
               type: "string",
               default: "pid_default",
               description:
-                "Predefined PID claim set the issued credential carries. Fixtures differ from the baseline along one value axis each, so a DCQL value constraint matches one and withholds the others. No caller-supplied claim override exists, so an issued credential always corresponds to a named fixture.",
+                "Predefined PID claim set the issued credential carries. Fixtures differ from the baseline along one value axis each, so a DCQL value constraint matches one and withholds the others.",
+            },
+            document_number: {
+              type: "string",
+              minLength: 1,
+              description:
+                "Caller-selected document number for the issued PID. It overrides the selected fixture's document number without changing its other claims.",
             },
             credential_configuration_id: {
               type: "string",
@@ -1209,6 +1215,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             credential_configuration_id: { type: "string" },
             status_list_enabled: { type: "boolean" },
             fixture_id: { type: "string" },
+            document_number: { type: "string", minLength: 1 },
             status_reference: { type: "string" },
             digest_algorithm: { type: "string" },
             evidence_mode: { type: "string", const: "full" },
@@ -1242,6 +1249,11 @@ export function openApiDocument(config: AppConfig): JsonRecord {
               type: "string",
               const: "full",
               description: "Present only for a session created with evidence_mode full.",
+            },
+            document_number: {
+              type: "string",
+              minLength: 1,
+              description: "Caller-selected document number used in the issued PID.",
             },
             issuance_response_scenario: {
               $ref: "#/components/schemas/IssuanceResponseScenario",

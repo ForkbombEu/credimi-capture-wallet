@@ -535,7 +535,13 @@ export class CredoOpenId4VciIssuer {
       : holderJwks.map(() => undefined);
 
     const signingConfig = issuerAppConfig(this.config, issuer);
-    const subject = pidFixtureSubject(pidFixtureIdOrNull(captureSession.fixture_id) ?? undefined);
+    const fixtureSubject = pidFixtureSubject(
+      pidFixtureIdOrNull(captureSession.fixture_id) ?? undefined,
+    );
+    const subject =
+      captureSession.document_number === undefined
+        ? fixtureSubject
+        : { ...fixtureSubject, documentNumber: captureSession.document_number };
     const domesticPid = isDomesticPidCredential(credential);
     if (credential.format === "mso_mdoc") {
       return {

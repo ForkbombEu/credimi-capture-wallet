@@ -296,6 +296,8 @@ export interface SessionCapture {
    * is what every session issued before this field existed used.
    */
   fixture_id?: string;
+  /** Caller-selected document number that overrides the selected fixture's value. */
+  document_number?: string;
   /**
    * Shape of the `status` claim in the issued credential. Absent means the normal reference, so
    * a session that does not ask for a malformed structure cannot receive one.

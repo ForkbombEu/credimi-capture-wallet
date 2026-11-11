@@ -212,9 +212,12 @@ curl -X POST "$BASE_URL/sessions" \
   -H 'Content-Type: application/json' \
   -d '{
     "issuer_configuration_id":"eu-pid-device-bound",
-    "credential_configuration_id":"urn:eu.europa.ec.eudi:pid:1.mdoc.key-attestation-required"
+    "credential_configuration_id":"urn:eu.europa.ec.eudi:pid:1.mdoc.key-attestation-required",
+    "document_number":"CREDIMI-DEMO-CALLER-001"
   }'
 ```
+
+`document_number` is optional and accepts any nonempty string. It overrides only the issued PID's document number; when `fixture_id` is omitted, the rest of the PID claims come from the default fixture.
 
 Status List references are opt-in per issuance session. The default keeps issued
 credentials free of a `status` claim; request allocation and embedding explicitly:
