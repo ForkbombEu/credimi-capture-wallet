@@ -1269,10 +1269,16 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         validation,
       );
       if (!validation.valid) {
-        return sendVpSubmissionResponse(res, session, 400, {
-          error: "invalid_presentation",
-          errors: validation.errors,
-        });
+        const authorizationError =
+          (session.response_mode === "direct_post" ||
+            session.response_mode === "direct_post.jwt") &&
+          typeof validation.authorization_response?.error === "string";
+        return sendVpSubmissionResponse(
+          res,
+          session,
+          authorizationError ? 200 : 400,
+          authorizationError ? {} : { error: "invalid_presentation", errors: validation.errors },
+        );
       }
       return sendVpSubmissionResponse(
         res,
@@ -1347,10 +1353,16 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         validation,
       );
       if (!validation.valid) {
-        return sendVpSubmissionResponse(res, session, 400, {
-          error: "invalid_presentation",
-          errors: validation.errors,
-        });
+        const authorizationError =
+          (session.response_mode === "direct_post" ||
+            session.response_mode === "direct_post.jwt") &&
+          typeof validation.authorization_response?.error === "string";
+        return sendVpSubmissionResponse(
+          res,
+          session,
+          authorizationError ? 200 : 400,
+          authorizationError ? {} : { error: "invalid_presentation", errors: validation.errors },
+        );
       }
       return sendVpSubmissionResponse(
         res,

@@ -499,7 +499,9 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           parameters: [sessionIdParameter],
           requestBody: { required: true, ...form({ type: "object", additionalProperties: true }) },
           responses: {
-            "200": response("Presentation was captured and verified."),
+            "200": response(
+              "Presentation was captured and verified, or a Wallet Authorization Error Response was captured and acknowledged.",
+            ),
             "400": errorResponses["400"],
             "403": errorResponses["400"],
             "404": errorResponses["404"],
@@ -565,7 +567,9 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             }),
           },
           responses: {
-            "200": response("Presentation was captured and verified."),
+            "200": response(
+              "Presentation was captured and verified, or a Wallet Authorization Error Response was captured and acknowledged.",
+            ),
             "400": errorResponses["400"],
             "404": errorResponses["404"],
           },

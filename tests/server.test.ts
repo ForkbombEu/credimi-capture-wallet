@@ -1887,6 +1887,44 @@ describe("capture issuer server", () => {
     );
   });
 
+  it("acknowledges a captured direct-post Authorization Error Response", async () => {
+    const app = createApp(config);
+    const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
+      response_mode: "direct_post",
+    });
+
+    const response = await request(app)
+      .post(`/openid4vp/sessions/${session.session_id}/response`)
+      .type("form")
+      .send({
+        error: "invalid_request",
+        error_description: "redirect_uri is not allowed with direct_post",
+        state: session.authorization_request.state,
+      });
+
+    expect(response.status, response.text).toBe(200);
+    expect(response.type).toBe("application/json");
+    expect(response.body).toEqual({});
+    const capture = await getJson<VpSessionResponse>(
+      app,
+      `/openid4vp/sessions/${session.session_id}`,
+    );
+    expect(capture.status).toBe("presentation_invalid");
+    expect(capture.observed.wallet_response.value).toEqual({
+      error: "invalid_request",
+      error_description: "redirect_uri is not allowed with direct_post",
+      state: session.authorization_request.state,
+    });
+    expect(capture.raw?.presentation_response_verifier_http).toMatchObject({
+      status: 200,
+      headers: {
+        "content-type": expect.stringContaining("application/json"),
+        "cache-control": "no-store",
+      },
+      body: "{}",
+    });
+  });
+
   it("rejects SD-JWT VC presentations that do not disclose all requested DCQL claims", async () => {
     const app = createApp(config);
     const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
@@ -2036,7 +2074,7 @@ describe("capture issuer server", () => {
     },
   );
 
-  it("exposes the decrypted error of an encrypted wallet error response", async () => {
+  it("acknowledges and exposes an encrypted wallet Authorization Error Response", async () => {
     const app = createApp(config);
     const session = await postJson<VpSessionCreateResponse>(app, "/openid4vp/sessions", {
       presentation_request: { dcql_query: dcqlForClaims(["family_name"]) },
@@ -2056,7 +2094,9 @@ describe("capture issuer server", () => {
         ),
       });
 
-    expect(response.status, response.text).toBe(400);
+    expect(response.status, response.text).toBe(200);
+    expect(response.type).toBe("application/json");
+    expect(response.body).toEqual({});
     const capture = await getJson<VpSessionResponse>(
       app,
       `/openid4vp/sessions/${session.session_id}`,
