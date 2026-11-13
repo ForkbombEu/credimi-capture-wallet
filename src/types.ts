@@ -645,6 +645,8 @@ export interface VpSessionCapture {
     presentation_response_verifier_http?: VerifierResponseHttpCapture;
     redirect_uri_visits?: RedirectUriVisitHttpCapture[];
     presentation_response_decrypted?: JsonRecord;
+    /** Exact UTF-8 plaintext of an encrypted Authorization Response before parsing. */
+    presentation_response_decrypted_raw?: string;
     decoded_presentations?: JsonRecord;
     presentation_response_raw?: string;
     /** The browser's report that the DC API invocation yielded no Authorization Response. */

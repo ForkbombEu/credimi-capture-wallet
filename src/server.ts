@@ -1939,6 +1939,7 @@ function captureVpResponse(
     dcql_query_matched: boolean;
     transaction_data_verified: boolean | null;
     authorization_response?: JsonRecord;
+    authorization_response_raw?: string;
     decoded_presentations?: JsonRecord;
     errors: string[];
   },
@@ -1957,6 +1958,9 @@ function captureVpResponse(
   session.raw.presentation_response = body;
   if (validation.authorization_response) {
     session.raw.presentation_response_decrypted = validation.authorization_response;
+  }
+  if (validation.authorization_response_raw) {
+    session.raw.presentation_response_decrypted_raw = validation.authorization_response_raw;
   }
   if (validation.decoded_presentations) {
     session.decoded_presentations = validation.decoded_presentations;

@@ -2013,6 +2013,12 @@ describe("capture issuer server", () => {
       state: session.authorization_request.state,
       vp_token: { query_0: [presentation] },
     });
+    expect(capture.raw?.presentation_response_decrypted_raw).toBe(
+      JSON.stringify({
+        state: session.authorization_request.state,
+        vp_token: { query_0: [presentation] },
+      }),
+    );
     expect(capture.decoded_presentations).toMatchObject({
       query_0: [
         {
@@ -7661,6 +7667,7 @@ interface VpSessionResponse extends JsonRecord {
       headers: JsonRecord;
     }>;
     presentation_response_decrypted?: JsonRecord;
+    presentation_response_decrypted_raw?: string;
     decoded_presentations?: JsonRecord;
   };
 }

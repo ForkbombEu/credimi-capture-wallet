@@ -27,7 +27,7 @@ During the credential verification the service captures:
 - Raw signed presentation request object: `raw.authorization_request_jwt`
 - Raw wallet `request_uri` retrieval envelope: `raw.request_uri_http` (method, `target` — the path and query as received by the service, after any reverse proxy — headers with sensitive values redacted, and exact received POST body when present)
 - Raw verifier HTTP response: `raw.presentation_response_verifier_http` (status, headers with sensitive values redacted, and exact response body)
-- Decrypted wallet presentation response: `presentation_response_decrypted` (useful when response_mode is set to `direct_post.jwt`; also holds the decrypted `error`, `error_description`, and `state` when the wallet returns an error Authorization Response)
+- Decrypted wallet presentation response: `presentation_response_decrypted`; exact decrypted JWE plaintext is retained separately as `raw.presentation_response_decrypted_raw` for byte-level conformance checks. The parsed response holds the decrypted `error`, `error_description`, and `state` when the wallet returns an error Authorization Response.
 - Decoded claims from verified presentations: `decoded_presentations`
 - Verifier checks for nonce, holder binding, transaction data binding, and DCQL matching: `presentation_validation`
 

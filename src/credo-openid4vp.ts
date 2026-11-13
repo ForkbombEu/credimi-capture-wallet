@@ -137,6 +137,8 @@ export interface CredoVpVerification {
   /** Null when the request sent no transaction data, or the format's binding is not checked. */
   transaction_data_verified: boolean | null;
   authorization_response?: JsonRecord;
+  /** Exact UTF-8 plaintext of an encrypted Authorization Response, before JSON/JWT decoding. */
+  authorization_response_raw?: string;
   decoded_presentations?: DecodedPresentations;
   errors: string[];
 }
@@ -155,6 +157,11 @@ export type DecodedPresentation = {
 };
 
 export type DecodedPresentations = Record<string, DecodedPresentation[]>;
+
+type WalletAuthorizationResponse = {
+  response: JsonRecord;
+  raw?: string;
+};
 
 const verifierPromises = new Map<string, Promise<CredoOpenId4VpVerifier>>();
 
@@ -500,6 +507,11 @@ export class CredoOpenId4VpVerifier {
         authorizationResponse: body,
         ...(origin === undefined ? {} : { origin }),
       });
+      const walletAuthorizationResponse = await this.walletAuthorizationResponse(
+        session,
+        body,
+        session.authorization_request,
+      );
       return {
         valid: true,
         vp_token_format_valid: true,
@@ -513,6 +525,7 @@ export class CredoOpenId4VpVerifier {
         authorization_response: normalizeAuthorizationResponse(
           verified.verificationSession.authorizationResponsePayload as JsonRecord | undefined,
         ),
+        authorization_response_raw: walletAuthorizationResponse?.raw,
         decoded_presentations: verified.dcql
           ? decodedPresentationsFromDcql(verified.dcql.presentations)
           : undefined,
@@ -521,11 +534,12 @@ export class CredoOpenId4VpVerifier {
     } catch (error) {
       const verificationSession =
         await this.verifierApi().getVerificationSessionById(verificationSessionId);
-      const authorizationResponse = await this.walletAuthorizationResponse(
+      const walletAuthorizationResponse = await this.walletAuthorizationResponse(
         session,
         body,
         verificationSession.requestPayload,
       );
+      const authorizationResponse = walletAuthorizationResponse?.response;
       const message = credoErrorMessage(error, verificationSession.errorMessage);
       return {
         valid: false,
@@ -537,6 +551,7 @@ export class CredoOpenId4VpVerifier {
         // any other failure says nothing about the binding, so the check stays unanswered.
         transaction_data_verified: message.includes("invalid_transaction_data") ? false : null,
         authorization_response: authorizationResponse,
+        authorization_response_raw: walletAuthorizationResponse?.raw,
         errors: [message],
       };
     }
@@ -551,9 +566,10 @@ export class CredoOpenId4VpVerifier {
     session: VpSessionCapture,
     body: JsonRecord,
     authorizationRequestPayload: unknown,
-  ): Promise<JsonRecord | undefined> {
+  ): Promise<WalletAuthorizationResponse | undefined> {
     if (!isEncryptedResponseMode(session.response_mode)) {
-      return normalizeAuthorizationResponse(body);
+      const response = normalizeAuthorizationResponse(body);
+      return response === undefined ? undefined : { response };
     }
 
     const response = typeof body.response === "string" ? body.response : undefined;
@@ -566,7 +582,14 @@ export class CredoOpenId4VpVerifier {
         jwk: encryptionJwk as never,
       })) as { decrypted: boolean; payload?: string };
       if (!decrypted.decrypted || typeof decrypted.payload !== "string") return undefined;
-      return normalizeAuthorizationResponse(walletAuthorizationResponsePayload(decrypted.payload));
+      const authorizationResponse = walletAuthorizationResponsePayload(decrypted.payload);
+      const normalizedResponse = normalizeAuthorizationResponse(authorizationResponse);
+      return normalizedResponse === undefined
+        ? undefined
+        : {
+            response: normalizedResponse,
+            raw: decrypted.payload,
+          };
     } catch {
       return undefined;
     }
