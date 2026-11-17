@@ -2,6 +2,11 @@ import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import express, { type NextFunction, type Request, type Response } from "express";
 import QRCode from "qrcode";
+import { ISSUER_TEST_DATA_FIXTURE_ID } from "./attestbook/claims.js";
+import { sha256Hex } from "./attestbook/digest.js";
+import { attestbookIntegration } from "./attestbook/integration.js";
+import type { AttestbookCredentialDefinition } from "./attestbook/types.js";
+import { WEBHOOK_MAX_BODY_BYTES, WEBHOOK_PATH } from "./attestbook/webhook.js";
 import {
   loadIssuerJwks,
   verifierAttestationIssuerPublicJwk,
@@ -23,6 +28,7 @@ import {
   decryptCredentialRequest,
   encryptCredentialResponse,
 } from "./credential-encryption.js";
+import { type CredentialRegistry, credentialRegistry } from "./credential-registry.js";
 import { credoOpenId4VciIssuer } from "./credo-openid4vci.js";
 import {
   ClientMetadataError,
@@ -40,9 +46,7 @@ import {
   jwtVcIssuerMetadata,
   signCredentialIssuerMetadata,
   supportedCredentialConfigurationIds,
-  supportedCredentialConfigurationIdsForIssuer,
   supportedCredentials,
-  supportedCredentialsForIssuer,
 } from "./metadata.js";
 import {
   completeOid4vciRequestCapture,
@@ -196,6 +200,36 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     });
   };
 
+  // The Attestbook callback needs the exact body bytes its signature commits to, so it is routed
+  // before the shared body parsers, with its own bounded raw parser.
+  if (config.attestbook.enabled) {
+    const webhookBodyParser = express.raw({ type: () => true, limit: WEBHOOK_MAX_BODY_BYTES });
+    app.post(WEBHOOK_PATH, (req, res, next) => {
+      webhookBodyParser(req, res, async (parseError?: unknown) => {
+        if (parseError) {
+          const tooLarge =
+            typeof parseError === "object" &&
+            parseError !== null &&
+            "type" in parseError &&
+            parseError.type === "entity.too.large";
+          return res
+            .status(tooLarge ? 413 : 400)
+            .json({ error: tooLarge ? "payload_too_large" : "invalid_request" });
+        }
+        try {
+          await credoOpenId4VciIssuer(config, store);
+          const result = await attestbookIntegration(config, store).handleWebhook(
+            Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0),
+            (name) => req.header(name),
+          );
+          return res.set("Cache-Control", "no-store").status(result.status).json(result.body);
+        } catch (error) {
+          return next(error);
+        }
+      });
+    });
+  }
+
   app.use(
     express.json({
       type: ["application/json", "application/*+json"],
@@ -256,15 +290,23 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
   });
 
   if (config.gui_enabled) {
-    app.get("/", (_req, res) => {
-      res.type("html").send(
-        indexPage(
-          resolvedIssuerConfigurations(config).map((issuer) => ({
-            issuer,
-            credentials: supportedCredentialsForIssuer(config, issuer),
-          })),
-        ),
-      );
+    app.get("/", async (_req, res, next) => {
+      try {
+        const registry = await issuerCredentialRegistry(config, store);
+        res.type("html").send(
+          indexPage(
+            resolvedIssuerConfigurations(config).map((issuer) => ({
+              issuer,
+              credentials: registry.credentialsForIssuer(issuer),
+              ...(issuer.importsAttestbookCredentials
+                ? { attestbook: attestbookIntegration(config, store).summary() }
+                : {}),
+            })),
+          ),
+        );
+      } catch (error) {
+        next(error);
+      }
     });
 
     app.get("/ui/help", (_req, res) => {
@@ -300,10 +342,16 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         if (!issuer) {
           return res.status(400).type("html").send(errorPage("Unsupported issuer configuration"));
         }
-        const supportedIds = supportedCredentialConfigurationIdsForIssuer(config, issuer);
+        const registry = await issuerCredentialRegistry(config, store);
+        const supportedIds = registry
+          .credentialsForIssuer(issuer)
+          .map((credential) => credential.id);
         const credentialConfigurationId =
           asStringOrNull(body.credential_configuration_id) ?? supportedIds[0];
-        if (!credentialConfigurationId || !supportedIds.includes(credentialConfigurationId)) {
+        const credential = credentialConfigurationId
+          ? registry.credentialForNewSession(issuer, credentialConfigurationId)
+          : null;
+        if (!credentialConfigurationId || !credential) {
           return res
             .status(400)
             .type("html")
@@ -316,6 +364,22 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
             .type("html")
             .send(errorPage("status_list_enabled must be true or false"));
         }
+        const imported = credential.attestbook;
+        if (imported && statusListEnabled) {
+          return res
+            .status(400)
+            .type("html")
+            .send(errorPage("Imported Attestbook credentials do not support a Token Status List"));
+        }
+        const selection = imported
+          ? importedFixtureSelection(config, store, imported, undefined)
+          : null;
+        if (selection && "error" in selection) {
+          return res
+            .status(400)
+            .type("html")
+            .send(errorPage(String(selection.error.error_description)));
+        }
         const session = await createIssuanceSession(
           config,
           store,
@@ -324,6 +388,14 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
           "authorization_code",
           "credential_offer",
           statusListEnabled ?? false,
+          selection?.fixtureId,
+          undefined,
+          undefined,
+          undefined,
+          "redacted",
+          DEFAULT_OFFER_SCHEME,
+          undefined,
+          imported,
         );
         store.addEvent(session, "credential_deeplink_generated", {});
         return res.redirect(303, `/ui/sessions/${encodeURIComponent(session.session_id)}`);
@@ -544,12 +616,59 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     res.json(loadIssuerJwks(issuerAppConfig(config, issuer)));
   });
 
-  app.get("/issuers", (_req, res) => {
-    res.json(
-      issuerCatalogue(config, (issuer) =>
-        supportedCredentialConfigurationIdsForIssuer(config, issuer),
-      ),
-    );
+  app.get("/issuers", async (_req, res, next) => {
+    try {
+      const registry = await issuerCredentialRegistry(config, store);
+      res.json(
+        issuerCatalogue(config, (issuer) =>
+          registry.credentialsForIssuer(issuer).map((credential) => credential.id),
+        ),
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/integrations/attestbook/status", async (_req, res, next) => {
+    try {
+      if (!config.attestbook.enabled) return res.json({ enabled: false });
+      await credoOpenId4VciIssuer(config, store);
+      return res
+        .set("Cache-Control", "no-store")
+        .json(attestbookIntegration(config, store).status());
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  // Controlled manual resynchronisation for recovery: it reconciles the configured rulebook only,
+  // waits for the outcome, and is available only when an administrator token is configured.
+  app.post("/integrations/attestbook/sync", async (req, res, next) => {
+    try {
+      const adminToken = config.attestbook.enabled ? config.attestbook.admin_token : null;
+      if (!adminToken) return res.status(404).json({ error: "manual_sync_not_configured" });
+      const presented = /^Bearer (\S+)$/.exec(req.header("authorization") ?? "")?.[1] ?? "";
+      if (
+        !timingSafeEqual(
+          Buffer.from(sha256Hex(Buffer.from(presented, "utf8")), "hex"),
+          Buffer.from(sha256Hex(Buffer.from(adminToken, "utf8")), "hex"),
+        )
+      ) {
+        return res
+          .status(401)
+          .set("WWW-Authenticate", 'Bearer realm="attestbook-sync"')
+          .json({ error: "unauthorized" });
+      }
+      await credoOpenId4VciIssuer(config, store);
+      const integration = attestbookIntegration(config, store);
+      await integration.reconcile("manual").catch(() => undefined);
+      return res
+        .set("Cache-Control", "no-store")
+        .status(integration.syncState === "failed" ? 502 : 200)
+        .json(integration.status());
+    } catch (error) {
+      return next(error);
+    }
   });
 
   app.post("/sessions", async (req, res, next) => {
@@ -592,18 +711,38 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
           ),
         });
       }
-      const supportedCredentialIds = supportedCredentialConfigurationIdsForIssuer(config, issuer);
+      const registry = await issuerCredentialRegistry(config, store);
+      const supportedCredentialIds = registry
+        .credentialsForIssuer(issuer)
+        .map((credential) => credential.id);
       const credentialConfigurationId =
         asStringOrNull(body.credential_configuration_id) ?? supportedCredentialIds[0];
-      if (
-        !credentialConfigurationId ||
-        !supportedCredentialIds.includes(credentialConfigurationId)
-      ) {
+      const credential = credentialConfigurationId
+        ? registry.credentialForNewSession(issuer, credentialConfigurationId)
+        : null;
+      if (!credentialConfigurationId || !credential) {
         return res.status(400).json({
           error: "unsupported_credential_configuration",
           issuer_configuration_id: issuer.id,
           supported_credential_configuration_ids: supportedCredentialIds,
         });
+      }
+      const imported = credential.attestbook;
+      if (imported) {
+        // PID-specific and status-list options have no meaning for an imported credential type.
+        const unsupported = [
+          ...(statusListEnabled ? ["status_list_enabled"] : []),
+          ...(body.status_reference !== undefined ? ["status_reference"] : []),
+          ...(body.document_number !== undefined ? ["document_number"] : []),
+        ];
+        if (unsupported.length > 0) {
+          return res.status(400).json({
+            error: "unsupported_for_imported_credential",
+            error_description:
+              "these parameters are not supported for an imported Attestbook credential",
+            unsupported_parameters: unsupported,
+          });
+        }
       }
       const statusReference = statusReferenceFixtureOrNull(body.status_reference ?? "valid");
       if (!statusReference) {
@@ -618,12 +757,20 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       if (statusReference !== "valid" && !statusListEnabled) {
         return res.status(400).json({ error: "status_reference_requires_status_list" });
       }
-      const fixtureId = pidFixtureIdOrNull(body.fixture_id ?? "pid_default");
-      if (!fixtureId) {
-        return res.status(400).json({
-          error: "unsupported_fixture_id",
-          supported_fixture_ids: PID_FIXTURE_IDS,
-        });
+      let fixtureId: string;
+      if (imported) {
+        const selection = importedFixtureSelection(config, store, imported, body.fixture_id);
+        if ("error" in selection) return res.status(400).json(selection.error);
+        fixtureId = selection.fixtureId;
+      } else {
+        const pidFixtureId = pidFixtureIdOrNull(body.fixture_id ?? "pid_default");
+        if (!pidFixtureId) {
+          return res.status(400).json({
+            error: "unsupported_fixture_id",
+            supported_fixture_ids: PID_FIXTURE_IDS,
+          });
+        }
+        fixtureId = pidFixtureId;
       }
       const documentNumber =
         typeof body.document_number === "string" && body.document_number.length > 0
@@ -641,10 +788,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
           supported_digest_algorithms: SD_JWT_DIGEST_ALGORITHMS,
         });
       }
-      if (
-        digestAlgorithm !== DEFAULT_SD_JWT_DIGEST_ALGORITHM &&
-        credentialConfigurationId.includes("mdoc")
-      ) {
+      if (digestAlgorithm !== DEFAULT_SD_JWT_DIGEST_ALGORITHM && credential.format === "mso_mdoc") {
         return res.status(400).json({ error: "digest_algorithm_unsupported_for_mdoc" });
       }
       const evidenceMode = evidenceModeOrNull(body.evidence_mode ?? "redacted");
@@ -699,6 +843,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         evidenceMode,
         offerScheme,
         offerMutation,
+        imported,
       );
       if (issuanceResponseScenario) {
         session.issuance_response_scenario = issuanceResponseScenario;
@@ -715,6 +860,9 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         credential_configuration_id: session.credential_configuration_id,
         status_list_enabled: session.status_list_enabled,
         fixture_id: session.fixture_id,
+        ...(session.credential_definition
+          ? { credential_definition: session.credential_definition }
+          : {}),
         ...(session.document_number ? { document_number: session.document_number } : {}),
         ...(session.status_reference ? { status_reference: session.status_reference } : {}),
         ...(session.digest_algorithm ? { digest_algorithm: session.digest_algorithm } : {}),
@@ -725,6 +873,12 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         status: session.status,
       });
     } catch (error) {
+      if (error instanceof CredentialSupersededError) {
+        return res.status(409).json({
+          error: "credential_configuration_superseded",
+          error_description: error.message,
+        });
+      }
       return next(error);
     }
   });
@@ -1685,52 +1839,130 @@ async function createIssuanceSession(
   evidenceMode: EvidenceMode = "redacted",
   offerScheme: CredentialOfferScheme = DEFAULT_OFFER_SCHEME,
   offerMutation?: VpRequestMutationEdits,
+  importedDefinition?: AttestbookCredentialDefinition,
 ): Promise<SessionCapture> {
-  const session = store.createSession(
-    issuer,
-    credentialConfigurationId,
-    flow,
-    credentialOfferMode,
-    statusListEnabled,
-    fixtureId,
-    documentNumber,
-    statusReference,
-    digestAlgorithm,
-    evidenceMode,
-  );
-  if (offerScheme !== DEFAULT_OFFER_SCHEME) session.offer_scheme = offerScheme;
+  const create = async (): Promise<SessionCapture> => {
+    const session = store.createSession(
+      issuer,
+      credentialConfigurationId,
+      flow,
+      credentialOfferMode,
+      statusListEnabled,
+      fixtureId,
+      documentNumber,
+      statusReference,
+      digestAlgorithm,
+      evidenceMode,
+    );
+    if (offerScheme !== DEFAULT_OFFER_SCHEME) session.offer_scheme = offerScheme;
+    if (importedDefinition) {
+      session.credential_definition = {
+        source: "attestbook",
+        origin: importedDefinition.origin,
+        rulebook_id: importedDefinition.rulebookId,
+        version: importedDefinition.version,
+        content_digest: importedDefinition.contentDigest,
+        attestation: importedDefinition.attestation.name,
+        vct: importedDefinition.vct,
+        vct_source: importedDefinition.vctSource,
+      };
+      store.addEvent(session, "credential_definition_pinned", { ...session.credential_definition });
+    }
 
-  const offer = await (await credoOpenId4VciIssuer(config, store)).createCredentialOffer({
-    issuerConfigurationId: issuer.id,
-    captureSessionId: session.session_id,
-    credentialConfigurationId: session.credential_configuration_id,
-    flow: session.flow,
-    credentialOfferMode: session.credential_offer_mode,
-    offerScheme,
-    offerMutation,
-  });
-  store.credoIssuanceOffers.set(session.session_id, {
-    credential_offer: offer.credentialOffer,
-    credential_offer_object: offer.credentialOfferObject,
-    credential_offer_uri: offer.credentialOfferUri,
-    credo_issuance_session_id: offer.issuanceSessionId,
-  });
-  store.addEvent(session, "credential_offer_generated", {
-    flow: session.flow,
-    credential_offer_mode: session.credential_offer_mode,
-    ...(session.offer_scheme ? { offer_scheme: session.offer_scheme } : {}),
-    implementation: "credo-ts",
-  });
-  if (offerMutation && offer.deliveredCredentialOfferObject) {
-    session.offer_mutation = offerMutation;
-    session.raw ??= {};
-    session.raw.credential_offer = offer.credentialOfferObject;
-    session.raw.credential_offer_delivered = offer.deliveredCredentialOfferObject;
-    store.addEvent(session, "credential_offer_mutation_applied", {
-      pointers: [...Object.keys(offerMutation.set ?? {}), ...(offerMutation.unset ?? [])],
+    const offer = await (await credoOpenId4VciIssuer(config, store)).createCredentialOffer({
+      issuerConfigurationId: issuer.id,
+      captureSessionId: session.session_id,
+      credentialConfigurationId: session.credential_configuration_id,
+      flow: session.flow,
+      credentialOfferMode: session.credential_offer_mode,
+      offerScheme,
+      offerMutation,
     });
+    store.credoIssuanceOffers.set(session.session_id, {
+      credential_offer: offer.credentialOffer,
+      credential_offer_object: offer.credentialOfferObject,
+      credential_offer_uri: offer.credentialOfferUri,
+      credo_issuance_session_id: offer.issuanceSessionId,
+    });
+    store.addEvent(session, "credential_offer_generated", {
+      flow: session.flow,
+      credential_offer_mode: session.credential_offer_mode,
+      ...(session.offer_scheme ? { offer_scheme: session.offer_scheme } : {}),
+      implementation: "credo-ts",
+    });
+    if (offerMutation && offer.deliveredCredentialOfferObject) {
+      session.offer_mutation = offerMutation;
+      session.raw ??= {};
+      session.raw.credential_offer = offer.credentialOfferObject;
+      session.raw.credential_offer_delivered = offer.deliveredCredentialOfferObject;
+      store.addEvent(session, "credential_offer_mutation_applied", {
+        pointers: [...Object.keys(offerMutation.set ?? {}), ...(offerMutation.unset ?? [])],
+      });
+    }
+    return session;
+  };
+  if (!importedDefinition) return create();
+  // An imported session is created while no activation runs, and only if its definition is still
+  // the active one, so the session is always pinned to a definition the issuer record carries.
+  const registry = credentialRegistry(config, store);
+  return registry.serialize(async () => {
+    const active = registry.credentialForNewSession(issuer, credentialConfigurationId)?.attestbook;
+    if (active?.contentDigest !== importedDefinition.contentDigest) {
+      throw new CredentialSupersededError(
+        `credential configuration '${credentialConfigurationId}' was replaced by a newer rulebook version`,
+      );
+    }
+    return create();
+  });
+}
+
+class CredentialSupersededError extends Error {}
+
+/** The issuer's credential registry, with any restored imported catalogue already loaded. */
+async function issuerCredentialRegistry(
+  config: AppConfig,
+  store: CaptureStore,
+): Promise<CredentialRegistry> {
+  if (config.attestbook.enabled) await credoOpenId4VciIssuer(config, store);
+  return credentialRegistry(config, store);
+}
+
+/**
+ * The named claim fixture an imported credential is issued with. It defaults to the issuer's
+ * existing key/value test data, never to the PID-specific `pid_default`, and must provide valid
+ * values for every required claim, so a session never offers a credential it cannot issue.
+ */
+function importedFixtureSelection(
+  config: AppConfig,
+  store: CaptureStore,
+  definition: AttestbookCredentialDefinition,
+  value: unknown,
+): { fixtureId: string } | { error: JsonRecord } {
+  const integration = attestbookIntegration(config, store);
+  const fixtureId = value === undefined ? ISSUER_TEST_DATA_FIXTURE_ID : asStringOrNull(value);
+  const resolution = fixtureId ? integration.claimValues(definition, fixtureId) : null;
+  if (!fixtureId || !resolution) {
+    return {
+      error: {
+        error: "unsupported_fixture_id",
+        error_description: "unknown claim fixture for this imported credential",
+        supported_fixture_ids: integration.fixtureIdsFor(definition),
+      },
+    };
   }
-  return session;
+  if (!resolution.ok) {
+    return {
+      error: {
+        error: "claim_fixture_incomplete",
+        error_description: `claim fixture '${fixtureId}' cannot issue this credential`,
+        fixture_id: fixtureId,
+        missing_claims: [...resolution.missing],
+        invalid_claims: resolution.invalid.map((entry) => ({ ...entry })),
+        supported_fixture_ids: integration.fixtureIdsFor(definition),
+      },
+    };
+  }
+  return { fixtureId };
 }
 
 function issuerFromRequest(config: AppConfig, value: unknown): ResolvedIssuerConfiguration | null {

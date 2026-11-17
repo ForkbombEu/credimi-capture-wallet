@@ -1,5 +1,13 @@
 #!/usr/bin/env node
+import { writeFileSync } from "node:fs";
 import { createServer } from "node:http";
+import {
+  type SubscriptionTarget,
+  readSubscription,
+  registerSubscription,
+  verifySubscription,
+  webhookCallbackUrl,
+} from "./attestbook/subscription.js";
 import { initIssuer, loadConfig, parseArgs, resolveListenAddr } from "./config.js";
 import { resolvedIssuerConfigurations } from "./configurations/registry.js";
 import { credoOpenId4VciIssuer } from "./credo-openid4vci.js";
@@ -64,7 +72,79 @@ async function main(): Promise<void> {
     });
     return;
   }
+  if (command.startsWith("attestbook-")) {
+    await attestbookCommand(command, args);
+    return;
+  }
 
+  throw new Error(`unknown command: ${command}`);
+}
+
+/**
+ * The one-time Attestbook subscription procedure, run by an operator against the deployed
+ * callback: `attestbook-subscribe` registers it once, `attestbook-verify` has Attestbook deliver
+ * the challenge the running service answers, and `attestbook-subscription` confirms it is active.
+ * The management token is read from ATTESTBOOK_MANAGEMENT_TOKEN, never from the command line.
+ */
+async function attestbookCommand(
+  command: string,
+  args: Record<string, string | boolean>,
+): Promise<void> {
+  const config = loadConfig(typeof args.data_dir === "string" ? args.data_dir : undefined);
+  const { base_url: origin, rulebook_id: rulebookId } = config.attestbook;
+  if (!config.attestbook.enabled || !origin || !rulebookId) {
+    throw new Error(
+      "Enable the Attestbook integration (ATTESTBOOK_ENABLED, ATTESTBOOK_BASE_URL, ATTESTBOOK_RULEBOOK_ID)",
+    );
+  }
+  const target: SubscriptionTarget = { origin, rulebookId };
+
+  if (command === "attestbook-subscribe") {
+    const registered = await registerSubscription(
+      target,
+      webhookCallbackUrl(config.public_base_url),
+    );
+    const secrets = JSON.stringify(registered, null, 2);
+    if (typeof args.output === "string") {
+      writeFileSync(args.output, `${secrets}\n`, { mode: 0o600, flag: "wx" });
+      console.log(
+        JSON.stringify(
+          {
+            id: registered.id,
+            state: registered.state,
+            callbackUrl: registered.callbackUrl,
+            secrets_written_to: args.output,
+          },
+          null,
+          2,
+        ),
+      );
+    } else {
+      console.log(secrets);
+    }
+    console.error(
+      "Store managementToken and webhookSecret now: Attestbook returns them only once. Configure ATTESTBOOK_WEBHOOK_SECRET, restart the service, then run attestbook-verify.",
+    );
+    return;
+  }
+
+  const subscriptionId = typeof args.subscription_id === "string" ? args.subscription_id : null;
+  const managementToken = process.env.ATTESTBOOK_MANAGEMENT_TOKEN?.trim();
+  if (!subscriptionId || !managementToken) {
+    throw new Error("Pass --subscription-id and set ATTESTBOOK_MANAGEMENT_TOKEN");
+  }
+  if (command === "attestbook-verify") {
+    console.log(
+      JSON.stringify(await verifySubscription(target, subscriptionId, managementToken), null, 2),
+    );
+    return;
+  }
+  if (command === "attestbook-subscription") {
+    console.log(
+      JSON.stringify(await readSubscription(target, subscriptionId, managementToken), null, 2),
+    );
+    return;
+  }
   throw new Error(`unknown command: ${command}`);
 }
 

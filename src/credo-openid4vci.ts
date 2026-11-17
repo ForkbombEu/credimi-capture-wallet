@@ -21,6 +21,7 @@ import {
   type OpenId4VciSignCredentials,
 } from "@credo-ts/openid4vc";
 import express, { type NextFunction, type Request, type Response } from "express";
+import { attestbookIntegration } from "./attestbook/integration.js";
 import { accessTokenPrivateJwkPath, privateJwkPath, validateIssuerMaterial } from "./config.js";
 import {
   resolvedIssuerConfigurationById,
@@ -30,10 +31,12 @@ import { issuerAppConfig } from "./configurations/resolve-urls.js";
 import { pidFixtureIdOrNull, pidFixtureSubject } from "./configurations/shared/pid-fixtures.js";
 import type { ResolvedIssuerConfiguration } from "./configurations/types.js";
 import { DEGREE_SD_JWT_VCT, NUMERIC_SD_JWT_VCT } from "./credential-definitions.js";
+import { credentialRegistry } from "./credential-registry.js";
 import {
   degreeSdJwtCredentialSignOptions,
   domesticPidMdocCredentialSignOptions,
   domesticPidSdJwtCredentialSignOptions,
+  importedSdJwtCredentialSignOptions,
   mdocCredentialSignOptions,
   numericSdJwtCredentialSignOptions,
   sdJwtCredentialSignOptions,
@@ -43,10 +46,10 @@ import { EudiKeyAttestationIssuerService } from "./eudi-key-attestation.js";
 import { fakeOAuthServer } from "./fake-oauth-server.js";
 import { applyMdocStatusReferenceFixture } from "./malformed-mdoc-status.js";
 import {
+  type SupportedCredential,
+  credentialConfigurationsSupported,
   credentialIssuerMetadata,
   isDomesticPidCredential,
-  supportedCredentialById,
-  supportedCredentialsForIssuer,
 } from "./metadata.js";
 import { captureProofHeaders, decodeDpopHeader, decodeJwtForEvidence } from "./proofs.js";
 import { applyRequestMutationEdits } from "./request-mutation.js";
@@ -204,11 +207,19 @@ export class CredoOpenId4VciIssuer {
     runtimeRef.current = runtime;
     await agent.initialize();
     runtime.installMdocStatusFixtureSigner();
+    // The last-known-good imported catalogue is restored before the issuer records exist, so they
+    // start with it, and without contacting Attestbook.
+    const integration = config.attestbook.enabled ? attestbookIntegration(config, store) : null;
+    await integration?.restore();
     for (const issuer of issuerConfigurations) {
       await runtime.importIssuerKeys(issuer);
       await runtime.createIssuerRecord(issuer);
     }
+    credentialRegistry(config, store).attachIssuerSynchronizer((issuer) =>
+      runtime.syncIssuerRecord(issuer),
+    );
     runtime.listenForIssuanceEvents();
+    integration?.start();
     return runtime;
   }
 
@@ -250,10 +261,9 @@ export class CredoOpenId4VciIssuer {
     offerMutation?: VpRequestMutationEdits;
   }): Promise<CredoCredentialOffer> {
     const issuer = this.requiredIssuer(options.issuerConfigurationId);
-    const credential = supportedCredentialById(
-      this.config,
-      options.credentialConfigurationId,
+    const credential = credentialRegistry(this.config, this.store).issuableCredentialById(
       issuer,
+      options.credentialConfigurationId,
     );
     if (!credential) throw new Error("Credential configuration is not supported");
     const fakeOAuth = fakeOAuthServer(this.config, this.store, issuer);
@@ -334,9 +344,9 @@ export class CredoOpenId4VciIssuer {
         "authorization_code",
         "urn:ietf:params:oauth:grant-type:pre-authorized_code",
       ],
-      scopes_supported: supportedCredentialsForIssuer(this.config, issuer).map(
-        (credential) => credential.scope,
-      ),
+      scopes_supported: credentialRegistry(this.config, this.store)
+        .issuableCredentialsForIssuer(issuer)
+        .map((credential) => credential.scope),
       token_endpoint_auth_methods_supported: ["none", "attest_jwt_client_auth"],
       client_attestation_signing_alg_values_supported: ["ES256"],
       client_attestation_pop_signing_alg_values_supported: ["ES256"],
@@ -383,27 +393,17 @@ export class CredoOpenId4VciIssuer {
 
   private async createIssuerRecord(issuer: ResolvedIssuerConfiguration): Promise<void> {
     const issuerConfig = issuerAppConfig(this.config, issuer);
-    const metadata = credentialIssuerMetadata(issuerConfig, issuer);
-    const fakeOAuth = fakeOAuthServer(this.config, this.store, issuer);
+    const credentials = credentialRegistry(this.config, this.store).issuableCredentialsForIssuer(
+      issuer,
+    );
+    const metadata = credentialIssuerMetadata(issuerConfig, issuer, credentials);
     const createdIssuer = await this.issuerApi().createIssuer({
       issuerId: issuer.id,
       accessTokenSignerKeyType: { kty: "EC", crv: "P-256" },
       display: metadata.display as never,
       dpopSigningAlgValuesSupported: ["ES256"],
       credentialConfigurationsSupported: metadata.credential_configurations_supported as never,
-      authorizationServerConfigs: [
-        {
-          type: "chained",
-          issuer: fakeOAuth.issuer,
-          clientAuthentication: fakeOAuth.clientAuthentication,
-          scopesMapping: Object.fromEntries(
-            supportedCredentialsForIssuer(this.config, issuer).map((credential) => [
-              credential.scope,
-              [fakeOAuth.externalScope],
-            ]),
-          ),
-        },
-      ],
+      authorizationServerConfigs: [this.authorizationServerConfig(issuer, credentials)],
     });
     const temporaryAccessTokenKeyId = createdIssuer.resolvedAccessTokenPublicJwk.keyId;
     const accessTokenPrivateJwk = JSON.parse(
@@ -418,6 +418,60 @@ export class CredoOpenId4VciIssuer {
     if (temporaryAccessTokenKeyId !== imported.keyId) {
       await this.agent.kms.deleteKey({ keyId: temporaryAccessTokenKeyId });
     }
+  }
+
+  /**
+   * Brings the issuer's Credo-TS record in line with the registry: its credential configurations
+   * and the chained authorization server's scope mapping. The result is read back through Credo's
+   * own metadata, and anything other than exactly the registry's credentials is an error, so an
+   * activation never reports success while advertising a credential the issuer cannot issue.
+   */
+  async syncIssuerRecord(issuer: ResolvedIssuerConfiguration): Promise<void> {
+    const credentials = credentialRegistry(this.config, this.store).issuableCredentialsForIssuer(
+      issuer,
+    );
+    const record = await this.issuerApi().getIssuerByIssuerId(issuer.id);
+    record.credentialConfigurationsSupported = credentialConfigurationsSupported(
+      credentials,
+    ) as never;
+    record.authorizationServerConfigs = [this.authorizationServerConfig(issuer, credentials)];
+    await this.issuerApi().updateIssuer(record);
+
+    const { credentialIssuer } = await this.issuerApi().getIssuerMetadata(issuer.id);
+    const advertised = credentialIssuer.credential_configurations_supported as Record<
+      string,
+      JsonRecord
+    >;
+    const stored = await this.issuerApi().getIssuerByIssuerId(issuer.id);
+    const scopes = stored.authorizationServerConfigs?.[0]?.scopesMapping ?? {};
+    const consistent =
+      Object.keys(advertised).length === credentials.length &&
+      credentials.every(
+        (credential) =>
+          advertised[credential.id]?.scope === credential.scope &&
+          advertised[credential.id]?.vct === credential.vct &&
+          credential.scope in scopes,
+      );
+    if (!consistent) {
+      throw new Error(
+        `Credo issuer '${issuer.id}' does not advertise exactly the activated credentials`,
+      );
+    }
+  }
+
+  private authorizationServerConfig(
+    issuer: ResolvedIssuerConfiguration,
+    credentials: readonly SupportedCredential[],
+  ) {
+    const fakeOAuth = fakeOAuthServer(this.config, this.store, issuer);
+    return {
+      type: "chained" as const,
+      issuer: fakeOAuth.issuer,
+      clientAuthentication: fakeOAuth.clientAuthentication,
+      scopesMapping: Object.fromEntries(
+        credentials.map((credential) => [credential.scope, [fakeOAuth.externalScope]]),
+      ),
+    };
   }
 
   private async authorizationServerJwks(issuerConfigurationId: string): Promise<JsonRecord> {
@@ -457,6 +511,22 @@ export class CredoOpenId4VciIssuer {
           previous_state: event.payload.previousState,
           state: event.payload.issuanceSession.state,
         });
+        if (
+          captureSession.credential_definition &&
+          (captureSession.status === "credential_issued" || captureSession.status === "error")
+        ) {
+          void credentialRegistry(this.config, this.store)
+            .pruneRetained(captureSession.issuer_configuration_id)
+            .catch((error: unknown) => {
+              console.error(
+                JSON.stringify({
+                  component: "attestbook",
+                  event: "retained_prune_failed",
+                  message: error instanceof Error ? error.message : String(error),
+                }),
+              );
+            });
+        }
       },
     );
   }
@@ -469,12 +539,14 @@ export class CredoOpenId4VciIssuer {
     const captureSession = this.store.getSession(captureSessionId);
     if (!captureSession) throw new Error("Capture session not found");
     const issuer = this.requiredIssuer(options.issuanceSession.issuerId);
-    const credential = supportedCredentialById(
-      this.config,
-      options.credentialConfigurationId,
+    const credential = credentialRegistry(this.config, this.store).issuableCredentialById(
       issuer,
+      options.credentialConfigurationId,
     );
     if (!credential) throw new Error("Credential configuration is not supported");
+    if (credential.attestbook && captureSession.status_list_enabled) {
+      throw new Error("Imported credentials do not support Token Status List references");
+    }
     const request = options.credentialRequest as JsonRecord;
     const proofHeaders = captureProofHeaders(request);
     const proofType = Object.keys((request.proofs as JsonRecord | undefined) ?? {})[0];
@@ -535,6 +607,31 @@ export class CredoOpenId4VciIssuer {
       : holderJwks.map(() => undefined);
 
     const signingConfig = issuerAppConfig(this.config, issuer);
+    const definition = credential.attestbook;
+    if (definition) {
+      if (captureSession.credential_definition?.content_digest !== definition.contentDigest) {
+        throw new Error("Capture session is not pinned to this credential definition");
+      }
+      const resolution = attestbookIntegration(this.config, this.store).claimValues(
+        definition,
+        captureSession.fixture_id ?? "",
+      );
+      if (!resolution?.ok)
+        throw new Error("Claim fixture does not satisfy the credential definition");
+      return {
+        type: "credentials" as const,
+        format: ClaimFormat.SdJwtDc,
+        credentials: holderJwks.map((holderJwk) =>
+          importedSdJwtCredentialSignOptions({
+            config: signingConfig,
+            holderJwk,
+            definition,
+            claims: resolution.claims,
+            digestAlgorithm: captureSession.digest_algorithm,
+          }),
+        ),
+      };
+    }
     const fixtureSubject = pidFixtureSubject(
       pidFixtureIdOrNull(captureSession.fixture_id) ?? undefined,
     );

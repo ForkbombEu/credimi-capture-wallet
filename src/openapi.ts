@@ -1,3 +1,4 @@
+import { resolvedIssuerConfigurations } from "./configurations/registry.js";
 import type { AppConfig, JsonRecord } from "./types.js";
 
 const json = (schema: JsonRecord = { type: "object" }): JsonRecord => ({
@@ -30,16 +31,15 @@ const sessionIdParameter: JsonRecord = {
   schema: { type: "string", format: "uuid" },
 };
 
-const issuerConfigurationIdParameter: JsonRecord = {
-  name: "issuerConfigurationId",
-  in: "path",
-  required: true,
-  description: "Always-on issuer configuration identifier returned by GET /issuers.",
-  schema: {
-    type: "string",
-    enum: ["eu-pid-device-bound", "eu-pid-jwt-key-attestation", "eu-pid-jwt-proof-only"],
-  },
-};
+function issuerConfigurationIdParameterFor(issuerIds: readonly string[]): JsonRecord {
+  return {
+    name: "issuerConfigurationId",
+    in: "path",
+    required: true,
+    description: "Served issuer configuration identifier returned by GET /issuers.",
+    schema: { type: "string", enum: [...issuerIds] },
+  };
+}
 
 /**
  * The service's public REST and OpenID protocol surface. This deliberately
@@ -47,6 +47,8 @@ const issuerConfigurationIdParameter: JsonRecord = {
  * flows executable from the documentation UI.
  */
 export function openApiDocument(config: AppConfig): JsonRecord {
+  const issuerIds = resolvedIssuerConfigurations(config).map((issuer) => issuer.id);
+  const issuerConfigurationIdParameter = issuerConfigurationIdParameterFor(issuerIds);
   return {
     openapi: "3.1.0",
     info: {
@@ -70,6 +72,15 @@ export function openApiDocument(config: AppConfig): JsonRecord {
         description:
           "Test-only auto-approving OAuth server used by Credo's chained authorization-code flow.",
       },
+      ...(config.attestbook.enabled
+        ? [
+            {
+              name: "Attestbook",
+              description:
+                "Opt-in import of SD-JWT VC credential definitions from one subscribed Attestbook rulebook.",
+            },
+          ]
+        : []),
     ],
     paths: {
       "/healthz": {
@@ -207,7 +218,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
         get: {
           tags: ["Service"],
           operationId: "issuerCatalogue",
-          summary: "List all always-on credential issuers",
+          summary: "List the served credential issuers",
           responses: {
             "200": response("Public issuer catalogue.", {
               type: "array",
@@ -216,6 +227,87 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           },
         },
       },
+      "/integrations/attestbook/status": {
+        get: {
+          tags: ["Service"],
+          operationId: "attestbookIntegrationStatus",
+          summary: "Inspect the Attestbook integration",
+          description:
+            "Non-sensitive synchronization status: never a webhook secret, management or administrator token, key, or claim value. Answers { enabled: false } when the integration is disabled.",
+          responses: {
+            "200": response("Integration status.", {
+              $ref: "#/components/schemas/AttestbookIntegrationStatus",
+            }),
+          },
+        },
+      },
+      ...(config.attestbook.enabled
+        ? {
+            "/integrations/attestbook/webhook": {
+              post: {
+                tags: ["Attestbook"],
+                operationId: "attestbookWebhook",
+                summary: "Receive Attestbook subscription callbacks",
+                description:
+                  "Answers an attestbook.subscription.verification@1 challenge with the exact challenge, and accepts a signed rulebook.published notification. A notification is verified (X-AttestBook-Signature over attestbook.webhook-signing-input@1, delivery timestamp within 300 seconds, header and body event id agreement, configured rulebook), durably recorded and acknowledged before reconciliation runs against the authoritative event feed.",
+                parameters: [
+                  "X-AttestBook-Event-Id",
+                  "X-AttestBook-Event-Type",
+                  "X-AttestBook-Timestamp",
+                  "X-AttestBook-Signature",
+                ].map((name) => ({
+                  name,
+                  in: "header",
+                  required: false,
+                  description: "Required on a rulebook.published notification.",
+                  schema: { type: "string" },
+                })),
+                requestBody: { required: true, ...json() },
+                responses: {
+                  "200": response(
+                    "The verification challenge answer, or a duplicate notification acknowledged again.",
+                  ),
+                  "202": response("Notification recorded; reconciliation is queued."),
+                  "400": response("Malformed message or event.", {
+                    $ref: "#/components/schemas/Error",
+                  }),
+                  "401": response("Invalid signature or stale delivery timestamp.", {
+                    $ref: "#/components/schemas/Error",
+                  }),
+                  "403": response("Notification for a rulebook that is not configured.", {
+                    $ref: "#/components/schemas/Error",
+                  }),
+                  "413": response("Body larger than 16 KiB."),
+                  "503": response(
+                    "Webhook secret not configured, or the notification could not be recorded.",
+                    {
+                      $ref: "#/components/schemas/Error",
+                    },
+                  ),
+                },
+              },
+            },
+            "/integrations/attestbook/sync": {
+              post: {
+                tags: ["Attestbook"],
+                operationId: "attestbookManualSync",
+                summary: "Manually reconcile the subscribed rulebook",
+                description:
+                  "Recovery operation requiring Authorization: Bearer <ATTESTBOOK_ADMIN_TOKEN>. It reconciles the configured rulebook against the event feed, waits for the outcome and returns the integration status. Unavailable (404) when no administrator token is configured.",
+                responses: {
+                  "200": response("Reconciled; the latest compatible publication is active.", {
+                    $ref: "#/components/schemas/AttestbookIntegrationStatus",
+                  }),
+                  "401": response("Missing or wrong administrator token."),
+                  "404": response("Manual synchronization is not configured."),
+                  "502": response("Reconciliation failed; the last-known-good catalogue is kept.", {
+                    $ref: "#/components/schemas/AttestbookIntegrationStatus",
+                  }),
+                },
+              },
+            },
+          }
+        : {}),
       "/sessions": {
         post: {
           tags: ["Issuance sessions"],
@@ -1050,9 +1142,9 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           properties: {
             issuer_configuration_id: {
               type: "string",
-              enum: ["eu-pid-device-bound", "eu-pid-jwt-key-attestation", "eu-pid-jwt-proof-only"],
+              enum: issuerIds,
               default: "eu-pid-device-bound",
-              description: "Selects one of the always-on isolated issuer configurations.",
+              description: "Selects one of the served, isolated issuer configurations.",
             },
             flow: {
               type: "string",
@@ -1097,13 +1189,13 @@ export function openApiDocument(config: AppConfig): JsonRecord {
               type: "string",
               default: "pid_default",
               description:
-                "Predefined PID claim set the issued credential carries. Fixtures differ from the baseline along one value axis each, so a DCQL value constraint matches one and withholds the others.",
+                "Predefined claim set the issued credential carries. For a PID, fixtures differ from the baseline along one value axis each, so a DCQL value constraint matches one and withholds the others. For a credential imported from Attestbook it names a local claim fixture (default issuer_test_data, the issuer's existing key/value test data) that must provide valid values for every required claim; pid_default never applies.",
             },
             document_number: {
               type: "string",
               minLength: 1,
               description:
-                "Caller-selected document number for the issued PID. It overrides the selected fixture's document number without changing its other claims.",
+                "Caller-selected document number for the issued PID. It overrides the selected fixture's document number without changing its other claims. Refused for imported Attestbook credentials, as are status_list_enabled and status_reference.",
             },
             credential_configuration_id: {
               type: "string",
@@ -1219,6 +1311,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             credential_configuration_id: { type: "string" },
             status_list_enabled: { type: "boolean" },
             fixture_id: { type: "string" },
+            credential_definition: { $ref: "#/components/schemas/SessionCredentialDefinition" },
             document_number: { type: "string", minLength: 1 },
             status_reference: { type: "string" },
             digest_algorithm: { type: "string" },
@@ -1258,6 +1351,9 @@ export function openApiDocument(config: AppConfig): JsonRecord {
               type: "string",
               minLength: 1,
               description: "Caller-selected document number used in the issued PID.",
+            },
+            credential_definition: {
+              $ref: "#/components/schemas/SessionCredentialDefinition",
             },
             issuance_response_scenario: {
               $ref: "#/components/schemas/IssuanceResponseScenario",
@@ -1422,7 +1518,10 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           ],
           properties: {
             id: { type: "string" },
-            compliance: { type: "string" },
+            compliance: {
+              type: "string",
+              enum: ["eudi-pid-device-bound", "deliberately-nonconforming", "experimental"],
+            },
             credential_issuer: { type: "string", format: "uri" },
             credential_issuer_metadata: { type: "string", format: "uri" },
             authorization_server_metadata: { type: "string", format: "uri" },
@@ -1433,6 +1532,106 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             credential_configuration_ids: {
               type: "array",
               items: { type: "string" },
+            },
+          },
+        },
+        SessionCredentialDefinition: {
+          type: "object",
+          description:
+            "The exact published Attestbook rulebook version an imported-credential session is pinned to; provenance only, never claim values.",
+          required: [
+            "source",
+            "origin",
+            "rulebook_id",
+            "version",
+            "content_digest",
+            "attestation",
+            "vct",
+            "vct_source",
+          ],
+          properties: {
+            source: { type: "string", const: "attestbook" },
+            origin: { type: "string", format: "uri" },
+            rulebook_id: { type: "string" },
+            version: { type: "string" },
+            content_digest: { type: "string", pattern: "^[0-9a-f]{64}$" },
+            attestation: { type: "string" },
+            vct: { type: "string" },
+            vct_source: { type: "string", enum: ["type_metadata", "issuer_mapping"] },
+          },
+        },
+        AttestbookIntegrationStatus: {
+          type: "object",
+          required: ["enabled"],
+          properties: {
+            enabled: { type: "boolean" },
+            issuer_configuration_id: { type: "string" },
+            origin: { type: "string", format: "uri" },
+            rulebook_id: { type: "string" },
+            subscription: {
+              type: "object",
+              properties: {
+                callback_url: { type: "string", format: "uri" },
+                webhook_secret_configured: { type: "boolean" },
+                manual_sync_enabled: { type: "boolean" },
+                last_verification_challenge_at: { type: ["string", "null"] },
+                last_signed_notification_at: { type: ["string", "null"] },
+              },
+            },
+            last_observed_event: { type: ["object", "null"], additionalProperties: true },
+            pending_notifications: { type: "integer", minimum: 0 },
+            active: {
+              type: ["object", "null"],
+              properties: {
+                version: { type: "string" },
+                content_digest: { type: "string" },
+                published_at: { type: ["string", "null"] },
+                event_id: { type: ["string", "null"] },
+                activated_at: { type: "string" },
+                credential_configuration_ids: { type: "array", items: { type: "string" } },
+              },
+            },
+            retained_credential_configuration_ids: { type: "array", items: { type: "string" } },
+            last_successful_sync_at: { type: ["string", "null"] },
+            sync: {
+              type: "object",
+              properties: {
+                state: {
+                  type: "string",
+                  enum: ["idle", "fetching", "validating", "activating", "failed"],
+                },
+                last_trigger: {
+                  type: ["string", "null"],
+                  enum: ["startup", "webhook", "manual", "retry", null],
+                },
+                failure: {
+                  type: ["object", "null"],
+                  properties: {
+                    stage: {
+                      type: "string",
+                      enum: ["fetch", "verify", "compile", "issuability", "activate", "persist"],
+                    },
+                    code: { type: "string" },
+                    message: { type: "string" },
+                    at: { type: "string" },
+                    version: { type: ["string", "null"] },
+                    content_digest: { type: ["string", "null"] },
+                  },
+                },
+                diagnostics: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      severity: { type: "string", enum: ["error", "info"] },
+                      code: { type: "string" },
+                      attestation: { type: ["string", "null"] },
+                      field: { type: ["string", "null"] },
+                      message: { type: "string" },
+                    },
+                  },
+                },
+              },
             },
           },
         },

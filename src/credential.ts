@@ -1,4 +1,6 @@
 import { Kms, type MdocSignOptions, SdJwtVcService, type SdJwtVcSignOptions } from "@credo-ts/core";
+import { RESERVED_CLAIM_NAMES } from "./attestbook/json-schema.js";
+import type { AttestbookClaimValue, AttestbookCredentialDefinition } from "./attestbook/types.js";
 import { createIssuerSigningContext, issuerSigningKeyId, loadIssuerCertificate } from "./config.js";
 import { DEGREE_CREDENTIAL_SUBJECT } from "./configurations/shared/degree-data.js";
 import { encodeMdocPidClaims } from "./configurations/shared/mdoc-encoder.js";
@@ -195,6 +197,49 @@ export function numericSdJwtCredentialSignOptions(options: {
       ...sdJwtStatusClaim(options.statusListReference, options.statusReference),
     },
     disclosureFrame: { _sd: ["kg"] },
+  };
+}
+
+/**
+ * Sign options for any credential type compiled from an Attestbook rulebook. The protocol-controlled
+ * members (`vct`, `exp`, holder binding and issuer) are set after the claims, and a claim the
+ * definition does not declare or that names a reserved member is refused, so claim data can never
+ * replace them. Each declared claim that is present is disclosable as the definition's policy says.
+ */
+export function importedSdJwtCredentialSignOptions(options: {
+  config: AppConfig;
+  holderJwk: JsonRecord;
+  definition: AttestbookCredentialDefinition;
+  claims: Readonly<Record<string, AttestbookClaimValue>>;
+  digestAlgorithm?: SdJwtDigestAlgorithm;
+  now?: Date;
+}): SdJwtVcSignOptions {
+  const declared = new Set(options.definition.claims.map((claim) => claim.name));
+  for (const name of Object.keys(options.claims)) {
+    if (!declared.has(name) || RESERVED_CLAIM_NAMES.has(name) || name.startsWith("_sd")) {
+      throw new Error(
+        `Claim '${name}' is not issuable for ${options.definition.credentialConfigurationId}`,
+      );
+    }
+  }
+  const issuerCertificate = loadIssuerCertificate(options.config);
+  issuerCertificate.keyId = issuerSigningKeyId(options.config);
+  const now = options.now ?? new Date();
+  return {
+    issuer: { method: "x5c", issuer: options.config.issuer_base_url, x5c: [issuerCertificate] },
+    holder: { method: "jwk", jwk: Kms.PublicJwk.fromUnknown(options.holderJwk) },
+    headerType: "dc+sd-jwt",
+    ...(options.digestAlgorithm ? { hashingAlgorithm: options.digestAlgorithm } : {}),
+    payload: {
+      ...options.claims,
+      vct: options.definition.vct,
+      exp: Math.floor(now.getTime() / 1000) + 365 * 24 * 60 * 60,
+    },
+    disclosureFrame: {
+      _sd: options.definition.claims
+        .filter((claim) => claim.selectivelyDisclosable && claim.name in options.claims)
+        .map((claim) => claim.name),
+    },
   };
 }
 

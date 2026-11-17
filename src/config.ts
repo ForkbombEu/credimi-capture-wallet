@@ -10,7 +10,11 @@ import {
   X509KeyUsage,
 } from "@credo-ts/core";
 import { exportJWK, generateKeyPair } from "jose";
-import { resolvedIssuerConfigurations } from "./configurations/registry.js";
+import { DISABLED_ATTESTBOOK_SETTINGS, resolveAttestbookSettings } from "./attestbook/settings.js";
+import {
+  allResolvedIssuerConfigurations,
+  resolvedIssuerConfigurations,
+} from "./configurations/registry.js";
 import { issuerAppConfig } from "./configurations/resolve-urls.js";
 import type { ResolvedIssuerConfiguration } from "./configurations/types.js";
 import type { AppConfig, JsonRecord } from "./types.js";
@@ -39,6 +43,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   status_list_api_key: "test",
   status_list_timeout_ms: 5000,
   status_list_trusted_certificates: [],
+  attestbook: DISABLED_ATTESTBOOK_SETTINGS,
 };
 
 export const PORT_ENV_VAR = "PORT";
@@ -337,6 +342,7 @@ export function loadConfig(
       fileConfig.status_list_trusted_certificates ??
         DEFAULT_CONFIG.status_list_trusted_certificates,
     ),
+    attestbook: resolveAttestbookSettings(env),
   };
 }
 
@@ -375,11 +381,14 @@ export async function initIssuer(options: InitOptions): Promise<AppConfig> {
   const cfgPath = configPath(dataDir);
 
   if (force || !existsSync(cfgPath)) {
-    writeFileSync(cfgPath, stringifyYaml(config as unknown as JsonRecord), { mode: 0o600 });
+    const { attestbook: _environmentOnly, ...persisted } = config;
+    writeFileSync(cfgPath, stringifyYaml(persisted as unknown as JsonRecord), { mode: 0o600 });
   }
 
   const loadedConfig = loadConfig(dataDir);
-  for (const issuer of resolvedIssuerConfigurations(loadedConfig)) {
+  // Material is generated for every issuer, including the opt-in experimental one, so enabling a
+  // feature flag later never requires another `init`. Only enabled issuers are served.
+  for (const issuer of allResolvedIssuerConfigurations(loadedConfig)) {
     await ensureIssuerMaterial(loadedConfig, issuer, force);
   }
   const verifierSecretPath = verifierPrivateJwkPath(dataDir);

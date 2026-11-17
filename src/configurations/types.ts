@@ -3,9 +3,16 @@ import type { CredentialProofPolicy } from "../metadata.js";
 export type IssuerConfigurationId =
   | "eu-pid-device-bound"
   | "eu-pid-jwt-key-attestation"
-  | "eu-pid-jwt-proof-only";
+  | "eu-pid-jwt-proof-only"
+  | "attestbook-experimental";
 
-export type IssuerCompliance = "eudi-pid-device-bound" | "deliberately-nonconforming";
+export type IssuerCompliance =
+  | "eudi-pid-device-bound"
+  | "deliberately-nonconforming"
+  | "experimental";
+
+/** Opt-in feature an issuer belongs to; the issuer is served only when the feature is enabled. */
+export type IssuerFeature = "attestbook";
 
 export interface IssuerDisplayConfiguration {
   readonly name: string;
@@ -24,6 +31,15 @@ export interface IssuerConfiguration {
   readonly proofPolicy: CredentialProofPolicy;
   readonly display: IssuerDisplayConfiguration;
   readonly authorizationServer: IssuerAuthorizationServerConfiguration;
+  /** Absent for the always-served issuers. */
+  readonly feature?: IssuerFeature;
+  /**
+   * Restricts the static catalogue to credentials of these `vct` values. Absent serves every
+   * static credential of the issuer's proof policy, as every issuer did before this field existed.
+   */
+  readonly staticCredentialVcts?: readonly string[];
+  /** Present when the issuer also serves credentials compiled from Attestbook rulebooks. */
+  readonly importsAttestbookCredentials?: true;
 }
 
 export interface ResolvedIssuerEndpoints {

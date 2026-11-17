@@ -38,10 +38,19 @@ export function validateIssuerConfigurations(configurations: readonly IssuerConf
     }
     if (
       configuration.proofPolicy === "jwt-proof" &&
-      configuration.compliance !== "deliberately-nonconforming"
+      configuration.compliance !== "deliberately-nonconforming" &&
+      configuration.compliance !== "experimental"
     ) {
       throw new Error(
         `JWT-only PID issuer '${configuration.id}' must be explicitly non-conforming`,
+      );
+    }
+    if (configuration.compliance === "experimental" && configuration.feature === undefined) {
+      throw new Error(`Experimental issuer '${configuration.id}' must be behind a feature flag`);
+    }
+    if (configuration.importsAttestbookCredentials && configuration.feature !== "attestbook") {
+      throw new Error(
+        `Issuer '${configuration.id}' imports Attestbook credentials outside the Attestbook feature`,
       );
     }
   }

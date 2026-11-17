@@ -11,6 +11,15 @@ const REGULATION_2026_1731_URL =
 export interface IssuerCredentialGroup {
   issuer: ResolvedIssuerConfiguration;
   credentials: readonly SupportedCredential[];
+  /** Present for an issuer that imports Attestbook credentials. */
+  attestbook?: AttestbookIssuerSummary;
+}
+
+export interface AttestbookIssuerSummary {
+  readonly syncState: string;
+  readonly activeVersion: string | null;
+  readonly activeContentDigest: string | null;
+  readonly failureStage: string | null;
 }
 
 export function indexPage(groups: readonly IssuerCredentialGroup[]): string {
@@ -279,9 +288,12 @@ export function dcApiPresentationPage(options: DcApiPresentationPageOptions): st
 }
 
 function issuerCredentialGroupHtml(group: IssuerCredentialGroup): string {
-  const label = group.issuer.display.warning
-    ? `${group.issuer.display.name} — deliberately non-conforming`
-    : group.issuer.display.name;
+  const label =
+    group.issuer.compliance === "deliberately-nonconforming"
+      ? `${group.issuer.display.name} — deliberately non-conforming`
+      : group.issuer.compliance === "experimental"
+        ? `${group.issuer.display.name} — experimental`
+        : group.issuer.display.name;
   return [
     '<optgroup label="',
     escapeHtml(label),
@@ -315,15 +327,30 @@ function issuerCardHtml(group: IssuerCredentialGroup): string {
     '<p class="issuer-description">',
     issuerDescriptionHtml(group),
     "</p>",
+    group.attestbook ? attestbookSummaryHtml(group.attestbook) : "",
     '<nav class="issuer-links" aria-label="',
     escapeHtml(`${issuer.display.name} endpoints`),
     '">',
     issuerLinkHtml("Issuer", issuer.issuerIdentifier),
     issuerLinkHtml("Credential issuer well-known", issuer.issuerMetadataUrl),
     issuerLinkHtml("Authorization server well-known", issuer.authorizationServerMetadataUrl),
+    group.attestbook
+      ? '<a class="issuer-link" href="/integrations/attestbook/status" target="_blank" rel="noreferrer">Attestbook status</a>'
+      : "",
     "</nav>",
     "</article>",
   ].join("");
+}
+
+function attestbookSummaryHtml(summary: AttestbookIssuerSummary): string {
+  const active =
+    summary.activeVersion && summary.activeContentDigest
+      ? `Attestbook rulebook version ${summary.activeVersion} (sha-256 ${summary.activeContentDigest.slice(0, 12)}…) is active`
+      : "No Attestbook rulebook version is active";
+  const sync = summary.failureStage
+    ? `last synchronization failed at the ${summary.failureStage} stage`
+    : `synchronization ${summary.syncState}`;
+  return `<p class="issuer-description">${escapeHtml(`${active}; ${sync}.`)}</p>`;
 }
 
 function issuerDescriptionHtml(group: IssuerCredentialGroup): string {
@@ -377,7 +404,11 @@ function credentialOptionHtml(
     '" data-issuer-configuration-id="',
     escapeHtml(issuerConfigurationId),
     '">',
-    escapeHtml(credential.displayName),
+    escapeHtml(
+      credential.attestbook
+        ? `${credential.displayName} (Attestbook ${credential.attestbook.version})`
+        : credential.displayName,
+    ),
     "</option>",
   ].join("");
 }

@@ -4,6 +4,7 @@ import { DEFAULT_CONFIG } from "../src/config.js";
 import {
   DEFAULT_ISSUER_CONFIGURATION_ID,
   issuerConfigurations,
+  resolvedIssuerConfigurationById,
   resolvedIssuerConfigurations,
 } from "../src/configurations/registry.js";
 import { encodeMdocPidClaims } from "../src/configurations/shared/mdoc-encoder.js";
@@ -13,18 +14,37 @@ import type { IssuerConfiguration } from "../src/configurations/types.js";
 import { validateIssuerConfigurations } from "../src/configurations/validate.js";
 
 describe("always-on issuer configurations", () => {
-  it("registers the conforming and deliberately non-conforming PID issuers", () => {
+  it("registers the PID issuers and the opt-in experimental Attestbook issuer", () => {
     expect(DEFAULT_ISSUER_CONFIGURATION_ID).toBe("eu-pid-device-bound");
     expect(issuerConfigurations.map((issuer) => issuer.id)).toEqual([
       "eu-pid-device-bound",
       "eu-pid-jwt-key-attestation",
       "eu-pid-jwt-proof-only",
+      "attestbook-experimental",
     ]);
     expect(issuerConfigurations.map((issuer) => issuer.compliance)).toEqual([
       "eudi-pid-device-bound",
       "eudi-pid-device-bound",
       "deliberately-nonconforming",
+      "experimental",
     ]);
+  });
+
+  it("serves the experimental issuer only when the Attestbook feature is enabled", () => {
+    expect(resolvedIssuerConfigurations(DEFAULT_CONFIG).map((issuer) => issuer.id)).toEqual([
+      "eu-pid-device-bound",
+      "eu-pid-jwt-key-attestation",
+      "eu-pid-jwt-proof-only",
+    ]);
+    expect(resolvedIssuerConfigurationById(DEFAULT_CONFIG, "attestbook-experimental")).toBeNull();
+    const enabled = {
+      ...DEFAULT_CONFIG,
+      attestbook: { ...DEFAULT_CONFIG.attestbook, enabled: true },
+    };
+    expect(resolvedIssuerConfigurationById(enabled, "attestbook-experimental")).toMatchObject({
+      proofPolicy: "jwt-proof",
+      importsAttestbookCredentials: true,
+    });
   });
 
   it("derives specification well-known paths from the public service origin", () => {

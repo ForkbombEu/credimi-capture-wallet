@@ -119,6 +119,27 @@ export interface AppConfig {
   status_list_api_key: string;
   status_list_timeout_ms: number;
   status_list_trusted_certificates: string[];
+  /**
+   * The opt-in Attestbook integration that imports SD-JWT VC credential definitions into the
+   * `attestbook-experimental` issuer. Read from the environment only, never from `config.yaml`.
+   */
+  attestbook: AttestbookSettings;
+}
+
+export interface AttestbookSettings {
+  enabled: boolean;
+  /** Trusted public Attestbook API origin. */
+  base_url: string | null;
+  /** The one subscribed rulebook. */
+  rulebook_id: string | null;
+  /** Per-subscription HMAC secret that verifies publication notifications. */
+  webhook_secret: string | null;
+  /** Bearer token for the manual resynchronisation route; the route is disabled without it. */
+  admin_token: string | null;
+  /** Optional named claim fixtures and issuer-owned `vct` mappings. */
+  claims_file: string | null;
+  /** Explicitly allowed origins of schema documents hosted outside Attestbook. */
+  allowed_schema_origins: string[];
 }
 
 export interface ObservedValue<T> {
@@ -298,6 +319,12 @@ export interface SessionCapture {
   fixture_id?: string;
   /** Caller-selected document number that overrides the selected fixture's value. */
   document_number?: string;
+  /**
+   * Present when the credential was compiled from an Attestbook rulebook: the exact published
+   * version the session is pinned to. Issuance completes under this definition even after a
+   * newer version is activated. It carries provenance only, never claim values.
+   */
+  credential_definition?: SessionCredentialDefinition;
   /**
    * Shape of the `status` claim in the issued credential. Absent means the normal reference, so
    * a session that does not ask for a malformed structure cannot receive one.
@@ -659,4 +686,16 @@ export interface CredoIssuanceOffer {
   credential_offer_object: JsonRecord;
   credential_offer_uri: string;
   credo_issuance_session_id: string;
+}
+
+export interface SessionCredentialDefinition {
+  source: "attestbook";
+  origin: string;
+  rulebook_id: string;
+  version: string;
+  content_digest: string;
+  attestation: string;
+  vct: string;
+  /** Where the issued credential's `vct` came from. */
+  vct_source: "type_metadata" | "issuer_mapping";
 }

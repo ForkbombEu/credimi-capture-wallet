@@ -1,4 +1,5 @@
 import { type AgentContext, JwsService, JwtPayload, Kms } from "@credo-ts/core";
+import type { AttestbookCredentialDefinition } from "./attestbook/types.js";
 import {
   createIssuerSigningContext,
   issuerSigningKeyId,
@@ -40,15 +41,23 @@ export interface SupportedCredential {
   vct?: string;
   /** Full claim paths: JSON path segments for SD-JWT VC, `[namespace, element]` for mdoc. */
   claimPaths: readonly (readonly string[])[];
+  /** Present for a credential compiled from an Attestbook rulebook version. */
+  attestbook?: AttestbookCredentialDefinition;
 }
+
+/** The issuer fields that select its static credential catalogue. */
+export type StaticCatalogueIssuer = Pick<
+  IssuerConfiguration,
+  "proofPolicy" | "staticCredentialVcts"
+>;
 
 export { PID_MDOC_DOCTYPE, PID_MDOC_NAMESPACE, PID_SD_JWT_VCT };
 
 export function credentialIssuerMetadata(
   config: AppConfig,
   issuer: IssuerConfiguration,
+  credentials: readonly SupportedCredential[] = supportedCredentialsForIssuer(config, issuer),
 ): JsonRecord {
-  const credentials = supportedCredentialsForIssuer(config, issuer);
   const encryptionJwk = loadIssuerEncryptionPublicJwk(config);
 
   return {
@@ -79,13 +88,20 @@ export function credentialIssuerMetadata(
         name: issuer.display.name,
       },
     ],
-    credential_configurations_supported: Object.fromEntries(
-      credentials.map((credential) => [
-        credential.id,
-        credentialConfiguration(credential, proofTypesSupported(credential.proofPolicy)),
-      ]),
-    ),
+    credential_configurations_supported: credentialConfigurationsSupported(credentials),
   };
+}
+
+/** The `credential_configurations_supported` object for a set of credentials. */
+export function credentialConfigurationsSupported(
+  credentials: readonly SupportedCredential[],
+): JsonRecord {
+  return Object.fromEntries(
+    credentials.map((credential) => [
+      credential.id,
+      credentialConfiguration(credential, proofTypesSupported(credential.proofPolicy)),
+    ]),
+  );
 }
 
 export async function signedCredentialIssuerMetadata(
@@ -340,16 +356,19 @@ function domesticPidCredentials(proofPolicy: CredentialProofPolicy): SupportedCr
 
 export function supportedCredentialsForIssuer(
   config: AppConfig,
-  issuer: Pick<IssuerConfiguration, "proofPolicy">,
+  issuer: StaticCatalogueIssuer,
 ): SupportedCredential[] {
   return supportedCredentials(config).filter(
-    (credential) => credential.proofPolicy === issuer.proofPolicy,
+    (credential) =>
+      credential.proofPolicy === issuer.proofPolicy &&
+      (issuer.staticCredentialVcts === undefined ||
+        (credential.vct !== undefined && issuer.staticCredentialVcts.includes(credential.vct))),
   );
 }
 
 export function supportedCredentialConfigurationIdsForIssuer(
   config: AppConfig,
-  issuer: Pick<IssuerConfiguration, "proofPolicy">,
+  issuer: StaticCatalogueIssuer,
 ): string[] {
   return supportedCredentialsForIssuer(config, issuer).map((credential) => credential.id);
 }
@@ -361,7 +380,7 @@ export function supportedCredentialConfigurationIds(config: AppConfig): string[]
 export function supportedCredentialById(
   config: AppConfig,
   credentialConfigurationId: string,
-  issuer?: Pick<IssuerConfiguration, "proofPolicy">,
+  issuer?: StaticCatalogueIssuer,
 ): SupportedCredential | null {
   return (
     (issuer ? supportedCredentialsForIssuer(config, issuer) : supportedCredentials(config)).find(
@@ -434,20 +453,19 @@ function credentialConfiguration(
           },
         },
       ],
-      claims: credential.claimPaths.map((path) => ({
-        path: [...path],
-        mandatory: true,
-        display: [
-          {
-            name: (path.at(-1) ?? "")
-              .split("_")
-              .filter(Boolean)
-              .map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`)
-              .join(" "),
-            locale: "en-US",
-          },
-        ],
-      })),
+      claims: credential.claimPaths.map((path) => {
+        const imported = credential.attestbook?.claims.find((claim) => claim.path[0] === path[0]);
+        return {
+          path: [...path],
+          mandatory: imported ? imported.required : true,
+          display: [
+            {
+              name: imported?.displayName ?? claimDisplayName(path.at(-1) ?? ""),
+              locale: "en-US",
+            },
+          ],
+        };
+      }),
     },
     cryptographic_binding_methods_supported:
       credential.format === "mso_mdoc" ? ["cose_key"] : ["jwk"],
@@ -458,6 +476,14 @@ function credentialConfiguration(
   return credential.format === "mso_mdoc"
     ? { ...common, doctype: PID_MDOC_DOCTYPE }
     : { ...common, vct: credential.vct };
+}
+
+function claimDisplayName(claim: string): string {
+  return claim
+    .split("_")
+    .filter(Boolean)
+    .map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`)
+    .join(" ");
 }
 
 function sdJwtClaimPaths(claims: readonly string[]): string[][] {
