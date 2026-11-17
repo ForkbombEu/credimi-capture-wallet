@@ -8,7 +8,7 @@ This is a companion to the machine-readable [OpenAPI document](/openapi.json). T
 
 The base URL is configured by `--issuer-base-url`; production uses `https://capture-wallet.credimi.io`. Paths below are relative to that URL.
 
-- Issuer configuration IDs are `eu-pid-device-bound`, `eu-pid-jwt-key-attestation`, and `eu-pid-jwt-proof-only`.
+- Issuer configuration IDs are `eu-pid-device-bound`, `eu-pid-jwt-key-attestation`, and `eu-pid-jwt-proof-only`, plus `attestbook-experimental` when the opt-in Attestbook integration is enabled (`ATTESTBOOK_ENABLED`).
 - `sessionId` is a UUID returned by a session-creation response.
 - JSON is the default representation unless a route states another media type.
 - Unknown session IDs return `404` with an error object. Invalid protocol input normally returns `400`.
@@ -22,7 +22,8 @@ The base URL is configured by `--issuer-base-url`; production uses `https://capt
 | `GET` | `/healthz` | Readiness response: `{ "status": "ok" }`. |
 | `GET` | `/openapi.json` | OpenAPI 3.1 contract for the public REST and protocol surface. |
 | `GET` | `/docs` | Interactive API documentation. |
-| `GET` | `/issuers` | Lists the always-on issuer configurations, metadata URLs, warnings, and credential configuration IDs. |
+| `GET` | `/issuers` | Lists the served issuer configurations, metadata URLs, warnings, and credential configuration IDs. For `attestbook-experimental` the IDs include those of the active imported rulebook version. |
+| `GET` | `/integrations/attestbook/status` | Non-sensitive Attestbook integration status; `{ "enabled": false }` when the integration is off. See [Attestbook-defined credentials](#attestbook-defined-credentials). |
 | `GET` | `/oid4vci/requests` | Bounded chronological ledger of OpenID4VCI requests and of every request no route handled (`unmatched: true`). Sensitive fields are redacted to presence/length metadata, whatever a session's `evidence_mode`. |
 
 For each `{issuerConfigurationId}`:
@@ -48,7 +49,7 @@ For each `{issuerConfigurationId}`:
 | `credential_offer_mode` | `credential_offer`, `credential_offer_uri` | `credential_offer` |
 | `credential_configuration_id` | A configuration advertised by the selected issuer metadata | First configuration for the issuer |
 | `status_list_enabled` | Boolean; allocate and embed a Token Status List reference in each issued credential | `false` |
-| `fixture_id` | Predefined PID claim set the issued credential carries | `pid_default` |
+| `fixture_id` | Predefined claim set the issued credential carries; for an imported Attestbook credential, a named local claim fixture | `pid_default`; `issuer_test_data` for an imported credential |
 | `document_number` | Any nonempty string; overrides the selected fixture's document number without changing its other claims | Selected fixture's document number |
 | `status_reference` | Shape of the `status` structure in an issued SD-JWT VC or mdoc; anything but `valid` is test-only | `valid` |
 | `digest_algorithm` | Hash function the issued SD-JWT VC digests its disclosures with: `sha-256`, `sha-384`, `sha-512` | `sha-256` |
@@ -57,7 +58,7 @@ For each `{issuerConfigurationId}`:
 | `offer_scheme` | URL scheme of the offer deeplink: `openid-credential-offer://`, `eu-eaa-offer://`, `haip-vci://` | `openid-credential-offer://` |
 | `offer_mutation` | JSON Pointer `set`/`unset` edits to the by-value Credential Offer; test-only | — |
 
-It returns `201` with `session_id`, issuer and authorization-server identifiers, the selected flow and configuration, `fixture_id`, `document_number` when supplied, `offer_url`, `deeplink`, and `status: "created"`. A configuration belonging to another issuer is rejected. Select `eu-pid-jwt-key-attestation` to offer only the SD-JWT VC or mdoc PID with `proof_types_supported` restricted to `jwt` and `key_attestations_required: {}`, as needed for the FCAF JWT-with-key-attestation cases.
+It returns `201` with `session_id`, issuer and authorization-server identifiers, the selected flow and configuration, `fixture_id`, `document_number` when supplied, `credential_definition` for an imported Attestbook credential, `offer_url`, `deeplink`, and `status: "created"`. A configuration belonging to another issuer is rejected. Select `eu-pid-jwt-key-attestation` to offer only the SD-JWT VC or mdoc PID with `proof_types_supported` restricted to `jwt` and `key_attestations_required: {}`, as needed for the FCAF JWT-with-key-attestation cases.
 
 `fixture_id` names a predefined PID claim set; an unknown value is rejected with `unsupported_fixture_id` and the supported list. Every fixture is a fully valid, normally signed PID and differs from the baseline along one value axis, which is what the DCQL value-matching tests need: `pid_default`, `pid_person_b` (a second complete identity), `pid_under_18` (`age_over_18: false`), `pid_family_name_uppercase`, `pid_family_name_trailing_space`, `pid_locality_diacritics`, `pid_locality_no_diacritics`, `pid_multiple_nationalities`, and `pid_expiry_2032`. Each carries a distinct `document_number`. `document_number` is the only caller-supplied PID claim override: provide it without `fixture_id` to issue the baseline PID with the supplied number. The selected fixture and supplied number are recorded in the issuance capture.
 
@@ -637,6 +638,20 @@ cannot be decrypted, including an intentionally `allow_undecryptable_response` s
 and `vp_presentation_response_received.detail.vp_token_observed` describe whether that wallet
 payload carried a `vp_token`, independently of the verifier's subsequent result. Verifier-side
 failures remain in `checks.errors` and `raw.presentation_response_verifier_http`.
+
+## Attestbook-defined credentials
+
+Present only when the deployment sets `ATTESTBOOK_ENABLED`. The experimental `attestbook-experimental` issuer (compliance `experimental`, JWT proofs, `dc+sd-jwt` only) serves the Credimi test degree plus the SD-JWT VC credential types compiled from the latest published version of one configured Attestbook rulebook. Issuance uses the same session, offer, deeplink, QR, metadata and protocol endpoints as every other issuer.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/integrations/attestbook/status` | Active version and digest, active and retained credential configuration IDs, last observed event, pending notifications, last successful synchronization, and `sync.state` (`idle`, `fetching`, `validating`, `activating`, `failed`) with a typed `failure` (`stage`: `fetch`, `verify`, `compile`, `issuability`, `activate`, `persist`) and per-attestation `diagnostics`. Never contains a secret, token, key or claim value. |
+| `POST` | `/integrations/attestbook/webhook` | Attestbook's subscription callback. An `attestbook.subscription.verification@1` message is answered `200` with `{ "challenge": "<the same challenge>" }`. A `rulebook.published` notification must carry a valid `X-AttestBook-Signature` (`v1=` HMAC-SHA-256 with the subscription's `webhookSecret` over `attestbook.webhook-signing-input@1`), an `X-AttestBook-Timestamp` within 300 seconds and an `X-AttestBook-Event-Id` equal to the body `id`, for the configured rulebook. It answers `202 { "status": "accepted" }` once recorded durably, `200 { "status": "duplicate" }` for an event already received, `400` for a malformed message, `401 invalid_signature` or `stale_timestamp`, `403 rulebook_not_subscribed`, `413` above 16 KiB, and `503` when no secret is configured or the notification cannot be recorded. It never waits for downloads or activation. |
+| `POST` | `/integrations/attestbook/sync` | Recovery reconciliation, only with `Authorization: Bearer <ATTESTBOOK_ADMIN_TOKEN>` (`401` otherwise; `404` when no token is configured). Waits for the outcome and returns the status: `200`, or `502` when the reconciliation failed and the last-known-good catalogue was kept. |
+
+Imported credential configuration IDs, also used as scopes, are version-specific: `urn:attestbook:<rulebookId>:<version>:<attestation-slug>-<12 hex digest>`. Only the latest publication of the rulebook's event feed is activated, after its export digest, frozen schema references, schema document digests and SRI pins, compilation, claim fixtures and a dry-run signature have all been verified. A session keeps the definition it was created with: `credential_definition` on the session (`source`, `origin`, `rulebook_id`, `version`, `content_digest`, `attestation`, `vct`, `vct_source`) pins it, and issuer metadata keeps advertising a superseded definition while an unfinished session created in the last hour uses it. New sessions can select only active IDs.
+
+For an imported credential, `POST /sessions` resolves `fixture_id` through the local claim fixtures (`issuer_test_data`, the issuer's existing key/value test data, by default, or a fixture from `ATTESTBOOK_CLAIMS_FILE`); a fixture that misses a required claim or holds a value the schema forbids answers `400 claim_fixture_incomplete` with `missing_claims`, `invalid_claims` and `supported_fixture_ids`, and an unknown one `400 unsupported_fixture_id`. `status_list_enabled`, `status_reference` and `document_number` answer `400 unsupported_for_imported_credential` with `unsupported_parameters`. A session for a definition that a concurrent activation just replaced answers `409 credential_configuration_superseded`.
 
 ## Test-only chained OAuth server
 

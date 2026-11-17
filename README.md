@@ -45,6 +45,7 @@ During the credential verification the service captures:
   - [📖 API documentation](#-api-documentation)
   - [🪪 OpenID4VCI Issuance Flow](#-openid4vci-issuance-flow)
   - [🛂 OpenID4VP Presentation Flow](#-openid4vp-presentation-flow)
+  - [🧩 Attestbook-defined credentials (experimental)](#-attestbook-defined-credentials-experimental)
 - [⚙️ Configuration](#️-configuration)
 - [🚧 Known limitations](#-known-limitations)
 - [💼 License](#-license)
@@ -870,6 +871,104 @@ secure context, so `public_base_url` must be HTTPS for anything but local testin
 browsers, webviews, and iOS Safari do not expose `navigator.credentials.get({ digital: ... })`.
 The presentation page is served by the operator UI, so it requires `GUI_ENABLED` to be true.
 
+### 🧩 Attestbook-defined credentials (experimental)
+
+The opt-in `attestbook-experimental` issuer subscribes to one
+[Attestbook](https://github.com/ForkbombEu/credimi-attestbook) rulebook and issues the SD-JWT VC
+credential types its published versions define, without a restart. Attestbook supplies the
+credential *definitions*; this service keeps the claim values, signing keys, proof policy and the
+OpenID4VCI execution, all through the existing Credo-TS issuer. The PID issuers are untouched.
+
+**Setup.** `pnpm capture-services init` provisions material for this issuer too, so enabling it
+needs no further initialization. Set `ATTESTBOOK_ENABLED=true`, `ATTESTBOOK_BASE_URL` and
+`ATTESTBOOK_RULEBOOK_ID` (see [Configuration](#️-configuration)). Without a rulebook the issuer
+still serves the Credimi test degree (`urn:credimi:degree:1.sd-jwt.jwt-proof`).
+
+**One-time subscription.** With the service deployed at `PUBLIC_BASE_URL`:
+
+```sh
+# 1. Register the callback ${PUBLIC_BASE_URL}/integrations/attestbook/webhook. Attestbook
+#    returns managementToken and webhookSecret exactly once; --output writes them to a new
+#    0600 file instead of stdout.
+pnpm capture-services attestbook-subscribe --output ./attestbook-subscription.json
+# 2. Configure ATTESTBOOK_WEBHOOK_SECRET=<webhookSecret> and restart the service.
+# 3. Have Attestbook send the verification challenge; the service answers it.
+ATTESTBOOK_MANAGEMENT_TOKEN=<managementToken> \
+  pnpm capture-services attestbook-verify --subscription-id <id>
+# 4. Confirm the subscription is active.
+ATTESTBOOK_MANAGEMENT_TOKEN=<managementToken> \
+  pnpm capture-services attestbook-subscription --subscription-id <id>
+```
+
+Keep the management token in deployment secrets; the service never needs it. Registration is
+never repeated at startup. Attestbook's own `SUBSCRIPTION_WEBHOOK_SIGNING_KEY` is a different value
+from the per-subscription `webhookSecret`.
+
+**Synchronization.** A `rulebook.published` webhook is verified (HMAC-SHA-256 over
+`attestbook.webhook-signing-input@1`, compared in constant time; timestamp within 300 seconds;
+header and body event id agree; configured rulebook only), recorded atomically under
+`data/attestbook/state.json` with its exact body, and acknowledged with `202` before any download.
+Duplicates answer `200`. The service then reconciles against the authoritative public event feed
+and activates its latest publication only, so a late or older notification never downgrades.
+Activation requires, in order: the exported bytes match the published SHA-256 digest; the schema
+references match those frozen in the bytes; every schema document matches its digest and SRI pin;
+the rulebook compiles; a claim fixture satisfies each credential; and a dry-run Credo-TS signature
+succeeds. The Credo-TS issuer record, its metadata and the chained OAuth scope mapping are then
+updated together and read back; any failure restores the last-known-good catalogue. At startup the
+persisted catalogue is restored without contacting Attestbook, then the feed is read to catch up on
+missed publications. There is no polling; a failed download of an accepted notification is retried
+with bounded backoff.
+
+**Supported definitions.** An attestation type is imported when `supportedFormats` includes
+`dc+sd-jwt`; others are skipped with an informational diagnostic. It needs `bindingType: "key"`,
+exactly one `dc+sd-jwt` JSON Schema 2020-12 reference, and its `vct` from one SD-JWT VC Type
+Metadata reference or an explicit `vct_mappings` entry. The schema root must be an object of
+top-level `string`, `integer`, `number` or `boolean` properties, with `required`, `enum`, `const`,
+`minLength`, `maxLength`, `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `title`
+and `description`. Nested objects, arrays, `format`, `pattern`, `$ref`, Type Metadata `extends`,
+and claims named after protocol members (`iss`, `sub`, `iat`, `nbf`, `exp`, `cnf`, `vct`, `status`,
+`_sd…`) are rejected, not flattened. Every claim is selectively disclosable unless Type Metadata
+says `sd: "never"`. Schema documents must be hosted by the trusted Attestbook origin, or come from
+an `ATTESTBOOK_ALLOWED_SCHEMA_ORIGINS` origin with an SRI pin. Any error rejects the whole
+publication. Credential configuration ids are version-specific:
+`urn:attestbook:<rulebook>:<version>:<attestation-slug>-<digest>`, also used as the OAuth scope.
+
+**Claim values.** A schema constrains claims; it does not supply identity data. Sessions select
+a named fixture with `fixture_id`. `issuer_test_data` (the default) is the issuer's existing
+key/value test data, matched by claim name; `pid_default` never applies. Further fixtures, and
+issuer-owned `vct` mappings, come from `ATTESTBOOK_CLAIMS_FILE`:
+
+```json
+{
+  "fixtures": {
+    "membership": { "member_id": "M-0042", "given_name": "Ada", "active": true }
+  },
+  "vct_mappings": [
+    { "rulebook_id": "<rulebook id>", "attestation": "Membership Card", "vct": "https://example.org/membership/1" }
+  ]
+}
+```
+
+A fixture missing a required claim, or with a value the schema forbids, is refused with
+`claim_fixture_incomplete`. `status_list_enabled`, `status_reference` and `document_number` are
+refused for imported credentials.
+
+**Inspecting and recovering.** `GET /issuers` lists the active imported ids; the issuer metadata
+also advertises earlier definitions still used by unfinished sessions, which complete under the
+exact version they were offered with (shown as `credential_definition` on the session).
+`GET /integrations/attestbook/status` reports the active version and digest, the last observed
+event, the last successful synchronization, and the state (`idle`, `fetching`, `validating`,
+`activating`, `failed`). A failure names its stage: `fetch` (Attestbook unreachable or no event),
+`verify` (digest, pin or schema integrity), `compile` (unsupported credential, with per-attestation
+diagnostics), `issuability` (no fixture or dry-run signing), `activate` (Credo-TS rejected the
+update) or `persist`. No secret, token or claim value is ever reported or logged. Structured
+`component: "attestbook"` log lines record receipt, verification, compilation, activation, rollback
+and recovery. With `ATTESTBOOK_ADMIN_TOKEN` set, an operator can force a reconciliation:
+
+```sh
+curl -X POST "$BASE_URL/integrations/attestbook/sync" -H "Authorization: Bearer $ATTESTBOOK_ADMIN_TOKEN"
+```
+
 **[🔝 back to top](#toc)**
 
 ---
@@ -885,7 +984,7 @@ provision the two issuer-specific material directories without rotating material
 already exists there. Legacy root issuer files are ignored; they are not served and
 are not deleted automatically.
 
-Startup validates that all three issuer directories are complete, that certificates match
+Startup validates that every served issuer directory is complete, that certificates match
 their signing keys and exact issuer URI SANs, and that signing, encryption, and
 access-token public keys are not reused between issuer roles. A deployment-hostname
 `dNSName` SAN is optional and is not checked, allowing externally issued certificates
@@ -919,6 +1018,8 @@ data/issuers/eu-pid-jwt-proof-only/
 ├── issuer-encryption-private-jwk.json
 ├── issuer-private-jwk.json
 └── jwks.json
+
+data/issuers/attestbook-experimental/   (same files; served only with ATTESTBOOK_ENABLED)
 ```
 
 OpenID4VP verifier material:
@@ -963,6 +1064,25 @@ From env file `.env`, that is loaded automatically when present, you can set:
   `status_update_not_enabled`.
 - `STATUS_LIST_BASE_URL`: overrides the configured Status List endpoint.
 - `STATUS_LIST_API_KEY`: overrides the configured Status List management API key.
+- `ATTESTBOOK_ENABLED`: serves the experimental `attestbook-experimental` issuer and its
+  Attestbook routes. Defaults to `false`, in which case nothing below is read and the service
+  behaves as without the integration (only `GET /integrations/attestbook/status` answers
+  `{"enabled":false}`).
+- `ATTESTBOOK_BASE_URL`: the trusted public Attestbook API origin. HTTPS, or plain HTTP on a
+  loopback host for local fixtures; no path, query or credentials. Required when enabled.
+- `ATTESTBOOK_RULEBOOK_ID`: the one subscribed rulebook. Required when enabled.
+- `ATTESTBOOK_WEBHOOK_SECRET`: the subscription's `webhookSecret`. Without it, publication
+  notifications are refused with `503` (Attestbook retries them) and only startup and manual
+  reconciliation run.
+- `ATTESTBOOK_CLAIMS_FILE`: optional JSON file of named claim fixtures and `vct` mappings.
+- `ATTESTBOOK_ADMIN_TOKEN`: optional bearer token that enables
+  `POST /integrations/attestbook/sync`.
+- `ATTESTBOOK_ALLOWED_SCHEMA_ORIGINS`: optional comma-separated HTTPS origins from which pinned
+  external schema documents may be fetched. Without it, only Attestbook-hosted documents are used.
+
+The webhook callback URL is always derived from `PUBLIC_BASE_URL`, never from request headers.
+The last-known-good imported catalogue and the received notifications are kept in
+`data/attestbook/state.json`, written atomically; it holds no secret.
 
 To trust a Status List service that signs with a certificate separate from the credential
 issuer, configure its trust anchor in `config.yaml` as a base64-DER or PEM certificate:
@@ -1008,6 +1128,13 @@ that accepts it; neither is in place.
 **Digital Credentials API on iOS and in webviews.** `navigator.credentials.get({ digital: … })`
 is not exposed there, so the DC API presentation page cannot drive those wallets. It also requires
 a secure context, so `PUBLIC_BASE_URL` must be HTTPS outside local testing.
+
+**Attestbook-defined credentials.** Experimental, `dc+sd-jwt` and JWT proofs only, for one
+rulebook, in a single issuer process. Issuance success says nothing about EUDI trust or
+interoperability compliance. Status lists and mdoc are not supported for imported types, and no
+issuance policy is inferred from a rulebook. Issuance sessions are in memory, so sessions started
+before a restart do not survive it, even though the imported catalogue does. Changes to
+`ATTESTBOOK_CLAIMS_FILE` take effect at restart.
 
 **Wallet refusal versus End-User cancellation.** The browser reports both as a `DOMException`
 with deliberately sparse detail, so the `rejected` invocation outcome records what the browser
