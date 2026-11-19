@@ -881,8 +881,11 @@ OpenID4VCI execution, all through the existing Credo-TS issuer. The PID issuers 
 
 **Setup.** `pnpm capture-services init` provisions material for this issuer too, so enabling it
 needs no further initialization. Set `ATTESTBOOK_ENABLED=true`, `ATTESTBOOK_BASE_URL` and
-`ATTESTBOOK_RULEBOOK_ID` (see [Configuration](#️-configuration)). Without a rulebook the issuer
-still serves the Credimi test degree (`urn:credimi:degree:1.sd-jwt.jwt-proof`).
+`ATTESTBOOK_RULEBOOK_ID` (see [Configuration](#️-configuration)). Like `eu-pid-device-bound`, the
+issuer requires key attestation: it advertises `jwt` and `attestation` proofs, both with
+`key_attestations_required`, which is what EUDI Wallets following the ETSI profile accept. Without a
+rulebook it still serves the Credimi test degree
+(`urn:credimi:degree:1.sd-jwt.key-attestation-required`).
 
 **One-time subscription.** With the service deployed at `PUBLIC_BASE_URL`:
 
@@ -1129,7 +1132,7 @@ that accepts it; neither is in place.
 is not exposed there, so the DC API presentation page cannot drive those wallets. It also requires
 a secure context, so `PUBLIC_BASE_URL` must be HTTPS outside local testing.
 
-**Attestbook-defined credentials.** Experimental, `dc+sd-jwt` and JWT proofs only, for one
+**Attestbook-defined credentials.** Experimental, `dc+sd-jwt` and key-attested proofs only, for one
 rulebook, in a single issuer process. Issuance success says nothing about EUDI trust or
 interoperability compliance. Status lists and mdoc are not supported for imported types, and no
 issuance policy is inferred from a rulebook. Issuance sessions are in memory, so sessions started

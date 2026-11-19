@@ -4,20 +4,22 @@ import type { IssuerConfiguration } from "../types.js";
 /**
  * Opt-in issuer for credential types compiled from one subscribed Attestbook rulebook. It keeps
  * the PID issuers untouched: its static catalogue is only the Credimi test degree, so it always
- * advertises one issuable configuration even before any rulebook has been imported.
+ * advertises one issuable configuration even before any rulebook has been imported. Like
+ * `eu-pid-device-bound`, it requires key attestation for both `jwt` and `attestation` proofs, which
+ * is what EUDI Wallets following the ETSI profile accept.
  */
 export const attestbookExperimental: IssuerConfiguration = {
   id: "attestbook-experimental",
   routeSlug: "attestbook-experimental",
   compliance: "experimental",
-  proofPolicy: "jwt-proof",
+  proofPolicy: "key-attestation-required",
   feature: "attestbook",
   staticCredentialVcts: [DEGREE_SD_JWT_VCT],
   importsAttestbookCredentials: true,
   display: {
     name: "Attestbook experimental issuer",
     description:
-      "SD-JWT VC credential types imported from a subscribed Attestbook rulebook, issued with local test claim values.",
+      "SD-JWT VC credential types imported from a subscribed Attestbook rulebook, issued with generated test claim values. Requires key attestation.",
     warning:
       "Experimental: issuance success does not establish EUDI trust or interoperability compliance.",
   },

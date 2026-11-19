@@ -42,7 +42,7 @@ describe("always-on issuer configurations", () => {
       attestbook: { ...DEFAULT_CONFIG.attestbook, enabled: true },
     };
     expect(resolvedIssuerConfigurationById(enabled, "attestbook-experimental")).toMatchObject({
-      proofPolicy: "jwt-proof",
+      proofPolicy: "key-attestation-required",
       importsAttestbookCredentials: true,
     });
   });

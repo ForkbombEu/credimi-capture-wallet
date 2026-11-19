@@ -529,7 +529,7 @@ export class AttestbookIntegration {
         errorMessage(error),
       );
     }
-    const compiled = compileRulebook(verified);
+    const compiled = compileRulebook(verified, this.issuer.proofPolicy);
     this.diagnostics = compiled.diagnostics;
     if (compiled.definitions.length === 0) {
       throw new SyncStageError(

@@ -118,7 +118,7 @@ function trust(allowedSchemaOrigins: string[] = []) {
 async function compiled(version: string, attestations: FixtureAttestation[]) {
   const event = fixture.publish(version, attestations);
   const snapshot = await client().downloadSnapshot(event);
-  return compileRulebook(verifySnapshot(snapshot, trust()));
+  return compileRulebook(verifySnapshot(snapshot, trust()), "key-attestation-required");
 }
 
 async function definitionOf(version: string, attestation: FixtureAttestation) {
@@ -297,7 +297,7 @@ describe("Attestbook rulebook compiler", () => {
       vct: "urn:attestbook:membership-card",
       vctSource: "attestation_name",
       displayName: "Membership card",
-      proofPolicy: "jwt-proof",
+      proofPolicy: "key-attestation-required",
       claimValueProvider: "faker-js",
     });
     expect(definition?.credentialConfigurationId).toMatch(

@@ -1,3 +1,4 @@
+import type { CredentialProofPolicy } from "../metadata.js";
 import { sha256Hex } from "./digest.js";
 import { compileJsonSchema } from "./json-schema.js";
 import {
@@ -44,9 +45,13 @@ interface TypeMetadata {
  * Compiles every SD-JWT VC attestation type of a verified rulebook version into an executable
  * credential definition. Attestation types without `dc+sd-jwt` are reported and skipped; any
  * unsupported construct in a selected type is an error that blocks the whole catalogue, so a
- * partially trusted definition is never produced.
+ * partially trusted definition is never produced. Every definition takes the importing issuer's
+ * proof policy: a rulebook does not choose how holders prove key possession.
  */
-export function compileRulebook(rulebook: VerifiedRulebook): CompilationResult {
+export function compileRulebook(
+  rulebook: VerifiedRulebook,
+  proofPolicy: CredentialProofPolicy,
+): CompilationResult {
   const diagnostics: AttestbookDiagnostic[] = [];
   const definitions: AttestbookCredentialDefinition[] = [];
   const names = new Set<string>();
@@ -75,7 +80,7 @@ export function compileRulebook(rulebook: VerifiedRulebook): CompilationResult {
       });
       return;
     }
-    const definition = compileAttestation(rulebook, attestation, index, diagnostics);
+    const definition = compileAttestation(rulebook, attestation, index, proofPolicy, diagnostics);
     if (!definition) return;
     const owner = vcts.get(definition.vct);
     if (owner) {
@@ -124,6 +129,7 @@ function compileAttestation(
   rulebook: VerifiedRulebook,
   attestation: AttestbookRulebookAttestation,
   index: number,
+  proofPolicy: CredentialProofPolicy,
   diagnostics: AttestbookDiagnostic[],
 ): AttestbookCredentialDefinition | null {
   const before = diagnostics.length;
@@ -230,7 +236,7 @@ function compileAttestation(
       integrity: document.reference.integrity,
       hosted: document.reference.hosted !== null,
     })),
-    proofPolicy: "jwt-proof",
+    proofPolicy,
     claimValueProvider: "faker-js",
     disclosurePolicy: "issuer-default-selective",
   };

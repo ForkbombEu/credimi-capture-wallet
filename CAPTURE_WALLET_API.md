@@ -641,7 +641,7 @@ failures remain in `checks.errors` and `raw.presentation_response_verifier_http`
 
 ## Attestbook-defined credentials
 
-Present only when the deployment sets `ATTESTBOOK_ENABLED`. The experimental `attestbook-experimental` issuer (compliance `experimental`, JWT proofs, `dc+sd-jwt` only) serves the Credimi test degree plus the SD-JWT VC credential types compiled from the latest published version of one configured Attestbook rulebook. Issuance uses the same session, offer, deeplink, QR, metadata and protocol endpoints as every other issuer.
+Present only when the deployment sets `ATTESTBOOK_ENABLED`. The experimental `attestbook-experimental` issuer (compliance `experimental`, `dc+sd-jwt` only) serves the Credimi test degree plus the SD-JWT VC credential types compiled from the latest published version of one configured Attestbook rulebook. Like `eu-pid-device-bound`, it requires key attestation: every configuration advertises `jwt` and `attestation` proof types, both with `key_attestations_required: {}`. Issuance uses the same session, offer, deeplink, QR, metadata and protocol endpoints as every other issuer.
 
 | Method | Path | Purpose |
 | --- | --- | --- |

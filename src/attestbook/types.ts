@@ -1,3 +1,5 @@
+import type { CredentialProofPolicy } from "../metadata.js";
+
 /** Kinds of schema documents a compiled definition can be built from. */
 export type AttestbookSchemaKind = "json_schema_2020_12" | "sd_jwt_vc_type_metadata";
 
@@ -166,7 +168,8 @@ export interface AttestbookCredentialDefinition {
   readonly claims: AttestbookObjectClaim;
   readonly claimMetadata: readonly AttestbookClaimMetadata[];
   readonly schemaReferences: readonly AttestbookValidatedSchemaReference[];
-  readonly proofPolicy: "jwt-proof";
+  /** The importing issuer's proof policy. */
+  readonly proofPolicy: CredentialProofPolicy;
   readonly claimValueProvider: "faker-js";
   readonly disclosurePolicy: "issuer-default-selective";
 }

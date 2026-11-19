@@ -14,6 +14,7 @@ import {
   decodeJwt,
   exportJWK,
   generateKeyPair,
+  importJWK,
   importX509,
 } from "jose";
 import request from "supertest";
@@ -26,7 +27,12 @@ import {
   verifySubscription,
   webhookCallbackUrl,
 } from "../src/attestbook/subscription.js";
-import { DEFAULT_CONFIG, initIssuer } from "../src/config.js";
+import {
+  DEFAULT_CONFIG,
+  initIssuer,
+  issuerCertificatePath,
+  privateJwkPath,
+} from "../src/config.js";
 import { DEGREE_SD_JWT_VCT } from "../src/credential-definitions.js";
 import { credentialRegistry } from "../src/credential-registry.js";
 import { credoOpenId4VciIssuer } from "../src/credo-openid4vci.js";
@@ -188,7 +194,27 @@ async function dpopProof(
     .sign(dpop.privateKey);
 }
 
-/** OpenID4VCI 1.0 Appendix F.1: `iss` is the client_id, omitted for anonymous pre-authorized access. */
+/**
+ * A key attestation for the holder key, signed by an issuer key and certificate already in the
+ * data directory: the test issuer trusts the chain a key attestation presents.
+ */
+async function keyAttestationJwt(holder: Key, nonce: string): Promise<string> {
+  const material = join(dataDir, "issuers", "eu-pid-device-bound");
+  const certificate = readFileSync(issuerCertificatePath(material), "utf8")
+    .replace(/-----(BEGIN|END) CERTIFICATE-----/g, "")
+    .replace(/\s+/g, "");
+  const now = Math.floor(Date.now() / 1000);
+  return new SignJWT({ iat: now, exp: now + 300, nonce, attested_keys: [holder.publicJwk] })
+    .setProtectedHeader({ alg: "ES256", typ: "key-attestation+jwt", x5c: [certificate] })
+    .sign(
+      await importJWK(JSON.parse(readFileSync(privateJwkPath(material), "utf8")) as JWK, "ES256"),
+    );
+}
+
+/**
+ * A key-attested JWT proof, as the experimental issuer requires. OpenID4VCI 1.0 Appendix F.1:
+ * `iss` is the client_id, omitted for anonymous pre-authorized access.
+ */
 async function proofJwt(holder: Key, nonce: string, clientId?: string): Promise<string> {
   return new SignJWT({
     aud: issuerIdentifier,
@@ -200,6 +226,7 @@ async function proofJwt(holder: Key, nonce: string, clientId?: string): Promise<
       alg: "ES256",
       typ: "openid4vci-proof+jwt",
       jwk: holder.publicJwk as unknown as JWK,
+      key_attestation: await keyAttestationJwt(holder, nonce),
     })
     .sign(holder.privateKey);
 }
@@ -346,7 +373,9 @@ describe("Attestbook-defined credentials, end to end", () => {
     });
     const v1Ids = await issuerCredentialIds(issuer);
     const v1Id = importedId(v1Ids, "1.0");
-    expect(v1Ids).toContain(degreeSdJwtCredentialConfigurationId(config, "jwt-proof"));
+    expect(v1Ids).toContain(
+      degreeSdJwtCredentialConfigurationId(config, "key-attestation-required"),
+    );
     expect(await advertisedIds(issuer)).toEqual(expect.arrayContaining(v1Ids));
 
     // Unsigned and signed issuer metadata, and the authorization server, advertise it consistently.
@@ -361,7 +390,14 @@ describe("Attestbook-defined credentials, end to end", () => {
       format: "dc+sd-jwt",
       vct: membershipVct,
       scope: v1Id,
-      proof_types_supported: { jwt: { proof_signing_alg_values_supported: ["ES256"] } },
+      // The ETSI wallet profile accepts only proof types that require key attestation.
+      proof_types_supported: {
+        jwt: { proof_signing_alg_values_supported: ["ES256"], key_attestations_required: {} },
+        attestation: {
+          proof_signing_alg_values_supported: ["ES256"],
+          key_attestations_required: {},
+        },
+      },
     });
     const authorizationServer = await request(issuer.app).get(
       `/.well-known/oauth-authorization-server/issuers/${issuerId}`,
@@ -689,7 +725,10 @@ describe("Attestbook-defined credentials, end to end", () => {
   it("issues the static test degree from the experimental issuer through the ordinary Credo flow", async () => {
     const harness = await startIssuer();
     const { compact } = await issuePreAuthorized(harness, {
-      credential_configuration_id: degreeSdJwtCredentialConfigurationId(config, "jwt-proof"),
+      credential_configuration_id: degreeSdJwtCredentialConfigurationId(
+        config,
+        "key-attestation-required",
+      ),
     });
     expect(new SdJwtVcService({} as never).fromCompact(compact).prettyClaims.vct).toBe(
       DEGREE_SD_JWT_VCT,
