@@ -348,7 +348,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         const credentialConfigurationId =
           asStringOrNull(body.credential_configuration_id) ?? supportedIds[0];
         const credential = credentialConfigurationId
-          ? registry.credentialForNewSession(issuer, credentialConfigurationId)
+          ? registry.credentialById(issuer, credentialConfigurationId)
           : null;
         if (!credentialConfigurationId || !credential) {
           return res
@@ -708,7 +708,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       const credentialConfigurationId =
         asStringOrNull(body.credential_configuration_id) ?? supportedCredentialIds[0];
       const credential = credentialConfigurationId
-        ? registry.credentialForNewSession(issuer, credentialConfigurationId)
+        ? registry.credentialById(issuer, credentialConfigurationId)
         : null;
       if (!credentialConfigurationId || !credential) {
         return res.status(400).json({
@@ -1577,6 +1577,30 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         }
       }
     }
+    // An imported credential keeps its configuration id across rulebook versions. A session
+    // created under a version that has since been replaced is refused rather than issued under a
+    // definition the Wallet was not offered (OpenID4VCI 1.0 Section 8.3.1.2).
+    const attributed = capture?.session_id ? store.getSession(capture.session_id) : undefined;
+    const pinned = attributed?.credential_definition;
+    if (attributed && pinned) {
+      const active = credentialRegistry(config, store).credentialById(
+        issuer,
+        attributed.credential_configuration_id,
+      )?.attestbook;
+      if (active?.contentDigest !== pinned.content_digest) {
+        store.addEvent(attributed, "credential_definition_superseded", {
+          pinned_version: pinned.version,
+          active_version: active?.version ?? null,
+        });
+        return res
+          .status(400)
+          .set("Cache-Control", "no-store")
+          .json({
+            error: "invalid_credential_request",
+            error_description: `the offer was made under rulebook version ${pinned.version}, which is no longer active; request a new offer`,
+          });
+      }
+    }
     const { credential_response_encryption: _credentialResponseEncryption, ...credoBody } = body;
     req.body = credoBody;
     req.headers["content-type"] = "application/json";
@@ -1903,7 +1927,7 @@ async function createIssuanceSession(
   // the active one, so the session is always pinned to a definition the issuer record carries.
   const registry = credentialRegistry(config, store);
   return registry.serialize(async () => {
-    const active = registry.credentialForNewSession(issuer, credentialConfigurationId)?.attestbook;
+    const active = registry.credentialById(issuer, credentialConfigurationId)?.attestbook;
     if (active?.contentDigest !== importedDefinition.contentDigest) {
       throw new CredentialSupersededError(
         `credential configuration '${credentialConfigurationId}' was replaced by a newer rulebook version`,

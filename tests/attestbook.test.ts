@@ -300,10 +300,8 @@ describe("Attestbook rulebook compiler", () => {
       proofPolicy: "key-attestation-required",
       claimValueProvider: "faker-js",
     });
-    expect(definition?.credentialConfigurationId).toMatch(
-      new RegExp(`^urn:attestbook:${fixture.rulebookId}:2\\.0:membership-card-[0-9a-f]{12}$`),
-    );
-    expect(definition?.scope).toBe(definition?.credentialConfigurationId);
+    expect(definition?.credentialConfigurationId).toBe("urn:attestbook:membership-card");
+    expect(definition?.scope).toBe("urn:attestbook:membership-card");
     const properties = definition?.claims.properties ?? [];
     expect(properties.find((property) => property.name === "member_id")).toMatchObject({
       required: true,
@@ -339,14 +337,17 @@ describe("Attestbook rulebook compiler", () => {
     expect(vctForAttestationName("  --  ")).toBeNull();
   });
 
-  it("derives version-specific configuration ids and a version-independent vct", async () => {
+  it("keeps the vct, configuration id and scope identical across versions", async () => {
     const first = await compiled("2.2", [membership]);
     const second = await compiled("2.3", [membership]);
 
-    expect(first.definitions[0]?.credentialConfigurationId).not.toBe(
-      second.definitions[0]?.credentialConfigurationId,
-    );
-    expect(first.definitions[0]?.vct).toBe(second.definitions[0]?.vct);
+    expect(second.definitions[0]).toMatchObject({
+      vct: first.definitions[0]?.vct,
+      credentialConfigurationId: first.definitions[0]?.credentialConfigurationId,
+      scope: first.definitions[0]?.scope,
+      version: "2.3",
+    });
+    expect(second.definitions[0]?.contentDigest).not.toBe(first.definitions[0]?.contentDigest);
   });
 
   it("compiles nested objects and arrays into claim metadata with null array paths", async () => {

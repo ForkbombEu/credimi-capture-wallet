@@ -421,7 +421,6 @@ export class AttestbookIntegration {
             ),
           }
         : null,
-      retained_credential_configuration_ids: registry.retainedCredentialIds(this.issuer.id),
       last_successful_sync_at: this.lastSuccessfulSyncAt,
       sync: {
         state: this.state,

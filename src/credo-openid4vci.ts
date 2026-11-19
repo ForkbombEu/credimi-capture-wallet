@@ -261,7 +261,7 @@ export class CredoOpenId4VciIssuer {
     offerMutation?: VpRequestMutationEdits;
   }): Promise<CredoCredentialOffer> {
     const issuer = this.requiredIssuer(options.issuerConfigurationId);
-    const credential = credentialRegistry(this.config, this.store).issuableCredentialById(
+    const credential = credentialRegistry(this.config, this.store).credentialById(
       issuer,
       options.credentialConfigurationId,
     );
@@ -345,7 +345,7 @@ export class CredoOpenId4VciIssuer {
         "urn:ietf:params:oauth:grant-type:pre-authorized_code",
       ],
       scopes_supported: credentialRegistry(this.config, this.store)
-        .issuableCredentialsForIssuer(issuer)
+        .credentialsForIssuer(issuer)
         .map((credential) => credential.scope),
       token_endpoint_auth_methods_supported: ["none", "attest_jwt_client_auth"],
       client_attestation_signing_alg_values_supported: ["ES256"],
@@ -393,9 +393,7 @@ export class CredoOpenId4VciIssuer {
 
   private async createIssuerRecord(issuer: ResolvedIssuerConfiguration): Promise<void> {
     const issuerConfig = issuerAppConfig(this.config, issuer);
-    const credentials = credentialRegistry(this.config, this.store).issuableCredentialsForIssuer(
-      issuer,
-    );
+    const credentials = credentialRegistry(this.config, this.store).credentialsForIssuer(issuer);
     const metadata = credentialIssuerMetadata(issuerConfig, issuer, credentials);
     const createdIssuer = await this.issuerApi().createIssuer({
       issuerId: issuer.id,
@@ -427,9 +425,7 @@ export class CredoOpenId4VciIssuer {
    * activation never reports success while advertising a credential the issuer cannot issue.
    */
   async syncIssuerRecord(issuer: ResolvedIssuerConfiguration): Promise<void> {
-    const credentials = credentialRegistry(this.config, this.store).issuableCredentialsForIssuer(
-      issuer,
-    );
+    const credentials = credentialRegistry(this.config, this.store).credentialsForIssuer(issuer);
     const record = await this.issuerApi().getIssuerByIssuerId(issuer.id);
     record.credentialConfigurationsSupported = credentialConfigurationsSupported(
       credentials,
@@ -511,22 +507,6 @@ export class CredoOpenId4VciIssuer {
           previous_state: event.payload.previousState,
           state: event.payload.issuanceSession.state,
         });
-        if (
-          captureSession.credential_definition &&
-          (captureSession.status === "credential_issued" || captureSession.status === "error")
-        ) {
-          void credentialRegistry(this.config, this.store)
-            .pruneRetained(captureSession.issuer_configuration_id)
-            .catch((error: unknown) => {
-              console.error(
-                JSON.stringify({
-                  component: "attestbook",
-                  event: "retained_prune_failed",
-                  message: error instanceof Error ? error.message : String(error),
-                }),
-              );
-            });
-        }
       },
     );
   }
@@ -539,7 +519,7 @@ export class CredoOpenId4VciIssuer {
     const captureSession = this.store.getSession(captureSessionId);
     if (!captureSession) throw new Error("Capture session not found");
     const issuer = this.requiredIssuer(options.issuanceSession.issuerId);
-    const credential = credentialRegistry(this.config, this.store).issuableCredentialById(
+    const credential = credentialRegistry(this.config, this.store).credentialById(
       issuer,
       options.credentialConfigurationId,
     );
@@ -609,8 +589,10 @@ export class CredoOpenId4VciIssuer {
     const signingConfig = issuerAppConfig(this.config, issuer);
     const definition = credential.attestbook;
     if (definition) {
+      // Refused earlier at the Credential Endpoint with `invalid_credential_request`; this guards
+      // a newer version activated between that check and signing.
       if (captureSession.credential_definition?.content_digest !== definition.contentDigest) {
-        throw new Error("Capture session is not pinned to this credential definition");
+        throw new Error("Capture session was created under a superseded credential definition");
       }
       const generated = captureSession.generated_claims;
       if (!generated) throw new Error("Capture session has no generated claims");

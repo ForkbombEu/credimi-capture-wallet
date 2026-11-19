@@ -1,5 +1,4 @@
 import type { CredentialProofPolicy } from "../metadata.js";
-import { sha256Hex } from "./digest.js";
 import { compileJsonSchema } from "./json-schema.js";
 import {
   SD_JWT_VC_FORMAT,
@@ -209,7 +208,8 @@ function compileAttestation(
 
   if (diagnostics.slice(before).some((entry) => entry.severity === "error")) return null;
   if (vct === null || !schemaDocument || !claims) return null;
-  const credentialConfigurationId = credentialConfigurationIdFor(rulebook, attestation.name);
+  // The vct is also the credential configuration id and the OAuth scope: stable across versions,
+  // and unique within the rulebook (`duplicate_vct`).
   return {
     origin: rulebook.snapshot.origin,
     rulebookId: rulebook.document.rulebookId,
@@ -221,8 +221,8 @@ function compileAttestation(
       attestationLoS: attestation.attestationLoS,
       bindingType: attestation.bindingType,
     },
-    credentialConfigurationId,
-    scope: credentialConfigurationId,
+    credentialConfigurationId: vct,
+    scope: vct,
     format: "dc+sd-jwt",
     vct,
     vctSource: "attestation_name",
@@ -240,26 +240,6 @@ function compileAttestation(
     claimValueProvider: "faker-js",
     disclosurePolicy: "issuer-default-selective",
   };
-}
-
-/**
- * A deterministic, version-specific identifier, also used as the OAuth scope. The readable part
- * names the rulebook, version and attestation; the digest over the origin and those identities
- * keeps two attestations whose names slug alike, or two origins, from colliding.
- */
-export function credentialConfigurationIdFor(
-  rulebook: VerifiedRulebook,
-  attestationName: string,
-): string {
-  const { rulebookId, version } = rulebook.document;
-  const slug = slugify(attestationName).slice(0, 40).replace(/-+$/, "") || "attestation";
-  const digest = sha256Hex(
-    Buffer.from(
-      [rulebook.snapshot.origin, rulebookId, version, attestationName].join("\n"),
-      "utf8",
-    ),
-  ).slice(0, 12);
-  return `urn:attestbook:${rulebookId}:${version}:${slug}-${digest}`;
 }
 
 /** Lowercase ASCII letters and digits separated by single hyphens; diacritics are dropped. */

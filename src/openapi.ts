@@ -1607,7 +1607,6 @@ export function openApiDocument(config: AppConfig): JsonRecord {
                 credential_configuration_ids: { type: "array", items: { type: "string" } },
               },
             },
-            retained_credential_configuration_ids: { type: "array", items: { type: "string" } },
             last_successful_sync_at: { type: ["string", "null"] },
             sync: {
               type: "object",

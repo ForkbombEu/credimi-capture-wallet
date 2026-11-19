@@ -883,9 +883,9 @@ OpenID4VCI execution, all through the existing Credo-TS issuer. The PID issuers 
 needs no further initialization. Set `ATTESTBOOK_ENABLED=true`, `ATTESTBOOK_BASE_URL` and
 `ATTESTBOOK_RULEBOOK_ID` (see [Configuration](#️-configuration)). Like `eu-pid-device-bound`, the
 issuer requires key attestation: it advertises `jwt` and `attestation` proofs, both with
-`key_attestations_required`, which is what EUDI Wallets following the ETSI profile accept. Without a
-rulebook it still serves the Credimi test degree
-(`urn:credimi:degree:1.sd-jwt.key-attestation-required`).
+`key_attestations_required`, which is what EUDI Wallets following the ETSI profile accept. It
+serves imported credentials only: until a rulebook version has been activated it advertises an
+empty `credential_configurations_supported`.
 
 **One-time subscription.** With the service deployed at `PUBLIC_BASE_URL`:
 
@@ -935,9 +935,7 @@ at the top level, `_sd…` and `...` anywhere) are rejected. Every object member
 element is individually selectively disclosable unless Type Metadata says `sd: "never"` for its
 path (use `null` for "every element", e.g. `["degrees", null, "level"]`). Schema documents must be
 hosted by the trusted Attestbook origin, or come from an `ATTESTBOOK_ALLOWED_SCHEMA_ORIGINS`
-origin with an SRI pin. Any error rejects the whole publication. Credential configuration ids are
-version-specific: `urn:attestbook:<rulebook>:<version>:<attestation-slug>-<digest>`, also used as
-the OAuth scope.
+origin with an SRI pin. Any error rejects the whole publication.
 
 **Credential type.** The `vct` is derived from the attestation name:
 `urn:attestbook:<slug>`, where the slug is the name in lowercase ASCII with diacritics dropped and
@@ -957,9 +955,12 @@ regenerate them exactly. A schema whose constraints no value can meet is rejecte
 `fixture_id`, `status_list_enabled`, `status_reference` and `document_number` are refused for
 imported credentials.
 
-**Inspecting and recovering.** `GET /issuers` lists the active imported ids; the issuer metadata
-also advertises earlier definitions still used by unfinished sessions, which complete under the
-exact version they were offered with (shown as `credential_definition` on the session).
+**Inspecting and recovering.** `GET /issuers` lists the active imported ids. Each credential's
+configuration id and OAuth scope are its `vct` (`urn:attestbook:membership-card`), so they stay the
+same across versions and only the active version is advertised. A session keeps the version it was
+offered with (`credential_definition` on the session); if a newer version is activated before
+the Wallet requests the credential, the Credential Endpoint refuses that request with
+`invalid_credential_request` and the Wallet must start again from a new offer.
 `GET /integrations/attestbook/status` reports the active version and digest, the last observed
 event, the last successful synchronization, and the state (`idle`, `fetching`, `validating`,
 `activating`, `failed`). A failure names its stage: `fetch` (Attestbook unreachable or no event),

@@ -33,10 +33,7 @@ import {
   issuerCertificatePath,
   privateJwkPath,
 } from "../src/config.js";
-import { DEGREE_SD_JWT_VCT } from "../src/credential-definitions.js";
-import { credentialRegistry } from "../src/credential-registry.js";
 import { credoOpenId4VciIssuer } from "../src/credo-openid4vci.js";
-import { degreeSdJwtCredentialConfigurationId } from "../src/metadata.js";
 import { createApp } from "../src/server.js";
 import { CaptureStore } from "../src/state.js";
 import type { AppConfig, JsonRecord } from "../src/types.js";
@@ -159,12 +156,6 @@ async function advertisedIds(harness: Harness): Promise<string[]> {
     `/.well-known/openid-credential-issuer/issuers/${issuerId}`,
   );
   return Object.keys(metadata.body.credential_configurations_supported as JsonRecord);
-}
-
-function importedId(ids: string[], version: string): string {
-  const id = ids.find((candidate) => candidate.includes(`:${version}:`));
-  if (!id) throw new Error(`no imported credential for version ${version} in ${ids.join(", ")}`);
-  return id;
 }
 
 interface Key {
@@ -371,12 +362,10 @@ describe("Attestbook-defined credentials, end to end", () => {
       active: { version: "1.0", content_digest: v1.contentDigest },
       sync: { state: "idle", failure: null },
     });
-    const v1Ids = await issuerCredentialIds(issuer);
-    const v1Id = importedId(v1Ids, "1.0");
-    expect(v1Ids).toContain(
-      degreeSdJwtCredentialConfigurationId(config, "key-attestation-required"),
-    );
-    expect(await advertisedIds(issuer)).toEqual(expect.arrayContaining(v1Ids));
+    // The configuration id and the scope are the vct, and nothing else is served.
+    const v1Id = membershipVct;
+    expect(await issuerCredentialIds(issuer)).toEqual([v1Id]);
+    expect(await advertisedIds(issuer)).toEqual([v1Id]);
 
     // Unsigned and signed issuer metadata, and the authorization server, advertise it consistently.
     const signed = await request(issuer.app)
@@ -518,7 +507,7 @@ describe("Attestbook-defined credentials, end to end", () => {
       new SdJwtVcService({} as never).fromCompact(authorizationCodeCredential).prettyClaims,
     ).toMatchObject({ ...codeSession.generated_claims?.claims, vct: membershipVct });
 
-    // A session left in flight across the update keeps its pinned definition.
+    // A session left in flight across the update is refused at its Credential Request.
     const inFlight = await createSession(issuer, {
       credential_configuration_id: v1Id,
       flow: "pre_authorized_code",
@@ -538,36 +527,49 @@ describe("Attestbook-defined credentials, end to end", () => {
     expect(accepted.status).toBe(202);
     expect(accepted.body).toEqual({ status: "accepted", event_id: v2.id });
     expect(await status(issuer)).toMatchObject({
-      active: { version: "2.0", content_digest: v2.contentDigest },
-      retained_credential_configuration_ids: [v1Id],
+      active: {
+        version: "2.0",
+        content_digest: v2.contentDigest,
+        credential_configuration_ids: [membershipVct],
+      },
       last_observed_event: { event_id: v2.id },
     });
-    const v2Id = importedId(await issuerCredentialIds(issuer), "2.0");
-    expect(await issuerCredentialIds(issuer)).not.toContain(v1Id);
-    expect(await advertisedIds(issuer)).toEqual(expect.arrayContaining([v1Id, v2Id]));
-    const superseded = await request(issuer.app).post("/sessions").send({
-      issuer_configuration_id: issuerId,
-      credential_configuration_id: v1Id,
-    });
-    expect(superseded.status).toBe(400);
+    const v2Id = membershipVct;
+    expect(await advertisedIds(issuer)).toEqual([v2Id]);
+    const v2Metadata = await request(issuer.app).get(
+      `/.well-known/openid-credential-issuer/issuers/${issuerId}`,
+    );
+    expect(
+      v2Metadata.body.credential_configurations_supported[v2Id].credential_metadata.claims,
+    ).toEqual(
+      expect.arrayContaining([expect.objectContaining({ path: ["memberships", null, "club"] })]),
+    );
 
     const inFlightDpop = await key();
     const inFlightToken = await preAuthorizedToken(issuer, inFlight, inFlightDpop);
-    const pinned = await requestCredential(
-      issuer,
-      inFlight,
-      inFlightDpop,
-      inFlightToken.access_token,
-      await key(),
+    const noncePath = `/issuers/${issuerId}/nonce`;
+    const inFlightNonce = (await request(issuer.app).post(noncePath)).body.c_nonce as string;
+    const credentialPath = `/issuers/${issuerId}/credential`;
+    const refused = await request(issuer.app)
+      .post(credentialPath)
+      .set("authorization", `DPoP ${inFlightToken.access_token}`)
+      .set(
+        "DPoP",
+        await dpopProof(inFlightDpop, "POST", credentialPath, inFlightToken.access_token),
+      )
+      .send({
+        credential_configuration_id: inFlight.credential_configuration_id,
+        proofs: { jwt: [await proofJwt(await key(), inFlightNonce)] },
+      });
+    expect(refused.status).toBe(400);
+    expect(refused.body).toMatchObject({ error: "invalid_credential_request" });
+    const refusedCapture = (await request(issuer.app).get(`/sessions/${inFlight.session_id}`)).body;
+    expect(refusedCapture.events).toContainEqual(
+      expect.objectContaining({
+        type: "credential_definition_superseded",
+        detail: { pinned_version: "1.0", active_version: "2.0" },
+      }),
     );
-    const pinnedClaims = new SdJwtVcService({} as never).fromCompact(pinned).prettyClaims;
-    expect(pinnedClaims).toMatchObject({
-      ...inFlight.generated_claims?.claims,
-      vct: membershipVct,
-    });
-    expect(pinnedClaims).not.toHaveProperty("address");
-    await credentialRegistry(config, issuer.store).serialize(async () => undefined);
-    expect(await advertisedIds(issuer)).not.toContain(v1Id);
 
     // Nested claims: an object and an array of objects, disclosable member by member and element
     // by element, except where Type Metadata says `sd: "never"`.
@@ -719,22 +721,47 @@ describe("Attestbook-defined credentials, end to end", () => {
       active: { version: "5.0", content_digest: v5.contentDigest },
       sync: { state: "idle", last_trigger: "startup" },
     });
-    expect(importedId(await issuerCredentialIds(issuer), "5.0")).toContain(fixture.rulebookId);
+    expect(await issuerCredentialIds(issuer)).toEqual([membershipVct]);
   });
 
-  it("issues the static test degree from the experimental issuer through the ordinary Credo flow", async () => {
-    const harness = await startIssuer();
-    const { compact } = await issuePreAuthorized(harness, {
-      credential_configuration_id: degreeSdJwtCredentialConfigurationId(
-        config,
-        "key-attestation-required",
-      ),
-    });
-    expect(new SdJwtVcService({} as never).fromCompact(compact).prettyClaims.vct).toBe(
-      DEGREE_SD_JWT_VCT,
-    );
-    const [capture] = [...harness.store.sessions.values()];
-    expect(capture?.credential_definition).toBeUndefined();
+  it("advertises no credential configuration before a rulebook version is active", async () => {
+    const empty = new AttestbookFixture();
+    await empty.start();
+    const emptyDir = mkdtempSync(join(tmpdir(), "attestbook-empty-"));
+    try {
+      await initIssuer({ issuer_base_url: issuerBaseUrl, data_dir: emptyDir });
+      const emptyConfig: AppConfig = {
+        ...config,
+        data_dir: emptyDir,
+        attestbook: { ...config.attestbook, base_url: empty.origin, rulebook_id: empty.rulebookId },
+      };
+      const store = new CaptureStore(emptyConfig);
+      attestbookIntegration(emptyConfig, store, { logger: () => undefined });
+      const app = createApp(emptyConfig, store);
+      await credoOpenId4VciIssuer(emptyConfig, store);
+      await attestbookIntegration(emptyConfig, store).idle();
+
+      const metadata = await request(app).get(
+        `/.well-known/openid-credential-issuer/issuers/${issuerId}`,
+      );
+      expect(metadata.status).toBe(200);
+      expect(metadata.body.credential_configurations_supported).toEqual({});
+      const session = await request(app)
+        .post("/sessions")
+        .send({ issuer_configuration_id: issuerId });
+      expect(session.status).toBe(400);
+      expect(session.body).toMatchObject({
+        error: "unsupported_credential_configuration",
+        supported_credential_configuration_ids: [],
+      });
+      expect(attestbookIntegration(emptyConfig, store).status()).toMatchObject({
+        active: null,
+        sync: { state: "failed", failure: { stage: "fetch", code: "no_publication" } },
+      });
+    } finally {
+      await empty.stop();
+      rmSync(emptyDir, { recursive: true, force: true });
+    }
   });
 
   it("answers Attestbook's callback verification challenge exactly", async () => {
