@@ -7,15 +7,8 @@ import type { ResolvedIssuerConfiguration } from "../configurations/types.js";
 import { type ImportedCatalogue, credentialRegistry } from "../credential-registry.js";
 import { importedSdJwtCredentialSignOptions } from "../credential.js";
 import type { CaptureStore } from "../state.js";
-import type { AppConfig, JsonRecord } from "../types.js";
+import type { AppConfig, JsonRecord, SessionGeneratedClaims } from "../types.js";
 import type { AttestbookIssuerSummary } from "../ui.js";
-import {
-  type ClaimResolution,
-  type ClaimSources,
-  loadClaimSources,
-  resolveClaimValues,
-  satisfyingFixtureIds,
-} from "./claims.js";
 import {
   AttestbookClient,
   AttestbookContractError,
@@ -23,6 +16,7 @@ import {
   publicationEventOrNull,
 } from "./client.js";
 import { compileRulebook } from "./compiler.js";
+import { CLAIM_GENERATION_REFERENCE_DATE, CLAIM_GENERATOR, generateClaims } from "./generator.js";
 import { AttestbookFetchError } from "./http.js";
 import {
   AttestbookStateStore,
@@ -136,7 +130,6 @@ export function attestbookIntegration(
  */
 export class AttestbookIntegration {
   readonly issuer: ResolvedIssuerConfiguration;
-  readonly claimSources: ClaimSources;
   private readonly trust: SnapshotTrust;
   private readonly client: AttestbookClient;
   private readonly persistence: AttestbookStateStore;
@@ -177,7 +170,6 @@ export class AttestbookIntegration {
       rulebookId,
       allowedSchemaOrigins: config.attestbook.allowed_schema_origins,
     };
-    this.claimSources = loadClaimSources(config.attestbook.claims_file);
     this.client = new AttestbookClient(this.trust, options.fetch);
     this.persistence = new AttestbookStateStore(attestbookStatePath(config.data_dir), {
       origin,
@@ -372,18 +364,20 @@ export class AttestbookIntegration {
     return { status: 202, body: { status: "accepted", event_id: event.id } };
   }
 
-  /** The fixtures of the claims sources that can issue a definition. */
-  fixtureIdsFor(definition: AttestbookCredentialDefinition): string[] {
-    return satisfyingFixtureIds(definition, this.claimSources);
-  }
-
-  /** Claim values for a definition from a named fixture, or null for an unknown fixture. */
-  claimValues(
+  /**
+   * Synthetic values for a session's credential, seeded by the session id and recorded with
+   * everything needed to regenerate them.
+   */
+  generatedClaims(
     definition: AttestbookCredentialDefinition,
-    fixtureId: string,
-  ): ClaimResolution | null {
-    const fixture = this.claimSources.fixtures.get(fixtureId);
-    return fixture ? resolveClaimValues(definition, fixture) : null;
+    sessionId: string,
+  ): SessionGeneratedClaims {
+    return {
+      generator: CLAIM_GENERATOR,
+      seed: sessionId,
+      reference_date: CLAIM_GENERATION_REFERENCE_DATE,
+      claims: generateClaims(definition, sessionId),
+    };
   }
 
   /** The operator UI's one-line view of the integration. */
@@ -535,7 +529,7 @@ export class AttestbookIntegration {
         errorMessage(error),
       );
     }
-    const compiled = compileRulebook(verified, this.claimSources.vctMappings);
+    const compiled = compileRulebook(verified);
     this.diagnostics = compiled.diagnostics;
     if (compiled.definitions.length === 0) {
       throw new SyncStageError(
@@ -552,20 +546,25 @@ export class AttestbookIntegration {
     });
     const issuability: AttestbookDiagnostic[] = [];
     for (const definition of compiled.definitions) {
-      const [fixtureId] = this.fixtureIdsFor(definition);
-      const resolution = fixtureId ? this.claimValues(definition, fixtureId) : null;
-      if (!resolution?.ok) {
+      let claims: JsonRecord;
+      try {
+        // A seed fixed by the version, so a constraint no generated value can meet is found here.
+        claims = generateClaims(
+          definition,
+          `${definition.contentDigest}:${definition.credentialConfigurationId}`,
+        );
+      } catch (error) {
         issuability.push({
           severity: "error",
-          code: "no_claim_fixture",
+          code: "claim_generation_failed",
           attestation: definition.attestation.name,
           field: "claims",
-          message: "no claim fixture provides valid values for every required claim",
+          message: errorMessage(error),
         });
         continue;
       }
       try {
-        await this.dryRunSign(definition, resolution.claims);
+        await this.dryRunSign(definition, claims);
       } catch (error) {
         issuability.push({
           severity: "error",
@@ -600,7 +599,7 @@ export class AttestbookIntegration {
 
   private async dryRunSign(
     definition: AttestbookCredentialDefinition,
-    claims: Readonly<Record<string, string | number | boolean>>,
+    claims: JsonRecord,
   ): Promise<void> {
     const { publicKey } = await generateKeyPair("ES256");
     const signingConfig = issuerAppConfig(this.config, this.issuer);

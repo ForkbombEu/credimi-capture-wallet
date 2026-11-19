@@ -1,25 +1,31 @@
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { SdJwtVcService } from "@credo-ts/core";
+import { exportJWK, generateKeyPair } from "jose";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { loadClaimSources, resolveClaimValues } from "../src/attestbook/claims.js";
 import { AttestbookClient } from "../src/attestbook/client.js";
-import { compileRulebook } from "../src/attestbook/compiler.js";
+import { compileRulebook, vctForAttestationName } from "../src/attestbook/compiler.js";
 import { sriMatches } from "../src/attestbook/digest.js";
+import { ClaimGenerationError, generateClaims } from "../src/attestbook/generator.js";
 import { AttestbookFetchError, allowedUrl } from "../src/attestbook/http.js";
+import { claimValueErrors } from "../src/attestbook/json-schema.js";
 import { AttestbookIntegrityError, verifySnapshot } from "../src/attestbook/snapshot.js";
-import type { AttestbookSnapshot } from "../src/attestbook/types.js";
+import type {
+  AttestbookCredentialDefinition,
+  AttestbookSnapshot,
+} from "../src/attestbook/types.js";
 import {
   webhookSignature,
   webhookSignatureValid,
   webhookTimestampFresh,
 } from "../src/attestbook/webhook.js";
-import { DEFAULT_CONFIG, initIssuer } from "../src/config.js";
+import { DEFAULT_CONFIG, createIssuerSigningContext, initIssuer } from "../src/config.js";
 import { resolvedIssuerConfigurationById } from "../src/configurations/registry.js";
 import { issuerAppConfig } from "../src/configurations/resolve-urls.js";
-import { PID_SD_JWT_VCT } from "../src/credential-definitions.js";
 import { importedSdJwtCredentialSignOptions } from "../src/credential.js";
+import type { JsonRecord } from "../src/types.js";
 import { AttestbookFixture, type FixtureAttestation } from "./attestbook-fixture.js";
 
 const membershipSchema = {
@@ -36,7 +42,7 @@ const membershipSchema = {
   additionalProperties: false,
 };
 const membershipTypeMetadata = {
-  vct: "https://credentials.example.test/membership/1",
+  vct: "urn:attestbook:membership-card",
   display: [{ locale: "en-US", name: "Membership card" }],
   claims: [
     { path: ["member_id"], sd: "always", display: [{ locale: "en-US", name: "Member ID" }] },
@@ -47,6 +53,39 @@ const membership: FixtureAttestation = {
   name: "Membership Card",
   schema: membershipSchema,
   typeMetadata: membershipTypeMetadata,
+};
+const nestedSchema = {
+  type: "object",
+  required: ["holder", "degrees"],
+  properties: {
+    holder: {
+      type: "object",
+      required: ["given_name", "family_name"],
+      properties: {
+        given_name: { type: "string" },
+        family_name: { type: "string" },
+        email: { type: "string" },
+        address: {
+          type: "object",
+          properties: { locality: { type: "string" }, country: { type: "string" } },
+        },
+      },
+    },
+    degrees: {
+      type: "array",
+      minItems: 2,
+      maxItems: 4,
+      items: {
+        type: "object",
+        required: ["level"],
+        properties: {
+          level: { type: "string", enum: ["bachelor", "master", "doctorate"] },
+          year: { type: "integer", minimum: 1990, maximum: 2026 },
+        },
+      },
+    },
+    languages: { type: "array", items: { type: "string", enum: ["en", "it", "de"] } },
+  },
 };
 
 let fixture: AttestbookFixture;
@@ -76,10 +115,17 @@ function trust(allowedSchemaOrigins: string[] = []) {
   return { origin: fixture.origin, rulebookId: fixture.rulebookId, allowedSchemaOrigins };
 }
 
-async function compiled(version: string, attestations: FixtureAttestation[], vctMappings = []) {
+async function compiled(version: string, attestations: FixtureAttestation[]) {
   const event = fixture.publish(version, attestations);
   const snapshot = await client().downloadSnapshot(event);
-  return compileRulebook(verifySnapshot(snapshot, trust()), vctMappings);
+  return compileRulebook(verifySnapshot(snapshot, trust()));
+}
+
+async function definitionOf(version: string, attestation: FixtureAttestation) {
+  const result = await compiled(version, [attestation]);
+  const [definition] = result.definitions;
+  if (!definition) throw new Error(JSON.stringify(result.diagnostics));
+  return definition;
 }
 
 describe("Attestbook webhook signatures", () => {
@@ -248,65 +294,134 @@ describe("Attestbook rulebook compiler", () => {
       version: "2.0",
       attestation: { name: "Membership Card", index: 0, bindingType: "key" },
       format: "dc+sd-jwt",
-      vct: membershipTypeMetadata.vct,
-      vctSource: "type_metadata",
+      vct: "urn:attestbook:membership-card",
+      vctSource: "attestation_name",
       displayName: "Membership card",
       proofPolicy: "jwt-proof",
-      claimValueProvider: "local-fixtures",
+      claimValueProvider: "faker-js",
     });
     expect(definition?.credentialConfigurationId).toMatch(
       new RegExp(`^urn:attestbook:${fixture.rulebookId}:2\\.0:membership-card-[0-9a-f]{12}$`),
     );
     expect(definition?.scope).toBe(definition?.credentialConfigurationId);
-    expect(definition?.claims).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          name: "member_id",
-          type: "string",
-          required: true,
-          selectivelyDisclosable: true,
-          displayName: "Member ID",
-          minLength: 3,
-        }),
-        expect.objectContaining({ name: "active", type: "boolean", selectivelyDisclosable: false }),
-        expect.objectContaining({ name: "tier", required: false, enum: ["gold", "silver"] }),
-      ]),
-    );
+    const properties = definition?.claims.properties ?? [];
+    expect(properties.find((property) => property.name === "member_id")).toMatchObject({
+      required: true,
+      node: {
+        kind: "scalar",
+        type: "string",
+        minLength: 3,
+        displayName: "Member ID",
+        selectivelyDisclosable: true,
+      },
+    });
+    expect(properties.find((property) => property.name === "active")?.node).toMatchObject({
+      selectivelyDisclosable: false,
+    });
+    expect(definition?.claimMetadata).toContainEqual({
+      path: ["tier"],
+      mandatory: false,
+      displayName: null,
+    });
     expect(definition?.schemaReferences).toHaveLength(2);
   });
 
-  it("derives version-specific, deterministic configuration ids", async () => {
-    const first = await compiled("2.1", [membership]);
-    const second = await compiled("2.2", [membership]);
+  it("derives the vct from the attestation name alone, without Type Metadata", async () => {
+    const result = await compiled("2.1", [
+      { name: "Ünïversity Diploma (EU)", schema: membershipSchema },
+    ]);
+
+    expect(result.definitions[0]).toMatchObject({
+      vct: "urn:attestbook:university-diploma-eu",
+      vctSource: "attestation_name",
+      displayName: "Ünïversity Diploma (EU)",
+    });
+    expect(vctForAttestationName("  --  ")).toBeNull();
+  });
+
+  it("derives version-specific configuration ids and a version-independent vct", async () => {
+    const first = await compiled("2.2", [membership]);
+    const second = await compiled("2.3", [membership]);
 
     expect(first.definitions[0]?.credentialConfigurationId).not.toBe(
       second.definitions[0]?.credentialConfigurationId,
     );
-    expect(first.definitions[0]?.credentialConfigurationId).toContain(":2.1:");
+    expect(first.definitions[0]?.vct).toBe(second.definitions[0]?.vct);
+  });
+
+  it("compiles nested objects and arrays into claim metadata with null array paths", async () => {
+    const definition = await definitionOf("2.4", {
+      name: "Diploma",
+      schema: nestedSchema,
+      typeMetadata: {
+        vct: "urn:attestbook:diploma",
+        claims: [
+          { path: ["degrees", null, "level"], sd: "never" },
+          { path: ["languages", null], sd: "never" },
+          { path: ["holder", "email"], mandatory: true },
+        ],
+      },
+    });
+
+    expect(definition.claimMetadata).toEqual(
+      expect.arrayContaining([
+        { path: ["holder"], mandatory: true, displayName: null },
+        { path: ["holder", "given_name"], mandatory: true, displayName: null },
+        { path: ["holder", "email"], mandatory: true, displayName: null },
+        { path: ["holder", "address", "locality"], mandatory: false, displayName: null },
+        { path: ["degrees", null, "level"], mandatory: true, displayName: null },
+        { path: ["degrees", null, "year"], mandatory: false, displayName: null },
+        { path: ["languages"], mandatory: false, displayName: null },
+      ]),
+    );
+    const degrees = definition.claims.properties.find(
+      (property) => property.name === "degrees",
+    )?.node;
+    expect(degrees).toMatchObject({
+      kind: "array",
+      minItems: 2,
+      items: {
+        kind: "object",
+        properties: [{ name: "level", node: { selectivelyDisclosable: false } }, expect.anything()],
+      },
+    });
   });
 
   it("reports unsupported constructs with the attestation and field they concern", async () => {
+    const tooDeep = {
+      type: "object",
+      properties: {
+        c: {
+          type: "object",
+          properties: { d: { type: "object", properties: { e: { type: "string" } } } },
+        },
+      },
+    };
     const result = await compiled("3.0", [
       {
-        name: "Nested",
+        name: "Unsupported",
         schema: {
           type: "object",
           properties: {
-            address: { type: "object", properties: { city: { type: "string" } } },
             birthdate: { type: "string", format: "date" },
+            tuple: { type: "array", items: [{ type: "string" }] },
             vct: { type: "string" },
+            nested: { type: "object", properties: { _sd: { type: "string" } } },
+            a: { type: "object", properties: { b: tooDeep } },
           },
         },
-        typeMetadata: { vct: "https://credentials.example.test/nested/1" },
       },
+      { name: "Unbound", bindingType: "none", schema: membershipSchema },
+      { name: "Conflicting", schema: membershipSchema, typeMetadata: { vct: "urn:eudi:pid:1" } },
       {
-        name: "Unbound",
-        bindingType: "none",
+        name: "Unknown Path",
         schema: membershipSchema,
-        typeMetadata: { vct: "urn:x:unbound" },
+        typeMetadata: {
+          vct: "urn:attestbook:unknown-path",
+          claims: [{ path: ["address", "city"] }],
+        },
       },
-      { name: "Untyped", schema: membershipSchema },
-      { name: "Impersonating", schema: membershipSchema, typeMetadata: { vct: PID_SD_JWT_VCT } },
+      { name: "!!!", schema: membershipSchema },
       { name: "Mdoc only", supportedFormats: ["mso_mdoc"] },
     ]);
 
@@ -318,38 +433,90 @@ describe("Attestbook rulebook compiler", () => {
     }));
     expect(findings).toEqual(
       expect.arrayContaining([
-        { severity: "error", code: "unsupported_nested_claim", attestation: "Nested" },
-        { severity: "error", code: "unsupported_schema_keyword", attestation: "Nested" },
-        { severity: "error", code: "reserved_claim_name", attestation: "Nested" },
+        { severity: "error", code: "unsupported_schema_keyword", attestation: "Unsupported" },
+        { severity: "error", code: "unsupported_claim_schema", attestation: "Unsupported" },
+        { severity: "error", code: "reserved_claim_name", attestation: "Unsupported" },
+        { severity: "error", code: "claim_too_deep", attestation: "Unsupported" },
         { severity: "error", code: "unsupported_binding_type", attestation: "Unbound" },
-        { severity: "error", code: "vct_unresolved", attestation: "Untyped" },
-        { severity: "error", code: "vct_reserved", attestation: "Impersonating" },
+        { severity: "error", code: "vct_conflict", attestation: "Conflicting" },
+        {
+          severity: "error",
+          code: "type_metadata_claim_not_in_schema",
+          attestation: "Unknown Path",
+        },
+        { severity: "error", code: "vct_unresolved", attestation: "!!!" },
         { severity: "info", code: "attestation_format_not_supported", attestation: "Mdoc only" },
       ]),
     );
     expect(
-      result.diagnostics.find((diagnostic) => diagnostic.code === "unsupported_nested_claim")
-        ?.field,
-    ).toMatch(/#\/properties\/address$/);
+      result.diagnostics
+        .filter((diagnostic) => diagnostic.code === "reserved_claim_name")
+        .map((d) => d.field),
+    ).toEqual([
+      expect.stringMatching(/#\/properties\/vct$/),
+      expect.stringMatching(/#\/properties\/nested\/properties\/_sd$/),
+    ]);
   });
 
-  it("resolves the vct from an explicit issuer-owned mapping when there is no Type Metadata", async () => {
-    const result = await compiled("3.1", [{ name: "Mapped", schema: membershipSchema }], [
-      {
-        rulebookId: fixture.rulebookId,
-        attestation: "Mapped",
-        vct: "https://credentials.example.test/mapped/1",
-      },
-    ] as never);
+  it("rejects two attestation types whose names derive the same vct", async () => {
+    const result = await compiled("3.1", [
+      { name: "Membership Card", schema: membershipSchema },
+      { name: "membership-card", schema: membershipSchema },
+    ]);
 
-    expect(result.definitions[0]).toMatchObject({
-      vct: "https://credentials.example.test/mapped/1",
-      vctSource: "issuer_mapping",
-    });
+    expect(result.definitions).toEqual([]);
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({ code: "duplicate_vct", attestation: "membership-card" }),
+    );
   });
 });
 
-describe("generic SD-JWT VC signing options and claim fixtures", () => {
+describe("generated claim values", () => {
+  it("generates values reproducibly from a seed, within every schema constraint", async () => {
+    const definition = await definitionOf("4.0", { name: "Diploma", schema: nestedSchema });
+
+    const first = generateClaims(definition, "session-a");
+    expect(generateClaims(definition, "session-a")).toEqual(first);
+    expect(generateClaims(definition, "session-b")).not.toEqual(first);
+    expect(claimValueErrors(definition.claims, first)).toEqual([]);
+    expect(first.holder).toMatchObject({
+      given_name: expect.any(String),
+      family_name: expect.any(String),
+      email: expect.stringContaining("@"),
+    });
+    const degrees = first.degrees as JsonRecord[];
+    expect(degrees.length).toBeGreaterThanOrEqual(2);
+    expect(degrees.length).toBeLessThanOrEqual(4);
+    for (const degree of degrees) {
+      expect(["bachelor", "master", "doctorate"]).toContain(degree.level);
+      expect(degree.year).toBeGreaterThanOrEqual(1990);
+      expect(degree.year).toBeLessThanOrEqual(2026);
+    }
+  });
+
+  it("chooses enum members at random across seeds", async () => {
+    const definition = await definitionOf("4.1", membership);
+    const tiers = new Set(
+      Array.from({ length: 40 }, (_, index) => generateClaims(definition, `seed-${index}`).tier),
+    );
+
+    expect(tiers).toEqual(new Set(["gold", "silver"]));
+  });
+
+  it("refuses constraints no value can satisfy", async () => {
+    const definition = await definitionOf("4.2", {
+      name: "Impossible",
+      schema: {
+        type: "object",
+        properties: { code: { type: "string", minLength: 5, maxLength: 2 } },
+      },
+    });
+
+    expect(() => generateClaims(definition, "seed")).toThrow(ClaimGenerationError);
+  });
+});
+
+describe("generic SD-JWT VC signing options", () => {
   const dataDir = mkdtempSync(join(tmpdir(), "attestbook-signer-"));
   const config = {
     ...DEFAULT_CONFIG,
@@ -361,61 +528,70 @@ describe("generic SD-JWT VC signing options and claim fixtures", () => {
     rmSync(dataDir, { recursive: true, force: true });
   });
 
-  it("keeps protocol-controlled members out of reach of claim data", async () => {
-    await initIssuer({ data_dir: dataDir, force: true });
+  async function sign(definition: AttestbookCredentialDefinition, claims: JsonRecord) {
+    await initIssuer({ data_dir: dataDir });
     const issuer = resolvedIssuerConfigurationById(config, "attestbook-experimental");
     if (!issuer) throw new Error("experimental issuer unavailable");
-    const [definition] = (await compiled("4.0", [membership])).definitions;
-    if (!definition) throw new Error("definition missing");
-    const holderJwk = {
-      kty: "EC",
-      crv: "P-256",
-      x: "f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU",
-      y: "x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0",
-    };
-
+    const { publicKey } = await generateKeyPair("ES256");
+    const signingConfig = issuerAppConfig(config, issuer);
     const options = importedSdJwtCredentialSignOptions({
-      config: issuerAppConfig(config, issuer),
-      holderJwk,
+      config: signingConfig,
+      holderJwk: (await exportJWK(publicKey)) as unknown as JsonRecord,
       definition,
-      claims: { member_id: "M-001", given_name: "Ada", active: true },
+      claims,
+    });
+    const signed = await new SdJwtVcService({} as never).sign(
+      createIssuerSigningContext(signingConfig) as never,
+      options,
+    );
+    return { options, compact: signed.compact };
+  }
+
+  it("keeps protocol-controlled members out of reach of claim data", async () => {
+    const definition = await definitionOf("5.0", membership);
+
+    const { options } = await sign(definition, {
+      member_id: "M-001",
+      given_name: "Ada",
+      active: true,
     });
     expect(options.payload).toMatchObject({ vct: definition.vct, member_id: "M-001" });
     expect(options.disclosureFrame?._sd).toEqual(["member_id", "given_name"]);
-
-    expect(() =>
-      importedSdJwtCredentialSignOptions({
-        config: issuerAppConfig(config, issuer),
-        holderJwk,
-        definition,
-        claims: { member_id: "M-001", given_name: "Ada", vct: "urn:forged" },
-      }),
-    ).toThrow(/not issuable/);
+    await expect(
+      sign(definition, { member_id: "M-001", given_name: "Ada", vct: "urn:forged" }),
+    ).rejects.toThrow(/not a declared claim/);
   });
 
-  it("validates fixture values against the compiled claims and names what is missing", async () => {
-    const [definition] = (await compiled("4.1", [membership])).definitions;
-    if (!definition) throw new Error("definition missing");
-    const claimsFile = join(dataDir, "claims.json");
-    writeFileSync(
-      claimsFile,
-      JSON.stringify({
-        fixtures: { membership: { member_id: "M-001", given_name: "Ada", tier: "bronze" } },
-      }),
-    );
-    const sources = loadClaimSources(claimsFile);
+  it("discloses nested members and array elements individually", async () => {
+    const definition = await definitionOf("5.1", {
+      name: "Diploma",
+      schema: nestedSchema,
+      typeMetadata: {
+        vct: "urn:attestbook:diploma",
+        claims: [{ path: ["languages", null], sd: "never" }],
+      },
+    });
+    const claims = generateClaims(definition, "nested-seed");
 
-    expect(resolveClaimValues(definition, sources.fixtures.get("issuer_test_data") ?? {})).toEqual({
-      ok: false,
-      missing: ["member_id"],
-      invalid: [],
-    });
-    expect(resolveClaimValues(definition, sources.fixtures.get("membership") ?? {})).toEqual({
-      ok: false,
-      missing: [],
-      invalid: [{ claim: "tier", reason: "is not one of the schema enum values" }],
-    });
-    writeFileSync(claimsFile, JSON.stringify({ fixtures: { issuer_test_data: {} } }));
-    expect(() => loadClaimSources(claimsFile)).toThrow(/reserved/);
+    const { compact } = await sign(definition, claims);
+    const decoded = new SdJwtVcService({} as never).fromCompact(compact);
+    expect(decoded.prettyClaims).toMatchObject(claims);
+    const disclosures = compact
+      .split("~")
+      .slice(1)
+      .filter(Boolean)
+      .map(
+        (disclosure) =>
+          JSON.parse(Buffer.from(disclosure, "base64url").toString("utf8")) as unknown[],
+      );
+    const named = disclosures
+      .filter((disclosure) => disclosure.length === 3)
+      .map((disclosure) => disclosure[1]);
+    expect(named).toEqual(
+      expect.arrayContaining(["holder", "given_name", "family_name", "degrees", "level"]),
+    );
+    const elements = disclosures.filter((disclosure) => disclosure.length === 2);
+    expect(elements).toHaveLength((claims.degrees as unknown[]).length);
+    expect(named).toContain("languages");
   });
 });

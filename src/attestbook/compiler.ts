@@ -1,12 +1,5 @@
-import {
-  DEGREE_SD_JWT_VCT,
-  DOMESTIC_PID_SD_JWT_VCT,
-  NUMERIC_SD_JWT_VCT,
-  PID_SD_JWT_VCT,
-} from "../credential-definitions.js";
-import type { VctMapping } from "./claims.js";
 import { sha256Hex } from "./digest.js";
-import { type SchemaClaim, compileJsonSchema } from "./json-schema.js";
+import { compileJsonSchema } from "./json-schema.js";
 import {
   SD_JWT_VC_FORMAT,
   type VerifiedRulebook,
@@ -14,21 +7,19 @@ import {
   isRecord,
 } from "./snapshot.js";
 import type {
-  AttestbookClaimDefinition,
+  AttestbookClaimMetadata,
+  AttestbookClaimNode,
+  AttestbookClaimPath,
   AttestbookCredentialDefinition,
   AttestbookDiagnostic,
+  AttestbookObjectClaim,
   AttestbookRulebookAttestation,
 } from "./types.js";
 
-/** `vct` values the static catalogue owns; an imported type must never impersonate them. */
-const STATIC_VCTS = new Set([
-  PID_SD_JWT_VCT,
-  DOMESTIC_PID_SD_JWT_VCT,
-  DEGREE_SD_JWT_VCT,
-  NUMERIC_SD_JWT_VCT,
-]);
 /** TS11/OWF `bindingType` for a credential bound to a holder key, the only binding issued here. */
 const KEY_BINDING = "key";
+const VCT_PREFIX = "urn:attestbook:";
+const MAX_VCT_SLUG_LENGTH = 128;
 
 export interface CompilationResult {
   /** Empty whenever any error diagnostic is present: a catalogue activates whole or not at all. */
@@ -37,6 +28,7 @@ export interface CompilationResult {
 }
 
 interface TypeMetadataClaim {
+  readonly path: AttestbookClaimPath;
   readonly selectivelyDisclosable: boolean | null;
   readonly displayName: string | null;
   readonly mandatory: boolean;
@@ -45,7 +37,7 @@ interface TypeMetadataClaim {
 interface TypeMetadata {
   readonly vct: string;
   readonly displayName: string | null;
-  readonly claims: ReadonlyMap<string, TypeMetadataClaim>;
+  readonly claims: readonly TypeMetadataClaim[];
 }
 
 /**
@@ -54,10 +46,7 @@ interface TypeMetadata {
  * unsupported construct in a selected type is an error that blocks the whole catalogue, so a
  * partially trusted definition is never produced.
  */
-export function compileRulebook(
-  rulebook: VerifiedRulebook,
-  vctMappings: readonly VctMapping[],
-): CompilationResult {
+export function compileRulebook(rulebook: VerifiedRulebook): CompilationResult {
   const diagnostics: AttestbookDiagnostic[] = [];
   const definitions: AttestbookCredentialDefinition[] = [];
   const names = new Set<string>();
@@ -86,7 +75,7 @@ export function compileRulebook(
       });
       return;
     }
-    const definition = compileAttestation(rulebook, attestation, index, vctMappings, diagnostics);
+    const definition = compileAttestation(rulebook, attestation, index, diagnostics);
     if (!definition) return;
     const owner = vcts.get(definition.vct);
     if (owner) {
@@ -94,8 +83,8 @@ export function compileRulebook(
         error(
           "duplicate_vct",
           attestation.name,
-          "vct",
-          `vct is already used by attestation '${owner}'`,
+          "name",
+          `name derives the same vct as attestation '${owner}'`,
         ),
       );
       return;
@@ -121,11 +110,20 @@ export function compileRulebook(
   return { definitions: failed ? [] : definitions, diagnostics };
 }
 
+/**
+ * The credential type of an attestation, derived from its name alone: `urn:attestbook:<slug>`.
+ * It stays the same across rulebook versions and changes when the attestation is renamed. The
+ * rulebook is deliberately not part of it, so two rulebooks naming a type alike share its vct.
+ */
+export function vctForAttestationName(name: string): string | null {
+  const slug = slugify(name).slice(0, MAX_VCT_SLUG_LENGTH).replace(/-+$/, "");
+  return slug ? `${VCT_PREFIX}${slug}` : null;
+}
+
 function compileAttestation(
   rulebook: VerifiedRulebook,
   attestation: AttestbookRulebookAttestation,
   index: number,
-  vctMappings: readonly VctMapping[],
   diagnostics: AttestbookDiagnostic[],
 ): AttestbookCredentialDefinition | null {
   const before = diagnostics.length;
@@ -170,58 +168,41 @@ function compileAttestation(
   const [schemaDocument] = schemas;
   const compiled = schemaDocument
     ? compileJsonSchema(schemaDocument.json, attestation.name, schemaDocument.record.uri)
-    : { claims: [], diagnostics: [] };
+    : { claims: null, diagnostics: [] };
   diagnostics.push(...compiled.diagnostics);
 
-  const [typeMetadataDocument] = typeMetadataDocuments;
-  const typeMetadata = typeMetadataDocument
-    ? parseTypeMetadata(typeMetadataDocument, attestation.name, diagnostics)
-    : null;
-  const mapping = vctMappings.find(
-    (candidate) =>
-      candidate.rulebookId === rulebook.document.rulebookId &&
-      candidate.attestation === attestation.name,
-  );
-  const vct = typeMetadata?.vct ?? mapping?.vct ?? null;
+  const vct = vctForAttestationName(attestation.name);
   if (vct === null) {
     diagnostics.push(
       error(
         "vct_unresolved",
         attestation.name,
-        "vct",
-        "no SD-JWT VC Type Metadata reference or issuer-owned vct mapping names the credential type",
+        "name",
+        "the attestation name has no letters or digits to derive a vct from",
       ),
     );
-  } else if (typeMetadata && mapping && mapping.vct !== typeMetadata.vct) {
+  }
+  const [typeMetadataDocument] = typeMetadataDocuments;
+  const typeMetadata = typeMetadataDocument
+    ? parseTypeMetadata(typeMetadataDocument, attestation.name, diagnostics)
+    : null;
+  if (typeMetadata && vct !== null && typeMetadata.vct !== vct) {
     diagnostics.push(
       error(
         "vct_conflict",
         attestation.name,
-        "vct",
-        "issuer-owned vct mapping contradicts the Type Metadata vct",
-      ),
-    );
-  } else if (STATIC_VCTS.has(vct)) {
-    diagnostics.push(
-      error(
-        "vct_reserved",
-        attestation.name,
-        "vct",
-        "vct belongs to a static credential of this issuer",
+        typeMetadataDocument ? `${typeMetadataDocument.record.uri}#/vct` : "vct",
+        `Type Metadata states vct '${typeMetadata.vct}', but the attestation name derives '${vct}'`,
       ),
     );
   }
-  const claims = typeMetadata
-    ? refineClaims(compiled.claims, typeMetadata, attestation.name, diagnostics)
-    : compiled.claims.map(defaultClaim);
+  const claims =
+    compiled.claims && typeMetadata
+      ? refineClaims(compiled.claims, typeMetadata, attestation.name, diagnostics)
+      : compiled.claims;
 
-  if (
-    diagnostics.length > before &&
-    diagnostics.slice(before).some((entry) => entry.severity === "error")
-  ) {
-    return null;
-  }
-  if (vct === null || !schemaDocument) return null;
+  if (diagnostics.slice(before).some((entry) => entry.severity === "error")) return null;
+  if (vct === null || !schemaDocument || !claims) return null;
   const credentialConfigurationId = credentialConfigurationIdFor(rulebook, attestation.name);
   return {
     origin: rulebook.snapshot.origin,
@@ -238,9 +219,10 @@ function compileAttestation(
     scope: credentialConfigurationId,
     format: "dc+sd-jwt",
     vct,
-    vctSource: typeMetadata ? "type_metadata" : "issuer_mapping",
+    vctSource: "attestation_name",
     displayName: typeMetadata?.displayName ?? attestation.name,
     claims,
+    claimMetadata: claimMetadata(claims, [], true),
     schemaReferences: [schemaDocument, ...typeMetadataDocuments].map((document) => ({
       uri: document.record.uri,
       kind: document.record.kind,
@@ -249,7 +231,7 @@ function compileAttestation(
       hosted: document.reference.hosted !== null,
     })),
     proofPolicy: "jwt-proof",
-    claimValueProvider: "local-fixtures",
+    claimValueProvider: "faker-js",
     disclosurePolicy: "issuer-default-selective",
   };
 }
@@ -264,12 +246,7 @@ export function credentialConfigurationIdFor(
   attestationName: string,
 ): string {
   const { rulebookId, version } = rulebook.document;
-  const slug =
-    attestationName
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 40) || "attestation";
+  const slug = slugify(attestationName).slice(0, 40).replace(/-+$/, "") || "attestation";
   const digest = sha256Hex(
     Buffer.from(
       [rulebook.snapshot.origin, rulebookId, version, attestationName].join("\n"),
@@ -277,6 +254,37 @@ export function credentialConfigurationIdFor(
     ),
   ).slice(0, 12);
   return `urn:attestbook:${rulebookId}:${version}:${slug}-${digest}`;
+}
+
+/** Lowercase ASCII letters and digits separated by single hyphens; diacritics are dropped. */
+function slugify(value: string): string {
+  return value
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+/**
+ * One OpenID4VCI claims description per object member, nested ones included; an array's elements
+ * are addressed with `null`. A member is mandatory when it and every enclosing member is required.
+ */
+function claimMetadata(
+  node: AttestbookClaimNode,
+  path: AttestbookClaimPath,
+  mandatory: boolean,
+): AttestbookClaimMetadata[] {
+  if (node.kind === "array") return claimMetadata(node.items, [...path, null], mandatory);
+  if (node.kind !== "object") return [];
+  return node.properties.flatMap((property) => {
+    const memberPath = [...path, property.name];
+    const memberMandatory = mandatory && property.required;
+    return [
+      { path: memberPath, mandatory: memberMandatory, displayName: property.node.displayName },
+      ...claimMetadata(property.node, memberPath, memberMandatory),
+    ];
+  });
 }
 
 function parseTypeMetadata(
@@ -315,7 +323,6 @@ function parseTypeMetadata(
       });
     }
   }
-  const claims = new Map<string, TypeMetadataClaim>();
   const entries = json.claims ?? [];
   if (!Array.isArray(entries)) {
     diagnostics.push(
@@ -323,6 +330,7 @@ function parseTypeMetadata(
     );
     return null;
   }
+  const claims: TypeMetadataClaim[] = [];
   entries.forEach((entry, index) => {
     const pointer = `/claims/${index}`;
     if (!isRecord(entry) || !Array.isArray(entry.path) || entry.path.length === 0) {
@@ -331,14 +339,13 @@ function parseTypeMetadata(
       );
       return;
     }
-    const [name] = entry.path;
-    if (entry.path.length !== 1 || typeof name !== "string") {
+    if (!entry.path.every((segment) => typeof segment === "string" || segment === null)) {
       diagnostics.push(
         error(
-          "unsupported_nested_claim",
+          "unsupported_claim_path",
           attestation,
           field(`${pointer}/path`),
-          "only top-level claim paths are supported",
+          "claim paths may name members or all array elements (null), not one element by index",
         ),
       );
       return;
@@ -359,7 +366,8 @@ function parseTypeMetadata(
       );
       return;
     }
-    claims.set(name, {
+    claims.push({
+      path: entry.path as (string | null)[],
       selectivelyDisclosable: entry.sd === "never" ? false : entry.sd === "always" ? true : null,
       displayName: localizedName(entry.display),
       mandatory: entry.mandatory === true,
@@ -372,43 +380,70 @@ function parseTypeMetadata(
   };
 }
 
-/** Type Metadata refines disclosure and labels; it cannot add a claim the schema does not declare. */
+/**
+ * Type Metadata refines disclosure, labels and mandatoriness of claims the schema declares; it
+ * cannot add a claim. A path the schema does not declare is an error.
+ */
 function refineClaims(
-  schemaClaims: readonly SchemaClaim[],
+  root: AttestbookObjectClaim,
   typeMetadata: TypeMetadata,
   attestation: string,
   diagnostics: AttestbookDiagnostic[],
-): AttestbookClaimDefinition[] {
-  for (const name of typeMetadata.claims.keys()) {
-    if (!schemaClaims.some((claim) => claim.name === name)) {
+): AttestbookObjectClaim {
+  let refined = root;
+  for (const claim of typeMetadata.claims) {
+    const next = refineAt(refined, claim.path, claim);
+    if (next?.kind !== "object") {
       diagnostics.push(
         error(
           "type_metadata_claim_not_in_schema",
           attestation,
-          `claims.${name}`,
-          `Type Metadata describes claim '${name}', which the JSON Schema does not declare`,
+          `claims.${claim.path.map((segment) => segment ?? "[]").join(".")}`,
+          "Type Metadata describes a claim the JSON Schema does not declare",
         ),
       );
+      continue;
     }
+    refined = next;
   }
-  return schemaClaims.map((claim) => {
-    const refinement = typeMetadata.claims.get(claim.name);
-    const base = defaultClaim(claim);
-    return refinement
-      ? {
-          ...base,
-          required: base.required || refinement.mandatory,
-          selectivelyDisclosable: refinement.selectivelyDisclosable ?? base.selectivelyDisclosable,
-          displayName: refinement.displayName ?? base.displayName,
-        }
-      : base;
-  });
+  return refined;
 }
 
-/** The issuer's disclosure policy: every top-level claim is individually disclosable. */
-function defaultClaim(claim: SchemaClaim): AttestbookClaimDefinition {
-  const { title, ...rest } = claim;
-  return { ...rest, selectivelyDisclosable: true, displayName: title };
+/**
+ * The node tree with the claim at `path` refined, or null when no claim has that path. `mandatory`
+ * makes the addressed object member required; it never relaxes a schema requirement.
+ */
+function refineAt(
+  node: AttestbookClaimNode,
+  path: AttestbookClaimPath,
+  claim: TypeMetadataClaim,
+): AttestbookClaimNode | null {
+  const [segment, ...rest] = path;
+  if (segment === undefined) {
+    return {
+      ...node,
+      selectivelyDisclosable: claim.selectivelyDisclosable ?? node.selectivelyDisclosable,
+      displayName: claim.displayName ?? node.displayName,
+    };
+  }
+  if (segment === null) {
+    if (node.kind !== "array") return null;
+    const items = refineAt(node.items, rest, claim);
+    return items ? { ...node, items } : null;
+  }
+  if (node.kind !== "object") return null;
+  const index = node.properties.findIndex((property) => property.name === segment);
+  const property = node.properties[index];
+  if (!property) return null;
+  const refined = refineAt(property.node, rest, claim);
+  if (!refined) return null;
+  const properties = [...node.properties];
+  properties[index] = {
+    name: property.name,
+    required: property.required || (rest.length === 0 && claim.mandatory),
+    node: refined,
+  };
+  return { ...node, properties };
 }
 
 function localizedName(display: unknown): string | null {

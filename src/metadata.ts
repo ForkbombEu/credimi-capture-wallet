@@ -39,8 +39,11 @@ export interface SupportedCredential {
   proofPolicy: CredentialProofPolicy;
   displayName: string;
   vct?: string;
-  /** Full claim paths: JSON path segments for SD-JWT VC, `[namespace, element]` for mdoc. */
-  claimPaths: readonly (readonly string[])[];
+  /**
+   * Full claim paths: JSON path segments for SD-JWT VC, with `null` for every element of an
+   * array, and `[namespace, element]` for mdoc.
+   */
+  claimPaths: readonly (readonly (string | null)[])[];
   /** Present for a credential compiled from an Attestbook rulebook version. */
   attestbook?: AttestbookCredentialDefinition;
 }
@@ -453,19 +456,21 @@ function credentialConfiguration(
           },
         },
       ],
-      claims: credential.claimPaths.map((path) => {
-        const imported = credential.attestbook?.claims.find((claim) => claim.path[0] === path[0]);
-        return {
-          path: [...path],
-          mandatory: imported ? imported.required : true,
-          display: [
-            {
-              name: imported?.displayName ?? claimDisplayName(path.at(-1) ?? ""),
-              locale: "en-US",
-            },
-          ],
-        };
-      }),
+      claims: (
+        credential.attestbook?.claimMetadata ??
+        credential.claimPaths.map((path) => ({ path, mandatory: true, displayName: null }))
+      ).map(({ path, mandatory, displayName }) => ({
+        path: [...path],
+        mandatory,
+        display: [
+          {
+            name:
+              displayName ??
+              claimDisplayName(path.filter((segment) => segment !== null).at(-1) ?? ""),
+            locale: "en-US",
+          },
+        ],
+      })),
     },
     cryptographic_binding_methods_supported:
       credential.format === "mso_mdoc" ? ["cose_key"] : ["jwk"],

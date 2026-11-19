@@ -1,6 +1,7 @@
 import { Kms, type MdocSignOptions, SdJwtVcService, type SdJwtVcSignOptions } from "@credo-ts/core";
-import { RESERVED_CLAIM_NAMES } from "./attestbook/json-schema.js";
-import type { AttestbookClaimValue, AttestbookCredentialDefinition } from "./attestbook/types.js";
+import { RESERVED_CLAIM_NAMES, claimValueErrors } from "./attestbook/json-schema.js";
+import { isRecord } from "./attestbook/snapshot.js";
+import type { AttestbookClaimNode, AttestbookCredentialDefinition } from "./attestbook/types.js";
 import { createIssuerSigningContext, issuerSigningKeyId, loadIssuerCertificate } from "./config.js";
 import { DEGREE_CREDENTIAL_SUBJECT } from "./configurations/shared/degree-data.js";
 import { encodeMdocPidClaims } from "./configurations/shared/mdoc-encoder.js";
@@ -201,26 +202,26 @@ export function numericSdJwtCredentialSignOptions(options: {
 }
 
 /**
- * Sign options for any credential type compiled from an Attestbook rulebook. The protocol-controlled
- * members (`vct`, `exp`, holder binding and issuer) are set after the claims, and a claim the
- * definition does not declare or that names a reserved member is refused, so claim data can never
- * replace them. Each declared claim that is present is disclosable as the definition's policy says.
+ * Sign options for any credential type compiled from an Attestbook rulebook. The claims must
+ * satisfy the definition exactly, so an undeclared or reserved member is refused, and the
+ * protocol-controlled members (`vct`, `exp`, holder binding and issuer) are set after them, so
+ * claim data can never replace them. Disclosure follows the definition at every level.
  */
 export function importedSdJwtCredentialSignOptions(options: {
   config: AppConfig;
   holderJwk: JsonRecord;
   definition: AttestbookCredentialDefinition;
-  claims: Readonly<Record<string, AttestbookClaimValue>>;
+  claims: JsonRecord;
   digestAlgorithm?: SdJwtDigestAlgorithm;
   now?: Date;
 }): SdJwtVcSignOptions {
-  const declared = new Set(options.definition.claims.map((claim) => claim.name));
-  for (const name of Object.keys(options.claims)) {
-    if (!declared.has(name) || RESERVED_CLAIM_NAMES.has(name) || name.startsWith("_sd")) {
-      throw new Error(
-        `Claim '${name}' is not issuable for ${options.definition.credentialConfigurationId}`,
-      );
-    }
+  const { definition, claims } = options;
+  const errors = claimValueErrors(definition.claims, claims);
+  const reserved = Object.keys(claims).filter((name) => RESERVED_CLAIM_NAMES.has(name));
+  if (errors.length > 0 || reserved.length > 0) {
+    throw new Error(
+      `Claims are not issuable for ${definition.credentialConfigurationId}: ${[...errors, ...reserved].join("; ")}`,
+    );
   }
   const issuerCertificate = loadIssuerCertificate(options.config);
   issuerCertificate.keyId = issuerSigningKeyId(options.config);
@@ -231,16 +232,51 @@ export function importedSdJwtCredentialSignOptions(options: {
     headerType: "dc+sd-jwt",
     ...(options.digestAlgorithm ? { hashingAlgorithm: options.digestAlgorithm } : {}),
     payload: {
-      ...options.claims,
-      vct: options.definition.vct,
+      ...claims,
+      vct: definition.vct,
       exp: Math.floor(now.getTime() / 1000) + 365 * 24 * 60 * 60,
     },
-    disclosureFrame: {
-      _sd: options.definition.claims
-        .filter((claim) => claim.selectivelyDisclosable && claim.name in options.claims)
-        .map((claim) => claim.name),
-    },
+    // Numeric array indices, as for DEGREE_DISCLOSURE_FRAME: Credo's type declares them as strings.
+    disclosureFrame: disclosureFrameFor(
+      definition.claims,
+      claims,
+    ) as SdJwtVcSignOptions["disclosureFrame"],
   };
+}
+
+/**
+ * The disclosure frame of a value: in an object, each present member whose claim is selectively
+ * disclosable; in an array, each element when its items are; and the same, recursively, inside
+ * every nested object or array.
+ */
+function disclosureFrameFor(
+  node: AttestbookClaimNode,
+  value: unknown,
+): Record<string, unknown> | null {
+  if (node.kind === "array" && Array.isArray(value)) {
+    const frame: Record<string, unknown> = {
+      _sd: node.items.selectivelyDisclosable ? value.map((_, index) => index) : [],
+    };
+    value.forEach((element, index) => {
+      const nested = disclosureFrameFor(node.items, element);
+      if (nested) frame[index] = nested;
+    });
+    return frame;
+  }
+  if (node.kind === "object" && isRecord(value)) {
+    const present = node.properties.filter((property) => property.name in value);
+    const frame: Record<string, unknown> = {
+      _sd: present
+        .filter((property) => property.node.selectivelyDisclosable)
+        .map((property) => property.name),
+    };
+    for (const property of present) {
+      const nested = disclosureFrameFor(property.node, value[property.name]);
+      if (nested) frame[property.name] = nested;
+    }
+    return frame;
+  }
+  return null;
 }
 
 /**

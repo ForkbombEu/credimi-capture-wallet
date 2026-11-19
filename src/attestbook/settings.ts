@@ -4,7 +4,6 @@ export const ATTESTBOOK_ENABLED_ENV_VAR = "ATTESTBOOK_ENABLED";
 export const ATTESTBOOK_BASE_URL_ENV_VAR = "ATTESTBOOK_BASE_URL";
 export const ATTESTBOOK_RULEBOOK_ID_ENV_VAR = "ATTESTBOOK_RULEBOOK_ID";
 export const ATTESTBOOK_WEBHOOK_SECRET_ENV_VAR = "ATTESTBOOK_WEBHOOK_SECRET";
-export const ATTESTBOOK_CLAIMS_FILE_ENV_VAR = "ATTESTBOOK_CLAIMS_FILE";
 export const ATTESTBOOK_ADMIN_TOKEN_ENV_VAR = "ATTESTBOOK_ADMIN_TOKEN";
 export const ATTESTBOOK_ALLOWED_SCHEMA_ORIGINS_ENV_VAR = "ATTESTBOOK_ALLOWED_SCHEMA_ORIGINS";
 
@@ -14,7 +13,6 @@ export const DISABLED_ATTESTBOOK_SETTINGS: AttestbookSettings = {
   rulebook_id: null,
   webhook_secret: null,
   admin_token: null,
-  claims_file: null,
   allowed_schema_origins: [],
 };
 
@@ -52,7 +50,6 @@ export function resolveAttestbookSettings(env: NodeJS.ProcessEnv): AttestbookSet
     rulebook_id: rulebookId,
     webhook_secret: env[ATTESTBOOK_WEBHOOK_SECRET_ENV_VAR]?.trim() || null,
     admin_token: env[ATTESTBOOK_ADMIN_TOKEN_ENV_VAR]?.trim() || null,
-    claims_file: env[ATTESTBOOK_CLAIMS_FILE_ENV_VAR]?.trim() || null,
     allowed_schema_origins: (env[ATTESTBOOK_ALLOWED_SCHEMA_ORIGINS_ENV_VAR] ?? "")
       .split(",")
       .map((origin) => origin.trim())

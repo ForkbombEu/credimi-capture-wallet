@@ -1189,7 +1189,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
               type: "string",
               default: "pid_default",
               description:
-                "Predefined claim set the issued credential carries. For a PID, fixtures differ from the baseline along one value axis each, so a DCQL value constraint matches one and withholds the others. For a credential imported from Attestbook it names a local claim fixture (default issuer_test_data, the issuer's existing key/value test data) that must provide valid values for every required claim; pid_default never applies.",
+                "Predefined PID claim set the issued credential carries. Fixtures differ from the baseline along one value axis each, so a DCQL value constraint matches one and withholds the others. Refused for a credential imported from Attestbook, whose values are generated per session.",
             },
             document_number: {
               type: "string",
@@ -1312,6 +1312,7 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             status_list_enabled: { type: "boolean" },
             fixture_id: { type: "string" },
             credential_definition: { $ref: "#/components/schemas/SessionCredentialDefinition" },
+            generated_claims: { $ref: "#/components/schemas/SessionGeneratedClaims" },
             document_number: { type: "string", minLength: 1 },
             status_reference: { type: "string" },
             digest_algorithm: { type: "string" },
@@ -1354,6 +1355,9 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             },
             credential_definition: {
               $ref: "#/components/schemas/SessionCredentialDefinition",
+            },
+            generated_claims: {
+              $ref: "#/components/schemas/SessionGeneratedClaims",
             },
             issuance_response_scenario: {
               $ref: "#/components/schemas/IssuanceResponseScenario",
@@ -1557,7 +1561,19 @@ export function openApiDocument(config: AppConfig): JsonRecord {
             content_digest: { type: "string", pattern: "^[0-9a-f]{64}$" },
             attestation: { type: "string" },
             vct: { type: "string" },
-            vct_source: { type: "string", enum: ["type_metadata", "issuer_mapping"] },
+            vct_source: { type: "string", const: "attestation_name" },
+          },
+        },
+        SessionGeneratedClaims: {
+          type: "object",
+          description:
+            "Synthetic claim values an imported credential is issued with, generated at session creation. The same generator version, seed and reference date regenerate them exactly.",
+          required: ["generator", "seed", "reference_date", "claims"],
+          properties: {
+            generator: { type: "string", examples: ["@faker-js/faker@10.6.0"] },
+            seed: { type: "string", description: "The session id." },
+            reference_date: { type: "string", format: "date-time" },
+            claims: { type: "object", additionalProperties: true },
           },
         },
         AttestbookIntegrationStatus: {

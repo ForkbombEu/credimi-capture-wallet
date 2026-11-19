@@ -1,5 +1,5 @@
 import { X509Certificate, createHash, randomBytes, randomUUID } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { type IncomingMessage, type ServerResponse, createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -47,9 +47,10 @@ const issuerIdentifier = `${issuerBaseUrl}/issuers/${issuerId}`;
 const webhookSecret = "atw_test-subscription-secret-0000000000000000";
 const adminToken = "test-admin-token";
 const dataDir = mkdtempSync(join(tmpdir(), "attestbook-e2e-"));
-const claimsFile = join(dataDir, "claims.json");
 const fixture = new AttestbookFixture();
 let config: AppConfig;
+
+const membershipVct = "urn:attestbook:membership-card";
 
 function membership(version: number, extra: Record<string, unknown> = {}): FixtureAttestation {
   return {
@@ -68,12 +69,41 @@ function membership(version: number, extra: Record<string, unknown> = {}): Fixtu
       },
     },
     typeMetadata: {
-      vct: `https://credentials.example.test/membership/${version}`,
+      vct: membershipVct,
       display: [{ locale: "en-US", name: `Membership card v${version}` }],
-      claims: [{ path: ["active"], sd: "never" }],
+      claims: [
+        { path: ["active"], sd: "never" },
+        ...("memberships" in extra ? [{ path: ["memberships", null, "club"], sd: "never" }] : []),
+      ],
     },
   };
 }
+
+/** Nested claims added by version 2: an object and an array of objects. */
+const nestedClaims = {
+  address: {
+    type: "object",
+    required: ["locality"],
+    properties: {
+      street_address: { type: "string" },
+      locality: { type: "string" },
+      country: { type: "string", minLength: 2, maxLength: 2 },
+    },
+  },
+  memberships: {
+    type: "array",
+    minItems: 1,
+    maxItems: 3,
+    items: {
+      type: "object",
+      required: ["club"],
+      properties: {
+        club: { type: "string", enum: ["chess", "rowing", "go"] },
+        since: { type: "integer", minimum: 1990, maximum: 2026 },
+      },
+    },
+  },
+};
 
 interface Harness {
   app: Express;
@@ -181,6 +211,7 @@ interface SessionResponse {
   deeplink: string;
   fixture_id: string;
   credential_definition?: JsonRecord;
+  generated_claims?: { generator: string; seed: string; claims: JsonRecord };
 }
 
 async function createSession(harness: Harness, body: JsonRecord): Promise<SessionResponse> {
@@ -237,7 +268,7 @@ async function requestCredential(
 async function issuePreAuthorized(
   harness: Harness,
   body: JsonRecord,
-): Promise<{ compact: string; holder: Key }> {
+): Promise<{ compact: string; holder: Key; session: SessionResponse }> {
   const session = await createSession(harness, { flow: "pre_authorized_code", ...body });
   const dpop = await key();
   const holder = await key();
@@ -245,6 +276,7 @@ async function issuePreAuthorized(
   return {
     compact: await requestCredential(harness, session, dpop, token.access_token, holder),
     holder,
+    session,
   };
 }
 
@@ -263,21 +295,6 @@ async function verifyIssuerSignature(compact: string): Promise<void> {
 
 beforeAll(async () => {
   await fixture.start();
-  writeFileSync(
-    claimsFile,
-    JSON.stringify({
-      fixtures: {
-        membership: {
-          member_id: "M-0042",
-          given_name: "Ada",
-          family_name: "Lovelace",
-          tier: "gold",
-          active: true,
-          points: 120,
-        },
-      },
-    }),
-  );
   config = {
     ...DEFAULT_CONFIG,
     issuer_base_url: issuerBaseUrl,
@@ -289,7 +306,6 @@ beforeAll(async () => {
       rulebook_id: fixture.rulebookId,
       webhook_secret: webhookSecret,
       admin_token: adminToken,
-      claims_file: claimsFile,
       allowed_schema_origins: [],
     },
   };
@@ -343,7 +359,7 @@ describe("Attestbook-defined credentials, end to end", () => {
     )[v1Id];
     expect(signedConfiguration).toMatchObject({
       format: "dc+sd-jwt",
-      vct: "https://credentials.example.test/membership/1",
+      vct: membershipVct,
       scope: v1Id,
       proof_types_supported: { jwt: { proof_signing_alg_values_supported: ["ES256"] } },
     });
@@ -352,59 +368,57 @@ describe("Attestbook-defined credentials, end to end", () => {
     );
     expect(authorizationServer.body.scopes_supported).toContain(v1Id);
 
-    // The issuer's PID-flavoured default data cannot silently stand in for the imported claims.
-    const incomplete = await request(issuer.app)
-      .post("/sessions")
-      .send({ issuer_configuration_id: issuerId, credential_configuration_id: v1Id });
-    expect(incomplete.status).toBe(400);
-    expect(incomplete.body).toMatchObject({
-      error: "claim_fixture_incomplete",
-      fixture_id: "issuer_test_data",
-      missing_claims: ["member_id"],
-      supported_fixture_ids: ["membership"],
-    });
+    // PID-specific options, and claim fixtures, have no meaning for an imported credential.
     const pidOption = await request(issuer.app).post("/sessions").send({
       issuer_configuration_id: issuerId,
       credential_configuration_id: v1Id,
-      fixture_id: "membership",
+      fixture_id: "pid_default",
       document_number: "X1",
       status_list_enabled: true,
     });
     expect(pidOption.status).toBe(400);
     expect(pidOption.body).toMatchObject({
       error: "unsupported_for_imported_credential",
-      unsupported_parameters: ["status_list_enabled", "document_number"],
+      unsupported_parameters: ["status_list_enabled", "document_number", "fixture_id"],
     });
 
-    // Pre-authorized code flow: a correctly signed SD-JWT VC of the new type.
-    const { compact, holder } = await issuePreAuthorized(issuer, {
+    // Pre-authorized code flow: a correctly signed SD-JWT VC of the new type, with the claim
+    // values generated for the session and recorded on it.
+    const { compact, holder, session } = await issuePreAuthorized(issuer, {
       credential_configuration_id: v1Id,
-      fixture_id: "membership",
     });
+    expect(session.fixture_id).toBeUndefined();
+    expect(session.generated_claims).toMatchObject({
+      generator: "@faker-js/faker@10.6.0",
+      seed: session.session_id,
+    });
+    const generated = session.generated_claims?.claims ?? {};
+    expect(generated).toMatchObject({
+      member_id: expect.any(String),
+      given_name: expect.any(String),
+      family_name: expect.any(String),
+      tier: expect.stringMatching(/^(gold|silver)$/),
+      active: expect.any(Boolean),
+    });
+    expect(String(generated.member_id).length).toBeGreaterThanOrEqual(3);
+    const recorded = (await request(issuer.app).get(`/sessions/${session.session_id}`)).body;
+    expect(recorded.generated_claims).toEqual(session.generated_claims);
     const decoded = new SdJwtVcService({} as never).fromCompact(compact);
     expect(decoded.prettyClaims).toMatchObject({
-      vct: "https://credentials.example.test/membership/1",
+      ...generated,
+      vct: membershipVct,
       iss: issuerIdentifier,
-      member_id: "M-0042",
-      given_name: "Ada",
-      family_name: "Lovelace",
-      tier: "gold",
-      active: true,
       cnf: { jwk: holder.publicJwk },
     });
-    expect(decoded.prettyClaims).not.toHaveProperty("points");
     // `active` is never selectively disclosable per Type Metadata; `member_id` follows issuer policy.
     const issuerSignedPayload = decodeJwt(compact.split("~")[0] ?? "");
-    expect(issuerSignedPayload.active).toBe(true);
+    expect(issuerSignedPayload.active).toBe(generated.active);
     expect(issuerSignedPayload.member_id).toBeUndefined();
     expect(issuerSignedPayload._sd).toEqual(expect.any(Array));
     await verifyIssuerSignature(compact);
 
     // Authorization code flow: the imported scope is mapped through the chained authorization server.
-    const codeSession = await createSession(issuer, {
-      credential_configuration_id: v1Id,
-      fixture_id: "membership",
-    });
+    const codeSession = await createSession(issuer, { credential_configuration_id: v1Id });
     const offer = JSON.parse(
       String(new URL(codeSession.deeplink).searchParams.get("credential_offer")),
     ) as {
@@ -465,13 +479,12 @@ describe("Attestbook-defined credentials, end to end", () => {
       clientId,
     );
     expect(
-      new SdJwtVcService({} as never).fromCompact(authorizationCodeCredential).prettyClaims.vct,
-    ).toBe("https://credentials.example.test/membership/1");
+      new SdJwtVcService({} as never).fromCompact(authorizationCodeCredential).prettyClaims,
+    ).toMatchObject({ ...codeSession.generated_claims?.claims, vct: membershipVct });
 
     // A session left in flight across the update keeps its pinned definition.
     const inFlight = await createSession(issuer, {
       credential_configuration_id: v1Id,
-      fixture_id: "membership",
       flow: "pre_authorized_code",
     });
     expect(inFlight.credential_definition).toMatchObject({
@@ -479,11 +492,12 @@ describe("Attestbook-defined credentials, end to end", () => {
       rulebook_id: fixture.rulebookId,
       version: "1.0",
       content_digest: v1.contentDigest,
-      vct: "https://credentials.example.test/membership/1",
+      vct: membershipVct,
+      vct_source: "attestation_name",
     });
 
     // Publishing a new version activates it without a restart, from one signed webhook.
-    const v2 = fixture.publish("2.0", [membership(2, { points: { type: "integer", minimum: 0 } })]);
+    const v2 = fixture.publish("2.0", [membership(2, nestedClaims)]);
     const accepted = await deliver(issuer, v2);
     expect(accepted.status).toBe(202);
     expect(accepted.body).toEqual({ status: "accepted", event_id: v2.id });
@@ -498,7 +512,6 @@ describe("Attestbook-defined credentials, end to end", () => {
     const superseded = await request(issuer.app).post("/sessions").send({
       issuer_configuration_id: issuerId,
       credential_configuration_id: v1Id,
-      fixture_id: "membership",
     });
     expect(superseded.status).toBe(400);
 
@@ -511,20 +524,49 @@ describe("Attestbook-defined credentials, end to end", () => {
       inFlightToken.access_token,
       await key(),
     );
-    expect(new SdJwtVcService({} as never).fromCompact(pinned).prettyClaims).toMatchObject({
-      vct: "https://credentials.example.test/membership/1",
+    const pinnedClaims = new SdJwtVcService({} as never).fromCompact(pinned).prettyClaims;
+    expect(pinnedClaims).toMatchObject({
+      ...inFlight.generated_claims?.claims,
+      vct: membershipVct,
     });
+    expect(pinnedClaims).not.toHaveProperty("address");
     await credentialRegistry(config, issuer.store).serialize(async () => undefined);
     expect(await advertisedIds(issuer)).not.toContain(v1Id);
 
-    const { compact: v2Credential } = await issuePreAuthorized(issuer, {
+    // Nested claims: an object and an array of objects, disclosable member by member and element
+    // by element, except where Type Metadata says `sd: "never"`.
+    const { compact: v2Credential, session: v2Session } = await issuePreAuthorized(issuer, {
       credential_configuration_id: v2Id,
-      fixture_id: "membership",
     });
-    expect(new SdJwtVcService({} as never).fromCompact(v2Credential).prettyClaims).toMatchObject({
-      vct: "https://credentials.example.test/membership/2",
-      points: 120,
+    const v2Generated = v2Session.generated_claims?.claims ?? {};
+    expect(v2Generated).toMatchObject({
+      address: { locality: expect.any(String), country: expect.stringMatching(/^.{2}$/) },
+      memberships: expect.arrayContaining([
+        expect.objectContaining({ club: expect.stringMatching(/^(chess|rowing|go)$/) }),
+      ]),
     });
+    const v2Decoded = new SdJwtVcService({} as never).fromCompact(v2Credential);
+    expect(v2Decoded.prettyClaims).toMatchObject({ ...v2Generated, vct: membershipVct });
+    const v2Payload = decodeJwt(v2Credential.split("~")[0] ?? "");
+    expect(v2Payload.address).toBeUndefined();
+    const v2Disclosures = v2Credential
+      .split("~")
+      .slice(1)
+      .filter(Boolean)
+      .map(
+        (disclosure) =>
+          JSON.parse(Buffer.from(disclosure, "base64url").toString("utf8")) as unknown[],
+      );
+    const memberships = v2Generated.memberships as JsonRecord[];
+    // One disclosure per array element; inside each, `club` stays in clear text.
+    const elementDisclosures = v2Disclosures.filter(
+      (disclosure) => disclosure.length === 2 && typeof disclosure[1] === "object",
+    );
+    expect(elementDisclosures).toHaveLength(memberships.length);
+    for (const [, element] of elementDisclosures) {
+      expect(element).toMatchObject({ club: expect.any(String) });
+    }
+    expect(v2Disclosures.some((disclosure) => disclosure[1] === "locality")).toBe(true);
 
     // Re-sending the same event is harmless; an older event never downgrades.
     const exportsBefore = fixture.requests.filter((entry) => entry.includes("/export")).length;
@@ -581,7 +623,7 @@ describe("Attestbook-defined credentials, end to end", () => {
 
     // An unsupported schema is explained by diagnostics; the issuer stays healthy.
     const v4 = fixture.publish("4.0", [
-      membership(4, { address: { type: "object", properties: { city: { type: "string" } } } }),
+      membership(4, { joined: { type: "string", format: "date" } }),
     ]);
     expect((await deliver(issuer, v4)).status).toBe(202);
     const rejected = await status(issuer);
@@ -595,14 +637,14 @@ describe("Attestbook-defined credentials, end to end", () => {
     expect((rejected.sync as { diagnostics: JsonRecord[] }).diagnostics).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          code: "unsupported_nested_claim",
+          code: "unsupported_schema_keyword",
           attestation: "Membership Card",
         }),
       ]),
     );
     expect(await advertisedIds(issuer)).toContain(v2Id);
     expect(JSON.stringify(rejected)).not.toContain(webhookSecret);
-    expect(JSON.stringify(rejected)).not.toContain("M-0042");
+    expect(JSON.stringify(rejected)).not.toContain(String(generated.member_id));
 
     // Manual resynchronisation is token-protected and reports the outcome.
     expect((await request(issuer.app).post("/integrations/attestbook/sync")).status).toBe(401);
@@ -628,10 +670,9 @@ describe("Attestbook-defined credentials, end to end", () => {
     expect(issuer.logs.map((entry) => entry.event)).toContain("recovery_restored");
     const { compact: offline } = await issuePreAuthorized(issuer, {
       credential_configuration_id: v2Id,
-      fixture_id: "membership",
     });
     expect(new SdJwtVcService({} as never).fromCompact(offline).prettyClaims.vct).toBe(
-      "https://credentials.example.test/membership/2",
+      membershipVct,
     );
 
     // A publication missed while the issuer was down is caught up by the next startup reconciliation.

@@ -612,12 +612,8 @@ export class CredoOpenId4VciIssuer {
       if (captureSession.credential_definition?.content_digest !== definition.contentDigest) {
         throw new Error("Capture session is not pinned to this credential definition");
       }
-      const resolution = attestbookIntegration(this.config, this.store).claimValues(
-        definition,
-        captureSession.fixture_id ?? "",
-      );
-      if (!resolution?.ok)
-        throw new Error("Claim fixture does not satisfy the credential definition");
+      const generated = captureSession.generated_claims;
+      if (!generated) throw new Error("Capture session has no generated claims");
       return {
         type: "credentials" as const,
         format: ClaimFormat.SdJwtDc,
@@ -626,7 +622,7 @@ export class CredoOpenId4VciIssuer {
             config: signingConfig,
             holderJwk,
             definition,
-            claims: resolution.claims,
+            claims: generated.claims,
             digestAlgorithm: captureSession.digest_algorithm,
           }),
         ),

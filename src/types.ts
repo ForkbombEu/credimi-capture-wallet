@@ -136,8 +136,6 @@ export interface AttestbookSettings {
   webhook_secret: string | null;
   /** Bearer token for the manual resynchronisation route; the route is disabled without it. */
   admin_token: string | null;
-  /** Optional named claim fixtures and issuer-owned `vct` mappings. */
-  claims_file: string | null;
   /** Explicitly allowed origins of schema documents hosted outside Attestbook. */
   allowed_schema_origins: string[];
 }
@@ -325,6 +323,8 @@ export interface SessionCapture {
    * newer version is activated. It carries provenance only, never claim values.
    */
   credential_definition?: SessionCredentialDefinition;
+  /** The synthetic values an imported credential is issued with, present with `credential_definition`. */
+  generated_claims?: SessionGeneratedClaims;
   /**
    * Shape of the `status` claim in the issued credential. Absent means the normal reference, so
    * a session that does not ask for a malformed structure cannot receive one.
@@ -696,6 +696,18 @@ export interface SessionCredentialDefinition {
   content_digest: string;
   attestation: string;
   vct: string;
-  /** Where the issued credential's `vct` came from. */
-  vct_source: "type_metadata" | "issuer_mapping";
+  /** Where the issued credential's `vct` came from: always the attestation name. */
+  vct_source: "attestation_name";
+}
+
+/**
+ * The synthetic claim values an imported credential is issued with. They are generated once, at
+ * session creation, and are reproducible from the recorded generator, seed and reference date.
+ */
+export interface SessionGeneratedClaims {
+  generator: string;
+  /** The seed string; the session id. */
+  seed: string;
+  reference_date: string;
+  claims: JsonRecord;
 }

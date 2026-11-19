@@ -912,7 +912,7 @@ Duplicates answer `200`. The service then reconciles against the authoritative p
 and activates its latest publication only, so a late or older notification never downgrades.
 Activation requires, in order: the exported bytes match the published SHA-256 digest; the schema
 references match those frozen in the bytes; every schema document matches its digest and SRI pin;
-the rulebook compiles; a claim fixture satisfies each credential; and a dry-run Credo-TS signature
+the rulebook compiles; synthetic values can be generated for each credential; and a dry-run Credo-TS signature
 succeeds. The Credo-TS issuer record, its metadata and the chained OAuth scope mapping are then
 updated together and read back; any failure restores the last-known-good catalogue. At startup the
 persisted catalogue is restored without contacting Attestbook, then the feed is read to catch up on
@@ -920,38 +920,39 @@ missed publications. There is no polling; a failed download of an accepted notif
 with bounded backoff.
 
 **Supported definitions.** An attestation type is imported when `supportedFormats` includes
-`dc+sd-jwt`; others are skipped with an informational diagnostic. It needs `bindingType: "key"`,
-exactly one `dc+sd-jwt` JSON Schema 2020-12 reference, and its `vct` from one SD-JWT VC Type
-Metadata reference or an explicit `vct_mappings` entry. The schema root must be an object of
-top-level `string`, `integer`, `number` or `boolean` properties, with `required`, `enum`, `const`,
-`minLength`, `maxLength`, `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `title`
-and `description`. Nested objects, arrays, `format`, `pattern`, `$ref`, Type Metadata `extends`,
-and claims named after protocol members (`iss`, `sub`, `iat`, `nbf`, `exp`, `cnf`, `vct`, `status`,
-`_sd…`) are rejected, not flattened. Every claim is selectively disclosable unless Type Metadata
-says `sd: "never"`. Schema documents must be hosted by the trusted Attestbook origin, or come from
-an `ATTESTBOOK_ALLOWED_SCHEMA_ORIGINS` origin with an SRI pin. Any error rejects the whole
-publication. Credential configuration ids are version-specific:
-`urn:attestbook:<rulebook>:<version>:<attestation-slug>-<digest>`, also used as the OAuth scope.
+`dc+sd-jwt`; others are skipped with an informational diagnostic. It needs `bindingType: "key"`
+and exactly one `dc+sd-jwt` JSON Schema 2020-12 reference. The schema root is an object whose
+claims are `string`, `integer`, `number` or `boolean` values (with `enum`, `const`, `minLength`,
+`maxLength`, `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`), nested objects
+(`properties`, `required`, a boolean `additionalProperties`) and arrays (one `items` schema,
+`minItems`, `maxItems`), at most four path segments deep; `title` and `description` are allowed
+everywhere. `format`, `pattern`, `$ref`, combinators, tuple `items`, Type Metadata `extends`, and
+claims named after protocol members (`iss`, `sub`, `iat`, `nbf`, `exp`, `cnf`, `vct`, `status`
+at the top level, `_sd…` and `...` anywhere) are rejected. Every object member and every array
+element is individually selectively disclosable unless Type Metadata says `sd: "never"` for its
+path (use `null` for "every element", e.g. `["degrees", null, "level"]`). Schema documents must be
+hosted by the trusted Attestbook origin, or come from an `ATTESTBOOK_ALLOWED_SCHEMA_ORIGINS`
+origin with an SRI pin. Any error rejects the whole publication. Credential configuration ids are
+version-specific: `urn:attestbook:<rulebook>:<version>:<attestation-slug>-<digest>`, also used as
+the OAuth scope.
 
-**Claim values.** A schema constrains claims; it does not supply identity data. Sessions select
-a named fixture with `fixture_id`. `issuer_test_data` (the default) is the issuer's existing
-key/value test data, matched by claim name; `pid_default` never applies. Further fixtures, and
-issuer-owned `vct` mappings, come from `ATTESTBOOK_CLAIMS_FILE`:
+**Credential type.** The `vct` is derived from the attestation name:
+`urn:attestbook:<slug>`, where the slug is the name in lowercase ASCII with diacritics dropped and
+every other run of characters turned into `-` (`Membership Card` → `urn:attestbook:membership-card`).
+It is the same across rulebook versions and changes if the attestation is renamed. It does not
+include the rulebook, so two rulebooks with alike-named types share a `vct`. An optional Type
+Metadata reference may refine display names and disclosure, but its `vct` must equal the derived
+one or the publication is rejected; two types of one rulebook whose names slug alike are rejected.
 
-```json
-{
-  "fixtures": {
-    "membership": { "member_id": "M-0042", "given_name": "Ada", "active": true }
-  },
-  "vct_mappings": [
-    { "rulebook_id": "<rulebook id>", "attestation": "Membership Card", "vct": "https://example.org/membership/1" }
-  ]
-}
-```
-
-A fixture missing a required claim, or with a value the schema forbids, is refused with
-`claim_fixture_incomplete`. `status_list_enabled`, `status_reference` and `document_number` are
-refused for imported credentials.
+**Claim values.** A schema constrains claims; it does not supply identity data. Every session
+gets synthetic values generated with [faker-js](https://fakerjs.dev), seeded by the session id, for
+every claim, optional ones included. Values follow the claim name where it suggests a kind of
+data (`given_name`, `email`, `birthdate`, `country`, `locality`, …) and always satisfy the schema:
+`const`, a random `enum` member, string lengths, numeric bounds and array sizes. The session
+records them with the generator version, seed and reference date (`generated_claims`), which
+regenerate them exactly. A schema whose constraints no value can meet is rejected at activation.
+`fixture_id`, `status_list_enabled`, `status_reference` and `document_number` are refused for
+imported credentials.
 
 **Inspecting and recovering.** `GET /issuers` lists the active imported ids; the issuer metadata
 also advertises earlier definitions still used by unfinished sessions, which complete under the
@@ -960,8 +961,8 @@ exact version they were offered with (shown as `credential_definition` on the se
 event, the last successful synchronization, and the state (`idle`, `fetching`, `validating`,
 `activating`, `failed`). A failure names its stage: `fetch` (Attestbook unreachable or no event),
 `verify` (digest, pin or schema integrity), `compile` (unsupported credential, with per-attestation
-diagnostics), `issuability` (no fixture or dry-run signing), `activate` (Credo-TS rejected the
-update) or `persist`. No secret, token or claim value is ever reported or logged. Structured
+diagnostics), `issuability` (value generation or dry-run signing), `activate` (Credo-TS rejected the
+update) or `persist`. The status endpoint and logs never carry a secret, token or claim value. Structured
 `component: "attestbook"` log lines record receipt, verification, compilation, activation, rollback
 and recovery. With `ATTESTBOOK_ADMIN_TOKEN` set, an operator can force a reconciliation:
 
@@ -1074,7 +1075,6 @@ From env file `.env`, that is loaded automatically when present, you can set:
 - `ATTESTBOOK_WEBHOOK_SECRET`: the subscription's `webhookSecret`. Without it, publication
   notifications are refused with `503` (Attestbook retries them) and only startup and manual
   reconciliation run.
-- `ATTESTBOOK_CLAIMS_FILE`: optional JSON file of named claim fixtures and `vct` mappings.
 - `ATTESTBOOK_ADMIN_TOKEN`: optional bearer token that enables
   `POST /integrations/attestbook/sync`.
 - `ATTESTBOOK_ALLOWED_SCHEMA_ORIGINS`: optional comma-separated HTTPS origins from which pinned
@@ -1133,8 +1133,8 @@ a secure context, so `PUBLIC_BASE_URL` must be HTTPS outside local testing.
 rulebook, in a single issuer process. Issuance success says nothing about EUDI trust or
 interoperability compliance. Status lists and mdoc are not supported for imported types, and no
 issuance policy is inferred from a rulebook. Issuance sessions are in memory, so sessions started
-before a restart do not survive it, even though the imported catalogue does. Changes to
-`ATTESTBOOK_CLAIMS_FILE` take effect at restart.
+before a restart do not survive it, even though the imported catalogue does. Generated values are
+reproducible only with the same faker-js version, which is pinned.
 
 **Wallet refusal versus End-User cancellation.** The browser reports both as a `DOMException`
 with deliberately sparse detail, so the `rejected` invocation outcome records what the browser

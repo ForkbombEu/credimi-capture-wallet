@@ -2,7 +2,6 @@ import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import express, { type NextFunction, type Request, type Response } from "express";
 import QRCode from "qrcode";
-import { ISSUER_TEST_DATA_FIXTURE_ID } from "./attestbook/claims.js";
 import { sha256Hex } from "./attestbook/digest.js";
 import { attestbookIntegration } from "./attestbook/integration.js";
 import type { AttestbookCredentialDefinition } from "./attestbook/types.js";
@@ -371,15 +370,6 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
             .type("html")
             .send(errorPage("Imported Attestbook credentials do not support a Token Status List"));
         }
-        const selection = imported
-          ? importedFixtureSelection(config, store, imported, undefined)
-          : null;
-        if (selection && "error" in selection) {
-          return res
-            .status(400)
-            .type("html")
-            .send(errorPage(String(selection.error.error_description)));
-        }
         const session = await createIssuanceSession(
           config,
           store,
@@ -388,7 +378,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
           "authorization_code",
           "credential_offer",
           statusListEnabled ?? false,
-          selection?.fixtureId,
+          undefined,
           undefined,
           undefined,
           undefined,
@@ -734,6 +724,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
           ...(statusListEnabled ? ["status_list_enabled"] : []),
           ...(body.status_reference !== undefined ? ["status_reference"] : []),
           ...(body.document_number !== undefined ? ["document_number"] : []),
+          ...(body.fixture_id !== undefined ? ["fixture_id"] : []),
         ];
         if (unsupported.length > 0) {
           return res.status(400).json({
@@ -757,12 +748,8 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       if (statusReference !== "valid" && !statusListEnabled) {
         return res.status(400).json({ error: "status_reference_requires_status_list" });
       }
-      let fixtureId: string;
-      if (imported) {
-        const selection = importedFixtureSelection(config, store, imported, body.fixture_id);
-        if ("error" in selection) return res.status(400).json(selection.error);
-        fixtureId = selection.fixtureId;
-      } else {
+      let fixtureId: string | undefined;
+      if (!imported) {
         const pidFixtureId = pidFixtureIdOrNull(body.fixture_id ?? "pid_default");
         if (!pidFixtureId) {
           return res.status(400).json({
@@ -863,6 +850,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         ...(session.credential_definition
           ? { credential_definition: session.credential_definition }
           : {}),
+        ...(session.generated_claims ? { generated_claims: session.generated_claims } : {}),
         ...(session.document_number ? { document_number: session.document_number } : {}),
         ...(session.status_reference ? { status_reference: session.status_reference } : {}),
         ...(session.digest_algorithm ? { digest_algorithm: session.digest_algorithm } : {}),
@@ -1867,6 +1855,15 @@ async function createIssuanceSession(
         vct_source: importedDefinition.vctSource,
       };
       store.addEvent(session, "credential_definition_pinned", { ...session.credential_definition });
+      // Generated before the offer exists, so a session is never offered without its values.
+      session.generated_claims = attestbookIntegration(config, store).generatedClaims(
+        importedDefinition,
+        session.session_id,
+      );
+      store.addEvent(session, "credential_claims_generated", {
+        generator: session.generated_claims.generator,
+        seed: session.generated_claims.seed,
+      });
     }
 
     const offer = await (await credoOpenId4VciIssuer(config, store)).createCredentialOffer({
@@ -1925,44 +1922,6 @@ async function issuerCredentialRegistry(
 ): Promise<CredentialRegistry> {
   if (config.attestbook.enabled) await credoOpenId4VciIssuer(config, store);
   return credentialRegistry(config, store);
-}
-
-/**
- * The named claim fixture an imported credential is issued with. It defaults to the issuer's
- * existing key/value test data, never to the PID-specific `pid_default`, and must provide valid
- * values for every required claim, so a session never offers a credential it cannot issue.
- */
-function importedFixtureSelection(
-  config: AppConfig,
-  store: CaptureStore,
-  definition: AttestbookCredentialDefinition,
-  value: unknown,
-): { fixtureId: string } | { error: JsonRecord } {
-  const integration = attestbookIntegration(config, store);
-  const fixtureId = value === undefined ? ISSUER_TEST_DATA_FIXTURE_ID : asStringOrNull(value);
-  const resolution = fixtureId ? integration.claimValues(definition, fixtureId) : null;
-  if (!fixtureId || !resolution) {
-    return {
-      error: {
-        error: "unsupported_fixture_id",
-        error_description: "unknown claim fixture for this imported credential",
-        supported_fixture_ids: integration.fixtureIdsFor(definition),
-      },
-    };
-  }
-  if (!resolution.ok) {
-    return {
-      error: {
-        error: "claim_fixture_incomplete",
-        error_description: `claim fixture '${fixtureId}' cannot issue this credential`,
-        fixture_id: fixtureId,
-        missing_claims: [...resolution.missing],
-        invalid_claims: resolution.invalid.map((entry) => ({ ...entry })),
-        supported_fixture_ids: integration.fixtureIdsFor(definition),
-      },
-    };
-  }
-  return { fixtureId };
 }
 
 function issuerFromRequest(config: AppConfig, value: unknown): ResolvedIssuerConfiguration | null {

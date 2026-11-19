@@ -258,7 +258,7 @@ export function importedCredential(
     proofPolicy: definition.proofPolicy,
     displayName: definition.displayName,
     vct: definition.vct,
-    claimPaths: definition.claims.map((claim) => [...claim.path]),
+    claimPaths: definition.claimMetadata.map((claim) => claim.path),
     attestbook: definition,
   };
 }

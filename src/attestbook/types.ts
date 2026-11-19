@@ -72,26 +72,64 @@ export interface AttestbookRulebookDocument {
   readonly attestations: readonly AttestbookRulebookAttestation[];
 }
 
-export type AttestbookClaimType = "string" | "integer" | "number" | "boolean";
-export type AttestbookClaimValue = string | number | boolean;
+export type AttestbookScalarType = "string" | "integer" | "number" | "boolean";
+export type AttestbookScalarValue = string | number | boolean;
 
-/** One top-level scalar claim of a compiled credential. */
-export interface AttestbookClaimDefinition {
-  readonly name: string;
-  readonly path: readonly [string];
-  readonly type: AttestbookClaimType;
-  readonly required: boolean;
-  /** Issuer disclosure policy, refined by Type Metadata `sd` where it is stated. */
-  readonly selectivelyDisclosable: boolean;
+interface AttestbookClaimNodeBase {
+  /** Display label from the schema `title`, refined by Type Metadata `display`. */
   readonly displayName: string | null;
-  readonly enum?: readonly AttestbookClaimValue[];
-  readonly const?: AttestbookClaimValue;
+  /**
+   * Whether this claim is selectively disclosable where it appears: as an object member, or as
+   * each element of its array. The issuer default is true, refined by Type Metadata `sd`.
+   */
+  readonly selectivelyDisclosable: boolean;
+}
+
+export interface AttestbookScalarClaim extends AttestbookClaimNodeBase {
+  readonly kind: "scalar";
+  readonly type: AttestbookScalarType;
+  readonly enum?: readonly AttestbookScalarValue[];
+  readonly const?: AttestbookScalarValue;
   readonly minLength?: number;
   readonly maxLength?: number;
   readonly minimum?: number;
   readonly maximum?: number;
   readonly exclusiveMinimum?: number;
   readonly exclusiveMaximum?: number;
+}
+
+export interface AttestbookClaimProperty {
+  readonly name: string;
+  readonly required: boolean;
+  readonly node: AttestbookClaimNode;
+}
+
+export interface AttestbookObjectClaim extends AttestbookClaimNodeBase {
+  readonly kind: "object";
+  readonly properties: readonly AttestbookClaimProperty[];
+  readonly additionalProperties: boolean;
+}
+
+export interface AttestbookArrayClaim extends AttestbookClaimNodeBase {
+  readonly kind: "array";
+  readonly items: AttestbookClaimNode;
+  readonly minItems?: number;
+  readonly maxItems?: number;
+}
+
+export type AttestbookClaimNode =
+  | AttestbookScalarClaim
+  | AttestbookObjectClaim
+  | AttestbookArrayClaim;
+
+/** An OpenID4VCI claims path: a member name, or null for every element of an array. */
+export type AttestbookClaimPath = readonly (string | null)[];
+
+/** One `credential_metadata.claims` entry the issuer advertises. */
+export interface AttestbookClaimMetadata {
+  readonly path: AttestbookClaimPath;
+  readonly mandatory: boolean;
+  readonly displayName: string | null;
 }
 
 export interface AttestbookValidatedSchemaReference {
@@ -121,12 +159,15 @@ export interface AttestbookCredentialDefinition {
   readonly scope: string;
   readonly format: "dc+sd-jwt";
   readonly vct: string;
-  readonly vctSource: "type_metadata" | "issuer_mapping";
+  /** Always derived from the attestation name: `urn:attestbook:<slug>`. */
+  readonly vctSource: "attestation_name";
   readonly displayName: string;
-  readonly claims: readonly AttestbookClaimDefinition[];
+  /** The credential's claim structure: the root object of the issued payload. */
+  readonly claims: AttestbookObjectClaim;
+  readonly claimMetadata: readonly AttestbookClaimMetadata[];
   readonly schemaReferences: readonly AttestbookValidatedSchemaReference[];
   readonly proofPolicy: "jwt-proof";
-  readonly claimValueProvider: "local-fixtures";
+  readonly claimValueProvider: "faker-js";
   readonly disclosurePolicy: "issuer-default-selective";
 }
 
