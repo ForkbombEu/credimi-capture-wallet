@@ -209,6 +209,28 @@ export class CaptureStore {
     }
   }
 
+  /**
+   * Forgets an issuance session that never became usable, such as a wallet-initiated one whose
+   * Pushed Authorization Request Credo-TS refused. Its requests stay in the ledger, unattributed.
+   */
+  discardSession(sessionId: string): void {
+    if (!this.sessions.delete(sessionId)) return;
+    const credoSessionId = this.credoIssuanceSessionIds.get(sessionId);
+    this.credoIssuanceSessionIds.delete(sessionId);
+    if (credoSessionId) this.captureSessionIdsByCredoSession.delete(credoSessionId);
+    for (const [credentialOfferId, captureSessionId] of this.captureSessionIdsByCredentialOffer) {
+      if (captureSessionId === sessionId) {
+        this.captureSessionIdsByCredentialOffer.delete(credentialOfferId);
+      }
+    }
+    for (const capture of this.oid4vciRequests) {
+      if (capture.session_id !== sessionId) continue;
+      capture.session_id = null;
+      const fullCapture = this.fullOid4vciRequests.get(capture);
+      if (fullCapture) fullCapture.session_id = null;
+    }
+  }
+
   createVpSession(
     sessionId: string,
     authorizationRequest: JsonRecord,

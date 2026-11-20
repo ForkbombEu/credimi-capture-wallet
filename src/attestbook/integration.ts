@@ -7,7 +7,7 @@ import type { ResolvedIssuerConfiguration } from "../configurations/types.js";
 import { type ImportedCatalogue, credentialRegistry } from "../credential-registry.js";
 import { importedSdJwtCredentialSignOptions } from "../credential.js";
 import type { CaptureStore } from "../state.js";
-import type { AppConfig, JsonRecord, SessionGeneratedClaims } from "../types.js";
+import type { AppConfig, JsonRecord, SessionCapture } from "../types.js";
 import type { AttestbookIssuerSummary } from "../ui.js";
 import {
   AttestbookClient,
@@ -365,19 +365,34 @@ export class AttestbookIntegration {
   }
 
   /**
-   * Synthetic values for a session's credential, seeded by the session id and recorded with
-   * everything needed to regenerate them.
+   * Pins a session to the imported definition it is issued under, with synthetic claim values
+   * seeded by the session id and recorded with everything needed to regenerate them. Done before
+   * the session is offered or authorized, so it never exists without its values.
    */
-  generatedClaims(
-    definition: AttestbookCredentialDefinition,
-    sessionId: string,
-  ): SessionGeneratedClaims {
-    return {
-      generator: CLAIM_GENERATOR,
-      seed: sessionId,
-      reference_date: CLAIM_GENERATION_REFERENCE_DATE,
-      claims: generateClaims(definition, sessionId),
+  pinSession(session: SessionCapture, definition: AttestbookCredentialDefinition): void {
+    session.credential_definition = {
+      source: "attestbook",
+      origin: definition.origin,
+      rulebook_id: definition.rulebookId,
+      version: definition.version,
+      content_digest: definition.contentDigest,
+      attestation: definition.attestation.name,
+      vct: definition.vct,
+      vct_source: definition.vctSource,
     };
+    this.store.addEvent(session, "credential_definition_pinned", {
+      ...session.credential_definition,
+    });
+    session.generated_claims = {
+      generator: CLAIM_GENERATOR,
+      seed: session.session_id,
+      reference_date: CLAIM_GENERATION_REFERENCE_DATE,
+      claims: generateClaims(definition, session.session_id),
+    };
+    this.store.addEvent(session, "credential_claims_generated", {
+      generator: session.generated_claims.generator,
+      seed: session.generated_claims.seed,
+    });
   }
 
   /** The operator UI's one-line view of the integration. */

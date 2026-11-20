@@ -493,6 +493,26 @@ For each session you can get different information:
   `wallet_jwks_not_observed`. Inspect the session object and event evidence for the
   rejected proof details.
 
+#### Wallet-initiated issuance
+
+A Wallet can also start issuance itself, without a Credential Offer (OpenID4VCI 1.0
+Sections 3.4 and 5.1.2). It sends the same PAR to `/issuers/{issuerConfigurationId}/par`
+with the `scope` of one Credential Configuration from the issuer metadata and no
+`issuer_state`; there is no separate endpoint. The service accepts the request through
+Credo-TS's `getDynamicIssuanceSession` callback, creates a capture session for it, and
+chains authorization to the same issuer-specific test server, so the rest of the
+authorization-code flow, with its PKCE, DPoP, and client attestation checks, is unchanged.
+
+Only a scope matching exactly one Credential Configuration the issuer currently serves is
+accepted. A scope matching none gets `400 invalid_scope` from Credo-TS; a request matching
+several, through several scopes or a scope shared by several configurations, gets
+`400 access_denied` rather than being narrowed to one. The capture session carries
+`initiated_by: "wallet"`, the default claim values, and no Credential Offer. Its id is
+the `session_id` of the PAR in `GET /oid4vci/requests`. If Credo-TS then refuses the PAR,
+for example for a missing `code_challenge` or DPoP proof, the session is discarded and the
+request stays in the ledger unattributed. An imported Attestbook credential is pinned to
+the active definition with generated values, as for an offer.
+
 ### 🛂 OpenID4VP Presentation Flow
 
 > [!IMPORTANT]
@@ -1139,6 +1159,11 @@ interoperability compliance. Status lists and mdoc are not supported for importe
 issuance policy is inferred from a rulebook. Issuance sessions are in memory, so sessions started
 before a restart do not survive it, even though the imported catalogue does. Generated values are
 reproducible only with the same faker-js version, which is pinned.
+
+**Wallet-initiated issuance.** One Credential Configuration per session, requested by `scope`
+through PAR, with the default claim values and without a Token Status List reference.
+`authorization_details`, the Authorization Challenge endpoint, and fixture or status-list
+selection are not supported for it, since no session-creation call carries those options.
 
 **Wallet refusal versus End-User cancellation.** The browser reports both as a `DOMException`
 with deliberately sparse detail, so the `rejected` invocation outcome records what the browser

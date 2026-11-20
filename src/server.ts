@@ -1868,26 +1868,7 @@ async function createIssuanceSession(
     );
     if (offerScheme !== DEFAULT_OFFER_SCHEME) session.offer_scheme = offerScheme;
     if (importedDefinition) {
-      session.credential_definition = {
-        source: "attestbook",
-        origin: importedDefinition.origin,
-        rulebook_id: importedDefinition.rulebookId,
-        version: importedDefinition.version,
-        content_digest: importedDefinition.contentDigest,
-        attestation: importedDefinition.attestation.name,
-        vct: importedDefinition.vct,
-        vct_source: importedDefinition.vctSource,
-      };
-      store.addEvent(session, "credential_definition_pinned", { ...session.credential_definition });
-      // Generated before the offer exists, so a session is never offered without its values.
-      session.generated_claims = attestbookIntegration(config, store).generatedClaims(
-        importedDefinition,
-        session.session_id,
-      );
-      store.addEvent(session, "credential_claims_generated", {
-        generator: session.generated_claims.generator,
-        seed: session.generated_claims.seed,
-      });
+      attestbookIntegration(config, store).pinSession(session, importedDefinition);
     }
 
     const offer = await (await credoOpenId4VciIssuer(config, store)).createCredentialOffer({

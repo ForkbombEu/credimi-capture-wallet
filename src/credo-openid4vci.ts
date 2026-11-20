@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import {
   Agent,
@@ -18,6 +19,8 @@ import {
   OpenId4VcIssuerService,
   OpenId4VcModule,
   type OpenId4VciCredentialRequestToCredentialMapperOptions,
+  type OpenId4VciDynamicIssuanceSessionOptions,
+  type OpenId4VciGetDynamicIssuanceSessionOptions,
   type OpenId4VciSignCredentials,
 } from "@credo-ts/openid4vc";
 import express, { type NextFunction, type Request, type Response } from "express";
@@ -91,6 +94,8 @@ type RequestContext = {
     body: JsonRecord;
     raw?: unknown;
   };
+  /** The sessions created for this request's wallet-initiated Pushed Authorization Request. */
+  walletInitiated?: { captureSessionId: string; credoSessionId: string };
 };
 
 export interface CredoCredentialOffer {
@@ -181,6 +186,9 @@ export class CredoOpenId4VciIssuer {
             walletAttestationsRequired: false,
             credentialRequestToCredentialMapper: (options) =>
               runtimeRef.current?.mapCredentialRequest(options) ??
+              Promise.reject(new Error("Credo OpenID4VCI issuer is not initialized")),
+            getDynamicIssuanceSession: (options) =>
+              runtimeRef.current?.walletInitiatedIssuanceSession(options) ??
               Promise.reject(new Error("Credo OpenID4VCI issuer is not initialized")),
             endpoints: {
               authorization: "/authorize",
@@ -360,9 +368,16 @@ export class CredoOpenId4VciIssuer {
     capture: Oid4vciHttpRequestCapture | null,
     credentialRequestEvidence?: RequestContext["credentialRequestEvidence"],
   ): void {
-    this.requestContext.run({ capture, dpop: req.header("DPoP"), credentialRequestEvidence }, () =>
-      this.app(req, res, next),
-    );
+    const context: RequestContext = {
+      capture,
+      dpop: req.header("DPoP"),
+      credentialRequestEvidence,
+    };
+    res.once("close", () => {
+      if (!context.walletInitiated) return;
+      void this.settleWalletInitiatedSession(context.walletInitiated).catch(() => undefined);
+    });
+    this.requestContext.run(context, () => this.app(req, res, next));
   }
 
   /**
@@ -510,6 +525,80 @@ export class CredoOpenId4VciIssuer {
       },
     );
   }
+
+  /**
+   * Credo-TS's decision point for wallet-initiated issuance: a Pushed Authorization Request that
+   * names a `scope` and no `issuer_state` (OpenID4VCI 1.0 Sections 3.4 and 5.1.2). Credo has
+   * already refused a scope matching none of the issuer's credential configurations. One
+   * configuration of the active registry is accepted per session; a request naming several, or a
+   * scope shared by several, is denied rather than narrowed. An accepted request gets its capture
+   * session here, and Credo creates its issuance session from the returned options, chained to
+   * the issuer's configured authorization server with the same DPoP and wallet-attestation
+   * requirements a Credential Offer sets. Credo's global PKCE requirement applies unchanged.
+   * Returning `undefined` makes Credo answer `access_denied`.
+   */
+  private async walletInitiatedIssuanceSession(
+    options: OpenId4VciGetDynamicIssuanceSessionOptions,
+  ): Promise<OpenId4VciDynamicIssuanceSessionOptions | undefined> {
+    const context = this.requestContext.getStore();
+    if (options.origin !== "pushedAuthorizationRequest" || !context) return undefined;
+    const issuer = resolvedIssuerConfigurationById(this.config, options.issuer.issuerId);
+    const requested = Object.keys(options.requestedCredentialConfigurations);
+    const [credentialConfigurationId] = requested;
+    if (!issuer || requested.length !== 1 || !credentialConfigurationId) return undefined;
+    const registry = credentialRegistry(this.config, this.store);
+    // Serialized with activation, so an imported credential is pinned to the active definition.
+    return registry.serialize(async () => {
+      const credential = registry.credentialById(issuer, credentialConfigurationId);
+      if (!credential) return undefined;
+      const session = this.store.createSession(issuer, credential.id, "authorization_code");
+      const credoSessionId = randomUUID();
+      // Registered first, so the session is discarded if anything below or in Credo fails.
+      context.walletInitiated = { captureSessionId: session.session_id, credoSessionId };
+      session.initiated_by = "wallet";
+      this.store.addEvent(session, "wallet_initiated_issuance_requested", {
+        requested_scopes: options.requestedScopes,
+        credential_configuration_id: credential.id,
+      });
+      if (credential.attestbook) {
+        attestbookIntegration(this.config, this.store).pinSession(session, credential.attestbook);
+      }
+      return {
+        authorizationFlow: "chained" as const,
+        authorizationServerUrl: fakeOAuthServer(this.config, this.store, issuer).issuer,
+        id: credoSessionId,
+        credentialConfigurationIds: [credential.id],
+        requireDpop: true,
+        requireWalletAttestation: false,
+        issuanceMetadata: {
+          captureSessionId: session.session_id,
+          issuerConfigurationId: issuer.id,
+        },
+        version: "v1" as const,
+      };
+    });
+  }
+
+  /**
+   * Once the response to a wallet-initiated Pushed Authorization Request is sent, discards the
+   * sessions created for it unless Credo-TS accepted the request, so a refused request leaves no
+   * session the Wallet cannot continue. The request itself stays in the ledger.
+   */
+  private async settleWalletInitiatedSession(
+    walletInitiated: NonNullable<RequestContext["walletInitiated"]>,
+  ): Promise<void> {
+    const repository = this.agent.dependencyManager.resolve(OpenId4VcIssuanceSessionRepository);
+    const issuanceSession = await repository.findById(
+      this.agent.context,
+      walletInitiated.credoSessionId,
+    );
+    if (issuanceSession && issuanceSession.state !== OpenId4VcIssuanceSessionState.OfferCreated) {
+      return;
+    }
+    this.store.discardSession(walletInitiated.captureSessionId);
+    if (issuanceSession) await repository.delete(this.agent.context, issuanceSession);
+  }
+
   private async mapCredentialRequest(
     options: OpenId4VciCredentialRequestToCredentialMapperOptions,
   ): Promise<OpenId4VciSignCredentials> {

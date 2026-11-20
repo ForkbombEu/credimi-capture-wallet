@@ -152,7 +152,7 @@ revalidates with `If-None-Match`.
 | Method | Path | Required input | Result |
 | --- | --- | --- | --- |
 | `GET` | `/issuers/{issuerConfigurationId}/offers/{credentialOfferId}` | Credential-offer ID from an offer-by-reference deeplink | Credential Offer object. |
-| `POST` | `/issuers/{issuerConfigurationId}/par` | DPoP header; form `response_type=code`, `client_id`, `redirect_uri`, `scope`, `code_challenge`, `code_challenge_method=S256`; optional `issuer_state`, `state` | `201` with `request_uri` and `expires_in`. |
+| `POST` | `/issuers/{issuerConfigurationId}/par` | DPoP header; form `response_type=code`, `client_id`, `redirect_uri`, `scope`, `code_challenge`, `code_challenge_method=S256`; optional `issuer_state`, `state` | `201` with `request_uri` and `expires_in`. Without `issuer_state`, starts wallet-initiated issuance. |
 | `GET` | `/issuers/{issuerConfigurationId}/authorize` | Query `client_id` and `request_uri` | Starts the auto-approved authorization-code flow with redirects. |
 | `GET` | `/issuers/{issuerConfigurationId}/redirect` | Chained OAuth callback parameters | Redirects back to the wallet with the issuer authorization code. |
 | `POST` | `/issuers/{issuerConfigurationId}/token` | DPoP header plus either pre-authorized-code or authorization-code form grant | DPoP-bound access token, expiry, credential nonce, and nonce expiry. |
@@ -167,6 +167,8 @@ The token endpoint accepts either:
 The credential request normally uses `application/json` with `credential_configuration_id` and one `proofs.jwt` or `proofs.attestation` entry. For encrypted credential requests, send an `application/jwt` compact JWE; a successful response is then also a compact JWE. A Credential Error Response (any non-2xx status) is never encrypted, as OpenID4VCI 1.0 Section 8.3.1 requires, and keeps its JSON body. The selected issuer's metadata determines supported proof and encryption capabilities.
 
 Credo enforces the wallet's PKCE: a PAR request without `code_challenge` gets `400 invalid_request`, and a token request whose `code_verifier` does not match gets `400 invalid_grant`. A Credential Request without a valid DPoP-bound access token gets `401`. Time claims of Wallet Attestations, Client Attestation PoPs, and DPoP proofs are checked with a 60-second clock skew.
+
+A PAR without `issuer_state` starts wallet-initiated issuance (OpenID4VCI 1.0 Sections 3.4 and 5.1.2), through Credo-TS's `getDynamicIssuanceSession` callback. Its `scope` must match exactly one Credential Configuration the issuer currently serves: none gets `400 invalid_scope`, several, through several scopes or a shared scope, get `400 access_denied`. An accepted request creates an `authorization_code` capture session with `initiated_by: "wallet"`, the default claim values, and no Credential Offer, so its `/offer` and `/deeplink` endpoints answer `409 credential_offer_not_ready` and `credential_offer_mode` carries the default. The session is announced by a `wallet_initiated_issuance_requested` event with `requested_scopes` and `credential_configuration_id`, and its id is the `session_id` of the PAR in `GET /oid4vci/requests`. Authorization then continues through the same chained authorization server, PKCE, DPoP, token, and Credential endpoints as an offered session. If Credo-TS refuses the PAR after the callback accepted it, such as for a missing `code_challenge` or DPoP proof, the capture session is discarded and the PAR stays in the ledger with `session_id: null`.
 
 ### FCAF ws_ap evidence
 

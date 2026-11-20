@@ -507,6 +507,70 @@ describe("Attestbook-defined credentials, end to end", () => {
       new SdJwtVcService({} as never).fromCompact(authorizationCodeCredential).prettyClaims,
     ).toMatchObject({ ...codeSession.generated_claims?.claims, vct: membershipVct });
 
+    // Wallet-initiated: a PAR naming the imported scope and no issuer_state gets its own session,
+    // pinned to the active definition with generated values, as an offered session is.
+    const walletVerifier = randomBytes(48).toString("base64url");
+    const walletDpop = await key();
+    const walletPar = await request(issuer.app)
+      .post(parPath)
+      .set("DPoP", await dpopProof(walletDpop, "POST", parPath))
+      .type("form")
+      .send({
+        response_type: "code",
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        scope: v1Id,
+        code_challenge: createHash("sha256").update(walletVerifier).digest("base64url"),
+        code_challenge_method: "S256",
+      });
+    expect(walletPar.status, JSON.stringify(walletPar.body)).toBe(201);
+    const walletSession = [...issuer.store.sessions.values()].find(
+      (candidate) => candidate.initiated_by === "wallet",
+    );
+    expect(walletSession).toMatchObject({
+      credential_configuration_id: v1Id,
+      credential_definition: { version: "1.0", content_digest: v1.contentDigest },
+      generated_claims: { seed: walletSession?.session_id },
+    });
+    const walletAuthorize = await request(issuer.app)
+      .get(`/issuers/${issuerId}/authorize`)
+      .query({ client_id: clientId, request_uri: String(walletPar.body.request_uri) })
+      .redirects(0);
+    const walletUpstream = new URL(String(walletAuthorize.headers.location));
+    const walletApproved = await request(issuer.app)
+      .get(`${walletUpstream.pathname}${walletUpstream.search}`)
+      .redirects(0);
+    const walletCallback = new URL(String(walletApproved.headers.location));
+    const walletInitiatedRedirect = await request(issuer.app)
+      .get(`${walletCallback.pathname}${walletCallback.search}`)
+      .redirects(0);
+    const walletToken = await request(issuer.app)
+      .post(tokenPath)
+      .set("DPoP", await dpopProof(walletDpop, "POST", tokenPath))
+      .type("form")
+      .send({
+        grant_type: "authorization_code",
+        code: String(
+          new URL(String(walletInitiatedRedirect.headers.location)).searchParams.get("code"),
+        ),
+        code_verifier: walletVerifier,
+        redirect_uri: redirectUri,
+        client_id: clientId,
+      });
+    expect(walletToken.status, JSON.stringify(walletToken.body)).toBe(200);
+    const walletCredential = await requestCredential(
+      issuer,
+      codeSession,
+      walletDpop,
+      walletToken.body.access_token,
+      await key(),
+      clientId,
+    );
+    expect(
+      new SdJwtVcService({} as never).fromCompact(walletCredential).prettyClaims,
+    ).toMatchObject({ ...walletSession?.generated_claims?.claims, vct: membershipVct });
+    expect(walletSession?.status).toBe("credential_issued");
+
     // A session left in flight across the update is refused at its Credential Request.
     const inFlight = await createSession(issuer, {
       credential_configuration_id: v1Id,

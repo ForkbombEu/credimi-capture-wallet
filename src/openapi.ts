@@ -1368,6 +1368,12 @@ export function openApiDocument(config: AppConfig): JsonRecord {
                 "Present only when a scheme other than openid-credential-offer:// was selected.",
             },
             offer_mutation: { $ref: "#/components/schemas/CredentialOfferMutation" },
+            initiated_by: {
+              type: "string",
+              const: "wallet",
+              description:
+                "Present only for a session the Wallet started itself with a Pushed Authorization Request naming a scope and no issuer_state. No Credential Offer exists for it, so its offer and deeplink endpoints answer credential_offer_not_ready, and credential_offer_mode carries the default.",
+            },
             observed: {
               type: "object",
               additionalProperties: true,

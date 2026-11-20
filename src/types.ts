@@ -353,6 +353,12 @@ export interface SessionCapture {
    * `raw.credential_offer_delivered` the edited one.
    */
   offer_mutation?: VpRequestMutationEdits;
+  /**
+   * Present, as `wallet`, only when the Wallet started issuance itself with a Pushed Authorization
+   * Request naming a `scope` and no `issuer_state` (OpenID4VCI 1.0 Sections 3.4 and 5.1.2). No
+   * Credential Offer exists for such a session. Absent means it began with a Credential Offer.
+   */
+  initiated_by?: "wallet";
   status_list_allocation_ids?: string[];
   /**
    * The reference allocated for each issued credential, at the credential's index. This is the
