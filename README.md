@@ -58,9 +58,11 @@ During the credential verification the service captures:
 
 Visit https://capture-wallet.credimi.io/ and start issuing and verifying PID in dc+sd-jwt and mdoc format.
 
-Once you have chosen an issuer and credential format:
-* Click on `New fake-issuance session` to open an OpenID4VCI QR session. Scan the QR with an EUDI Wallet. The session page updates as Wallet metadata, proof keys, DPoP keys, checks, and flow events are observed.
-* Click on `New presentation session` to open an OpenID4VP QR session. The QR contains a presentation request for the credentials supported by this issuer. The page updates when the Wallet retrieves the request and posts the presentation response.
+The home page lists the issuers and the verifier:
+* Open an issuer to reach its page, served at its Credential Issuer Identifier (`/issuers/{issuerConfigurationId}`) when a browser asks for HTML. Choose one of the issuer's credentials and click `Create issuance session` to open an OpenID4VCI QR session. Scan the QR with an EUDI Wallet. The session page updates as Wallet metadata, proof keys, DPoP keys, checks, and flow events are observed. The page also links the issuer's authorization server metadata, OpenID4VCI credential issuer metadata and, when federation is enabled, its OpenID Federation entity configuration.
+* Open the verifier (`/openid4vp`), choose any credential an issuer serves, including imported Attestbook credentials, and click `Create presentation session` to open an OpenID4VP QR session. The page updates when the Wallet retrieves the request and posts the presentation response.
+
+Both pages have an `Advanced settings` panel that exposes every parameter of `POST /sessions` or `POST /openid4vp/sessions`. The page sends only the fields you fill, so every other parameter keeps its API default, and it shows the API's error body when a combination is refused. The test-only parameters appear only when `FCAF_SCENARIOS_ENABLED` is set.
 
 
 **[🔝 back to top](#toc)**

@@ -730,6 +730,8 @@ These routes support the server-rendered operator UI. They are not a stable prog
 | Method | Path |
 | --- | --- |
 | `GET` | `/` |
+| `GET` | `/issuers/{issuerConfigurationId}` (only when `Accept` prefers `text/html`) |
+| `GET` | `/openid4vp` |
 | `GET` | `/ui/help` |
 | `POST` | `/ui/sessions` |
 | `GET` | `/ui/sessions/{sessionId}` |
@@ -745,6 +747,10 @@ These routes support the server-rendered operator UI. They are not a stable prog
 | `GET` | `/assets/credimi_logo-transp_white.svg` |
 
 GUI routes can be disabled with the service configuration; disabling them does not disable API or protocol routes.
+
+`GET /issuers/{issuerConfigurationId}` is the Credential Issuer Identifier. It returns the issuer's operator page only to a request whose `Accept` header prefers `text/html` over `application/json`. Every other request, such as a Wallet probing the identifier with no `Accept` header, `*/*`, or `application/json`, still gets the 404 and is recorded as `unmatched` evidence, as before. The response varies on `Accept`.
+
+The issuer page and the verifier page (`/openid4vp`) create sessions by calling `POST /sessions` and `POST /openid4vp/sessions` from the browser. They send only the fields the operator fills in. The verifier page sends the selected credential as a `dcql_query`, which is how it requests credentials from every issuer, including imported Attestbook credentials. Unlike `POST /ui/sessions`, a session created this way records no `credential_deeplink_generated` event. `POST /ui/sessions` and `POST /ui/openid4vp/sessions` are unchanged.
 
 ## Keeping this reference current
 

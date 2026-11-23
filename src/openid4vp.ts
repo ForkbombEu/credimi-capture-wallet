@@ -90,6 +90,10 @@ export function isOpenId4VpResponseMode(value: unknown): value is OpenId4VpRespo
   return typeof value === "string" && Object.hasOwn(OPENID4VP_RESPONSE_MODES, value);
 }
 
+export const OPENID4VP_RESPONSE_MODE_VALUES = Object.keys(
+  OPENID4VP_RESPONSE_MODES,
+) as OpenId4VpResponseMode[];
+
 /** Whether the request is delivered through the W3C Digital Credentials API instead of a redirect. */
 export function isDcApiResponseMode(mode: OpenId4VpResponseMode): boolean {
   return mode === "dc_api" || mode === "dc_api.jwt";
@@ -271,7 +275,8 @@ export function vpResponseUri(config: AppConfig, sessionId: string): string {
   return `${config.issuer_base_url}/openid4vp/sessions/${sessionId}/response`;
 }
 
-function defaultDcqlQuery(credentials: SupportedCredential[]): JsonRecord {
+/** The DCQL query requesting every listed credential with all of its claims. */
+export function defaultDcqlQuery(credentials: readonly SupportedCredential[]): JsonRecord {
   return {
     credentials: credentials.map((credential) => ({
       id: dcqlCredentialId(credential.id),

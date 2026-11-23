@@ -788,6 +788,28 @@ describe("Attestbook-defined credentials, end to end", () => {
     expect(await issuerCredentialIds(issuer)).toEqual([membershipVct]);
   });
 
+  it("offers the imported credential on the issuer page and the verifier page", async () => {
+    fixture.publish("6.0", [membership(6)]);
+    const issuer = await startIssuer();
+    const issuerPage = await request(issuer.app)
+      .get(`/issuers/${issuerId}`)
+      .set("Accept", "text/html");
+    expect(issuerPage.status).toBe(200);
+    expect(issuerPage.text).toContain(
+      `<option value="${membershipVct}" data-format="dc+sd-jwt" data-imported="true">`,
+    );
+
+    const verifierPage = await request(issuer.app).get("/openid4vp");
+    expect(verifierPage.status).toBe(200);
+    const dcql = new RegExp(`<option value="${membershipVct}" data-dcql="([^"]+)"`).exec(
+      verifierPage.text,
+    )?.[1];
+    if (!dcql) throw new Error("verifier page does not offer the imported credential");
+    expect(JSON.parse(dcql.replaceAll("&quot;", '"'))).toMatchObject({
+      credentials: [{ format: "dc+sd-jwt", meta: { vct_values: [membershipVct] } }],
+    });
+  });
+
   it("advertises no credential configuration before a rulebook version is active", async () => {
     const empty = new AttestbookFixture();
     await empty.start();

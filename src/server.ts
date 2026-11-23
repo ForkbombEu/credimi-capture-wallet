@@ -64,9 +64,11 @@ import {
 } from "./oid4vci-capture.js";
 import { apiDocsPage, openApiDocument } from "./openapi.js";
 import {
+  OPENID4VP_RESPONSE_MODE_VALUES,
   type OpenId4VpClientIdScheme,
   type OpenId4VpResponseMode,
   dcApiPresentationExpiresAt,
+  defaultDcqlQuery,
   defaultPresentationRequest,
   deliveredAuthorizationRequest,
   isDcApiResponseMode,
@@ -121,12 +123,16 @@ import type {
   VpVerifierAttestation,
 } from "./types.js";
 import {
+  type IssuerCredentialGroup,
+  VERIFIER_PAGE_PATH,
   credentialOfferEngagementPage,
   dcApiPresentationPage,
   errorPage,
   helpPage,
   indexPage,
+  issuerPage,
   sessionPage,
+  verifierPage,
   vpRedirectPage,
   vpSessionPage,
 } from "./ui.js";
@@ -303,17 +309,70 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
   if (config.gui_enabled) {
     app.get("/", async (_req, res, next) => {
       try {
-        const registry = await issuerCredentialRegistry(config, store);
-        res.type("html").send(
-          indexPage(
-            resolvedIssuerConfigurations(config).map((issuer) => ({
-              issuer,
-              credentials: registry.credentialsForIssuer(issuer),
-              ...(issuer.importsAttestbookCredentials
-                ? { attestbook: attestbookIntegration(config, store).summary() }
-                : {}),
+        res.type("html").send(indexPage(await issuerCredentialGroups(config, store)));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // The Credential Issuer Identifier doubles as the issuer's operator page for a browser. Any
+    // other client, a Wallet probing the identifier included, still falls through to the 404 and
+    // its `unmatched` capture.
+    app.get("/issuers/:issuerConfigurationId", async (req, res, next) => {
+      try {
+        res.vary("Accept");
+        if (req.accepts(["application/json", "text/html"]) !== "text/html") return next();
+        const issuerId = req.params.issuerConfigurationId;
+        const group = (await issuerCredentialGroups(config, store)).find(
+          (candidate) => candidate.issuer.id === issuerId,
+        );
+        if (!group) return next();
+        return res.type("html").send(
+          issuerPage({
+            group,
+            ...(config.federation.enabled
+              ? {
+                  federationEntityConfigurationUrl: `${group.issuer.issuerIdentifier}/.well-known/openid-federation`,
+                }
+              : {}),
+            fcafScenariosEnabled: config.fcaf_scenarios_enabled,
+            parameters: {
+              flows: ISSUANCE_FLOWS,
+              credentialOfferModes: CREDENTIAL_OFFER_MODES,
+              offerSchemes: OFFER_SCHEMES,
+              fixtureIds: PID_FIXTURE_IDS,
+              digestAlgorithms: SD_JWT_DIGEST_ALGORITHMS,
+              evidenceModes: EVIDENCE_MODES,
+              statusReferences: STATUS_REFERENCE_FIXTURES,
+            },
+          }),
+        );
+      } catch (error) {
+        return next(error);
+      }
+    });
+
+    app.get(VERIFIER_PAGE_PATH, async (_req, res, next) => {
+      try {
+        const groups = (await issuerCredentialGroups(config, store)).map(
+          ({ issuer, credentials }) => ({
+            issuer,
+            credentials: credentials.map((credential) => ({
+              credential,
+              dcqlQuery: defaultDcqlQuery([credential]),
             })),
-          ),
+          }),
+        );
+        res.type("html").send(
+          verifierPage({
+            groups,
+            fcafScenariosEnabled: config.fcaf_scenarios_enabled,
+            parameters: {
+              responseModes: OPENID4VP_RESPONSE_MODE_VALUES,
+              requestDeliveries: VP_REQUEST_DELIVERIES,
+              clientIdSchemes: VP_CLIENT_ID_SCHEMES,
+            },
+          }),
         );
       } catch (error) {
         next(error);
@@ -1995,17 +2054,36 @@ async function issuerCredentialRegistry(
   return credentialRegistry(config, store);
 }
 
+/** Every served issuer with the credentials it currently serves, static and imported. */
+async function issuerCredentialGroups(
+  config: AppConfig,
+  store: CaptureStore,
+): Promise<IssuerCredentialGroup[]> {
+  const registry = await issuerCredentialRegistry(config, store);
+  return resolvedIssuerConfigurations(config).map((issuer) => ({
+    issuer,
+    credentials: registry.credentialsForIssuer(issuer),
+    ...(issuer.importsAttestbookCredentials
+      ? { attestbook: attestbookIntegration(config, store).summary() }
+      : {}),
+  }));
+}
+
 function issuerFromRequest(config: AppConfig, value: unknown): ResolvedIssuerConfiguration | null {
   const id = asStringOrNull(value) ?? DEFAULT_ISSUER_CONFIGURATION_ID;
   return resolvedIssuerConfigurationById(config, id);
 }
 
+const ISSUANCE_FLOWS: SessionCapture["flow"][] = ["authorization_code", "pre_authorized_code"];
+
 function issuanceFlowOrNull(value: unknown): SessionCapture["flow"] | null {
-  return value === "pre_authorized_code" || value === "authorization_code" ? value : null;
+  return ISSUANCE_FLOWS.find((flow) => flow === value) ?? null;
 }
 
+const CREDENTIAL_OFFER_MODES: CredentialOfferMode[] = ["credential_offer", "credential_offer_uri"];
+
 function credentialOfferModeOrNull(value: unknown): CredentialOfferMode | null {
-  return value === "credential_offer" || value === "credential_offer_uri" ? value : null;
+  return CREDENTIAL_OFFER_MODES.find((mode) => mode === value) ?? null;
 }
 
 const EVIDENCE_MODES: EvidenceMode[] = ["redacted", "full"];
@@ -2433,25 +2511,29 @@ function dcApiSubmissionRejectionOrNull(
   return null;
 }
 
+const VP_REQUEST_DELIVERIES: VpRequestDelivery[] = [
+  "by_reference",
+  "by_value",
+  "plain",
+  "multisigned",
+];
+
 function requestDeliveryOrNull(value: unknown): VpRequestDelivery | null {
   if (typeof value !== "string") return null;
   const normalized = value.toLowerCase();
-  return normalized === "by_reference" ||
-    normalized === "by_value" ||
-    normalized === "plain" ||
-    normalized === "multisigned"
-    ? normalized
-    : null;
+  return VP_REQUEST_DELIVERIES.find((delivery) => delivery === normalized) ?? null;
 }
 
+const VP_CLIENT_ID_SCHEMES: OpenId4VpClientIdScheme[] = [
+  "x509_hash",
+  "x509_san_dns",
+  "decentralized_identifier",
+  "verifier_attestation",
+  "redirect_uri",
+];
+
 function clientIdSchemeOrNull(value: unknown): OpenId4VpClientIdScheme | null {
-  return value === "x509_hash" ||
-    value === "x509_san_dns" ||
-    value === "redirect_uri" ||
-    value === "decentralized_identifier" ||
-    value === "verifier_attestation"
-    ? value
-    : null;
+  return VP_CLIENT_ID_SCHEMES.find((scheme) => scheme === value) ?? null;
 }
 
 /**

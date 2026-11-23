@@ -1,12 +1,13 @@
 import type { ResolvedIssuerConfiguration } from "./configurations/types.js";
 import type { SupportedCredential } from "./metadata.js";
-import type { VpDcApiRequest } from "./types.js";
+import type { JsonRecord, VpDcApiRequest } from "./types.js";
 
 const REPOSITORY_URL = "https://github.com/ForkbombEu/credimi-capture-wallet";
 const OPENAPI_URL = "/openapi.json";
 const API_DOCS_URL = "/docs";
 const REGULATION_2026_1731_URL =
   "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ%3AL_202601731";
+export const VERIFIER_PAGE_PATH = "/openid4vp";
 
 export interface IssuerCredentialGroup {
   issuer: ResolvedIssuerConfiguration;
@@ -22,97 +23,157 @@ export interface AttestbookIssuerSummary {
   readonly failureStage: string | null;
 }
 
+/** Allowed values of the `POST /sessions` parameters the issuer page offers as choices. */
+export interface IssuanceParameterValues {
+  readonly flows: readonly string[];
+  readonly credentialOfferModes: readonly string[];
+  readonly offerSchemes: readonly string[];
+  readonly fixtureIds: readonly string[];
+  readonly digestAlgorithms: readonly string[];
+  readonly evidenceModes: readonly string[];
+  readonly statusReferences: readonly string[];
+}
+
+export interface IssuerPageOptions {
+  readonly group: IssuerCredentialGroup;
+  /** Absent when OpenID Federation is disabled. */
+  readonly federationEntityConfigurationUrl?: string;
+  readonly fcafScenariosEnabled: boolean;
+  readonly parameters: IssuanceParameterValues;
+}
+
+/** Allowed values of the `POST /openid4vp/sessions` parameters the verifier page offers. */
+export interface PresentationParameterValues {
+  readonly responseModes: readonly string[];
+  readonly requestDeliveries: readonly string[];
+  readonly clientIdSchemes: readonly string[];
+}
+
+export interface VerifierCredentialGroup {
+  readonly issuer: ResolvedIssuerConfiguration;
+  readonly credentials: readonly {
+    readonly credential: SupportedCredential;
+    /** The query the verifier sends when the operator does not edit it. */
+    readonly dcqlQuery: JsonRecord;
+  }[];
+}
+
+export interface VerifierPageOptions {
+  readonly groups: readonly VerifierCredentialGroup[];
+  readonly fcafScenariosEnabled: boolean;
+  readonly parameters: PresentationParameterValues;
+}
+
 export function indexPage(groups: readonly IssuerCredentialGroup[]): string {
-  const defaultIssuerId = groups[0]?.issuer.id ?? "";
   return htmlPage({
     title: "Wallet Metadata Capture",
     body: [
-      '<header class="topbar">',
-      '<div class="topbar-inner">',
-      '<a class="brand-lockup" href="/">',
-      '<img class="brand-logo" src="/assets/credimi_logo.svg" alt="Credimi">',
-      "<span>Wallet metadata capture</span>",
-      "</a>",
-      '<div class="topbar-actions">',
-      '<span class="status-chip status-issuer">ISSUER READY</span>',
-      '<span class="status-chip status-wallet">VERIFIER READY</span>',
-      '<a class="btn btn-outline btn-md" href="',
-      API_DOCS_URL,
-      '">API docs</a>',
-      '<a class="btn btn-outline btn-md" href="',
-      OPENAPI_URL,
-      '" download="openapi.json">OpenAPI</a>',
-      '<a class="btn btn-outline btn-md" href="',
-      REPOSITORY_URL,
-      '" target="_blank" rel="noreferrer">Repository</a>',
-      "</div>",
-      "</div>",
-      "</header>",
+      launcherTopbarHtml(),
       "<main>",
       '<section class="hero-band">',
       '<div class="hero-inner">',
       '<div class="hero-copy">',
       "<h1>Wallet metadata capture</h1>",
-      "<p>Step 1) Start a one-time fake issuance flow, scan the offer, and inspect the wallet identifiers, callbacks, and proof keys observed by the issuer.</p>",
-      "<p>Step 2) After receiving the credential, start a Presentation session, and inspect the Wallet response as well as the DCQL</p>",
-      '<form action="/ui/sessions" method="post" target="_blank">',
-      '<input id="issuer-configuration-id" type="hidden" name="issuer_configuration_id" value="',
-      escapeHtml(defaultIssuerId),
-      '">',
-      '<div class="credential-row">',
-      '<label class="credential-picker">',
-      "<span>Credential</span>",
-      '<select name="credential_configuration_id">',
-      groups.map(issuerCredentialGroupHtml).join(""),
-      "</select>",
-      "</label>",
-      '<label class="status-list-toggle">',
-      '<input type="checkbox" role="switch" name="status_list_enabled" value="true">',
-      '<span class="toggle-track" aria-hidden="true"></span>',
-      "<span>Include a Token Status List reference</span>",
-      "</label>",
+      "<p>Open an issuer to issue one of its credentials to a wallet, or open the verifier to request a presentation. Every session captures the protocol evidence the wallet leaves behind.</p>",
       "</div>",
-      '<div class="session-actions">',
-      '<button class="btn btn-primary btn-lg" type="submit">New fake-issuance session</button>',
-      '<button class="btn btn-outline btn-lg" type="submit" formaction="/ui/openid4vp/sessions">New presentation session</button>',
-      "</div>",
-      "</form>",
-      '<script>const credentialPicker=document.querySelector(\'select[name="credential_configuration_id"]\');const issuerInput=document.getElementById("issuer-configuration-id");function syncIssuer(){const selected=credentialPicker?.selectedOptions[0];if(selected&&issuerInput)issuerInput.value=selected.dataset.issuerConfigurationId||"";}credentialPicker?.addEventListener("change",syncIssuer);syncIssuer();</script>',
       issuerCatalogueHtml(groups),
-      "</div>",
-      '<aside class="summary-panel" aria-label="Captured values">',
-      '<div class="section-header compact">',
-      "<h2>Captured values</h2>",
-      '<span class="count-chip">10</span>',
-      "</div>",
-      '<div class="capture-groups">',
-      '<section class="capture-group" aria-label="OpenID4VCI captured values">',
-      "<h3>OpenID4VCI</h3>",
-      '<dl class="capture-list">',
-      "<div><dt>client_id</dt><dd>Wallet OAuth client identifier</dd></div>",
-      "<div><dt>redirect_uri</dt><dd>Wallet authorization callback</dd></div>",
-      "<div><dt>wallet_jwks</dt><dd>Holder-binding public key from proof headers</dd></div>",
-      "<div><dt>dpop_jwk</dt><dd>DPoP public key when present</dd></div>",
-      "</dl>",
-      "</section>",
-      '<section class="capture-group" aria-label="OpenID4VP captured values">',
-      "<h3>OpenID4VP</h3>",
-      '<dl class="capture-list">',
-      "<div><dt>authorization_request</dt><dd>Verifier request object sent to the wallet</dd></div>",
-      "<div><dt>request_uri_payload</dt><dd>Wallet payload when request_uri_method is post</dd></div>",
-      "<div><dt>wallet_response</dt><dd>Wallet presentation response including vp_token</dd></div>",
-      "<div><dt>presentation_response_decrypted</dt><dd>Decrypted wallet presentation response</dd></div>",
-      "<div><dt>decoded_presentations</dt><dd>Credo-decoded claims from verified presentations</dd></div>",
-      "<div><dt>presentation_validation</dt><dd>Verifier checks for nonce, holder binding, and DCQL matching</dd></div>",
-      "</dl>",
-      "</section>",
-      "</div>",
-      "</aside>",
+      verifierCatalogueHtml(),
       "</div>",
       "</section>",
       "</main>",
     ].join(""),
   });
+}
+
+/**
+ * The operator page served at an issuer's Credential Issuer Identifier. Sessions are created
+ * through the public `POST /sessions` API, so the page offers exactly what the API accepts.
+ */
+export function issuerPage(options: IssuerPageOptions): string {
+  const { group } = options;
+  const { issuer } = group;
+  return htmlPage({
+    title: `${issuer.display.name} — OpenID4VCI issuer`,
+    body: [
+      launcherTopbarHtml(),
+      '<main class="page-content session-page">',
+      '<section class="session-header launcher-header container">',
+      "<div>",
+      '<p class="eyebrow">OpenID4VCI credential issuer</p>',
+      "<h1>",
+      escapeHtml(issuerLabel(issuer)),
+      "</h1>",
+      '<p class="session-intro">',
+      issuerDescriptionHtml(group),
+      "</p>",
+      group.attestbook ? attestbookSummaryHtml(group.attestbook) : "",
+      "</div>",
+      "</section>",
+      '<section class="launcher-layout container">',
+      issuanceFormHtml(options),
+      issuerMetadataHtml(options),
+      "</section>",
+      "</main>",
+      "<script>",
+      sessionLauncherScript(),
+      "</script>",
+    ].join(""),
+  });
+}
+
+/**
+ * The operator page of the OpenID4VP verifier. Each credential choice carries the DCQL query the
+ * session is created with, so a credential any issuer serves can be requested through the public
+ * `POST /openid4vp/sessions` API without a verifier-side catalogue lookup.
+ */
+export function verifierPage(options: VerifierPageOptions): string {
+  return htmlPage({
+    title: "OpenID4VP verifier",
+    body: [
+      launcherTopbarHtml(),
+      '<main class="page-content session-page">',
+      '<section class="session-header launcher-header container">',
+      "<div>",
+      '<p class="eyebrow">OpenID4VP verifier</p>',
+      "<h1>Request a presentation</h1>",
+      '<p class="session-intro">Choose the credential to request, scan the presentation request with the wallet, and inspect the response, its decoded claims, and the verifier checks.</p>',
+      "</div>",
+      "</section>",
+      '<section class="launcher-layout launcher-layout-single container">',
+      presentationFormHtml(options),
+      "</section>",
+      "</main>",
+      "<script>",
+      sessionLauncherScript(),
+      "</script>",
+    ].join(""),
+  });
+}
+
+function launcherTopbarHtml(): string {
+  return [
+    '<header class="topbar">',
+    '<div class="topbar-inner">',
+    '<a class="brand-lockup" href="/">',
+    '<img class="brand-logo" src="/assets/credimi_logo.svg" alt="Credimi">',
+    "<span>Wallet metadata capture</span>",
+    "</a>",
+    '<div class="topbar-actions">',
+    '<span class="status-chip status-issuer">ISSUER READY</span>',
+    '<span class="status-chip status-wallet">VERIFIER READY</span>',
+    '<a class="btn btn-outline btn-md" href="',
+    API_DOCS_URL,
+    '">API docs</a>',
+    '<a class="btn btn-outline btn-md" href="',
+    OPENAPI_URL,
+    '" download="openapi.json">OpenAPI</a>',
+    '<a class="btn btn-outline btn-md" href="',
+    REPOSITORY_URL,
+    '" target="_blank" rel="noreferrer">Repository</a>',
+    "</div>",
+    "</div>",
+    "</header>",
+  ].join("");
 }
 
 export function vpSessionPage(
@@ -287,28 +348,18 @@ export function dcApiPresentationPage(options: DcApiPresentationPageOptions): st
   });
 }
 
-function issuerCredentialGroupHtml(group: IssuerCredentialGroup): string {
-  const label =
-    group.issuer.compliance === "deliberately-nonconforming"
-      ? `${group.issuer.display.name} — deliberately non-conforming`
-      : group.issuer.compliance === "experimental"
-        ? `${group.issuer.display.name} — experimental`
-        : group.issuer.display.name;
-  return [
-    '<optgroup label="',
-    escapeHtml(label),
-    '">',
-    group.credentials
-      .map((credential) => credentialOptionHtml(group.issuer.id, credential))
-      .join(""),
-    "</optgroup>",
-  ].join("");
+function issuerLabel(issuer: ResolvedIssuerConfiguration): string {
+  return issuer.compliance === "deliberately-nonconforming"
+    ? `${issuer.display.name} — deliberately non-conforming`
+    : issuer.compliance === "experimental"
+      ? `${issuer.display.name} — experimental`
+      : issuer.display.name;
 }
 
 function issuerCatalogueHtml(groups: readonly IssuerCredentialGroup[]): string {
   return [
     '<section class="issuer-catalogue" aria-labelledby="issuer-catalogue-title">',
-    '<h2 id="issuer-catalogue-title">Available issuers</h2>',
+    '<h2 id="issuer-catalogue-title">Issuers</h2>',
     groups.length > 0
       ? `<div class="issuer-cards">${groups.map(issuerCardHtml).join("")}</div>`
       : '<p class="issuer-empty">No issuers available</p>',
@@ -318,27 +369,43 @@ function issuerCatalogueHtml(groups: readonly IssuerCredentialGroup[]): string {
 
 function issuerCardHtml(group: IssuerCredentialGroup): string {
   const { issuer } = group;
+  const count = group.credentials.length;
 
   return [
     '<article class="issuer-card">',
     "<h3>",
-    escapeHtml(issuer.display.name),
+    escapeHtml(issuerLabel(issuer)),
     "</h3>",
     '<p class="issuer-description">',
     issuerDescriptionHtml(group),
     "</p>",
     group.attestbook ? attestbookSummaryHtml(group.attestbook) : "",
+    '<p class="issuer-credential-count">',
+    `${count} credential configuration${count === 1 ? "" : "s"}`,
+    "</p>",
     '<nav class="issuer-links" aria-label="',
-    escapeHtml(`${issuer.display.name} endpoints`),
+    escapeHtml(issuer.display.name),
     '">',
-    issuerLinkHtml("Issuer", issuer.issuerIdentifier),
-    issuerLinkHtml("Credential issuer well-known", issuer.issuerMetadataUrl),
-    issuerLinkHtml("Authorization server well-known", issuer.authorizationServerMetadataUrl),
-    group.attestbook
-      ? '<a class="issuer-link" href="/integrations/attestbook/status" target="_blank" rel="noreferrer">Attestbook status</a>'
-      : "",
+    safeLinkHtml("Open issuer", issuer.issuerIdentifier, "btn btn-primary btn-md"),
     "</nav>",
     "</article>",
+  ].join("");
+}
+
+function verifierCatalogueHtml(): string {
+  return [
+    '<section class="issuer-catalogue" aria-labelledby="verifier-catalogue-title">',
+    '<h2 id="verifier-catalogue-title">Verifier</h2>',
+    '<div class="issuer-cards">',
+    '<article class="issuer-card verifier-card">',
+    "<h3>OpenID4VP verifier</h3>",
+    '<p class="issuer-description">Request a presentation of any credential the issuers above serve, then inspect the wallet response, its decoded claims, and the verifier checks.</p>',
+    '<nav class="issuer-links" aria-label="Verifier">',
+    safeLinkHtml("Open verifier", VERIFIER_PAGE_PATH, "btn btn-primary btn-md"),
+    "</nav>",
+    "</article>",
+    "</div>",
+    "</section>",
   ].join("");
 }
 
@@ -371,15 +438,51 @@ function issuerDescriptionHtml(group: IssuerCredentialGroup): string {
   ].join("");
 }
 
-function issuerLinkHtml(label: string, href: string): string {
-  if (!isHttpUrl(href)) {
-    return `<span class="issuer-link">${escapeHtml(label)}: ${escapeHtml(href)}</span>`;
+function issuerMetadataHtml({
+  group,
+  federationEntityConfigurationUrl,
+}: IssuerPageOptions): string {
+  const { issuer } = group;
+  return [
+    '<aside class="card launcher-card" aria-labelledby="issuer-metadata-title">',
+    '<div class="section-head">',
+    '<h2 id="issuer-metadata-title">Metadata</h2>',
+    "</div>",
+    '<dl class="entity-facts">',
+    "<div><dt>Credential Issuer Identifier</dt><dd><code>",
+    escapeHtml(issuer.issuerIdentifier),
+    "</code></dd></div>",
+    "</dl>",
+    '<nav class="issuer-links" aria-label="',
+    escapeHtml(`${issuer.display.name} metadata`),
+    '">',
+    metadataLinkHtml("Authorization server metadata", issuer.authorizationServerMetadataUrl),
+    metadataLinkHtml("OpenID4VCI credential issuer metadata", issuer.issuerMetadataUrl),
+    federationEntityConfigurationUrl
+      ? metadataLinkHtml("OpenID Federation entity configuration", federationEntityConfigurationUrl)
+      : "",
+    group.attestbook
+      ? metadataLinkHtml("Attestbook status", "/integrations/attestbook/status")
+      : "",
+    "</nav>",
+    "</aside>",
+  ].join("");
+}
+
+function metadataLinkHtml(label: string, href: string): string {
+  return safeLinkHtml(label, href, "issuer-link", true);
+}
+
+/** Renders a link, or plain text when the target is not an HTTP(S) URL or a same-origin path. */
+function safeLinkHtml(label: string, href: string, className: string, newTab = false): string {
+  if (!isHttpUrl(href) && !href.startsWith("/")) {
+    return `<span class="${className}">${escapeHtml(label)}: ${escapeHtml(href)}</span>`;
   }
 
   return [
-    '<a class="issuer-link" href="',
+    `<a class="${className}" href="`,
     escapeHtml(href),
-    '" target="_blank" rel="noreferrer">',
+    newTab ? '" target="_blank" rel="noreferrer">' : '">',
     escapeHtml(label),
     "</a>",
   ].join("");
@@ -394,23 +497,445 @@ function isHttpUrl(value: string): boolean {
   }
 }
 
-function credentialOptionHtml(
-  issuerConfigurationId: string,
-  credential: SupportedCredential,
-): string {
+/**
+ * When a parameter applies: `static-credential` fields are refused by the API for an imported
+ * Attestbook credential, and `sd-jwt` fields for an mdoc.
+ */
+type ParameterRequirement = "static-credential" | "sd-jwt";
+
+interface ParameterField {
+  /** The API body member; `merge` fields are an object merged into the body instead. */
+  readonly name: string;
+  readonly label: string;
+  readonly kind: "select" | "text" | "json" | "flag" | "merge";
+  readonly values?: readonly string[];
+  readonly hint?: string;
+  readonly placeholder?: string;
+  /** The value a `flag` sends when checked, as JSON. */
+  readonly flagValue?: "true" | "null";
+  readonly requires?: ParameterRequirement;
+}
+
+interface ParameterGroup {
+  readonly legend: string;
+  readonly fields: readonly ParameterField[];
+}
+
+function issuanceFormHtml({ group, fcafScenariosEnabled, parameters }: IssuerPageOptions): string {
+  const { issuer, credentials } = group;
+  const groups: ParameterGroup[] = [
+    {
+      legend: "Credential offer",
+      fields: [
+        { name: "flow", label: "Grant", kind: "select", values: parameters.flows },
+        {
+          name: "credential_offer_mode",
+          label: "Offer delivery",
+          kind: "select",
+          values: parameters.credentialOfferModes,
+          hint: "credential_offer embeds the offer in the deeplink; credential_offer_uri passes it by reference.",
+        },
+        {
+          name: "offer_scheme",
+          label: "Offer deeplink scheme",
+          kind: "select",
+          values: parameters.offerSchemes,
+        },
+      ],
+    },
+    {
+      legend: "Credential content",
+      fields: [
+        {
+          name: "fixture_id",
+          label: "PID fixture",
+          kind: "select",
+          values: parameters.fixtureIds,
+          requires: "static-credential",
+        },
+        {
+          name: "document_number",
+          label: "Document number",
+          kind: "text",
+          hint: "Overrides the fixture's document number only.",
+          requires: "static-credential",
+        },
+        {
+          name: "digest_algorithm",
+          label: "SD-JWT disclosure digest",
+          kind: "select",
+          values: parameters.digestAlgorithms,
+          requires: "sd-jwt",
+        },
+      ],
+    },
+    ...(fcafScenariosEnabled
+      ? [
+          {
+            legend: "Test scenarios (FCAF)",
+            fields: [
+              {
+                name: "evidence_mode",
+                label: "Evidence mode",
+                kind: "select",
+                values: parameters.evidenceModes,
+              },
+              {
+                name: "status_reference",
+                label: "Status reference",
+                kind: "select",
+                values: parameters.statusReferences,
+                hint: "Anything but valid needs the Token Status List switch.",
+                requires: "static-credential",
+              },
+              {
+                name: "issuance_response_scenario",
+                label: "Issuance response scenario",
+                kind: "json",
+                placeholder: '{"par": {"omit_parameters": ["/request_uri"]}}',
+              },
+              {
+                name: "offer_mutation",
+                label: "Offer mutation",
+                kind: "json",
+                placeholder: '{"unset": ["/credential_issuer"]}',
+                hint: "Applies to a by-value offer only.",
+              },
+            ],
+          } satisfies ParameterGroup,
+        ]
+      : []),
+    {
+      legend: "Raw request",
+      fields: [additionalParametersField('{"fixture_id": "pid_default"}')],
+    },
+  ];
+
+  return [
+    '<form class="card launcher-card session-launcher" data-endpoint="/sessions" data-session-page="/ui/sessions/" novalidate>',
+    '<div class="section-head">',
+    "<h2>Issue a credential</h2>",
+    "</div>",
+    '<input type="hidden" data-param="issuer_configuration_id" data-type="string" value="',
+    escapeHtml(issuer.id),
+    '">',
+    '<div class="credential-row">',
+    '<label class="credential-picker">',
+    "<span>Credential</span>",
+    '<select data-param="credential_configuration_id" data-type="string" data-credential-picker>',
+    credentials.map(issuerCredentialOptionHtml).join(""),
+    "</select>",
+    "</label>",
+    '<label class="status-list-toggle">',
+    '<input type="checkbox" role="switch" data-param="status_list_enabled" data-type="flag" value="true" data-requires="static-credential">',
+    '<span class="toggle-track" aria-hidden="true"></span>',
+    "<span>Include a Token Status List reference</span>",
+    "</label>",
+    "</div>",
+    advancedSettingsHtml(groups),
+    launcherActionsHtml("Create issuance session", credentials.length === 0),
+    credentials.length === 0
+      ? '<p class="issuer-empty">This issuer serves no credential configuration.</p>'
+      : "",
+    "</form>",
+  ].join("");
+}
+
+function presentationFormHtml({
+  groups,
+  fcafScenariosEnabled,
+  parameters,
+}: VerifierPageOptions): string {
+  const parameterGroups: ParameterGroup[] = [
+    {
+      legend: "Query",
+      fields: [
+        {
+          name: "dcql_query",
+          label: "DCQL query",
+          kind: "json",
+          hint: "Filled from the selected credential until edited. Empty sends the API default query; null omits the parameter from the wallet-facing request.",
+        },
+        {
+          name: "transaction_data",
+          label: "Transaction data",
+          kind: "json",
+          placeholder: '["…"]',
+        },
+        { name: "verifier_info", label: "Verifier info", kind: "json" },
+        { name: "scopes", label: "Scopes", kind: "text" },
+        {
+          name: "state",
+          label: "Omit state from the request",
+          kind: "flag",
+          flagValue: "null",
+        },
+      ],
+    },
+    {
+      legend: "Request delivery",
+      fields: [
+        {
+          name: "response_mode",
+          label: "Response mode",
+          kind: "select",
+          values: parameters.responseModes,
+        },
+        {
+          name: "response_type",
+          label: "Response type",
+          kind: "select",
+          values: ["vp_token", "vp_token id_token", "code"],
+        },
+        {
+          name: "request_delivery",
+          label: "Request delivery",
+          kind: "select",
+          values: parameters.requestDeliveries,
+          hint: "multisigned needs a DC API response mode.",
+        },
+        {
+          name: "request_uri_method",
+          label: "request_uri_method",
+          kind: "select",
+          values: ["get", "post"],
+          hint: "by_reference delivery only.",
+        },
+        {
+          name: "client_id_scheme",
+          label: "Client Identifier prefix",
+          kind: "select",
+          values: parameters.clientIdSchemes,
+        },
+        {
+          name: "scheme",
+          label: "Deeplink scheme",
+          kind: "text",
+          placeholder: "openid4vp://",
+        },
+      ],
+    },
+    {
+      legend: "Verifier metadata and redirect",
+      fields: [
+        {
+          name: "client_metadata",
+          label: "Client metadata",
+          kind: "json",
+          hint: "Members override the generated verifier metadata; null omits it.",
+        },
+        {
+          name: "allow_undecryptable_response",
+          label: "Publish client metadata without the verifier encryption key",
+          kind: "flag",
+          flagValue: "true",
+        },
+        {
+          name: "verifier_attestation",
+          label: "Verifier attestation",
+          kind: "json",
+          placeholder: '{"redirect_uris": ["https://wallet.example/callback"]}',
+          hint: "Needs the verifier_attestation prefix.",
+        },
+        {
+          name: "redirect_uri",
+          label: "Redirect URI",
+          kind: "text",
+          placeholder: "{{base_url}}/openid4vp/redirect",
+          hint: "Not available with a DC API response mode.",
+        },
+      ],
+    },
+    ...(fcafScenariosEnabled
+      ? [
+          {
+            legend: "Test scenarios (FCAF)",
+            fields: [
+              {
+                name: "request_mutation",
+                label: "Request mutation",
+                kind: "json",
+                placeholder: '{"request_object": {"unset": ["/response_uri"]}}',
+              },
+              {
+                name: "request_behavior",
+                label: "Request behaviour",
+                kind: "json",
+                placeholder: '{"signature": "corrupt"}',
+              },
+              {
+                name: "response_scenario",
+                label: "Response scenario",
+                kind: "json",
+                placeholder: '{"status": 400}',
+              },
+            ],
+          } satisfies ParameterGroup,
+        ]
+      : []),
+    {
+      legend: "Raw request",
+      fields: [
+        {
+          name: "presentation_request",
+          label: "Presentation request",
+          kind: "json",
+          hint: "Replaces every request parameter of the Query group.",
+        },
+        additionalParametersField('{"nonce": "…"}'),
+      ],
+    },
+  ];
+  const empty = groups.every((group) => group.credentials.length === 0);
+
+  return [
+    '<form class="card launcher-card session-launcher" data-endpoint="/openid4vp/sessions" data-session-page="/ui/openid4vp/sessions/" novalidate>',
+    '<div class="section-head">',
+    "<h2>Request a credential</h2>",
+    "</div>",
+    '<div class="credential-row">',
+    '<label class="credential-picker">',
+    "<span>Credential</span>",
+    "<select data-credential-picker>",
+    groups.map(verifierCredentialGroupHtml).join(""),
+    "</select>",
+    "</label>",
+    "</div>",
+    advancedSettingsHtml(parameterGroups),
+    launcherActionsHtml("Create presentation session", empty),
+    "</form>",
+  ].join("");
+}
+
+function additionalParametersField(placeholder: string): ParameterField {
+  return {
+    name: "additional_parameters",
+    label: "Additional body members",
+    kind: "merge",
+    placeholder,
+    hint: "A JSON object merged into the request body last, overriding the fields above.",
+  };
+}
+
+function launcherActionsHtml(label: string, disabled: boolean): string {
+  return [
+    '<div class="session-actions">',
+    '<button class="btn btn-primary btn-lg" type="submit"',
+    disabled ? " disabled" : "",
+    ">",
+    escapeHtml(label),
+    "</button>",
+    "</div>",
+    '<pre class="launcher-error" role="alert" data-launcher-error hidden></pre>',
+  ].join("");
+}
+
+function advancedSettingsHtml(groups: readonly ParameterGroup[]): string {
+  return [
+    '<details class="advanced-settings">',
+    "<summary>Advanced settings</summary>",
+    '<p class="field-hint">Every field left empty takes the API default.</p>',
+    groups.map(parameterGroupHtml).join(""),
+    "</details>",
+  ].join("");
+}
+
+function parameterGroupHtml(group: ParameterGroup): string {
+  return [
+    '<fieldset class="parameter-group">',
+    "<legend>",
+    escapeHtml(group.legend),
+    "</legend>",
+    '<div class="parameter-fields">',
+    group.fields.map(parameterFieldHtml).join(""),
+    "</div>",
+    "</fieldset>",
+  ].join("");
+}
+
+function parameterFieldHtml(field: ParameterField): string {
+  const type = field.kind === "select" || field.kind === "text" ? "string" : field.kind;
+  const attributes = [
+    ` data-param="${escapeHtml(field.name)}"`,
+    ` data-type="${type}"`,
+    field.requires ? ` data-requires="${field.requires}"` : "",
+    field.placeholder ? ` placeholder="${escapeHtml(field.placeholder)}"` : "",
+  ].join("");
+  const hint = field.hint ? `<span class="field-hint">${escapeHtml(field.hint)}</span>` : "";
+  const label = [
+    '<span class="field-label">',
+    escapeHtml(field.label),
+    field.kind === "merge" ? "" : ` <code>${escapeHtml(field.name)}</code>`,
+    "</span>",
+  ].join("");
+
+  if (field.kind === "flag") {
+    return [
+      '<label class="field field-flag">',
+      `<input type="checkbox" value="${field.flagValue ?? "true"}"${attributes}>`,
+      label,
+      hint,
+      "</label>",
+    ].join("");
+  }
+
+  const control =
+    field.kind === "select"
+      ? [
+          `<select${attributes}>`,
+          '<option value="">API default</option>',
+          (field.values ?? [])
+            .map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`)
+            .join(""),
+          "</select>",
+        ].join("")
+      : field.kind === "text"
+        ? `<input type="text" autocomplete="off" spellcheck="false"${attributes}>`
+        : `<textarea rows="4" spellcheck="false"${attributes}></textarea>`;
+  const className = field.kind === "json" || field.kind === "merge" ? "field field-wide" : "field";
+  return [`<label class="${className}">`, label, control, hint, "</label>"].join("");
+}
+
+function issuerCredentialOptionHtml(credential: SupportedCredential): string {
   return [
     '<option value="',
     escapeHtml(credential.id),
-    '" data-issuer-configuration-id="',
-    escapeHtml(issuerConfigurationId),
-    '">',
-    escapeHtml(
-      credential.attestbook
-        ? `${credential.displayName} (Attestbook ${credential.attestbook.version})`
-        : credential.displayName,
-    ),
+    '" data-format="',
+    escapeHtml(credential.format),
+    '"',
+    credential.attestbook ? ' data-imported="true"' : "",
+    ">",
+    escapeHtml(credentialLabel(credential)),
     "</option>",
   ].join("");
+}
+
+function verifierCredentialGroupHtml(group: VerifierCredentialGroup): string {
+  return [
+    '<optgroup label="',
+    escapeHtml(issuerLabel(group.issuer)),
+    '">',
+    group.credentials
+      .map(({ credential, dcqlQuery }) =>
+        [
+          '<option value="',
+          escapeHtml(credential.id),
+          '" data-dcql="',
+          escapeHtml(JSON.stringify(dcqlQuery)),
+          '">',
+          escapeHtml(credentialLabel(credential)),
+          "</option>",
+        ].join(""),
+      )
+      .join(""),
+    "</optgroup>",
+  ].join("");
+}
+
+function credentialLabel(credential: SupportedCredential): string {
+  return credential.attestbook
+    ? `${credential.displayName} (Attestbook ${credential.attestbook.version})`
+    : credential.displayName;
 }
 
 export function sessionPage(sessionId: string, deeplink: string, qrSvg: string): string {
@@ -749,9 +1274,8 @@ function appCss(): string {
     ".credimi-extras-bar a:focus-visible, .credimi-extras-wordmark-link:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; border-radius: 2px; }",
     ".hero-band { position: relative; overflow: hidden; padding: 76px 0 68px; }",
     ".hero-band::after { content: ''; position: absolute; inset: 0 0 auto auto; width: 360px; height: 360px; background: linear-gradient(135deg, transparent 49.5%, rgb(49 32 96 / 8%) 49.5%, rgb(49 32 96 / 8%) 50.5%, transparent 50.5%), linear-gradient(45deg, transparent 49.5%, rgb(49 32 96 / 8%) 49.5%, rgb(49 32 96 / 8%) 50.5%, transparent 50.5%); pointer-events: none; }",
-    ".hero-inner { position: relative; z-index: 1; width: min(100% - 48px, var(--max-width)); margin-inline: auto; display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 430px); gap: 32px; align-items: start; }",
+    ".hero-inner { position: relative; z-index: 1; width: min(100% - 48px, var(--max-width)); margin-inline: auto; display: grid; gap: 32px; align-items: start; }",
     ".hero-copy { display: grid; gap: 20px; max-width: 740px; }",
-    ".hero-copy form { display: grid; gap: 14px; justify-items: start; }",
     ".hero-copy p:not(.eyebrow) { max-width: 720px; color: var(--fg-muted); font-size: 17px; line-height: 1.571; }",
     ".session-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }",
     ".credential-picker { display: grid; gap: 8px; width: min(100%, 520px); color: var(--fg); font-size: 13px; font-weight: 700; }",
@@ -780,12 +1304,10 @@ function appCss(): string {
     ".issuer-links { display: grid; gap: 6px; margin-top: auto; }",
     ".issuer-link { overflow-wrap: anywhere; font-size: 12px; font-weight: 700; }",
     ".eyebrow { margin-bottom: 10px; color: var(--brand-primary); font-size: 12px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; }",
-    ".card, .summary-panel { min-width: 0; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 24px; box-shadow: var(--shadow-sm); }",
-    ".summary-panel { display: grid; gap: 18px; }",
+    ".card { min-width: 0; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 24px; box-shadow: var(--shadow-sm); }",
     ".section-header, .section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--border); margin-bottom: 20px; }",
     ".section-header.compact { margin-bottom: 0; }",
     ".section-header h2::after, .section-head h2::after { content: ':'; }",
-    ".count-chip { display: inline-flex; align-items: center; justify-content: center; min-width: 24px; height: 24px; padding: 0 8px; border-radius: var(--radius-pill); background: var(--brand-secondary-strong); color: var(--fg-muted); font-size: 13px; font-weight: 600; }",
     ".status-chip { display: inline-flex; align-items: center; gap: 6px; min-height: 24px; padding: 0 11px; border-radius: var(--radius-pill); font-size: 11px; font-weight: 700; text-transform: uppercase; white-space: nowrap; }",
     ".status-chip::before { content: ''; width: 8px; height: 8px; border-radius: 50%; }",
     ".status-issuer { background: var(--warning-bg); color: var(--warning); }",
@@ -799,13 +1321,39 @@ function appCss(): string {
     ".btn-primary:hover { background: var(--brand-primary-700); }",
     ".btn-outline { background: var(--bg); color: var(--fg); border: 1px solid var(--border); }",
     ".btn-outline:hover { border-color: var(--border-strong); background: var(--bg-muted); }",
-    ".capture-list { display: grid; gap: 12px; margin: 0; }",
-    ".capture-list div { padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-muted); }",
-    ".capture-groups { display: grid; gap: 18px; }",
-    ".capture-group { display: grid; gap: 10px; }",
-    ".capture-group h3 { margin: 0; color: var(--brand-primary); font-size: 13px; line-height: 1.4; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }",
     "dt { color: var(--fg); font-size: 13px; font-weight: 700; }",
     "dd { margin: 4px 0 0; color: var(--fg-muted); font-size: 13px; line-height: 1.5; }",
+    ".issuer-credential-count { color: var(--fg); font-size: 12px; font-weight: 700; }",
+    ".launcher-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 360px); gap: 24px; align-items: start; }",
+    ".launcher-layout-single { grid-template-columns: minmax(0, 1fr); }",
+    ".launcher-card { display: grid; gap: 18px; align-content: start; }",
+    ".launcher-card .section-head { margin-bottom: 0; }",
+    ".entity-facts { margin: 0; }",
+    ".entity-facts dd code { overflow-wrap: anywhere; color: var(--fg); font-size: 12px; }",
+    ".advanced-settings { border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-muted); }",
+    ".advanced-settings > summary { display: flex; align-items: center; min-height: 44px; padding: 10px 14px; color: var(--fg); font-size: 14px; font-weight: 700; cursor: pointer; }",
+    ".advanced-settings[open] > summary { border-bottom: 1px solid var(--border); }",
+    ".advanced-settings > .field-hint { padding: 12px 14px 0; }",
+    ".parameter-group { min-width: 0; margin: 0; padding: 14px; border: 0; }",
+    ".parameter-group + .parameter-group { border-top: 1px solid var(--border); }",
+    // A floated legend is laid out inside the fieldset instead of on its border.
+    ".parameter-group legend { float: left; width: 100%; margin-bottom: 12px; padding: 0; color: var(--brand-primary); font-size: 12px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }",
+    ".parameter-fields { clear: both; display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }",
+    ".field { display: grid; gap: 6px; align-content: start; min-width: 0; }",
+    ".field-wide { grid-column: 1 / -1; }",
+    ".field-label { color: var(--fg); font-size: 13px; font-weight: 700; }",
+    ".field-label code { color: var(--fg-muted); font-size: 11px; font-weight: 500; }",
+    ".field select, .field input[type=text], .field textarea { width: 100%; min-height: 38px; padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--bg); color: var(--fg); font: inherit; font-size: 13px; }",
+    ".field textarea { min-height: 96px; resize: vertical; font-family: JetBrains Mono, Fira Code, Cascadia Code, ui-monospace, monospace; font-size: 12px; }",
+    ".field textarea[data-param='dcql_query'] { min-height: 260px; }",
+    ".launcher-header h1 { font-size: clamp(32px, 4.5vw, 48px); }",
+    ".field select:focus, .field input:focus, .field textarea:focus { outline: 2px solid color-mix(in oklch, var(--brand-primary) 36%, transparent); outline-offset: 1px; }",
+    ".field-flag { grid-template-columns: auto minmax(0, 1fr); align-items: center; column-gap: 8px; }",
+    ".field-flag .field-hint { grid-column: 2; }",
+    ".field-hint { color: var(--fg-muted); font-size: 12px; font-weight: 500; line-height: 1.45; }",
+    ".field-disabled { opacity: .45; }",
+    ".launcher-error { margin: 0; padding: 12px 14px; border: 1px solid var(--border); border-left: 3px solid var(--destructive); border-radius: var(--radius-md); background: var(--bg); color: var(--destructive); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }",
+    ".btn[disabled] { opacity: .55; cursor: not-allowed; }",
     ".session-page { background: var(--brand-secondary); }",
     ".session-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 24px; }",
     ".session-header > div { display: grid; gap: 10px; max-width: 760px; }",
@@ -861,8 +1409,8 @@ function appCss(): string {
     "@keyframes metadata-spin { to { transform: rotate(360deg); } }",
     "@keyframes metadata-flash { 0% { background: var(--warning-bg); box-shadow: 0 0 0 0 color-mix(in oklch, var(--warning) 32%, transparent); } 30% { background: var(--success-bg); box-shadow: 0 0 0 6px color-mix(in oklch, var(--success) 20%, transparent); } 100% { background: var(--bg); box-shadow: var(--shadow-sm); } }",
     "@media (prefers-reduced-motion: reduce) { .metadata-state-waiting::before, .metadata-state-receiving::before, .metadata-flash { animation: none; } .toggle-track, .toggle-track::after { transition: none; } }",
-    "@media (max-width: 860px) { h1 { font-size: 38px; } h2 { font-size: 22px; } .hero-band { padding: 52px 0; } .hero-inner, .session-layout { grid-template-columns: 1fr; } .issuer-cards { grid-template-columns: 1fr; } .session-header, .section-head, .footer-content { flex-direction: column; align-items: stretch; } .session-actions { align-items: stretch; flex-direction: column; } .session-actions .btn { width: 100%; } .footer-links { justify-content: flex-start; } .qr-box { width: 100%; max-width: 336px; } }",
-    "@media (max-width: 560px) { .container, .topbar-inner, .hero-inner, .footer-inner { width: min(100% - 28px, var(--max-width)); } .page-content { padding: 28px 0 52px; } .card, .summary-panel { padding: 18px; } .brand-name { display: none; } .topbar-actions .btn { display: none; } .status-list-toggle { margin-left: 0; } }",
+    "@media (max-width: 860px) { h1 { font-size: 38px; } h2 { font-size: 22px; } .hero-band { padding: 52px 0; } .session-layout, .launcher-layout { grid-template-columns: 1fr; } .issuer-cards { grid-template-columns: 1fr; } .session-header, .section-head, .footer-content { flex-direction: column; align-items: stretch; } .session-actions { align-items: stretch; flex-direction: column; } .session-actions .btn { width: 100%; } .footer-links { justify-content: flex-start; } .qr-box { width: 100%; max-width: 336px; } }",
+    "@media (max-width: 560px) { .container, .topbar-inner, .hero-inner, .footer-inner { width: min(100% - 28px, var(--max-width)); } .page-content { padding: 28px 0 52px; } .card { padding: 18px; } .brand-name { display: none; } .topbar-actions .btn { display: none; } .status-list-toggle { margin-left: 0; } }",
   ].join("\n");
 }
 
@@ -940,6 +1488,110 @@ function renderMarkdown(markdown: string): string {
 
 function inlineMarkdown(value: string): string {
   return escapeHtml(value).replace(/`([^`]+)`/g, "<code>$1</code>");
+}
+
+/**
+ * Creates a session through the public JSON API from the issuer or verifier page. Only fields the
+ * operator filled are sent, so every other parameter keeps the API default, and a refusal is shown
+ * as the API's own error body.
+ */
+function sessionLauncherScript(): string {
+  return `(function () {
+  const form = document.querySelector("form.session-launcher");
+  if (!form) return;
+  const picker = form.querySelector("[data-credential-picker]");
+  const dcql = form.querySelector('[data-param="dcql_query"]');
+  const errorBox = form.querySelector("[data-launcher-error]");
+  const submit = form.querySelector('button[type="submit"]');
+  let generatedDcql = "";
+
+  function applyCredential() {
+    const option = picker ? picker.selectedOptions[0] : undefined;
+    const imported = option?.dataset.imported === "true";
+    const mdoc = option?.dataset.format === "mso_mdoc";
+    for (const field of form.querySelectorAll("[data-requires]")) {
+      const applies = field.dataset.requires === "static-credential" ? !imported : !mdoc;
+      field.disabled = !applies;
+      field.closest("label")?.classList.toggle("field-disabled", !applies);
+    }
+    // The query follows the selected credential until the operator edits it.
+    if (dcql && option?.dataset.dcql && (dcql.value.trim() === "" || dcql.value === generatedDcql)) {
+      generatedDcql = JSON.stringify(JSON.parse(option.dataset.dcql), null, 2);
+      dcql.value = generatedDcql;
+    }
+  }
+
+  function requestBody() {
+    const body = {};
+    let merged;
+    for (const field of form.querySelectorAll("[data-param]")) {
+      if (field.disabled) continue;
+      const name = field.dataset.param;
+      const type = field.dataset.type;
+      if (type === "flag") {
+        if (field.checked) body[name] = JSON.parse(field.value);
+        continue;
+      }
+      const raw = field.value.trim();
+      if (raw === "") continue;
+      if (type === "string") {
+        body[name] = raw;
+        continue;
+      }
+      let value;
+      try {
+        value = JSON.parse(raw);
+      } catch (error) {
+        throw new Error(name + " is not valid JSON: " + error.message);
+      }
+      if (type !== "merge") {
+        body[name] = value;
+      } else if (value && typeof value === "object" && !Array.isArray(value)) {
+        merged = value;
+      } else {
+        throw new Error(name + " must be a JSON object");
+      }
+    }
+    return merged ? Object.assign(body, merged) : body;
+  }
+
+  function showError(message) {
+    errorBox.textContent = message;
+    errorBox.hidden = false;
+  }
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    errorBox.hidden = true;
+    let body;
+    try {
+      body = requestBody();
+    } catch (error) {
+      showError(error.message);
+      return;
+    }
+    submit.disabled = true;
+    try {
+      const response = await fetch(form.dataset.endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify(body),
+      });
+      const payload = await response.json().catch(() => null);
+      if (response.status === 201 && payload && typeof payload.session_id === "string") {
+        window.location.assign(form.dataset.sessionPage + encodeURIComponent(payload.session_id));
+        return;
+      }
+      showError("The API refused the session (HTTP " + response.status + ")\\n" + JSON.stringify(payload, null, 2));
+    } catch (error) {
+      showError("The session request failed: " + error.message);
+    }
+    submit.disabled = false;
+  });
+
+  picker?.addEventListener("change", applyCredential);
+  applyCredential();
+})();`;
 }
 
 function clientScript(): string {

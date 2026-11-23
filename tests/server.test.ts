@@ -608,104 +608,120 @@ describe("capture issuer server", () => {
     }
   });
 
-  it("serves a launcher button that opens new GUI sessions in a new tab", async () => {
+  it("serves a launcher that lists only the issuers and the verifier", async () => {
     const app = createApp(config);
     const response = await request(app).get("/");
 
     expect(response.status).toBe(200);
     expect(response.text).toContain('<main><section class="hero-band">');
-    expect(response.text).toContain(
-      "Step 1) Start a one-time fake issuance flow, scan the offer, and inspect the wallet identifiers, callbacks, and proof keys observed by the issuer.",
-    );
-    expect(response.text).toContain(
-      "Step 2) After receiving the credential, start a Presentation session, and inspect the Wallet response as well as the DCQL",
-    );
-    expect(response.text).toContain("New fake-issuance session");
-    expect(response.text).toContain('<a class="btn btn-outline btn-md" href="/docs">API docs</a>');
-    expect(response.text).toContain("session-actions");
-    expect(response.text).toContain('formaction="/ui/openid4vp/sessions"');
-    expect(response.text).toContain("<h2>Captured values</h2>");
-    expect(response.text).toContain('<span class="count-chip">10</span>');
-    expect(response.text).toContain("<h3>OpenID4VCI</h3>");
-    expect(response.text).toContain("<h3>OpenID4VP</h3>");
-    expect(response.text).toContain("<dt>wallet_jwks</dt>");
-    expect(response.text).toContain("<dt>authorization_request</dt>");
-    expect(response.text).toContain("<dt>request_uri_payload</dt>");
-    expect(response.text).toContain("<dt>wallet_response</dt>");
-    expect(response.text).toContain("<dt>presentation_response_decrypted</dt>");
-    expect(response.text).toContain("<dt>decoded_presentations</dt>");
-    expect(response.text).toContain("<dt>presentation_validation</dt>");
-    expect(response.text).not.toContain("<dt>presentation_submission</dt>");
-    expect(response.text).toContain('<select name="credential_configuration_id">');
-    expect(response.text).toContain('<optgroup label="EUDI PID — device-bound conforming">');
-    expect(response.text).toContain('<optgroup label="EUDI PID — JWT key attestation">');
-    expect(response.text).toContain(
-      '<optgroup label="EUDI PID — JWT proof only — deliberately non-conforming">',
-    );
-    expect(response.text).toContain(
-      '<section class="issuer-catalogue" aria-labelledby="issuer-catalogue-title">',
-    );
-    expect(response.text).toContain('<h2 id="issuer-catalogue-title">Available issuers</h2>');
+    expect(response.text).not.toContain("<form");
+    expect(response.text).not.toContain("<h2>Captured values</h2>");
+    expect(response.text).toContain('<h2 id="issuer-catalogue-title">Issuers</h2>');
     expect(response.text.match(/<article class="issuer-card">/g)).toHaveLength(3);
     expect(response.text).toContain("EUDI PID — device-bound conforming");
-    expect(response.text).not.toContain('class="issuer-compliance');
-    expect(response.text).not.toContain('class="issuer-warning"');
-    expect(response.text).not.toContain(
-      "Deliberately non-conforming for a device-bound EUDI PID; a conforming wallet may reject issuance.",
-    );
-    expect(response.text).not.toContain(
-      "PID issuer advertising JWT and attestation proofs with key attestation required.",
-    );
-    expect(response.text).toContain("EUDI PID — JWT proof only");
+    expect(response.text).toContain("EUDI PID — JWT proof only — deliberately non-conforming");
     expect(response.text).toContain(
       "PID interoperability test issuer advertising JWT proof without key attestation.",
     );
     expect(response.text).toContain(
       '<a href="https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ%3AL_202601731" target="_blank" rel="noreferrer">Commission Implementing Regulation (EU) 2026/1731</a>',
     );
-    expect(response.text).toContain(
-      "in particular <code>TR_KA-4</code>: both <code>jwt</code> and <code>attestation</code> proof types are present and both include <code>key_attestations_required</code>.",
-    );
-    expect(response.text.match(/class="issuer-link"/g)).toHaveLength(9);
-
     for (const issuerId of [conformingIssuerId, jwtKeyAttestationIssuerId, jwtOnlyIssuerId]) {
       expect(response.text).toContain(
-        `href="${config.issuer_base_url}/issuers/${issuerId}" target="_blank" rel="noreferrer">Issuer</a>`,
-      );
-      expect(response.text).toContain(
-        `href="${config.issuer_base_url}/.well-known/openid-credential-issuer/issuers/${issuerId}" target="_blank" rel="noreferrer">Credential issuer well-known</a>`,
-      );
-      expect(response.text).toContain(
-        `href="${config.issuer_base_url}/.well-known/oauth-authorization-server/issuers/${issuerId}" target="_blank" rel="noreferrer">Authorization server well-known</a>`,
+        `<a class="btn btn-primary btn-md" href="${config.issuer_base_url}/issuers/${issuerId}">Open issuer</a>`,
       );
     }
-
-    expect(response.text).not.toContain(
-      "/.well-known/oauth-authorization-server/authorization-servers/",
-    );
     expect(response.text).toContain(
-      "Credimi Demo PID (SD-JWT VC, JWT or attestation proof, key attestation required)",
+      '<a class="btn btn-primary btn-md" href="/openid4vp">Open verifier</a>',
     );
-    expect(response.text).toContain("Credimi Demo PID (SD-JWT VC, JWT proof, no key attestation)");
-    expect(response.text).toContain(
-      "Credimi Demo PID (MDOC, JWT or attestation proof, key attestation required)",
-    );
-    expect(response.text).toContain("Credimi Demo PID (MDOC, JWT proof, no key attestation)");
     expect(response.text).toContain(
       '<img class="brand-logo" src="/assets/credimi_logo.svg" alt="Credimi"><span>Wallet metadata capture</span>',
     );
     expect(response.text).toContain(
       '<span class="status-chip status-issuer">ISSUER READY</span><span class="status-chip status-wallet">VERIFIER READY</span><a class="btn btn-outline btn-md" href="/docs">API docs</a><a class="btn btn-outline btn-md" href="/openapi.json" download="openapi.json">OpenAPI</a><a class="btn btn-outline btn-md" href="https://github.com/ForkbombEu/credimi-capture-wallet"',
     );
-    expect(response.text).toContain('target="_blank"');
     expect(response.text).toContain("Wallet metadata capture%c Credimi capture UI");
     expect(response.text).toContain('href="/favicon.svg"');
-    expect(response.text).not.toContain("Developed by Forkbomb BV");
-    expect(response.text).toContain('href="https://github.com/ForkbombEu/credimi-capture-wallet"');
-    expect(response.text).toContain("Repository");
     expect(response.text).toContain(
       '<img class="footer-logo" src="/assets/credimi_logo_negative.svg" alt="" aria-hidden="true">',
     );
+  });
+
+  it("serves the issuer page at the Credential Issuer Identifier to a browser only", async () => {
+    const app = createApp(config);
+    const page = await request(app)
+      .get(conformingIssuerPath)
+      .set("Accept", "text/html,application/xhtml+xml,*/*;q=0.8");
+
+    expect(page.status).toBe(200);
+    expect(page.type).toBe("text/html");
+    expect(page.headers.vary).toContain("Accept");
+    expect(page.text).toContain('data-endpoint="/sessions" data-session-page="/ui/sessions/"');
+    expect(page.text).toContain(
+      `<input type="hidden" data-param="issuer_configuration_id" data-type="string" value="${conformingIssuerId}">`,
+    );
+    expect(page.text).toContain(
+      "Credimi Demo PID (SD-JWT VC, JWT or attestation proof, key attestation required)",
+    );
+    expect(page.text).toContain(
+      "Credimi Demo PID (MDOC, JWT or attestation proof, key attestation required)",
+    );
+    expect(page.text).not.toContain("Credimi Demo PID (SD-JWT VC, JWT proof, no key attestation)");
+    expect(page.text).toContain(
+      `href="${config.issuer_base_url}${conformingAuthorizationServerMetadataPath}" target="_blank" rel="noreferrer">Authorization server metadata</a>`,
+    );
+    expect(page.text).toContain(
+      `href="${config.issuer_base_url}${conformingMetadataPath}" target="_blank" rel="noreferrer">OpenID4VCI credential issuer metadata</a>`,
+    );
+    expect(page.text).not.toContain("OpenID Federation entity configuration");
+    expect(page.text).not.toContain('data-param="offer_mutation"');
+
+    // Any other client, a Wallet probing the identifier included, keeps the captured 404.
+    for (const accept of [undefined, "*/*", "application/json"]) {
+      const probe = request(app).get(conformingIssuerPath);
+      const response = accept ? await probe.set("Accept", accept) : await probe;
+      expect(response.status, accept).toBe(404);
+    }
+    const ledger = await getJson<Oid4vciHttpRequestCapture[]>(app, "/oid4vci/requests");
+    expect(
+      ledger
+        .filter((entry) => entry.path === conformingIssuerPath)
+        .map((entry) => [entry.unmatched, entry.response.status]),
+    ).toEqual([
+      [true, 404],
+      [true, 404],
+      [true, 404],
+    ]);
+
+    const unknown = await request(app).get("/issuers/not-configured").set("Accept", "text/html");
+    expect(unknown.status).toBe(404);
+  });
+
+  it("offers every issuer's credentials, with its DCQL query, on the verifier page", async () => {
+    const app = createApp({ ...config, fcaf_scenarios_enabled: true });
+    const page = await request(app).get("/openid4vp");
+
+    expect(page.status).toBe(200);
+    expect(page.text).toContain(
+      'data-endpoint="/openid4vp/sessions" data-session-page="/ui/openid4vp/sessions/"',
+    );
+    expect(page.text).toContain('<optgroup label="EUDI PID — device-bound conforming">');
+    expect(page.text).toContain('<optgroup label="EUDI PID — JWT key attestation">');
+    expect(page.text).toContain(
+      '<optgroup label="EUDI PID — JWT proof only — deliberately non-conforming">',
+    );
+    expect(page.text).toContain('data-param="request_mutation"');
+
+    // The query the page sends is the one the session is created with.
+    const dcql = /data-dcql="([^"]+)"/.exec(page.text)?.[1];
+    if (!dcql) throw new Error("verifier page carries no DCQL query");
+    const dcqlQuery = JSON.parse(dcql.replaceAll("&quot;", '"')) as JsonRecord;
+    const session = await postJson<{ authorization_request: JsonRecord }>(
+      app,
+      "/openid4vp/sessions",
+      { dcql_query: dcqlQuery },
+    );
+    expect(session.authorization_request.dcql_query).toEqual(dcqlQuery);
   });
 
   it("serves the Credimi logo asset for the launcher topbar", async () => {
@@ -745,6 +761,10 @@ describe("capture issuer server", () => {
     expect((await request(app).get("/")).status).toBe(404);
     expect((await request(app).get("/ui/help")).status).toBe(404);
     expect((await request(app).post("/ui/sessions")).status).toBe(404);
+    expect((await request(app).get("/openid4vp")).status).toBe(404);
+    expect((await request(app).get(conformingIssuerPath).set("Accept", "text/html")).status).toBe(
+      404,
+    );
     expect((await request(app).get("/docs")).status).toBe(200);
     expect((await request(app).get("/openapi.json")).status).toBe(200);
 
