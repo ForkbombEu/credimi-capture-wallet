@@ -786,7 +786,8 @@ describe("capture issuer server", () => {
     expect(page.text).toContain("Wallet metadata");
     expect(page.text).toContain(".metadata-row summary::after { content: '\\02C5'");
     expect(page.text).toContain(".metadata-row[open] summary::after { content: '\\02C4'");
-    expect(page.text.match(/<details class="metadata-row"><summary>/g)).toHaveLength(4);
+    expect(page.text.match(/<details class="metadata-row"><summary>/g)).toHaveLength(5);
+    expect(page.text).toContain("<summary>wallet_notification</summary><code>pending</code>");
     expect(page.text).toContain("<summary>client_id</summary><code>pending</code>");
     expect(page.text).toContain('querySelectorAll(".metadata-row[open]")');
     expect(page.text).toContain("openFields.has(row[0])");

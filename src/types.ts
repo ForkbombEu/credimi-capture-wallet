@@ -104,6 +104,12 @@ export interface AppConfig {
    * as `request_mutation`. Off by default: an ordinary deployment refuses them.
    */
   fcaf_scenarios_enabled: boolean;
+  /**
+   * Enables the OpenID4VCI 1.0 Notification Endpoint (Section 11) on every enabled Credential
+   * Issuer: `notification_endpoint` in its metadata, a `notification_id` in each successful
+   * Credential Response, and `POST /issuers/{id}/notification`. Off by default.
+   */
+  oid4vci_notifications_enabled: boolean;
   listen_addr: string;
   data_dir: string;
   credential_configuration_id: string;
@@ -378,6 +384,11 @@ export interface SessionCapture {
   status_list_references?: StatusListAllocation[];
   /** Every `POST /sessions/{sessionId}/status` call, in order. */
   status_list_updates?: StatusListUpdateCapture[];
+  /**
+   * Each `notification_id` delivered in one of this session's Credential Responses, with the
+   * Notification Requests the Wallet sent for it. Present only once one was delivered.
+   */
+  notifications?: CredentialNotificationCapture[];
   observed: {
     client_id: ObservedValue<string>;
     redirect_uri: ObservedValue<string>;
@@ -431,6 +442,52 @@ export interface SessionCapture {
     /** With `offer_mutation` only: the edited Credential Offer delivered in the deeplink. */
     credential_offer_delivered?: JsonRecord;
   };
+}
+
+/** A Notification Request `event` value (OpenID4VCI 1.0 Section 11.1). */
+export type CredentialNotificationEvent =
+  | "credential_accepted"
+  | "credential_failure"
+  | "credential_deleted";
+
+/**
+ * A `notification_id` the issuer delivered in a successful Credential Response, and what it is
+ * bound to. The id is not a secret: a Notification Request also needs the access token and DPoP
+ * key of the issuance session it was issued under.
+ */
+export interface IssuedCredentialNotification {
+  notification_id: string;
+  issuer_configuration_id: string;
+  capture_session_id: string;
+  /** The Credo-TS issuance session whose access token received the Credentials. */
+  credo_issuance_session_id: string;
+  credential_configuration_id: string;
+  /** Number of Credentials in the Credential Response; one id covers all of them. */
+  credential_count: number;
+}
+
+export interface CredentialNotificationCapture {
+  notification_id: string;
+  issued_at: string;
+  credential_configuration_id: string;
+  credential_count: number;
+  /**
+   * Each distinct Notification Request accepted for the id, in arrival order. An identical repeat
+   * only updates `last_received_at` and `received_count` of its entry.
+   */
+  received: CredentialNotificationReceipt[];
+}
+
+/**
+ * One Wallet-reported outcome. It is what the Wallet said, not proof that a Credential is or
+ * remains stored.
+ */
+export interface CredentialNotificationReceipt {
+  event: CredentialNotificationEvent;
+  event_description?: string;
+  first_received_at: string;
+  last_received_at: string;
+  received_count: number;
 }
 
 export type OpenId4VpResponseMode = "direct_post" | "direct_post.jwt" | "dc_api" | "dc_api.jwt";

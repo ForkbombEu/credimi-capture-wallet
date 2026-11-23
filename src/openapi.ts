@@ -1021,6 +1021,11 @@ export function openApiDocument(config: AppConfig): JsonRecord {
                           properties: { credential: { type: "string" } },
                         },
                       },
+                      notification_id: {
+                        type: "string",
+                        description:
+                          "Present with OID4VCI_NOTIFICATIONS_ENABLED: identifies every Credential of this response at the Notification Endpoint.",
+                      },
                     },
                   },
                 },
@@ -1039,6 +1044,69 @@ export function openApiDocument(config: AppConfig): JsonRecord {
           },
         },
       },
+      ...(config.oid4vci_notifications_enabled
+        ? {
+            "/issuers/{issuerConfigurationId}/notification": {
+              post: {
+                tags: ["OpenID4VCI"],
+                operationId: "credentialNotification",
+                summary: "Report the Wallet's outcome for issued Credentials",
+                description:
+                  "OpenID4VCI 1.0 Section 11. Authenticated with the DPoP-bound access token used at the Credential endpoint and a DPoP proof for this endpoint. The notification_id must come from a Credential Response of the same issuer and issuance session. Identical repeats are accepted without new evidence.",
+                parameters: [
+                  issuerConfigurationIdParameter,
+                  {
+                    name: "Authorization",
+                    in: "header",
+                    required: true,
+                    schema: { type: "string", description: "DPoP access token." },
+                  },
+                  { name: "DPoP", in: "header", required: true, schema: { type: "string" } },
+                ],
+                requestBody: {
+                  required: true,
+                  ...json({
+                    type: "object",
+                    required: ["notification_id", "event"],
+                    properties: {
+                      notification_id: { type: "string", minLength: 1 },
+                      event: {
+                        type: "string",
+                        enum: ["credential_accepted", "credential_failure", "credential_deleted"],
+                      },
+                      event_description: {
+                        type: "string",
+                        pattern: "^[\\x20-\\x21\\x23-\\x5B\\x5D-\\x7E]*$",
+                      },
+                    },
+                    additionalProperties: true,
+                  }),
+                },
+                responses: {
+                  "204": { description: "The notification was processed." },
+                  "400": response(
+                    "invalid_notification_request for a malformed request, invalid_notification_id for an unknown id or one of another issuer or issuance session.",
+                    {
+                      type: "object",
+                      required: ["error"],
+                      properties: {
+                        error: {
+                          type: "string",
+                          enum: ["invalid_notification_request", "invalid_notification_id"],
+                        },
+                      },
+                    },
+                  ),
+                  "401": {
+                    description:
+                      "Missing, invalid, or expired access token, or missing or invalid DPoP proof; the WWW-Authenticate header carries the RFC 6750 challenge.",
+                  },
+                  "404": errorResponses["404"],
+                },
+              },
+            },
+          }
+        : {}),
     },
     components: {
       schemas: {
@@ -1411,6 +1479,51 @@ export function openApiDocument(config: AppConfig): JsonRecord {
               const: "wallet",
               description:
                 "Present only for a session the Wallet started itself with a Pushed Authorization Request naming a scope and no issuer_state. No Credential Offer exists for it, so its offer and deeplink endpoints answer credential_offer_not_ready, and credential_offer_mode carries the default.",
+            },
+            notifications: {
+              type: "array",
+              description:
+                "Each notification_id delivered in a Credential Response, with the Wallet's Notification Requests for it. Present once one was delivered. A report is what the Wallet said, not proof a Credential is stored.",
+              items: {
+                type: "object",
+                required: [
+                  "notification_id",
+                  "issued_at",
+                  "credential_configuration_id",
+                  "credential_count",
+                  "received",
+                ],
+                properties: {
+                  notification_id: { type: "string" },
+                  issued_at: { type: "string", format: "date-time" },
+                  credential_configuration_id: { type: "string" },
+                  credential_count: { type: "integer", minimum: 1 },
+                  received: {
+                    type: "array",
+                    description:
+                      "Distinct reports in arrival order; an identical repeat only updates last_received_at and received_count.",
+                    items: {
+                      type: "object",
+                      required: [
+                        "event",
+                        "first_received_at",
+                        "last_received_at",
+                        "received_count",
+                      ],
+                      properties: {
+                        event: {
+                          type: "string",
+                          enum: ["credential_accepted", "credential_failure", "credential_deleted"],
+                        },
+                        event_description: { type: "string" },
+                        first_received_at: { type: "string", format: "date-time" },
+                        last_received_at: { type: "string", format: "date-time" },
+                        received_count: { type: "integer", minimum: 1 },
+                      },
+                    },
+                  },
+                },
+              },
             },
             observed: {
               type: "object",

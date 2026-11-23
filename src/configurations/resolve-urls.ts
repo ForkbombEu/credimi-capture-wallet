@@ -27,6 +27,7 @@ export function resolveIssuerConfiguration(
       credentialOffer: `${issuerIdentifier}/offers`,
       jwks: `${issuerIdentifier}/jwks.json`,
       nonce: `${issuerIdentifier}/nonce`,
+      notification: `${issuerIdentifier}/notification`,
       par: `${issuerIdentifier}/par`,
       redirect: `${issuerIdentifier}/redirect`,
       token: `${issuerIdentifier}/token`,

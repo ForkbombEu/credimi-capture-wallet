@@ -11,9 +11,11 @@ import type { VpDeliveredRequestRecipe } from "./openid4vp.js";
 import type {
   AppConfig,
   CaptureEvent,
+  CredentialNotificationEvent,
   CredentialOfferMode,
   CredoIssuanceOffer,
   EvidenceMode,
+  IssuedCredentialNotification,
   JsonRecord,
   Oid4vciHttpRequestCapture,
   OpenId4VpResponseMode,
@@ -43,6 +45,11 @@ export class CaptureStore {
   readonly captureSessionIdsByCredoSession = new Map<string, string>();
   readonly captureSessionIdsByCredentialOffer = new Map<string, string>();
   readonly credoIssuanceOffers = new Map<string, CredoIssuanceOffer>();
+  /**
+   * Every delivered `notification_id`, with the issuer and issuance sessions it belongs to. Kept
+   * as long as its capture session, and released with it by `discardSession`.
+   */
+  readonly credentialNotifications = new Map<string, IssuedCredentialNotification>();
   /**
    * The `full` form of each ledger capture. It is kept apart from the ledger, which only ever
    * holds the redacted form, and is exposed only through a session created with
@@ -229,6 +236,76 @@ export class CaptureStore {
       const fullCapture = this.fullOid4vciRequests.get(capture);
       if (fullCapture) fullCapture.session_id = null;
     }
+    for (const [notificationId, notification] of this.credentialNotifications) {
+      if (notification.capture_session_id === sessionId) {
+        this.credentialNotifications.delete(notificationId);
+      }
+    }
+  }
+
+  /**
+   * Records a `notification_id` once the successful Credential Response carrying it was sent, so
+   * a Notification Request can be accepted for it (OpenID4VCI 1.0 Sections 8.3 and 11).
+   */
+  registerCredentialNotification(notification: IssuedCredentialNotification): void {
+    const session = this.sessions.get(notification.capture_session_id);
+    if (!session) return;
+    this.credentialNotifications.set(notification.notification_id, notification);
+    session.notifications ??= [];
+    session.notifications.push({
+      notification_id: notification.notification_id,
+      issued_at: new Date().toISOString(),
+      credential_configuration_id: notification.credential_configuration_id,
+      credential_count: notification.credential_count,
+      received: [],
+    });
+    this.addEvent(session, "notification_issued", {
+      notification_id: notification.notification_id,
+      credential_configuration_id: notification.credential_configuration_id,
+      credential_count: notification.credential_count,
+    });
+  }
+
+  /**
+   * Records an accepted Notification Request. Notifications are idempotent (OpenID4VCI 1.0
+   * Section 11): a repeat of an already received `event` and `event_description` only counts
+   * toward its entry, and adds no event. A distinct one is appended, never replacing history.
+   */
+  recordCredentialNotification(
+    notification: IssuedCredentialNotification,
+    request: { event: CredentialNotificationEvent; event_description?: string },
+  ): void {
+    const session = this.sessions.get(notification.capture_session_id);
+    const capture = session?.notifications?.find(
+      (candidate) => candidate.notification_id === notification.notification_id,
+    );
+    if (!session || !capture) return;
+    const now = new Date().toISOString();
+    const repeated = capture.received.find(
+      (receipt) =>
+        receipt.event === request.event && receipt.event_description === request.event_description,
+    );
+    if (repeated) {
+      repeated.last_received_at = now;
+      repeated.received_count += 1;
+      return;
+    }
+    capture.received.push({
+      event: request.event,
+      ...(request.event_description !== undefined
+        ? { event_description: request.event_description }
+        : {}),
+      first_received_at: now,
+      last_received_at: now,
+      received_count: 1,
+    });
+    this.addEvent(session, "notification_received", {
+      notification_id: notification.notification_id,
+      event: request.event,
+      ...(request.event_description !== undefined
+        ? { event_description: request.event_description }
+        : {}),
+    });
   }
 
   createVpSession(

@@ -110,7 +110,7 @@ An issued credential with no `status` claim at all is `status_list_enabled: fals
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `GET` | `/sessions/{sessionId}` | Full current issuance capture, including status, observed information, checks, and events. |
+| `GET` | `/sessions/{sessionId}` | Full current issuance capture, including status, observed information, checks, events, and, once a `notification_id` was delivered, `notifications`. |
 | `GET` | `/sessions/{sessionId}/offer` | Credential Offer object. Returns `409` while no offer is available. |
 | `GET` | `/sessions/{sessionId}/deeplink` | `{ deeplink, credential_offer }`; records a deeplink-generation event. |
 | `GET` | `/sessions/{sessionId}/jwks` | Verified wallet holder-binding JWKS. Returns `409` until a holder key has been observed. |
@@ -162,7 +162,8 @@ revalidates with `If-None-Match`.
 | `GET` | `/issuers/{issuerConfigurationId}/redirect` | Chained OAuth callback parameters | Redirects back to the wallet with the issuer authorization code. |
 | `POST` | `/issuers/{issuerConfigurationId}/token` | DPoP header plus either pre-authorized-code or authorization-code form grant | DPoP-bound access token, expiry, credential nonce, and nonce expiry. |
 | `POST` | `/issuers/{issuerConfigurationId}/nonce` | No body | Fresh `c_nonce`. |
-| `POST` | `/issuers/{issuerConfigurationId}/credential` | `Authorization: DPoP …`, DPoP header, and a Credential Request | Credential response containing `credentials[].credential`. |
+| `POST` | `/issuers/{issuerConfigurationId}/credential` | `Authorization: DPoP …`, DPoP header, and a Credential Request | Credential response containing `credentials[].credential`, plus `notification_id` when notifications are enabled. |
+| `POST` | `/issuers/{issuerConfigurationId}/notification` | Only with `OID4VCI_NOTIFICATIONS_ENABLED=true`. `Authorization: DPoP …`, DPoP header, and an `application/json` Notification Request | `204`; see [Notification Endpoint](#notification-endpoint). |
 
 The token endpoint accepts either:
 
@@ -174,6 +175,58 @@ The credential request normally uses `application/json` with `credential_configu
 Credo enforces the wallet's PKCE: a PAR request without `code_challenge` gets `400 invalid_request`, and a token request whose `code_verifier` does not match gets `400 invalid_grant`. A Credential Request without a valid DPoP-bound access token gets `401`. Time claims of Wallet Attestations, Client Attestation PoPs, and DPoP proofs are checked with a 60-second clock skew.
 
 A PAR without `issuer_state` starts wallet-initiated issuance (OpenID4VCI 1.0 Sections 3.4 and 5.1.2), through Credo-TS's `getDynamicIssuanceSession` callback. Its `scope` must match exactly one Credential Configuration the issuer currently serves: none gets `400 invalid_scope`, several, through several scopes or a shared scope, get `400 access_denied`. An accepted request creates an `authorization_code` capture session with `initiated_by: "wallet"`, the default claim values, and no Credential Offer, so its `/offer` and `/deeplink` endpoints answer `409 credential_offer_not_ready` and `credential_offer_mode` carries the default. The session is announced by a `wallet_initiated_issuance_requested` event with `requested_scopes` and `credential_configuration_id`, and its id is the `session_id` of the PAR in `GET /oid4vci/requests`. Authorization then continues through the same chained authorization server, PKCE, DPoP, token, and Credential endpoints as an offered session. If Credo-TS refuses the PAR after the callback accepted it, such as for a missing `code_challenge` or DPoP proof, the capture session is discarded and the PAR stays in the ledger with `session_id: null`.
+
+### Notification Endpoint
+
+With `OID4VCI_NOTIFICATIONS_ENABLED=true` (default `false`), every enabled issuer implements the
+OpenID4VCI 1.0 Notification Endpoint (Section 11). Its Credential Issuer metadata, unsigned,
+signed, and in its OpenID Federation Entity Configuration, carries
+`"notification_endpoint": "{issuer identifier}/notification"`; the Authorization Server metadata
+does not. Every successful Credential Response carries one `notification_id`, a random 256-bit
+base64url string covering all of its `credentials`, before any response encryption; error
+responses never do. The id is registered once that response was sent with a `2xx` status, so a
+response that failed in encryption or was turned into an error by an `issuance_response_scenario`
+leaves no usable id. A scenario editing a successful response may remove the delivered id; the
+generated one stays registered and appears in the scenario's `original` evidence.
+
+Request body (`application/json`; anything else is `invalid_notification_request`):
+
+| Parameter | Rule |
+| --- | --- |
+| `notification_id` | Required non-empty string from a Credential Response. |
+| `event` | Required, exactly `credential_accepted`, `credential_failure`, or `credential_deleted`. |
+| `event_description` | Optional string of `%x20-21 / %x23-5B / %x5D-7E` characters only. |
+| anything else | Ignored. |
+
+The access token and DPoP proof are verified by Credo-TS's resource server as at the Credential
+endpoint (signature, issuer, audience, expiry; proof key binding, `htm`, `htu` against the public
+Notification Endpoint URL, `ath`), and a DPoP proof is required. The id must have been delivered by
+the same issuer to the issuance session the access token is bound to (the Credo-TS session
+`authorization.subject` equals the token `sub`, and the token's pre-authorized code or
+`issuer_state`, when present, is that session's).
+
+| Outcome | Response |
+| --- | --- |
+| Processed, including an identical repeat | `204`, no body, `Cache-Control: no-store` |
+| No, invalid, or expired access token; missing or invalid DPoP proof | `401`, no body, RFC 6750 `WWW-Authenticate` challenge such as `DPoP error="invalid_dpop_proof", error_description="…"` |
+| Malformed request | `400 {"error":"invalid_notification_request"}` |
+| Unknown id, or another issuer's or issuance session's id | `400 {"error":"invalid_notification_id"}` |
+| Unknown or disabled issuer | `404 {"error":"issuer_not_found"}` |
+
+Authentication is checked first, so an unauthenticated malformed request gets `401`.
+
+Evidence: `notifications[]` in the issuance capture lists each delivered id with `notification_id`,
+`issued_at`, `credential_configuration_id`, `credential_count`, and `received[]` entries
+`{event, event_description?, first_received_at, last_received_at, received_count}`. An identical
+repeat (same `event` and `event_description`) only updates `last_received_at` and
+`received_count`; a different report is appended. The events `notification_issued`
+(`notification_id`, `credential_configuration_id`, `credential_count`) and `notification_received`
+(`notification_id`, `event`, optional `event_description`) are in `/sessions/{sessionId}/events`,
+and the Notification Requests in `raw.oid4vci_requests`, redacted as other requests. The
+`notification_id` is recorded in both evidence modes: it authenticates nothing without the access
+token and DPoP key. Ids live as long as their in-memory session; a token stops verifying when it
+expires. A report is the Wallet's statement, not proof a Credential is stored, a missing report is
+not a failure, and no report changes issuance or credential status.
 
 ### FCAF ws_ap evidence
 

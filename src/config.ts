@@ -30,6 +30,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   issuer_base_url: "http://localhost:8080",
   public_base_url: "http://localhost:8080",
   fcaf_scenarios_enabled: false,
+  oid4vci_notifications_enabled: false,
   listen_addr: ":8080",
   data_dir: "./data",
   credential_configuration_id: "urn:eu.europa.ec.eudi:pid:1",
@@ -53,6 +54,7 @@ export const PORT_ENV_VAR = "PORT";
 export const GUI_ENABLED_ENV_VAR = "GUI_ENABLED";
 export const PUBLIC_BASE_URL_ENV_VAR = "PUBLIC_BASE_URL";
 export const FCAF_SCENARIOS_ENABLED_ENV_VAR = "FCAF_SCENARIOS_ENABLED";
+export const OID4VCI_NOTIFICATIONS_ENABLED_ENV_VAR = "OID4VCI_NOTIFICATIONS_ENABLED";
 export const STATUS_LIST_BASE_URL_ENV_VAR = "STATUS_LIST_BASE_URL";
 export const STATUS_LIST_API_KEY_ENV_VAR = "STATUS_LIST_API_KEY";
 export const FEDERATION_ENABLED_ENV_VAR = "FEDERATION_ENABLED";
@@ -168,6 +170,14 @@ export function resolveFcafScenariosEnabled(env: NodeJS.ProcessEnv = process.env
     env,
     FCAF_SCENARIOS_ENABLED_ENV_VAR,
     DEFAULT_CONFIG.fcaf_scenarios_enabled,
+  );
+}
+
+export function resolveOid4vciNotificationsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return resolveBooleanEnv(
+    env,
+    OID4VCI_NOTIFICATIONS_ENABLED_ENV_VAR,
+    DEFAULT_CONFIG.oid4vci_notifications_enabled,
   );
 }
 
@@ -406,6 +416,7 @@ export function loadConfig(
     data_dir: fileConfig.data_dir ?? dataDir,
     gui_enabled: resolveGuiEnabled(env),
     fcaf_scenarios_enabled: resolveFcafScenariosEnabled(env),
+    oid4vci_notifications_enabled: resolveOid4vciNotificationsEnabled(env),
     status_list_base_url:
       env[STATUS_LIST_BASE_URL_ENV_VAR]?.trim() ||
       fileConfig.status_list_base_url ||

@@ -49,6 +49,8 @@ export interface ResolvedIssuerEndpoints {
   readonly credentialOffer: string;
   readonly jwks: string;
   readonly nonce: string;
+  /** OpenID4VCI 1.0 Section 11; advertised only when notifications are enabled. */
+  readonly notification: string;
   readonly par: string;
   readonly redirect: string;
   readonly token: string;

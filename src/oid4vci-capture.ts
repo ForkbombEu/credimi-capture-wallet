@@ -67,8 +67,8 @@ const FULL_EVIDENCE_SENSITIVE_VALUES = new Set([
   "tx_code",
 ]);
 
-/** Requests whose exact body `full` evidence keeps: PAR, token, and Credential Requests. */
-const RAW_BODY_PATH = /^\/issuers\/[^/]+\/(?:par|token|credential)$/;
+/** Requests whose exact body `full` evidence keeps: PAR, token, Credential, and Notification Requests. */
+const RAW_BODY_PATH = /^\/issuers\/[^/]+\/(?:par|token|credential|notification)$/;
 
 export function isOid4vciProtocolPath(path: string): boolean {
   return (
@@ -76,7 +76,7 @@ export function isOid4vciProtocolPath(path: string): boolean {
       path,
     ) ||
     /^\/\.well-known\/oauth-authorization-server\/authorization-servers\/[^/]+$/.test(path) ||
-    /^\/issuers\/[^/]+\/(?:credential-jwks\.json|jwks\.json|par|authorize|challenge|redirect|token|nonce|credential|deferred-credential)$/.test(
+    /^\/issuers\/[^/]+\/(?:credential-jwks\.json|jwks\.json|par|authorize|challenge|redirect|token|nonce|credential|deferred-credential|notification)$/.test(
       path,
     ) ||
     /^\/issuers\/[^/]+\/offers\/[^/]+$/.test(path) ||

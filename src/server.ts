@@ -265,6 +265,12 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
   app.use((error: Error, req: Request, res: Response, next: NextFunction) => {
     if (!isOid4vciProtocolPath(req.path)) return next(error);
     req.body = undefined;
+    // A Notification Request whose body is not JSON still reaches the Notification Endpoint, with
+    // no body and captured below like any other request, so its access token is checked before it
+    // is answered `invalid_notification_request` (OpenID4VCI 1.0 Section 11.3).
+    if (config.oid4vci_notifications_enabled && /^\/issuers\/[^/]+\/notification$/.test(req.path)) {
+      return next();
+    }
     captureOid4vciRequest(req, res).then(() => next(error), next);
   });
   app.use(async (req, res, next) => {
@@ -1670,6 +1676,28 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     }
   });
 
+  if (config.oid4vci_notifications_enabled) {
+    app.post("/issuers/:issuerConfigurationId/notification", async (req, res, next) => {
+      const issuer = resolvedIssuerConfigurationById(config, req.params.issuerConfigurationId);
+      if (!issuer) return res.status(404).json({ error: "issuer_not_found" });
+      try {
+        const outcome = await (await credoOpenId4VciIssuer(config, store)).receiveNotification(
+          issuer,
+          req,
+          oid4vciCaptures.get(req) ?? null,
+        );
+        res.set("Cache-Control", "no-store");
+        if (outcome.status === 401) {
+          return res.set("WWW-Authenticate", outcome.wwwAuthenticate).status(401).end();
+        }
+        if (outcome.status === 400) return res.status(400).json({ error: outcome.error });
+        return res.status(204).end();
+      } catch (error) {
+        return next(error);
+      }
+    });
+  }
+
   app.use(async (req, res, next) => {
     if (!isCredoIssuerEndpoint(req.path)) return next();
     if (req.path.endsWith("/par")) applyIssuanceResponseScenario(req, res, "par");
@@ -1744,7 +1772,7 @@ function isCredoIssuerEndpoint(path: string): boolean {
 
 /** Issuer endpoints whose requests carry something Credo-TS can map back to an issuance session. */
 function isCredoSessionEndpoint(path: string): boolean {
-  return /^\/issuers\/[^/]+\/(?:par|authorize|redirect|token|credential|deferred-credential)$/.test(
+  return /^\/issuers\/[^/]+\/(?:par|authorize|redirect|token|credential|deferred-credential|notification)$/.test(
     path,
   );
 }

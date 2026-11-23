@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import {
   Agent,
@@ -45,7 +45,6 @@ import {
   sdJwtCredentialSignOptions,
 } from "./credential.js";
 import { InMemoryStorageModule, NodeKmsBackend, nodeAgentDependencies } from "./credo-openid4vp.js";
-import { EudiKeyAttestationIssuerService } from "./eudi-key-attestation.js";
 import { fakeOAuthServer } from "./fake-oauth-server.js";
 import { applyMdocStatusReferenceFixture } from "./malformed-mdoc-status.js";
 import {
@@ -54,6 +53,7 @@ import {
   credentialIssuerMetadata,
   isDomesticPidCredential,
 } from "./metadata.js";
+import { NotifyingIssuerService, parseNotificationRequest } from "./oid4vci-notification.js";
 import { captureProofHeaders, decodeDpopHeader, decodeJwtForEvidence } from "./proofs.js";
 import { applyRequestMutationEdits } from "./request-mutation.js";
 import { type CaptureStore, asStringOrNull } from "./state.js";
@@ -62,6 +62,7 @@ import type {
   AppConfig,
   CredentialOfferMode,
   CredentialOfferScheme,
+  IssuedCredentialNotification,
   JsonRecord,
   Oid4vciHttpRequestCapture,
   SessionCapture,
@@ -96,7 +97,18 @@ type RequestContext = {
   };
   /** The sessions created for this request's wallet-initiated Pushed Authorization Request. */
   walletInitiated?: { captureSessionId: string; credoSessionId: string };
+  /** The `notification_id` this request's Credential Response carries, registered once sent. */
+  issuedNotification?: IssuedCredentialNotification;
 };
+
+/**
+ * The answer to a Notification Request (OpenID4VCI 1.0 Section 11): 204 once processed, 400 with
+ * a Section 11.3 error code, or 401 with an RFC 6750 Section 3 `WWW-Authenticate` challenge.
+ */
+export type NotificationOutcome =
+  | { status: 204 }
+  | { status: 400; error: "invalid_notification_request" | "invalid_notification_id" }
+  | { status: 401; wwwAuthenticate: string };
 
 export interface CredoCredentialOffer {
   credentialOffer: string;
@@ -208,13 +220,11 @@ export class CredoOpenId4VciIssuer {
     });
 
     const runtime = new CredoOpenId4VciIssuer(config, store, agent, internalApp);
-    agent.dependencyManager.registerSingleton(
-      OpenId4VcIssuerService,
-      EudiKeyAttestationIssuerService,
-    );
+    agent.dependencyManager.registerSingleton(OpenId4VcIssuerService, NotifyingIssuerService);
     runtimeRef.current = runtime;
     await agent.initialize();
     runtime.installMdocStatusFixtureSigner();
+    runtime.installCredentialResponseNotifier();
     // The last-known-good imported catalogue is restored before the issuer records exist, so they
     // start with it, and without contacting Attestbook.
     const integration = config.attestbook.enabled ? attestbookIntegration(config, store) : null;
@@ -336,6 +346,9 @@ export class CredoOpenId4VciIssuer {
       credentialIssuer as JsonRecord;
     return {
       ...supportedMetadata,
+      ...(this.config.oid4vci_notifications_enabled
+        ? { notification_endpoint: issuer.endpoints.notification }
+        : {}),
       credential_request_encryption: encryptionMetadata.credential_request_encryption,
       credential_response_encryption: encryptionMetadata.credential_response_encryption,
     };
@@ -377,7 +390,114 @@ export class CredoOpenId4VciIssuer {
       if (!context.walletInitiated) return;
       void this.settleWalletInitiatedSession(context.walletInitiated).catch(() => undefined);
     });
+    // A `notification_id` is usable only once the successful Credential Response carrying it was
+    // sent. A response that failed after Credo built it, in encryption or by an FCAF scenario's
+    // error status, leaves no id the Wallet could present.
+    res.once("finish", () => {
+      const notification = context.issuedNotification;
+      if (!notification || res.statusCode < 200 || res.statusCode >= 300) return;
+      this.store.registerCredentialNotification(notification);
+    });
     this.requestContext.run(context, () => this.app(req, res, next));
+  }
+
+  /**
+   * Processes a Notification Request (OpenID4VCI 1.0 Section 11). The access token and its DPoP
+   * proof are verified by Credo-TS's own resource server, exactly as Credo's Credential endpoint
+   * verifies them: signature, issuer, audience, expiry, and the DPoP proof's key binding, method,
+   * public target URI, and access token hash. The issuer requires DPoP, so a request without a
+   * verified proof is refused. The `notification_id` must then have been delivered by this issuer
+   * in a Credential Response of the issuance session this access token is bound to.
+   */
+  async receiveNotification(
+    issuer: ResolvedIssuerConfiguration,
+    req: Request,
+    capture: Oid4vciHttpRequestCapture | null,
+  ): Promise<NotificationOutcome> {
+    const service = this.agent.dependencyManager.resolve(OpenId4VcIssuerService);
+    const issuerRecord = await this.issuerApi().getIssuerByIssuerId(issuer.id);
+    const issuerMetadata = await service.getIssuerMetadata(this.agent.context, issuerRecord, true);
+    const verified = await service
+      .getResourceServer(this.agent.context, issuerRecord, issuerMetadata)
+      .verifyResourceRequest({
+        authorizationServers: issuerMetadata.authorizationServers,
+        resourceServer: issuerMetadata.credentialIssuer.credential_issuer,
+        request: {
+          headers: requestHeaders(req),
+          // Only `POST /issuers/{id}/notification` is routed here; the proof's `htm` must match it.
+          method: "POST",
+          url: issuer.endpoints.notification,
+        },
+      })
+      .catch((error: unknown) => {
+        const challenge = wwwAuthenticateChallenge(error);
+        if (challenge === null) throw error;
+        return challenge;
+      });
+    if (typeof verified === "string") return { status: 401, wwwAuthenticate: verified };
+    if (!verified.dpop) {
+      return {
+        status: 401,
+        wwwAuthenticate:
+          'DPoP error="invalid_dpop_proof", error_description="Missing required DPoP proof"',
+      };
+    }
+
+    // Section 11.1 requires the `application/json` media type; anything else is malformed.
+    const request = parseNotificationRequest(req.is("application/json") ? req.body : undefined);
+    if (!request) return { status: 400, error: "invalid_notification_request" };
+    const notification = this.store.credentialNotifications.get(request.notification_id);
+    if (!notification || notification.issuer_configuration_id !== issuer.id) {
+      return { status: 400, error: "invalid_notification_id" };
+    }
+    const issuanceSession = await this.agent.dependencyManager
+      .resolve(OpenId4VcIssuanceSessionRepository)
+      .findById(this.agent.context, notification.credo_issuance_session_id);
+    if (
+      !issuanceSession ||
+      issuanceSession.issuerId !== issuer.id ||
+      !issuanceSessionAuthorizes(issuanceSession, verified.tokenPayload)
+    ) {
+      return { status: 400, error: "invalid_notification_id" };
+    }
+    if (capture) this.store.linkOid4vciRequestToSession(capture, notification.capture_session_id);
+    this.store.recordCredentialNotification(notification, request);
+    return { status: 204 };
+  }
+
+  private installCredentialResponseNotifier(): void {
+    const service = this.agent.dependencyManager.resolve(OpenId4VcIssuerService);
+    if (!(service instanceof NotifyingIssuerService)) {
+      throw new Error("Credo OpenID4VCI issuer service does not support notifications");
+    }
+    service.notifier = (issuanceSession, credentialCount) =>
+      this.credentialResponseNotificationId(issuanceSession, credentialCount);
+  }
+
+  /**
+   * A fresh, unguessable `notification_id` for the Credential Response the current request is
+   * about to receive, held in the request context until that response is sent.
+   */
+  private credentialResponseNotificationId(
+    issuanceSession: OpenId4VcIssuanceSessionRecord,
+    credentialCount: number,
+  ): string | undefined {
+    if (!this.config.oid4vci_notifications_enabled) return undefined;
+    const context = this.requestContext.getStore();
+    const captureSessionId = captureSessionIdFromCredo(issuanceSession);
+    // Credo records the configuration it just issued before returning the response.
+    const credentialConfigurationId = issuanceSession.issuedCredentials.at(-1);
+    if (!context || !captureSessionId || !credentialConfigurationId) return undefined;
+    const notificationId = randomBytes(32).toString("base64url");
+    context.issuedNotification = {
+      notification_id: notificationId,
+      issuer_configuration_id: issuanceSession.issuerId,
+      capture_session_id: captureSessionId,
+      credo_issuance_session_id: issuanceSession.id,
+      credential_configuration_id: credentialConfigurationId,
+      credential_count: credentialCount,
+    };
+    return notificationId;
   }
 
   /**
@@ -837,6 +957,7 @@ function issuanceSessionQuery(endpoint: string, req: Request): IssuanceSessionQu
     }
     case "credential":
     case "deferred-credential":
+    case "notification":
       return accessTokenSessionQuery(req.header("authorization"));
     default:
       return null;
@@ -852,6 +973,62 @@ function accessTokenSessionQuery(authorization: string | undefined): IssuanceSes
   if (preAuthorizedCode) return { preAuthorizedCode };
   const issuerState = asStringOrNull(payload?.issuer_state);
   return issuerState ? { issuerState } : null;
+}
+
+/** The request headers as a Fetch `Headers`, the form Credo-TS's resource server reads. */
+function requestHeaders(req: Request): Headers {
+  const headers = new Headers();
+  for (const [name, value] of Object.entries(req.headers)) {
+    if (typeof value === "string") headers.append(name, value);
+    else for (const item of value ?? []) headers.append(name, item);
+  }
+  return headers;
+}
+
+/**
+ * The RFC 6750 Section 3 challenge of an access token or DPoP proof Credo-TS's resource server
+ * refused, or null for any other error. The pinned `@openid4vc/oauth2` error class is not a
+ * dependency of this package, so the error is recognized by the challenges it carries. They are
+ * encoded here rather than with the error's own encoder, which keeps line breaks of Credo's error
+ * descriptions that no HTTP header may contain: every value is limited to the characters RFC 6750
+ * Section 3 allows in `error_description`.
+ */
+function wwwAuthenticateChallenge(error: unknown): string | null {
+  if (!(error instanceof Error) || !("wwwAuthenticateHeaders" in error)) return null;
+  const challenges = error.wwwAuthenticateHeaders;
+  if (!Array.isArray(challenges)) return null;
+  const encoded = challenges.flatMap((challenge: unknown) => {
+    if (!isRecord(challenge) || typeof challenge.scheme !== "string") return [];
+    const parameters = (["error", "error_description", "scope"] as const).flatMap((name) => {
+      const value = challenge[name];
+      if (typeof value !== "string") return [];
+      return [`${name}="${value.replace(/[^\x20\x21\x23-\x5B\x5D-\x7E]/g, " ")}"`];
+    });
+    return [
+      parameters.length > 0 ? `${challenge.scheme} ${parameters.join(", ")}` : challenge.scheme,
+    ];
+  });
+  return encoded.length > 0 ? encoded.join(", ") : null;
+}
+
+/**
+ * Whether a verified access token belongs to the issuance session that received a Credential
+ * Response. Credo-TS binds the session to the `sub` of the access token used at its Credential
+ * endpoint, and the token's grant, when it names one, must be this session's grant too.
+ */
+function issuanceSessionAuthorizes(
+  issuanceSession: OpenId4VcIssuanceSessionRecord,
+  tokenPayload: { sub?: string; [claim: string]: unknown },
+): boolean {
+  if (!tokenPayload.sub || issuanceSession.authorization?.subject !== tokenPayload.sub) {
+    return false;
+  }
+  const preAuthorizedCode = asStringOrNull(tokenPayload["pre-authorized_code"]);
+  if (preAuthorizedCode !== null && preAuthorizedCode !== issuanceSession.preAuthorizedCode) {
+    return false;
+  }
+  const issuerState = asStringOrNull(tokenPayload.issuer_state);
+  return issuerState === null || issuerState === issuanceSession.authorization?.issuerState;
 }
 
 function captureStatus(state: OpenId4VcIssuanceSessionState): string {

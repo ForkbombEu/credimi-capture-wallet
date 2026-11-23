@@ -515,6 +515,71 @@ for example for a missing `code_challenge` or DPoP proof, the session is discard
 request stays in the ledger unattributed. An imported Attestbook credential is pinned to
 the active definition with generated values, as for an offer.
 
+#### Wallet notifications
+
+With `OID4VCI_NOTIFICATIONS_ENABLED=true`, every enabled Credential Issuer supports the
+OpenID4VCI 1.0 Notification Endpoint (Section 11). Its metadata advertises its own
+`notification_endpoint`, `{issuer identifier}/notification`, for example
+`https://capture-wallet.credimi.io/issuers/eu-pid-device-bound/notification`; the unsigned,
+signed, and OpenID Federation issuer metadata all carry it, and the Authorization Server metadata
+does not. Off by default, there is no endpoint, metadata entry, or `notification_id`.
+
+Every successful Credential Response then carries one `notification_id` covering all of its
+`credentials`, a fresh random 256-bit base64url value. It is added before an encrypted response
+is encrypted, so an encrypted response carries it too, and never to an error response. The id
+becomes usable only once the successful response is sent: a response that fails afterwards, in
+encryption or through an `issuance_response_scenario` with an error status, registers none. A
+scenario that edits a successful response can remove or replace the delivered id; the id Credo
+generated stays registered and is shown in the scenario's `original` evidence. Deferred issuance is
+not offered, so no Deferred Credential Response carries one.
+
+The Wallet reports what happened to those Credentials with `POST
+/issuers/{issuerConfigurationId}/notification`, `application/json`, the access token it used at the
+Credential endpoint, and a DPoP proof for the Notification Endpoint:
+
+```sh
+# ACCESS_TOKEN: the DPoP-bound token from /token. DPOP_PROOF: a DPoP proof signed by the same key,
+# with htm "POST", htu "$ISSUER/notification", and ath the base64url SHA-256 of ACCESS_TOKEN, as
+# dpopProof() in tests/notification.test.ts builds it.
+ISSUER=https://capture-wallet.credimi.io/issuers/eu-pid-device-bound
+curl -i -X POST "$ISSUER/notification" \
+  -H "Authorization: DPoP $ACCESS_TOKEN" \
+  -H "DPoP: $DPOP_PROOF" \
+  -H "Content-Type: application/json" \
+  -d '{"notification_id":"<notification_id from the Credential Response>","event":"credential_accepted"}'
+```
+
+`event` is exactly one of `credential_accepted` (the Credentials were stored, with or without user
+action), `credential_deleted` (issuance failed because of a user action), or `credential_failure`
+(any other failure, including a batch only partly stored). An optional `event_description` may
+use only the characters `%x20-21 / %x23-5B / %x5D-7E`. Unknown parameters are ignored.
+
+The access token and DPoP proof are verified by Credo-TS's resource server exactly as at the
+Credential endpoint: token signature, issuer, audience and expiry, and the proof's key binding,
+method, target URI, and access token hash. A proof is required. The `notification_id` must have
+been delivered by the same issuer to the issuance session the token belongs to.
+
+| Outcome | Response |
+| --- | --- |
+| Processed, including an identical repeat | `204 No Content` |
+| Missing, invalid, or expired access token; missing or invalid DPoP proof | `401` with an RFC 6750 `WWW-Authenticate` challenge |
+| Body not JSON, a required parameter missing or invalid | `400 {"error":"invalid_notification_request"}` |
+| Unknown id, or one of another issuer or issuance session | `400 {"error":"invalid_notification_id"}` |
+| Unknown or disabled issuer | `404 issuer_not_found` |
+
+Accepted notifications appear in the issuance session: `notifications[]` holds each delivered id
+with `credential_configuration_id`, `credential_count`, and its `received` reports, and the events
+`notification_issued` and `notification_received` are in `GET /sessions/{sessionId}/events`. An
+identical repeat (same `event` and `event_description`) only increments `received_count` and
+`last_received_at`; a different report is appended, so history is never overwritten. The
+requests themselves are in the session's `raw.oid4vci_requests` under the usual redaction. The
+session page shows the reports as `wallet_notification`. Ids are kept with their in-memory
+session, and a token only verifies until it expires, after `access_token_ttl_seconds`.
+
+A report is what the Wallet said, not proof of where a Credential is: `credential_accepted` does not
+show it is still stored, and the absence of a notification is not a failure, since Wallets need
+not send one. Notifications only record evidence; they never revoke, retry, or change anything.
+
 ### 🛂 OpenID4VP Presentation Flow
 
 > [!IMPORTANT]
@@ -1089,6 +1154,10 @@ From env file `.env`, that is loaded automatically when present, you can set:
   `response_scenario_not_enabled`, `status_reference_not_enabled`, `evidence_mode_not_enabled`,
   `issuance_response_scenario_not_enabled`, `offer_mutation_not_enabled`, or
   `status_update_not_enabled`.
+- `OID4VCI_NOTIFICATIONS_ENABLED`: enables the OpenID4VCI 1.0 Notification Endpoint on every
+  enabled Credential Issuer: `notification_endpoint` in its metadata, a `notification_id` in each
+  successful Credential Response, and `POST /issuers/{issuerConfigurationId}/notification`. See
+  [Wallet notifications](#wallet-notifications). Defaults to `false`.
 - `FEDERATION_ENABLED`: enables OpenID Federation 1.0 Entity Configurations for enabled Credential
   Issuers. Defaults to `false`.
 - `FEDERATION_AUTHORITY_HINTS`: required non-empty JSON array of HTTPS Trust Anchor Entity
@@ -1232,6 +1301,14 @@ selection are not supported for it, since no session-creation call carries those
 **Wallet refusal versus End-User cancellation.** The browser reports both as a `DOMException`
 with deliberately sparse detail, so the `rejected` invocation outcome records what the browser
 said without asserting which occurred. Deciding between them is an operator judgement.
+
+**Notification Requests with a repeated parameter.** A JSON body that names `notification_id`,
+`event`, or `event_description` twice is parsed with the last value winning, as Express's JSON
+parser does, rather than refused with `invalid_notification_request` as OpenID4VCI 1.0
+Section 11.3 lists. Detecting it would need a separate duplicate-aware JSON parser. The raw body is
+kept in `full` evidence, so a consumer can still see the repetition. DPoP proofs at the Notification
+Endpoint, like at Credo-TS's Credential endpoint, are not checked for `jti` replay or a server
+`nonce`.
 
 ---
 
