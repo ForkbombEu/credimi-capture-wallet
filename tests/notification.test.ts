@@ -263,7 +263,10 @@ describe("notification endpoint metadata", () => {
         .get(`/issuers/${issuer.id}/.well-known/openid-federation`)
         .expect(200);
       const entityMetadata = decodeJwt(entity.text).metadata as Record<string, JsonRecord>;
-      expect(entityMetadata.openid_credential_issuer).toEqual(metadata.body);
+      // The federated issuer metadata adds only its signing `jwks` to the ordinary metadata.
+      const { jwks, ...federatedIssuerMetadata } = entityMetadata.openid_credential_issuer ?? {};
+      expect(jwks).toBeDefined();
+      expect(federatedIssuerMetadata).toEqual(metadata.body);
       expect(entityMetadata.oauth_authorization_server).not.toHaveProperty("notification_endpoint");
       const authorizationServer = await request(app)
         .get(`/.well-known/oauth-authorization-server/issuers/${issuer.id}`)

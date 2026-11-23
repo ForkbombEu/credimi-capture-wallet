@@ -35,7 +35,7 @@ For each `{issuerConfigurationId}`:
 | `GET` | `/.well-known/jwt-vc-issuer/issuers/{issuerConfigurationId}` | JWT VC issuer metadata. |
 | `GET` | `/issuers/{issuerConfigurationId}/jwks.json` | Authorization-server signing JWKS. |
 | `GET` | `/issuers/{issuerConfigurationId}/credential-jwks.json` | Credential-signing JWKS. |
-| `GET` | `/issuers/{issuerConfigurationId}/.well-known/openid-federation` | OpenID Federation 1.0 self-signed Entity Configuration. Available only with `FEDERATION_ENABLED=true` for an enabled issuer; returns `application/entity-statement+jwt`. |
+| `GET` | `/issuers/{issuerConfigurationId}/.well-known/openid-federation` | OpenID Federation 1.0 self-signed Entity Configuration. Available only with `FEDERATION_ENABLED=true` for an enabled issuer; returns `application/entity-statement+jwt`. Its top-level `jwks` holds the federation signing key; `metadata.openid_credential_issuer` is the Credential Issuer metadata plus `jwks`, the issuer's public credential signing keys (OpenID Federation for Wallet Architectures 1.0 draft 06, §6.3.1), which the ordinary OpenID4VCI metadata does not carry. |
 
 When enabled, the Entity Configuration's `metadata` includes live
 `openid_credential_issuer` and `oauth_authorization_server` objects for the same issuer Entity

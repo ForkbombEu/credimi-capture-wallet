@@ -7,6 +7,32 @@ export const ENTITY_STATEMENT_MEDIA_TYPE = "application/entity-statement+jwt";
 
 const ENTITY_CONFIGURATION_LIFETIME_SECONDS = 60 * 60;
 
+/** JWK members that carry private or symmetric key material (RFC 7517 §8.1.1, RFC 7518 §6). */
+const PRIVATE_JWK_MEMBERS = ["d", "p", "q", "dp", "dq", "qi", "oth", "k"] as const;
+
+/**
+ * The Credential Issuer's protocol signing keys, published as
+ * `metadata.openid_credential_issuer.jwks` (OpenID Federation for Wallet Architectures 1.0,
+ * draft 06, §6.3.1). They are distinct from the Entity Configuration's top-level `jwks`, which
+ * holds only the federation signing keys, so a malformed set fails instead of being published.
+ */
+function credentialIssuerSigningJwks(
+  issuer: ResolvedIssuerConfiguration,
+  issuerJwks: { keys: readonly JsonRecord[] },
+): { keys: JsonRecord[] } {
+  if (issuerJwks.keys.length === 0) {
+    throw new Error(`Issuer '${issuer.id}' has no credential signing keys to publish`);
+  }
+  for (const jwk of issuerJwks.keys) {
+    if (PRIVATE_JWK_MEMBERS.some((member) => member in jwk)) {
+      throw new Error(
+        `Issuer '${issuer.id}' credential signing JWKS contains private key material`,
+      );
+    }
+  }
+  return { keys: [...issuerJwks.keys] };
+}
+
 function isPrivateEcJwk(value: unknown): value is JWK {
   if (typeof value !== "object" || value === null) return false;
   const jwk = value as Record<string, unknown>;
@@ -34,6 +60,8 @@ export async function signIssuerEntityConfiguration(options: {
   issuer: ResolvedIssuerConfiguration;
   authorityHints: readonly string[];
   issuerMetadata: JsonRecord;
+  /** The issuer's own credential and metadata signing JWKS, never the federation keys. */
+  issuerJwks: { keys: readonly JsonRecord[] };
   authorizationServerMetadata: JsonRecord;
   now?: Date;
 }): Promise<string> {
@@ -41,10 +69,12 @@ export async function signIssuerEntityConfiguration(options: {
     issuer,
     authorityHints,
     issuerMetadata,
+    issuerJwks,
     authorizationServerMetadata,
     now = new Date(),
   } = options;
   validateMetadataIdentifiers(issuer, issuerMetadata, authorizationServerMetadata);
+  const issuerSigningJwks = credentialIssuerSigningJwks(issuer, issuerJwks);
   const privateJwk = loadIssuerFederationPrivateJwk(issuer);
   const jwks = loadIssuerFederationJwks(issuer);
   if (!isPrivateEcJwk(privateJwk)) {
@@ -63,7 +93,7 @@ export async function signIssuerEntityConfiguration(options: {
     jwks,
     authority_hints: [...authorityHints],
     metadata: {
-      openid_credential_issuer: issuerMetadata,
+      openid_credential_issuer: { ...issuerMetadata, jwks: issuerSigningJwks },
       oauth_authorization_server: authorizationServerMetadata,
     },
   })

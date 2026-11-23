@@ -1212,9 +1212,24 @@ Every enabled issuer configuration automatically publishes a self-signed Entity 
 `/issuers/{issuerConfigurationId}/.well-known/openid-federation`. Its `iss` and `sub` are that
 issuer's existing identifier. It carries live Credo-backed `openid_credential_issuer` and
 `oauth_authorization_server` metadata, and publishing fails if either metadata identifier differs
-from that Entity Identifier. Its top-level JWKS contains only its federation signing key. The
-existing credential-signing JWKS and signed OpenID4VCI metadata are unchanged. The internal chained
-OAuth server is not a separate federation entity.
+from that Entity Identifier. The internal chained OAuth server is not a separate federation entity.
+
+The Entity Configuration holds three distinct key sets, never merged:
+
+| Location | Keys | Purpose |
+| --- | --- | --- |
+| top-level `jwks` | the issuer's federation key | signs the Entity Configuration; registered with the Trust Anchor |
+| `metadata.openid_credential_issuer.jwks` | the issuer's credential signing key, with its `kid` and `x5c` | verifies issued SD-JWT VC and mdoc credentials and the signed OpenID4VCI metadata |
+| `metadata.openid_credential_issuer.credential_request_encryption.jwks` | the issuer's encryption key | encrypts Credential Requests, as in ordinary OpenID4VCI metadata |
+
+The credential signing JWKS is the issuer's own public `jwks.json`, the same set served at
+`/issuers/{issuerConfigurationId}/credential-jwks.json`; publishing fails if it is empty or carries
+private key members. OpenID Federation for Wallet Architectures 1.0, draft 06, §6.3.1 defines this
+`jwks` parameter, and §8.7 requires a Credential Verifier that trusts an issuer through federation
+to check that the key that signed a credential is listed there. It is a federation-specific
+parameter, so it appears only in the Entity Configuration: the unsigned and signed OpenID4VCI
+metadata at `/.well-known/openid-credential-issuer/issuers/{issuerConfigurationId}` keep their
+existing shape, with no `jwks`. The Authorization Server metadata is unchanged.
 
 `init` provisions a dedicated ES256/P-256 federation key for every registry issuer, including the
 feature-gated Attestbook issuer, at `data/issuers/<routeSlug>/federation/private.jwk`. It derives

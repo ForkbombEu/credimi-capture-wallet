@@ -11,6 +11,7 @@ import {
   type KeyLike,
   SignJWT,
   compactVerify,
+  createLocalJWKSet,
   decodeJwt,
   exportJWK,
   generateKeyPair,
@@ -441,6 +442,22 @@ describe("Attestbook-defined credentials, end to end", () => {
     expect(issuerSignedPayload.member_id).toBeUndefined();
     expect(issuerSignedPayload._sd).toEqual(expect.any(Array));
     await verifyIssuerSignature(compact);
+    // The federation Entity Configuration publishes the key that signed this credential.
+    const federated = createApp(
+      { ...config, federation: { enabled: true, authority_hints: ["https://ta.example.test"] } },
+      issuer.store,
+    );
+    const entityConfiguration = await request(federated).get(
+      `/issuers/${issuerId}/.well-known/openid-federation`,
+    );
+    expect(entityConfiguration.status).toBe(200);
+    // Decoded from an Entity Configuration this service just signed.
+    const federation = decodeJwt(entityConfiguration.text) as {
+      metadata: { openid_credential_issuer: { jwks: { keys: JWK[] } } };
+    };
+    const publishedIssuerJwks = federation.metadata.openid_credential_issuer.jwks;
+    expect(JSON.stringify(publishedIssuerJwks)).not.toContain('"d"');
+    await compactVerify(compact.split("~")[0] ?? "", createLocalJWKSet(publishedIssuerJwks));
 
     // Authorization code flow: the imported scope is mapped through the chained authorization server.
     const codeSession = await createSession(issuer, { credential_configuration_id: v1Id });

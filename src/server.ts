@@ -670,6 +670,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
               issuer,
               authorityHints: config.federation.authority_hints,
               issuerMetadata,
+              issuerJwks: loadIssuerJwks(issuerAppConfig(config, issuer)),
               authorizationServerMetadata,
             }),
           );
