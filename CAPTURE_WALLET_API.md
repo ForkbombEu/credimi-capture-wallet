@@ -35,6 +35,7 @@ For each `{issuerConfigurationId}`:
 | `GET` | `/.well-known/jwt-vc-issuer/issuers/{issuerConfigurationId}` | JWT VC issuer metadata. |
 | `GET` | `/issuers/{issuerConfigurationId}/jwks.json` | Authorization-server signing JWKS. |
 | `GET` | `/issuers/{issuerConfigurationId}/credential-jwks.json` | Credential-signing JWKS. |
+| `GET` | `/issuers/{issuerConfigurationId}/.well-known/openid-federation` | OpenID Federation 1.0 self-signed Entity Configuration. Available only with `FEDERATION_ENABLED=true` for an enabled issuer; returns `application/entity-statement+jwt`. |
 
 ## OpenID4VCI issuance capture
 

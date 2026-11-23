@@ -113,6 +113,8 @@ Common REST API endpoints are:
   `/.well-known/oauth-authorization-server/authorization-servers/{issuerConfigurationId}`
 * Authorization Server JWKS: `/issuers/{issuerConfigurationId}/jwks.json`
 * Credential-signing JWKS: `/issuers/{issuerConfigurationId}/credential-jwks.json`
+* OpenID Federation Entity Configuration (when enabled):
+  `/issuers/{issuerConfigurationId}/.well-known/openid-federation`
 
 The Credential Issuer well-known endpoint returns unsigned JSON by default. Request
 the OpenID4VCI 1.0 signed form with:
@@ -1087,6 +1089,10 @@ From env file `.env`, that is loaded automatically when present, you can set:
   `response_scenario_not_enabled`, `status_reference_not_enabled`, `evidence_mode_not_enabled`,
   `issuance_response_scenario_not_enabled`, `offer_mutation_not_enabled`, or
   `status_update_not_enabled`.
+- `FEDERATION_ENABLED`: enables OpenID Federation 1.0 Entity Configurations for enabled Credential
+  Issuers. Defaults to `false`.
+- `FEDERATION_AUTHORITY_HINTS`: required non-empty JSON array of HTTPS Trust Anchor Entity
+  Identifiers when federation is enabled. It is not read from `config.yaml`.
 - `STATUS_LIST_BASE_URL`: overrides the configured Status List endpoint.
 - `STATUS_LIST_API_KEY`: overrides the configured Status List management API key.
 - `ATTESTBOOK_ENABLED`: serves the experimental `attestbook-experimental` issuer and its
@@ -1118,6 +1124,63 @@ status_list_trusted_certificates: ["MIIB..."]
 When configured, the verifier validates a presented Status List JWT `x5c` chain against
 this value. Without it, the verifier requires the Status List signer chain to match the
 credential issuer chain.
+
+### OpenID Federation Credential Issuers
+
+OpenID Federation 1.0 leaf-entity support is disabled by default. Enable it only on an HTTPS
+deployment:
+
+```sh
+FEDERATION_ENABLED=true
+FEDERATION_AUTHORITY_HINTS='["https://federation.credimi.io"]'
+pnpm capture-services init --services-base-url https://capture-wallet.example --data-dir ./data
+pnpm capture-services serve --data-dir ./data
+```
+
+Every enabled issuer configuration automatically publishes a self-signed Entity Configuration at
+`/issuers/{issuerConfigurationId}/.well-known/openid-federation`. Its `iss` and `sub` are that
+issuer's existing identifier, its `openid_credential_issuer` metadata is retrieved live from the
+Credo-backed issuer, and its top-level JWKS contains only its federation signing key. The existing
+credential-signing JWKS and signed OpenID4VCI metadata are unchanged. The authorization server is
+not represented as a federation entity; integrating it requires a separate Entity Configuration.
+
+`init` provisions a dedicated ES256/P-256 federation key for every registry issuer, including the
+feature-gated Attestbook issuer, at `data/issuers/<routeSlug>/federation/private.jwk`. It derives
+the public `jwks.json` beside it and uses an RFC 7638 thumbprint as `kid`. Server startup fails if
+federation is enabled and served issuers have missing, invalid, reused, or mismatched federation
+material. Ordinary startup never generates or rotates keys. Do not run `init --force` after
+registration unless the Trust Anchor rotation procedure below is in progress.
+
+Export public keys for every configured issuer, or one issuer, without private material:
+
+```sh
+pnpm capture-services federation-jwks --data-dir ./data
+pnpm capture-services federation-jwks --data-dir ./data --issuer-configuration-id eu-pid-device-bound
+```
+
+With federation enabled, export Credimi Federation registry-ready subordinate entries for all
+enabled issuers:
+
+```sh
+FEDERATION_ENABLED=true FEDERATION_AUTHORITY_HINTS='["https://federation.credimi.io"]' \
+  pnpm --silent capture-services federation-registration --data-dir ./data > issuers.json
+curl -sS https://capture-wallet.example/issuers/eu-pid-device-bound/.well-known/openid-federation \
+  -H 'Accept: application/entity-statement+jwt'
+```
+
+Split the JSON array into the Trust Anchor registry's one-entry files, verify every exported key
+contains no private member, deploy the endpoint, and follow
+[Credimi Federation registration](https://github.com/ForkbombEu/credimi-federation/blob/main/registry/README.md)
+to submit the public JWKS. Validate the resulting chain against the Trust Anchor JWKS received
+out of band; successful registration is not EUDI Wallet or IT-Wallet accreditation.
+
+For key rotation, publish old and new public keys together, register both with the Trust Anchor,
+then switch signing and remove the old key in a second registration after the Trust Anchor serves
+the new statement. The current CLI provisions one key and does not automate this coordinated
+operation. Attestbook metadata changes are reflected on the next Entity Configuration fetch while
+its issuer is enabled; when disabled, it has no federation endpoint. Local HTTP development cannot
+publish a conformant Federation Entity Identifier: use an HTTPS reverse proxy or a TLS-enabled test
+host.
 
 **[🔝 back to top](#toc)**
 

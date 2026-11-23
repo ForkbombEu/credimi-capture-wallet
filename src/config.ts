@@ -9,7 +9,7 @@ import {
   X509Certificate,
   X509KeyUsage,
 } from "@credo-ts/core";
-import { exportJWK, generateKeyPair } from "jose";
+import { calculateJwkThumbprint, exportJWK, generateKeyPair } from "jose";
 import { DISABLED_ATTESTBOOK_SETTINGS, resolveAttestbookSettings } from "./attestbook/settings.js";
 import {
   allResolvedIssuerConfigurations,
@@ -23,6 +23,8 @@ export const VERIFIER_KEY_ID = "credimi-fake-verifier-key";
 export const VERIFIER_DID_KEY_ID = "credimi-fake-verifier-did-key";
 export const VERIFIER_ATTESTATION_ISSUER_KEY_ID = "credimi-fake-verifier-attestation-issuer-key";
 export const ACCESS_TOKEN_PRIVATE_JWK_FILE = "access-token-private-jwk.json";
+export const FEDERATION_PRIVATE_JWK_FILE = "private.jwk";
+export const FEDERATION_JWKS_FILE = "jwks.json";
 
 export const DEFAULT_CONFIG: AppConfig = {
   issuer_base_url: "http://localhost:8080",
@@ -43,6 +45,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   status_list_api_key: "test",
   status_list_timeout_ms: 5000,
   status_list_trusted_certificates: [],
+  federation: { enabled: false, authority_hints: [] },
   attestbook: DISABLED_ATTESTBOOK_SETTINGS,
 };
 
@@ -52,7 +55,8 @@ export const PUBLIC_BASE_URL_ENV_VAR = "PUBLIC_BASE_URL";
 export const FCAF_SCENARIOS_ENABLED_ENV_VAR = "FCAF_SCENARIOS_ENABLED";
 export const STATUS_LIST_BASE_URL_ENV_VAR = "STATUS_LIST_BASE_URL";
 export const STATUS_LIST_API_KEY_ENV_VAR = "STATUS_LIST_API_KEY";
-
+export const FEDERATION_ENABLED_ENV_VAR = "FEDERATION_ENABLED";
+export const FEDERATION_AUTHORITY_HINTS_ENV_VAR = "FEDERATION_AUTHORITY_HINTS";
 export interface InitOptions {
   issuer_base_url?: string;
   public_base_url?: string;
@@ -175,6 +179,70 @@ function resolveBooleanEnv(env: NodeJS.ProcessEnv, variable: string, fallback: b
   throw new Error(`${variable} must be true or false`);
 }
 
+export function resolveFederationSettings(env: NodeJS.ProcessEnv = process.env): {
+  enabled: boolean;
+  authority_hints: string[];
+} {
+  const enabled = resolveBooleanEnv(env, FEDERATION_ENABLED_ENV_VAR, false);
+  if (!enabled) return { enabled: false, authority_hints: [] };
+
+  const rawAuthorityHints = env[FEDERATION_AUTHORITY_HINTS_ENV_VAR]?.trim();
+  if (!rawAuthorityHints) {
+    throw new Error(
+      `${FEDERATION_AUTHORITY_HINTS_ENV_VAR} must be a JSON array of HTTPS Entity Identifiers when federation is enabled`,
+    );
+  }
+
+  let authorityHints: unknown;
+  try {
+    authorityHints = JSON.parse(rawAuthorityHints);
+  } catch {
+    throw new Error(`${FEDERATION_AUTHORITY_HINTS_ENV_VAR} must be a JSON array`);
+  }
+  if (!Array.isArray(authorityHints) || authorityHints.length === 0) {
+    throw new Error(
+      `${FEDERATION_AUTHORITY_HINTS_ENV_VAR} must be a non-empty JSON array of HTTPS Entity Identifiers`,
+    );
+  }
+  if (authorityHints.some((hint) => typeof hint !== "string")) {
+    throw new Error(
+      `${FEDERATION_AUTHORITY_HINTS_ENV_VAR} must contain only HTTPS Entity Identifiers`,
+    );
+  }
+
+  const uniqueHints = new Set(authorityHints);
+  if (uniqueHints.size !== authorityHints.length) {
+    throw new Error(
+      `${FEDERATION_AUTHORITY_HINTS_ENV_VAR} must not contain duplicate Entity Identifiers`,
+    );
+  }
+  for (const authorityHint of authorityHints) {
+    validateFederationEntityIdentifier(authorityHint, FEDERATION_AUTHORITY_HINTS_ENV_VAR);
+  }
+  return { enabled: true, authority_hints: authorityHints };
+}
+
+function validateFederationEntityIdentifier(value: string, field: string): void {
+  let identifier: URL;
+  try {
+    identifier = new URL(value);
+  } catch {
+    throw new Error(`${field} must contain HTTPS Entity Identifiers`);
+  }
+  if (
+    identifier.protocol !== "https:" ||
+    !identifier.hostname ||
+    identifier.username ||
+    identifier.password ||
+    identifier.search ||
+    identifier.hash
+  ) {
+    throw new Error(
+      `${field} must contain HTTPS Entity Identifiers without credentials, query, or fragment`,
+    );
+  }
+}
+
 export function stringifyYaml(record: JsonRecord): string {
   return `${Object.entries(record)
     .map(([key, value]) => `${key}: ${JSON.stringify(value)}`)
@@ -226,6 +294,14 @@ export function issuerCertificatePath(dataDir: string): string {
 
 export function issuerEncryptionPrivateJwkPath(dataDir: string): string {
   return join(dataDir, "issuer-encryption-private-jwk.json");
+}
+
+export function issuerFederationPrivateJwkPath(materialDirectory: string): string {
+  return join(materialDirectory, "federation", FEDERATION_PRIVATE_JWK_FILE);
+}
+
+export function issuerFederationJwksPath(materialDirectory: string): string {
+  return join(materialDirectory, "federation", FEDERATION_JWKS_FILE);
 }
 
 export function verifierPrivateJwkPath(dataDir: string): string {
@@ -316,7 +392,7 @@ export function loadConfig(
 ): AppConfig {
   const path = configPath(dataDir);
   const fileConfig = existsSync(path) ? parseYamlConfig(readFileSync(path, "utf8")) : {};
-  return {
+  const config: AppConfig = {
     ...DEFAULT_CONFIG,
     ...fileConfig,
     issuer_base_url: normalizeBaseUrl(fileConfig.issuer_base_url ?? DEFAULT_CONFIG.issuer_base_url),
@@ -342,8 +418,13 @@ export function loadConfig(
       fileConfig.status_list_trusted_certificates ??
         DEFAULT_CONFIG.status_list_trusted_certificates,
     ),
+    federation: resolveFederationSettings(env),
     attestbook: resolveAttestbookSettings(env),
   };
+  if (config.federation.enabled) {
+    validateFederationEntityIdentifier(config.issuer_base_url, "issuer_base_url");
+  }
+  return config;
 }
 
 function statusListTrustedCertificates(value: unknown): string[] {
@@ -381,7 +462,7 @@ export async function initIssuer(options: InitOptions): Promise<AppConfig> {
   const cfgPath = configPath(dataDir);
 
   if (force || !existsSync(cfgPath)) {
-    const { attestbook: _environmentOnly, ...persisted } = config;
+    const { attestbook: _environmentOnly, federation: _federation, ...persisted } = config;
     writeFileSync(cfgPath, stringifyYaml(persisted as unknown as JsonRecord), { mode: 0o600 });
   }
 
@@ -426,6 +507,12 @@ export function validateIssuerMaterial(config: AppConfig): void {
       accessToken: accessTokenPrivateJwkPath(issuer.materialDirectory),
       certificate: issuerCertificatePath(issuer.materialDirectory),
       jwks: jwksPath(issuer.materialDirectory),
+      ...(config.federation.enabled
+        ? {
+            federation: issuerFederationPrivateJwkPath(issuer.materialDirectory),
+            federationJwks: issuerFederationJwksPath(issuer.materialDirectory),
+          }
+        : {}),
     };
     for (const [role, path] of Object.entries(paths)) {
       if (!existsSync(path)) {
@@ -436,6 +523,9 @@ export function validateIssuerMaterial(config: AppConfig): void {
     const signingPrivateJwk = readJwk(paths.signing, issuer.id, "signing");
     const encryptionPrivateJwk = readJwk(paths.encryption, issuer.id, "encryption");
     const accessTokenPrivateJwk = readJwk(paths.accessToken, issuer.id, "access-token");
+    const federationPrivateJwk = config.federation.enabled
+      ? readJwk(issuerFederationPrivateJwkPath(issuer.materialDirectory), issuer.id, "federation")
+      : null;
     const signingKeyId = requiredJwkKeyId(signingPrivateJwk, `Issuer '${issuer.id}' signing key`);
     const certificatePem = readFileSync(paths.certificate, "utf8");
     const certificate = X509Certificate.fromEncodedCertificate(certificatePem);
@@ -463,6 +553,45 @@ export function validateIssuerMaterial(config: AppConfig): void {
     }
     if (publishedSigningJwk.kid !== signingKeyId) {
       throw new Error(`Issuer '${issuer.id}' JWKS kid does not match its private signing JWK kid`);
+    }
+
+    if (federationPrivateJwk) {
+      if (
+        federationPrivateJwk.kty !== "EC" ||
+        federationPrivateJwk.crv !== "P-256" ||
+        federationPrivateJwk.alg !== "ES256" ||
+        federationPrivateJwk.use !== "sig" ||
+        typeof federationPrivateJwk.d !== "string"
+      ) {
+        throw new Error(`Issuer '${issuer.id}' federation key must be an ES256 P-256 private JWK`);
+      }
+      const federationKeyId = requiredJwkKeyId(
+        federationPrivateJwk,
+        `Issuer '${issuer.id}' federation key`,
+      );
+      const federationJwks = loadIssuerFederationJwks(issuer);
+      if (federationJwks.keys.some((jwk) => "d" in jwk)) {
+        throw new Error(
+          `Issuer '${issuer.id}' federation JWKS must not contain private key material`,
+        );
+      }
+      const federationPublicJwk = Kms.PublicJwk.fromUnknown(toPublicJwk(federationPrivateJwk));
+      const publishedFederationJwk = federationJwks.keys.find((jwk) => {
+        try {
+          return Kms.PublicJwk.fromUnknown(jwk).equals(federationPublicJwk);
+        } catch {
+          return false;
+        }
+      });
+      if (!publishedFederationJwk) {
+        throw new Error(`Issuer '${issuer.id}' federation JWKS does not publish its signing key`);
+      }
+      if (publishedFederationJwk.kid !== federationKeyId) {
+        throw new Error(
+          `Issuer '${issuer.id}' federation JWKS kid does not match its private signing JWK kid`,
+        );
+      }
+      registerUniquePublicKey(publicKeyOwners, issuer.id, "federation", federationPrivateJwk);
     }
 
     registerUniquePublicKey(publicKeyOwners, issuer.id, "signing", signingPrivateJwk);
@@ -520,6 +649,8 @@ async function ensureIssuerMaterial(
   const certificatePath = issuerCertificatePath(materialDirectory);
   const encryptionSecretPath = issuerEncryptionPrivateJwkPath(materialDirectory);
   const accessTokenSecretPath = accessTokenPrivateJwkPath(materialDirectory);
+  const federationSecretPath = issuerFederationPrivateJwkPath(materialDirectory);
+  const federationPublicPath = issuerFederationJwksPath(materialDirectory);
 
   mkdirSync(materialDirectory, { recursive: true });
   if (force || !existsSync(secretPath)) {
@@ -542,6 +673,33 @@ async function ensureIssuerMaterial(
   if (force || !existsSync(accessTokenSecretPath)) {
     await writeGeneratedPrivateJwk(accessTokenSecretPath, issuer.accessTokenKeyId);
   }
+  await ensureIssuerFederationMaterial({
+    force,
+    secretPath: federationSecretPath,
+    publicPath: federationPublicPath,
+  });
+}
+
+async function ensureIssuerFederationMaterial({
+  force,
+  secretPath,
+  publicPath,
+}: {
+  force: boolean;
+  secretPath: string;
+  publicPath: string;
+}): Promise<void> {
+  if (force || !existsSync(secretPath)) {
+    const { publicKey, privateKey } = await generateKeyPair("ES256", { extractable: true });
+    const publicJwk = await exportJWK(publicKey);
+    const privateJwk = await exportJWK(privateKey);
+    const kid = await calculateJwkThumbprint(publicJwk);
+    const common = { alg: "ES256", use: "sig", kid };
+    writeJson(secretPath, { ...privateJwk, ...common });
+    writeJson(publicPath, { keys: [{ ...publicJwk, ...common }] });
+    return;
+  }
+  writePublicJwksFromPrivate(publicPath, secretPath);
 }
 
 export function loadIssuerJwks(config: AppConfig): { keys: JsonRecord[] } {
@@ -551,6 +709,18 @@ export function loadIssuerJwks(config: AppConfig): { keys: JsonRecord[] } {
   const certificatePath = issuerCertificatePath(config.data_dir);
   if (!existsSync(certificatePath)) return jwks;
   return withIssuerCertificate(jwks, readFileSync(certificatePath, "utf8"));
+}
+
+export function loadIssuerFederationPrivateJwk(issuer: ResolvedIssuerConfiguration): JsonRecord {
+  return readJwk(issuerFederationPrivateJwkPath(issuer.materialDirectory), issuer.id, "federation");
+}
+
+export function loadIssuerFederationJwks(issuer: ResolvedIssuerConfiguration): {
+  keys: JsonRecord[];
+} {
+  const path = issuerFederationJwksPath(issuer.materialDirectory);
+  if (!existsSync(path)) return { keys: [] };
+  return JSON.parse(readFileSync(path, "utf8")) as { keys: JsonRecord[] };
 }
 
 export function loadIssuerCertificate(config: AppConfig): X509Certificate {

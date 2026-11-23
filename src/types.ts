@@ -120,10 +120,21 @@ export interface AppConfig {
   status_list_timeout_ms: number;
   status_list_trusted_certificates: string[];
   /**
+   * Optional OpenID Federation leaf-entity publishing for every enabled Credential Issuer.
+   * It is configured from environment variables so Trust Anchor selection is not persisted in
+   * issuer material.
+   */
+  federation: FederationSettings;
+  /**
    * The opt-in Attestbook integration that imports SD-JWT VC credential definitions into the
    * `attestbook-experimental` issuer. Read from the environment only, never from `config.yaml`.
    */
   attestbook: AttestbookSettings;
+}
+
+export interface FederationSettings {
+  enabled: boolean;
+  authority_hints: string[];
 }
 
 export interface AttestbookSettings {

@@ -9,8 +9,12 @@ import {
   webhookCallbackUrl,
 } from "./attestbook/subscription.js";
 import { initIssuer, loadConfig, parseArgs, resolveListenAddr } from "./config.js";
-import { resolvedIssuerConfigurations } from "./configurations/registry.js";
+import {
+  allResolvedIssuerConfigurations,
+  resolvedIssuerConfigurations,
+} from "./configurations/registry.js";
 import { credoOpenId4VciIssuer } from "./credo-openid4vci.js";
+import { issuerFederationJwks, issuerFederationRegistration } from "./federation/registration.js";
 import { createApp } from "./server.js";
 import { CaptureStore } from "./state.js";
 import type { AppConfig, JsonRecord } from "./types.js";
@@ -55,6 +59,38 @@ async function main(): Promise<void> {
     });
     console.log(ASCII_HEADER);
     console.log(JSON.stringify(initSummary(config), null, 2));
+    return;
+  }
+
+  if (command === "federation-jwks" || command === "federation-registration") {
+    const config = loadConfig(typeof args.data_dir === "string" ? args.data_dir : undefined);
+    const issuerConfigurationId =
+      typeof args.issuer_configuration_id === "string" ? args.issuer_configuration_id : undefined;
+    if (command === "federation-registration" && !config.federation.enabled) {
+      throw new Error(
+        "Enable federation with FEDERATION_ENABLED=true before exporting registration entries",
+      );
+    }
+    const issuers =
+      command === "federation-jwks"
+        ? allResolvedIssuerConfigurations(config)
+        : resolvedIssuerConfigurations(config);
+    const selectedIssuers = issuerConfigurationId
+      ? issuers.filter((issuer) => issuer.id === issuerConfigurationId)
+      : issuers;
+    if (selectedIssuers.length === 0) {
+      throw new Error(`Unknown or disabled issuer configuration '${issuerConfigurationId ?? ""}'`);
+    }
+    const entries = selectedIssuers.map((issuer) =>
+      command === "federation-jwks"
+        ? {
+            issuer_configuration_id: issuer.id,
+            entity_id: issuer.issuerIdentifier,
+            jwks: issuerFederationJwks(issuer),
+          }
+        : issuerFederationRegistration(issuer),
+    );
+    console.log(JSON.stringify(issuerConfigurationId ? entries[0] : entries, null, 2));
     return;
   }
 

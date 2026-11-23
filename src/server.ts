@@ -8,6 +8,7 @@ import type { AttestbookCredentialDefinition } from "./attestbook/types.js";
 import { WEBHOOK_MAX_BODY_BYTES, WEBHOOK_PATH } from "./attestbook/webhook.js";
 import {
   loadIssuerJwks,
+  validateIssuerMaterial,
   verifierAttestationIssuerPublicJwk,
   verifierCaCertificatePath,
   verifierDidDocument,
@@ -40,6 +41,10 @@ import {
   sdJwtDigestAlgorithmOrNull,
 } from "./digest-algorithm.js";
 import { registerFakeOAuthServer } from "./fake-oauth-server.js";
+import {
+  ENTITY_STATEMENT_MEDIA_TYPE,
+  signIssuerEntityConfiguration,
+} from "./federation/entity-configuration.js";
 import { unsetJsonPointer } from "./json-pointer.js";
 import {
   jwtVcIssuerMetadata,
@@ -128,6 +133,7 @@ import {
 import { RESPONSE_URI_PLACEHOLDER } from "./verifier-attestation.js";
 
 export function createApp(config: AppConfig, store = new CaptureStore(config)): express.Express {
+  if (config.federation.enabled) validateIssuerMaterial(config);
   const app = express();
   const oid4vciCaptures = new WeakMap<Request, Oid4vciHttpRequestCapture>();
   // Every OpenID4VCI request is recorded before any handler runs, and attributed to its capture
@@ -570,6 +576,34 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
             );
         }
         return res.json(metadata);
+      } catch (error) {
+        return next(error);
+      }
+    },
+  );
+
+  app.get(
+    "/issuers/:issuerConfigurationId/.well-known/openid-federation",
+    async (req, res, next) => {
+      try {
+        if (!config.federation.enabled) {
+          return res.status(404).json({ error: "issuer_not_found" });
+        }
+        const issuer = resolvedIssuerConfigurationById(config, req.params.issuerConfigurationId);
+        if (!issuer) return res.status(404).json({ error: "issuer_not_found" });
+
+        const credoIssuer = await credoOpenId4VciIssuer(config, store);
+        const metadata = await credoIssuer.credentialIssuerMetadata(issuer.id);
+        return res
+          .status(200)
+          .type(ENTITY_STATEMENT_MEDIA_TYPE)
+          .send(
+            await signIssuerEntityConfiguration({
+              issuer,
+              authorityHints: config.federation.authority_hints,
+              metadata,
+            }),
+          );
       } catch (error) {
         return next(error);
       }
