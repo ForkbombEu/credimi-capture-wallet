@@ -32,14 +32,15 @@ import {
   resolvedIssuerConfigurationById,
   resolvedIssuerConfigurations,
 } from "../src/configurations/registry.js";
-import { credoOpenId4VciIssuer } from "../src/credo-openid4vci.js";
-import { ENTITY_STATEMENT_MEDIA_TYPE } from "../src/federation/entity-configuration.js";
+import {
+  ENTITY_STATEMENT_MEDIA_TYPE,
+  signIssuerEntityConfiguration,
+} from "../src/federation/entity-configuration.js";
 import {
   issuerFederationJwks,
   issuerFederationRegistration,
 } from "../src/federation/registration.js";
 import { createApp } from "../src/server.js";
-import { CaptureStore } from "../src/state.js";
 import type { AppConfig, JsonRecord } from "../src/types.js";
 
 const TRUST_ANCHOR = "https://federation.test.example";
@@ -141,7 +142,7 @@ describe("OpenID Federation issuer leaf entities", () => {
   });
 
   it("serves live Credo metadata in self-signed Entity Configurations", async () => {
-    const liveIssuer = await credoOpenId4VciIssuer(config, new CaptureStore(config));
+    const app = createApp(config);
     const issuers = resolvedIssuerConfigurations(config);
     const configurations = await Promise.all(
       issuers.map(async (issuer) => ({ issuer, jwt: await entityConfiguration(issuer.id) })),
@@ -156,14 +157,42 @@ describe("OpenID Federation issuer leaf entities", () => {
       });
       const header = decodeProtectedHeader(jwt);
       const payload = verified.payload as JsonRecord;
-      const metadata = await liveIssuer.credentialIssuerMetadata(issuer.id);
+      const issuerMetadata = (
+        await request(app)
+          .get(`/.well-known/openid-credential-issuer/issuers/${issuer.id}`)
+          .expect(200)
+      ).body as JsonRecord;
+      const authorizationServerMetadata = (
+        await request(app)
+          .get(`/.well-known/oauth-authorization-server/issuers/${issuer.id}`)
+          .expect(200)
+      ).body as JsonRecord;
 
       expect(header).toMatchObject({ alg: "ES256", typ: "entity-statement+jwt" });
       expect(payload.authority_hints).toEqual([TRUST_ANCHOR]);
       expect(payload.jwks).toEqual(jwks);
-      expect(payload.metadata).toEqual({ openid_credential_issuer: metadata });
+      expect(payload.metadata).toEqual({
+        openid_credential_issuer: issuerMetadata,
+        oauth_authorization_server: authorizationServerMetadata,
+      });
+      expect(issuerMetadata.credential_issuer).toBe(issuer.issuerIdentifier);
+      expect(authorizationServerMetadata.issuer).toBe(issuer.issuerIdentifier);
       expect(JSON.stringify(payload.jwks)).not.toContain('"d"');
     }
+  });
+
+  it("rejects metadata that does not identify the federation entity", async () => {
+    const issuer = resolvedIssuerConfigurationById(config, "eu-pid-device-bound");
+    if (!issuer) throw new Error("device-bound issuer unavailable");
+
+    await expect(
+      signIssuerEntityConfiguration({
+        issuer,
+        authorityHints: [TRUST_ANCHOR],
+        issuerMetadata: { credential_issuer: issuer.issuerIdentifier },
+        authorizationServerMetadata: { issuer: "https://other.example/authorization-server" },
+      }),
+    ).rejects.toThrow("authorization server metadata identifier does not match");
   });
 
   it("does not publish disabled or unknown issuer Entity Configurations", async () => {
@@ -183,7 +212,7 @@ describe("OpenID Federation issuer leaf entities", () => {
       expect(registration).toMatchObject({
         entity_id: issuer.issuerIdentifier,
         enabled: true,
-        entity_types: ["openid_credential_issuer"],
+        entity_types: ["openid_credential_issuer", "oauth_authorization_server"],
         constraints: { max_path_length: 0 },
       });
       expect(JSON.stringify(registration)).not.toContain('"d"');

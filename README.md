@@ -1139,10 +1139,11 @@ pnpm capture-services serve --data-dir ./data
 
 Every enabled issuer configuration automatically publishes a self-signed Entity Configuration at
 `/issuers/{issuerConfigurationId}/.well-known/openid-federation`. Its `iss` and `sub` are that
-issuer's existing identifier, its `openid_credential_issuer` metadata is retrieved live from the
-Credo-backed issuer, and its top-level JWKS contains only its federation signing key. The existing
-credential-signing JWKS and signed OpenID4VCI metadata are unchanged. The authorization server is
-not represented as a federation entity; integrating it requires a separate Entity Configuration.
+issuer's existing identifier. It carries live Credo-backed `openid_credential_issuer` and
+`oauth_authorization_server` metadata, and publishing fails if either metadata identifier differs
+from that Entity Identifier. Its top-level JWKS contains only its federation signing key. The
+existing credential-signing JWKS and signed OpenID4VCI metadata are unchanged. The internal chained
+OAuth server is not a separate federation entity.
 
 `init` provisions a dedicated ES256/P-256 federation key for every registry issuer, including the
 feature-gated Attestbook issuer, at `data/issuers/<routeSlug>/federation/private.jwk`. It derives

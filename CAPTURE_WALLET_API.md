@@ -37,6 +37,10 @@ For each `{issuerConfigurationId}`:
 | `GET` | `/issuers/{issuerConfigurationId}/credential-jwks.json` | Credential-signing JWKS. |
 | `GET` | `/issuers/{issuerConfigurationId}/.well-known/openid-federation` | OpenID Federation 1.0 self-signed Entity Configuration. Available only with `FEDERATION_ENABLED=true` for an enabled issuer; returns `application/entity-statement+jwt`. |
 
+When enabled, the Entity Configuration's `metadata` includes live
+`openid_credential_issuer` and `oauth_authorization_server` objects for the same issuer Entity
+Identifier. The internal chained OAuth server is not independently federated.
+
 ## OpenID4VCI issuance capture
 
 ### Create and inspect a session

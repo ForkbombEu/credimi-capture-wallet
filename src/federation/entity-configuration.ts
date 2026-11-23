@@ -13,13 +13,38 @@ function isPrivateEcJwk(value: unknown): value is JWK {
   return jwk.kty === "EC" && jwk.crv === "P-256" && typeof jwk.d === "string";
 }
 
+function validateMetadataIdentifiers(
+  issuer: ResolvedIssuerConfiguration,
+  issuerMetadata: JsonRecord,
+  authorizationServerMetadata: JsonRecord,
+): void {
+  if (issuerMetadata.credential_issuer !== issuer.issuerIdentifier) {
+    throw new Error(
+      `Issuer '${issuer.id}' credential issuer metadata identifier does not match its federation Entity Identifier`,
+    );
+  }
+  if (authorizationServerMetadata.issuer !== issuer.issuerIdentifier) {
+    throw new Error(
+      `Issuer '${issuer.id}' authorization server metadata identifier does not match its federation Entity Identifier`,
+    );
+  }
+}
+
 export async function signIssuerEntityConfiguration(options: {
   issuer: ResolvedIssuerConfiguration;
   authorityHints: readonly string[];
-  metadata: JsonRecord;
+  issuerMetadata: JsonRecord;
+  authorizationServerMetadata: JsonRecord;
   now?: Date;
 }): Promise<string> {
-  const { issuer, authorityHints, metadata, now = new Date() } = options;
+  const {
+    issuer,
+    authorityHints,
+    issuerMetadata,
+    authorizationServerMetadata,
+    now = new Date(),
+  } = options;
+  validateMetadataIdentifiers(issuer, issuerMetadata, authorizationServerMetadata);
   const privateJwk = loadIssuerFederationPrivateJwk(issuer);
   const jwks = loadIssuerFederationJwks(issuer);
   if (!isPrivateEcJwk(privateJwk)) {
@@ -37,7 +62,10 @@ export async function signIssuerEntityConfiguration(options: {
     sub: issuer.issuerIdentifier,
     jwks,
     authority_hints: [...authorityHints],
-    metadata: { openid_credential_issuer: metadata },
+    metadata: {
+      openid_credential_issuer: issuerMetadata,
+      oauth_authorization_server: authorizationServerMetadata,
+    },
   })
     .setProtectedHeader({ alg: "ES256", typ: "entity-statement+jwt", kid })
     .setIssuedAt(issuedAt)

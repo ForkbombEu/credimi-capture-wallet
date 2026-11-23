@@ -13,7 +13,7 @@ export function issuerFederationRegistration(
   return {
     entity_id: issuer.issuerIdentifier,
     enabled,
-    entity_types: ["openid_credential_issuer"],
+    entity_types: ["openid_credential_issuer", "oauth_authorization_server"],
     jwks: issuerFederationJwks(issuer),
     constraints: { max_path_length: 0 },
   };

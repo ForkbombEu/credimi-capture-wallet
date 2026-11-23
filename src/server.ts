@@ -593,7 +593,10 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
         if (!issuer) return res.status(404).json({ error: "issuer_not_found" });
 
         const credoIssuer = await credoOpenId4VciIssuer(config, store);
-        const metadata = await credoIssuer.credentialIssuerMetadata(issuer.id);
+        const issuerMetadata = await credoIssuer.credentialIssuerMetadata(issuer.id);
+        const authorizationServerMetadata = await credoIssuer.authorizationServerMetadata(
+          issuer.id,
+        );
         return res
           .status(200)
           .type(ENTITY_STATEMENT_MEDIA_TYPE)
@@ -601,7 +604,8 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
             await signIssuerEntityConfiguration({
               issuer,
               authorityHints: config.federation.authority_hints,
-              metadata,
+              issuerMetadata,
+              authorizationServerMetadata,
             }),
           );
       } catch (error) {
