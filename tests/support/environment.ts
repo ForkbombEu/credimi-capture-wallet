@@ -5,7 +5,7 @@ import type { Express } from "express";
 import { DEFAULT_CONFIG, initIssuer } from "../../src/config.js";
 import { resolvedIssuerConfigurationById } from "../../src/configurations/registry.js";
 import type { ResolvedIssuerConfiguration } from "../../src/configurations/types.js";
-import { createApp } from "../../src/server.js";
+import { createApp } from "../../src/server/app.js";
 import { CaptureStore } from "../../src/state.js";
 import type { AppConfig } from "../../src/types.js";
 export const CONFORMING_ISSUER_ID = "eu-pid-device-bound";

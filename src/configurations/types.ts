@@ -1,4 +1,4 @@
-import type { CredentialProofPolicy } from "../metadata.js";
+import type { CredentialProofPolicy } from "../openid4vci/metadata.js";
 
 export type IssuerConfigurationId =
   | "eu-pid-device-bound"

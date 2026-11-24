@@ -6,12 +6,12 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { DEFAULT_CONFIG, createIssuerSigningContext, initIssuer } from "../src/config.js";
 import { resolvedIssuerConfigurationById } from "../src/configurations/registry.js";
 import { issuerAppConfig } from "../src/configurations/resolve-urls.js";
-import { DEGREE_SD_JWT_VCT } from "../src/credential-definitions.js";
+import { DEGREE_SD_JWT_VCT } from "../src/credentials/definitions.js";
 import {
   degreeSdJwtCredentialSignOptions,
   mdocCredentialSignOptions,
   sdJwtCredentialSignOptions,
-} from "../src/credential.js";
+} from "../src/credentials/signing.js";
 import type { JsonRecord } from "../src/types.js";
 
 describe("degree SD-JWT VC", () => {

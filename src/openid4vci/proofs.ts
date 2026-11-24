@@ -6,7 +6,7 @@ import type {
   Oid4vciHttpRequestCapture,
   ProofHeaderCapture,
   ProofJwtEvidence,
-} from "./types.js";
+} from "../types.js";
 
 export function decodeJwtHeader(jwt: string): JsonRecord {
   const [header] = jwt.split(".");

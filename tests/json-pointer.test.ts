@@ -4,7 +4,7 @@ import {
   readJsonPointer,
   setJsonPointer,
   unsetJsonPointer,
-} from "../src/json-pointer.js";
+} from "../src/fcaf/json-pointer.js";
 import type { JsonRecord } from "../src/types.js";
 
 describe("JSON Pointer member addressing", () => {

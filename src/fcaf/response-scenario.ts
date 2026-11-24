@@ -1,10 +1,10 @@
-import { isJsonPointer } from "./json-pointer.js";
 import type {
   IssuanceEndpointResponseScenario,
   IssuanceResponseScenario,
   JsonRecord,
   VpResponseScenario,
-} from "./types.js";
+} from "../types.js";
+import { isJsonPointer } from "./json-pointer.js";
 
 const ISSUANCE_SCENARIO_ENDPOINTS = ["par", "credential"] as const;
 

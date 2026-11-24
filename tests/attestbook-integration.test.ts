@@ -34,8 +34,8 @@ import {
   issuerCertificatePath,
   privateJwkPath,
 } from "../src/config.js";
-import { credoOpenId4VciIssuer } from "../src/credo-openid4vci.js";
-import { createApp } from "../src/server.js";
+import { credoOpenId4VciIssuer } from "../src/openid4vci/credo-issuer.js";
+import { createApp } from "../src/server/app.js";
 import { CaptureStore } from "../src/state.js";
 import type { AppConfig, JsonRecord } from "../src/types.js";
 import {

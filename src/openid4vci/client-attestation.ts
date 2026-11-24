@@ -1,6 +1,11 @@
-import { rawHeaderValues } from "./oid4vci-capture.js";
+import type {
+  JsonRecord,
+  JwtCapture,
+  Oid4vciHttpRequestCapture,
+  SessionCapture,
+} from "../types.js";
+import { rawHeaderValues } from "./http-capture.js";
 import { decodeJwtForEvidence } from "./proofs.js";
-import type { JsonRecord, JwtCapture, Oid4vciHttpRequestCapture, SessionCapture } from "./types.js";
 
 const CLIENT_ATTESTATION_HEADER = "oauth-client-attestation";
 const CLIENT_ATTESTATION_POP_HEADER = "oauth-client-attestation-pop";

@@ -6,8 +6,11 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { DEFAULT_CONFIG, createIssuerSigningContext, initIssuer } from "../src/config.js";
 import { resolvedIssuerConfigurationById } from "../src/configurations/registry.js";
 import { issuerAppConfig } from "../src/configurations/resolve-urls.js";
-import { sdJwtCredentialSignOptions } from "../src/credential.js";
-import { STATUS_REFERENCE_FIXTURES, derivedStatusListUri } from "../src/status-reference.js";
+import { sdJwtCredentialSignOptions } from "../src/credentials/signing.js";
+import {
+  STATUS_REFERENCE_FIXTURES,
+  derivedStatusListUri,
+} from "../src/status-list/reference-fixtures.js";
 import type {
   AppConfig,
   JsonRecord,

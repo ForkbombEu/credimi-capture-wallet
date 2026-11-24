@@ -5,8 +5,8 @@ import {
   getOid4vcCallbacks,
 } from "@credo-ts/openid4vc";
 import { Openid4vciIssuer } from "@openid4vc/openid4vci";
+import type { JsonRecord } from "../types.js";
 import { decodeJwtForEvidence } from "./proofs.js";
-import type { JsonRecord } from "./types.js";
 
 /**
  * Adds the EUDI TS3 JWT PoP signer rule to Credo's OpenID4VCI issuer. TS3 §2.2.2 requires the

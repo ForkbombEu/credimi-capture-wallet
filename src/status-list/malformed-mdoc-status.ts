@@ -1,8 +1,8 @@
 import type { Mdoc, MdocSignOptions } from "@credo-ts/core";
 import { DataItem, cborDecode, cborEncode } from "@owf/cose";
 import { CoseKey, IssuerAuth, IssuerSigned } from "@owf/mdoc";
-import { derivedStatusListUri } from "./status-reference.js";
-import type { StatusReferenceFixture } from "./types.js";
+import type { StatusReferenceFixture } from "../types.js";
+import { derivedStatusListUri } from "./reference-fixtures.js";
 
 export type MdocSignOptionsWithStatusReference = MdocSignOptions & {
   statusReference?: StatusReferenceFixture;

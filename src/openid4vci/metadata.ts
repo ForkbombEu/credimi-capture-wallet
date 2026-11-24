@@ -1,12 +1,12 @@
 import { type AgentContext, JwsService, JwtPayload, Kms } from "@credo-ts/core";
-import type { AttestbookCredentialDefinition } from "./attestbook/types.js";
+import type { AttestbookCredentialDefinition } from "../attestbook/types.js";
 import {
   issuerSigningKeyId,
   loadIssuerEncryptionPublicJwk,
   loadIssuerJwks,
   loadIssuerPublicJwk,
-} from "./config.js";
-import type { IssuerConfiguration } from "./configurations/types.js";
+} from "../config.js";
+import type { IssuerConfiguration } from "../configurations/types.js";
 import {
   CREDIMI_LOGO_URL,
   DEGREE_SD_JWT_CLAIMS,
@@ -22,8 +22,8 @@ import {
   PID_MDOC_NAMESPACE,
   PID_SD_JWT_CLAIMS,
   PID_SD_JWT_VCT,
-} from "./credential-definitions.js";
-import type { AppConfig, JsonRecord } from "./types.js";
+} from "../credentials/definitions.js";
+import type { AppConfig, JsonRecord } from "../types.js";
 
 export type CredentialFormat = "dc+sd-jwt" | "mso_mdoc";
 export type CredentialProofPolicy =

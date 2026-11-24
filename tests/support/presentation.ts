@@ -3,8 +3,8 @@ import type { Express } from "express";
 import { CompactEncrypt, type JWK, SignJWT, exportJWK, generateKeyPair, importJWK } from "jose";
 import request from "supertest";
 import { expect } from "vitest";
-import { PID_SD_JWT_VCT } from "../../src/credential-definitions.js";
-import { issueSdJwtCredential } from "../../src/credential.js";
+import { PID_SD_JWT_VCT } from "../../src/credentials/definitions.js";
+import { issueSdJwtCredential } from "../../src/credentials/signing.js";
 import type { AppConfig, JsonRecord } from "../../src/types.js";
 import type { TestKey } from "./keys.js";
 

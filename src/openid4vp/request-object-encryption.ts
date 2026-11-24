@@ -2,8 +2,8 @@ import {
   ECDH_ES_CONTENT_ENCRYPTION_ALGORITHMS,
   type EcdhEsContentEncryption,
   isEcdhEsContentEncryption,
-} from "./kms-encryption.js";
-import type { JsonRecord, RequestObjectEncryptionSource } from "./types.js";
+} from "../credo/kms-encryption.js";
+import type { JsonRecord, RequestObjectEncryptionSource } from "../types.js";
 
 const KEY_AGREEMENT_CURVES: Record<string, readonly string[]> = {
   EC: ["P-256", "P-384", "P-521"],

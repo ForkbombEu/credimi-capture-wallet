@@ -24,17 +24,17 @@ import {
   type OpenId4VciSignCredentials,
 } from "@credo-ts/openid4vc";
 import express, { type NextFunction, type Request, type Response } from "express";
-import { attestbookIntegration } from "./attestbook/integration.js";
-import { accessTokenPrivateJwkPath, privateJwkPath, validateIssuerMaterial } from "./config.js";
+import { attestbookIntegration } from "../attestbook/integration.js";
+import { accessTokenPrivateJwkPath, privateJwkPath, validateIssuerMaterial } from "../config.js";
 import {
   resolvedIssuerConfigurationById,
   resolvedIssuerConfigurations,
-} from "./configurations/registry.js";
-import { issuerAppConfig } from "./configurations/resolve-urls.js";
-import { pidFixtureIdOrNull, pidFixtureSubject } from "./configurations/shared/pid-fixtures.js";
-import type { ResolvedIssuerConfiguration } from "./configurations/types.js";
-import { DEGREE_SD_JWT_VCT, NUMERIC_SD_JWT_VCT } from "./credential-definitions.js";
-import { credentialRegistry } from "./credential-registry.js";
+} from "../configurations/registry.js";
+import { issuerAppConfig } from "../configurations/resolve-urls.js";
+import { pidFixtureIdOrNull, pidFixtureSubject } from "../configurations/shared/pid-fixtures.js";
+import type { ResolvedIssuerConfiguration } from "../configurations/types.js";
+import { DEGREE_SD_JWT_VCT, NUMERIC_SD_JWT_VCT } from "../credentials/definitions.js";
+import { credentialRegistry } from "../credentials/registry.js";
 import {
   degreeSdJwtCredentialSignOptions,
   domesticPidMdocCredentialSignOptions,
@@ -43,21 +43,19 @@ import {
   mdocCredentialSignOptions,
   numericSdJwtCredentialSignOptions,
   sdJwtCredentialSignOptions,
-} from "./credential.js";
-import { InMemoryStorageModule, NodeKmsBackend, nodeAgentDependencies } from "./credo-openid4vp.js";
-import { fakeOAuthServer } from "./fake-oauth-server.js";
-import { applyMdocStatusReferenceFixture } from "./malformed-mdoc-status.js";
+} from "../credentials/signing.js";
+import { applyRequestMutationEdits } from "../fcaf/request-mutation.js";
 import {
-  type SupportedCredential,
-  credentialConfigurationsSupported,
-  credentialIssuerMetadata,
-  isDomesticPidCredential,
-} from "./metadata.js";
-import { NotifyingIssuerService, parseNotificationRequest } from "./oid4vci-notification.js";
-import { captureProofHeaders, decodeDpopHeader, decodeJwtForEvidence } from "./proofs.js";
-import { applyRequestMutationEdits } from "./request-mutation.js";
-import { type CaptureStore, asStringOrNull } from "./state.js";
-import { allocateStatusListReference, statusListCredentialType } from "./status-list.js";
+  InMemoryStorageModule,
+  NodeKmsBackend,
+  nodeAgentDependencies,
+} from "../openid4vp/credo-verifier.js";
+import { type CaptureStore, asStringOrNull } from "../state.js";
+import {
+  allocateStatusListReference,
+  statusListCredentialType,
+} from "../status-list/allocation.js";
+import { applyMdocStatusReferenceFixture } from "../status-list/malformed-mdoc-status.js";
 import type {
   AppConfig,
   CredentialOfferMode,
@@ -67,7 +65,16 @@ import type {
   Oid4vciHttpRequestCapture,
   SessionCapture,
   VpRequestMutationEdits,
-} from "./types.js";
+} from "../types.js";
+import { fakeOAuthServer } from "./fake-oauth-server.js";
+import {
+  type SupportedCredential,
+  credentialConfigurationsSupported,
+  credentialIssuerMetadata,
+  isDomesticPidCredential,
+} from "./metadata.js";
+import { NotifyingIssuerService, parseNotificationRequest } from "./notification.js";
+import { captureProofHeaders, decodeDpopHeader, decodeJwtForEvidence } from "./proofs.js";
 
 const issuers = new WeakMap<CaptureStore, Promise<CredoOpenId4VciIssuer>>();
 

@@ -1,5 +1,5 @@
 import type { ResolvedIssuerConfiguration } from "./configurations/types.js";
-import type { SupportedCredential } from "./metadata.js";
+import type { SupportedCredential } from "./openid4vci/metadata.js";
 import type { JsonRecord, VpDcApiRequest } from "./types.js";
 
 const REPOSITORY_URL = "https://github.com/ForkbombEu/credimi-capture-wallet";

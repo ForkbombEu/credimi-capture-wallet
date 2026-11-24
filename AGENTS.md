@@ -72,36 +72,36 @@ If a required design decision, convention, or security policy is not evident fro
 
 ## Repository map
 
-- `src/server.ts`: Express routes for both the OpenID4VCI issuer and the OpenID4VP verifier (sessions, request URIs, responses, DC API), the UI routes and metadata/discovery endpoints.
-- `src/openid4vp.ts`: OpenID4VP session creation and request construction.
-- `src/credo-openid4vp.ts`: Credo-TS-backed OpenID4VP verification integration.
-- `src/credo-openid4vci.ts`: Credo-TS-backed OpenID4VCI issuer integration and credential-request mapping.
-- `src/request-behavior.ts`: verifier Request Object integrity and delivery fault-behaviour validation.
-- `src/request-certificates.ts`: verifier Request Object signing keys and X.509 certificate-chain fixtures.
-- `src/request-mutation.ts`: JSON Pointer mutations for delivered verifier requests and credential offers.
-- `src/request-object-encryption.ts`: wallet-metadata negotiation for encrypted verifier Request Objects.
-- `src/verifier-attestation.ts`: signed verifier-attestation creation and Client Identifier handling.
-- `src/response-scenario.ts`: validation for issuance and presentation response fault scenarios.
-- `src/json-pointer.ts`: RFC 6901 JSON Pointer parsing and document member operations.
-- `src/credential.ts`, `src/credential-definitions.ts`, `src/proofs.ts`: credential generation, supported credential definitions, and holder proof handling.
-- `src/oid4vci-capture.ts`: OpenID4VCI HTTP request and response evidence capture and redaction.
-- `src/oid4vci-notification.ts`: OpenID4VCI notification parsing and Credo-TS `notification_id` injection.
-- `src/credential-encryption.ts`: OpenID4VCI Credential Request/Response JWE validation and encryption.
-- `src/credential-registry.ts`: active static and Attestbook credential catalogues synchronized with Credo-TS.
-- `src/kms-encryption.ts`: Credo KMS-compatible ECDH-ES content-encryption primitives.
-- `src/eudi-key-attestation.ts`: Credo-TS issuer support for EUDI key-attested proof verification.
-- `src/digest-algorithm.ts`: supported and default SD-JWT digest-algorithm validation.
-- `src/metadata.ts`: issuer and authorization-server metadata.
+- `src/server/app.ts`: Express routes for both the OpenID4VCI issuer and the OpenID4VP verifier (sessions, request URIs, responses, DC API), the UI routes and metadata/discovery endpoints.
+- `src/openid4vp/authorization-request.ts`: OpenID4VP session creation and request construction.
+- `src/openid4vp/credo-verifier.ts`: Credo-TS-backed OpenID4VP verification integration.
+- `src/openid4vci/credo-issuer.ts`: Credo-TS-backed OpenID4VCI issuer integration and credential-request mapping.
+- `src/fcaf/request-behavior.ts`: verifier Request Object integrity and delivery fault-behaviour validation.
+- `src/openid4vp/request-certificates.ts`: verifier Request Object signing keys and X.509 certificate-chain fixtures.
+- `src/fcaf/request-mutation.ts`: JSON Pointer mutations for delivered verifier requests and credential offers.
+- `src/openid4vp/request-object-encryption.ts`: wallet-metadata negotiation for encrypted verifier Request Objects.
+- `src/openid4vp/verifier-attestation.ts`: signed verifier-attestation creation and Client Identifier handling.
+- `src/fcaf/response-scenario.ts`: validation for issuance and presentation response fault scenarios.
+- `src/fcaf/json-pointer.ts`: RFC 6901 JSON Pointer parsing and document member operations.
+- `src/credentials/signing.ts`, `src/credentials/definitions.ts`, `src/openid4vci/proofs.ts`: credential generation, supported credential definitions, and holder proof handling.
+- `src/openid4vci/http-capture.ts`: OpenID4VCI HTTP request and response evidence capture and redaction.
+- `src/openid4vci/notification.ts`: OpenID4VCI notification parsing and Credo-TS `notification_id` injection.
+- `src/openid4vci/credential-encryption.ts`: OpenID4VCI Credential Request/Response JWE validation and encryption.
+- `src/credentials/registry.ts`: active static and Attestbook credential catalogues synchronized with Credo-TS.
+- `src/credo/kms-encryption.ts`: Credo KMS-compatible ECDH-ES content-encryption primitives.
+- `src/openid4vci/key-attestation.ts`: Credo-TS issuer support for EUDI key-attested proof verification.
+- `src/credentials/digest-algorithm.ts`: supported and default SD-JWT digest-algorithm validation.
+- `src/openid4vci/metadata.ts`: issuer and authorization-server metadata.
 - `src/state.ts`: in-memory issuance and presentation session state plus captured evidence.
 - `src/config.ts`: service configuration and issuer/verifier key material.
-- `src/fake-oauth-server.ts`: test OAuth authorization server used by Credo-TS, including PKCE.
-- `src/client-attestation.ts`: OAuth client-attestation evidence capture for issuer requests.
+- `src/openid4vci/fake-oauth-server.ts`: test OAuth authorization server used by Credo-TS, including PKCE.
+- `src/openid4vci/client-attestation.ts`: OAuth client-attestation evidence capture for issuer requests.
 - `src/attestbook/`: Attestbook rulebook integration, credential imports, persistence, and webhooks.
 - `src/configurations/`: issuer configuration catalogue, URL resolution, registry, and validation.
 - `src/federation/`: OpenID Federation entity-configuration signing and registration data.
-- `src/status-list.ts`: Token Status List reference allocation and revocation.
-- `src/status-reference.ts`: valid and malformed Token Status List reference fixtures.
-- `src/malformed-mdoc-status.ts`: malformed mdoc Token Status List fixture generation.
+- `src/status-list/allocation.ts`: Token Status List reference allocation and revocation.
+- `src/status-list/reference-fixtures.ts`: valid and malformed Token Status List reference fixtures.
+- `src/status-list/malformed-mdoc-status.ts`: malformed mdoc Token Status List fixture generation.
 - `src/openapi.ts`: OpenAPI document and interactive API documentation page.
 - `src/cli.ts`: command-line entry point for service operation, federation exports, and Attestbook commands.
 - `src/ui.ts`: server-rendered operator UI.

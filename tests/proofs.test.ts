@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { captureProofHeaders, decodeJwtHeader, extractProofJwts } from "../src/proofs.js";
+import {
+  captureProofHeaders,
+  decodeJwtHeader,
+  extractProofJwts,
+} from "../src/openid4vci/proofs.js";
 import { unsignedJwt } from "./helpers.js";
 
 const walletJwk = {

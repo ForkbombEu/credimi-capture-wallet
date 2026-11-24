@@ -1,4 +1,4 @@
-import type { StatusReferenceFixture } from "./types.js";
+import type { StatusReferenceFixture } from "../types.js";
 
 /** Exhaustive over the union, so a new fixture cannot be added without exposing it here. */
 const FIXTURES: Record<StatusReferenceFixture, true> = {

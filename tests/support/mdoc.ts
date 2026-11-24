@@ -14,8 +14,8 @@ import { type KeyLike, exportJWK } from "jose";
 import request from "supertest";
 import { expect } from "vitest";
 import { issuerAppConfig } from "../../src/configurations/resolve-urls.js";
-import { PID_MDOC_DOCTYPE, PID_MDOC_NAMESPACE } from "../../src/credential-definitions.js";
-import { mdocCredentialConfigurationId } from "../../src/metadata.js";
+import { PID_MDOC_DOCTYPE, PID_MDOC_NAMESPACE } from "../../src/credentials/definitions.js";
+import { mdocCredentialConfigurationId } from "../../src/openid4vci/metadata.js";
 import type { AppConfig, JsonRecord } from "../../src/types.js";
 import {
   CONFORMING_ISSUER_ID,

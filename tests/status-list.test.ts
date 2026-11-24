@@ -4,7 +4,7 @@ import {
   allocateStatusListReference,
   revokeStatusListReference,
   statusListCredentialType,
-} from "../src/status-list.js";
+} from "../src/status-list/allocation.js";
 
 const config = {
   ...DEFAULT_CONFIG,

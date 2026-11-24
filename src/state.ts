@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { recordClientAuthentication } from "./client-attestation.js";
 import type { ResolvedIssuerConfiguration } from "./configurations/types.js";
-import { DEFAULT_SD_JWT_DIGEST_ALGORITHM } from "./digest-algorithm.js";
-import type { VpDeliveredRequestRecipe } from "./openid4vp.js";
+import { DEFAULT_SD_JWT_DIGEST_ALGORITHM } from "./credentials/digest-algorithm.js";
+import { recordClientAuthentication } from "./openid4vci/client-attestation.js";
+import type { VpDeliveredRequestRecipe } from "./openid4vp/authorization-request.js";
 import type {
   AppConfig,
   CaptureEvent,

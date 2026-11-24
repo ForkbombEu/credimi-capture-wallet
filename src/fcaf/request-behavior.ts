@@ -1,4 +1,4 @@
-import type { VpRequestBehavior, VpRequestUriResponseBehavior } from "./types.js";
+import type { VpRequestBehavior, VpRequestUriResponseBehavior } from "../types.js";
 
 /**
  * Replaces the signature of an already signed Request Object with one that cannot verify, keeping

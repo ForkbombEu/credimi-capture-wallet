@@ -11,7 +11,7 @@ import {
   credentialResponseEncryption,
   decryptCredentialRequest,
   encryptCredentialResponse,
-} from "../src/credential-encryption.js";
+} from "../src/openid4vci/credential-encryption.js";
 import type { AppConfig, JsonRecord } from "../src/types.js";
 import {
   CONFORMING_ISSUER_ID,

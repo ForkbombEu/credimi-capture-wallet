@@ -5,7 +5,7 @@ import {
   isDcApiResponseMode,
   isEncryptedResponseMode,
   isOpenId4VpResponseMode,
-} from "../../src/openid4vp.js";
+} from "../../src/openid4vp/authorization-request.js";
 import type { JsonRecord } from "../../src/types.js";
 
 /**

@@ -57,8 +57,22 @@ import {
   verifierDidDocument,
   verifierDidPrivateJwkPath,
   verifierPrivateJwkPath,
-} from "./config.js";
-import { ecdhEsEncrypt, isEcdhEsContentEncryption } from "./kms-encryption.js";
+} from "../config.js";
+import { ecdhEsEncrypt, isEcdhEsContentEncryption } from "../credo/kms-encryption.js";
+import { corruptJwsSignature } from "../fcaf/request-behavior.js";
+import { applyRequestMutationEdits } from "../fcaf/request-mutation.js";
+import type {
+  AppConfig,
+  JsonRecord,
+  OpenId4VpResponseMode,
+  RequestSigningMaterial,
+  VpDcApiRequest,
+  VpRequestBehavior,
+  VpRequestDelivery,
+  VpRequestMutation,
+  VpSessionCapture,
+  VpVerifierAttestation,
+} from "../types.js";
 import {
   type OpenId4VpClientIdScheme,
   type VpDeliveredRequestRecipe,
@@ -72,23 +86,9 @@ import {
   verifierClientIdentifiers,
   verifierOrigin,
   vpRequestUri,
-} from "./openid4vp.js";
-import { corruptJwsSignature } from "./request-behavior.js";
+} from "./authorization-request.js";
 import { x509HashClientId } from "./request-certificates.js";
-import { applyRequestMutationEdits } from "./request-mutation.js";
 import type { RequestObjectEncryption } from "./request-object-encryption.js";
-import type {
-  AppConfig,
-  JsonRecord,
-  OpenId4VpResponseMode,
-  RequestSigningMaterial,
-  VpDcApiRequest,
-  VpRequestBehavior,
-  VpRequestDelivery,
-  VpRequestMutation,
-  VpSessionCapture,
-  VpVerifierAttestation,
-} from "./types.js";
 import {
   createVerifierAttestation,
   resolveVerifierAttestation,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CONFIG } from "../src/config.js";
-import { toJsonSafe, trustedIssuerForX509Credential } from "../src/credo-openid4vp.js";
+import { toJsonSafe, trustedIssuerForX509Credential } from "../src/openid4vp/credo-verifier.js";
 
 describe("Credo OpenID4VP decoded presentation helpers", () => {
   it("uses dedicated status certificates without changing credential issuer trust", () => {

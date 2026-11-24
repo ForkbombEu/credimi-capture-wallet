@@ -19,9 +19,9 @@ import {
   allResolvedIssuerConfigurations,
   resolvedIssuerConfigurations,
 } from "./configurations/registry.js";
-import { credoOpenId4VciIssuer } from "./credo-openid4vci.js";
 import { issuerFederationRegistration } from "./federation/registration.js";
-import { createApp } from "./server.js";
+import { credoOpenId4VciIssuer } from "./openid4vci/credo-issuer.js";
+import { createApp } from "./server/app.js";
 import { CaptureStore } from "./state.js";
 import type { AppConfig, JsonRecord } from "./types.js";
 

@@ -38,13 +38,13 @@ import {
   resolvedIssuerConfigurations,
 } from "../src/configurations/registry.js";
 import { issuerAppConfig } from "../src/configurations/resolve-urls.js";
-import { issueSdJwtCredential } from "../src/credential.js";
+import { issueSdJwtCredential } from "../src/credentials/signing.js";
 import {
   ENTITY_STATEMENT_MEDIA_TYPE,
   signIssuerEntityConfiguration,
 } from "../src/federation/entity-configuration.js";
 import { issuerFederationRegistration } from "../src/federation/registration.js";
-import { createApp } from "../src/server.js";
+import { createApp } from "../src/server/app.js";
 import type { AppConfig, JsonRecord } from "../src/types.js";
 
 const TRUST_ANCHOR = "https://federation.test.example";

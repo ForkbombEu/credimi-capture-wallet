@@ -1,4 +1,4 @@
-import type { SdJwtDigestAlgorithm } from "./types.js";
+import type { SdJwtDigestAlgorithm } from "../types.js";
 
 /** Exhaustive over the union, so a new algorithm cannot be added without exposing it here. */
 const DIGEST_ALGORITHMS: Record<SdJwtDigestAlgorithm, true> = {

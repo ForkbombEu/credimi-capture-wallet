@@ -8,8 +8,11 @@ import {
   CredentialRegistry,
   type ImportedCatalogue,
   type IssuerRecordSynchronizer,
-} from "../src/credential-registry.js";
-import { type SupportedCredential, supportedCredentialsForIssuer } from "../src/metadata.js";
+} from "../src/credentials/registry.js";
+import {
+  type SupportedCredential,
+  supportedCredentialsForIssuer,
+} from "../src/openid4vci/metadata.js";
 import {
   type IssuerTestEnvironment,
   createIssuerTestEnvironment,

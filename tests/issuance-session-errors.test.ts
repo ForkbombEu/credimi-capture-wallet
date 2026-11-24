@@ -3,12 +3,15 @@ import request from "supertest";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { attestbookIntegration } from "../src/attestbook/integration.js";
 import { PID_FIXTURE_IDS } from "../src/configurations/shared/pid-fixtures.js";
-import { credentialRegistry } from "../src/credential-registry.js";
-import { credoOpenId4VciIssuer } from "../src/credo-openid4vci.js";
-import { mdocCredentialConfigurationId, supportedCredentialsForIssuer } from "../src/metadata.js";
-import { createApp } from "../src/server.js";
+import { credentialRegistry } from "../src/credentials/registry.js";
+import { credoOpenId4VciIssuer } from "../src/openid4vci/credo-issuer.js";
+import {
+  mdocCredentialConfigurationId,
+  supportedCredentialsForIssuer,
+} from "../src/openid4vci/metadata.js";
+import { createApp } from "../src/server/app.js";
 import { CaptureStore } from "../src/state.js";
-import { STATUS_REFERENCE_FIXTURES } from "../src/status-reference.js";
+import { STATUS_REFERENCE_FIXTURES } from "../src/status-list/reference-fixtures.js";
 import { AttestbookFixture } from "./attestbook-fixture.js";
 import {
   createIssuerTestEnvironment,

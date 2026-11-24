@@ -6,7 +6,7 @@ import type {
   Oid4vciHttpRequestCapture,
   RawHttpBody,
   RawHttpHeader,
-} from "./types.js";
+} from "../types.js";
 
 const SENSITIVE_HEADERS = new Set([
   "authorization",

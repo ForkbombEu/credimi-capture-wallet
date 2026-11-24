@@ -7,13 +7,13 @@ import {
   verifierCaCertificatePath,
   verifierCertificatePath,
   verifierPrivateJwkPath,
-} from "./config.js";
+} from "../config.js";
 import type {
   AppConfig,
   JsonRecord,
   RequestCertificateFixture,
   RequestSigningMaterial,
-} from "./types.js";
+} from "../types.js";
 
 const FIXTURE_VALIDITY = {
   notBefore: new Date("2024-01-01T00:00:00Z"),

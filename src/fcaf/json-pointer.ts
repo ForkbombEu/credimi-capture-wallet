@@ -1,4 +1,4 @@
-import type { JsonRecord } from "./types.js";
+import type { JsonRecord } from "../types.js";
 
 type JsonContainer = JsonRecord | unknown[];
 

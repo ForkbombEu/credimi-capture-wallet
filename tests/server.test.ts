@@ -62,23 +62,24 @@ import {
   PID_MDOC_DOCTYPE,
   PID_MDOC_NAMESPACE,
   PID_SD_JWT_VCT,
-} from "../src/credential-definitions.js";
-import { issueSdJwtCredential } from "../src/credential.js";
+} from "../src/credentials/definitions.js";
+import { issueSdJwtCredential } from "../src/credentials/signing.js";
 import {
   degreeSdJwtCredentialConfigurationId,
   domesticPidCredentialConfigurationId,
   mdocCredentialConfigurationId,
   numericSdJwtCredentialConfigurationId,
   sdJwtCredentialConfigurationId,
-} from "../src/metadata.js";
-import { createApp } from "../src/server.js";
+} from "../src/openid4vci/metadata.js";
+import { createApp } from "../src/server/app.js";
 import { CaptureStore } from "../src/state.js";
 import type { JsonRecord, Oid4vciHttpRequestCapture, SessionCapture } from "../src/types.js";
 import { unsignedJwt } from "./helpers.js";
 
 const credentialEncryptionTestState = vi.hoisted(() => ({ responseDelayMs: 0 }));
-vi.mock("../src/credential-encryption.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/credential-encryption.js")>();
+vi.mock("../src/openid4vci/credential-encryption.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../src/openid4vci/credential-encryption.js")>();
   return {
     ...actual,
     encryptCredentialResponse: async (

@@ -16,8 +16,8 @@ import {
   PID_MDOC_NAMESPACE,
   PID_SD_JWT_CLAIMS,
   PID_SD_JWT_VCT,
-} from "../src/credential-definitions.js";
-import { CREDIMI_LOGO_URL } from "../src/credential.js";
+} from "../src/credentials/definitions.js";
+import { CREDIMI_LOGO_URL } from "../src/credentials/signing.js";
 import {
   credentialIssuerMetadata,
   degreeSdJwtCredentialConfigurationId,
@@ -26,7 +26,7 @@ import {
   mdocCredentialConfigurationId,
   numericSdJwtCredentialConfigurationId,
   sdJwtCredentialConfigurationId,
-} from "../src/metadata.js";
+} from "../src/openid4vci/metadata.js";
 import type { JsonRecord } from "../src/types.js";
 
 describe("metadata", () => {

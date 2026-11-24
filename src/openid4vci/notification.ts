@@ -4,8 +4,8 @@ import type {
   OpenId4VciCreateCredentialResponseOptions,
 } from "@credo-ts/openid4vc";
 import type { CredentialResponse, NotificationEvent } from "@openid4vc/openid4vci";
-import { EudiKeyAttestationIssuerService } from "./eudi-key-attestation.js";
-import type { CredentialNotificationEvent } from "./types.js";
+import type { CredentialNotificationEvent } from "../types.js";
+import { EudiKeyAttestationIssuerService } from "./key-attestation.js";
 
 /** OpenID4VCI 1.0 Section 11.1: the exact, case-sensitive `event` values. */
 const NOTIFICATION_EVENTS = [

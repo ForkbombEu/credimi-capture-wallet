@@ -11,8 +11,8 @@ import {
   generateKeyPair,
   importJWK,
 } from "jose";
-import { loadIssuerEncryptionPrivateJwk, loadIssuerEncryptionPublicJwk } from "./config.js";
-import type { AppConfig, JsonRecord } from "./types.js";
+import { loadIssuerEncryptionPrivateJwk, loadIssuerEncryptionPublicJwk } from "../config.js";
+import type { AppConfig, JsonRecord } from "../types.js";
 
 const CREDENTIAL_JWE_ALG = "ECDH-ES";
 const CREDENTIAL_JWE_ENC = "A256GCM";

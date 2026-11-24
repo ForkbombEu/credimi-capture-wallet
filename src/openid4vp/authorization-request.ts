@@ -10,22 +10,22 @@ import {
   verifierDid,
   verifierDidPrivateJwkPath,
   verifierPrivateJwkPath,
-} from "./config.js";
-import { PID_MDOC_DOCTYPE, PID_SD_JWT_VCT } from "./credential-definitions.js";
+} from "../config.js";
+import { PID_MDOC_DOCTYPE, PID_SD_JWT_VCT } from "../credentials/definitions.js";
+import { applyRequestMutationEdits } from "../fcaf/request-mutation.js";
 import {
   type SupportedCredential,
   supportedCredentialById,
   supportedCredentials,
-} from "./metadata.js";
-import { x509HashClientId } from "./request-certificates.js";
-import { applyRequestMutationEdits } from "./request-mutation.js";
+} from "../openid4vci/metadata.js";
 import type {
   AppConfig,
   JsonRecord,
   OpenId4VpResponseMode,
   RequestSigningMaterial,
   VpRequestMutationEdits,
-} from "./types.js";
+} from "../types.js";
+import { x509HashClientId } from "./request-certificates.js";
 
 /**
  * How long a DC API session stays presentable. The browser invocation is user-driven and cannot be
@@ -33,7 +33,7 @@ import type {
  */
 const DC_API_PRESENTATION_TTL_SECONDS = 600;
 
-export type { OpenId4VpResponseMode } from "./types.js";
+export type { OpenId4VpResponseMode } from "../types.js";
 export type OpenId4VpClientIdScheme =
   | "x509_hash"
   | "x509_san_dns"

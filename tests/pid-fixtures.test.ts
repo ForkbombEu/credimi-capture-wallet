@@ -7,8 +7,11 @@ import { DEFAULT_CONFIG, createIssuerSigningContext, initIssuer } from "../src/c
 import { resolvedIssuerConfigurationById } from "../src/configurations/registry.js";
 import { issuerAppConfig } from "../src/configurations/resolve-urls.js";
 import { PID_FIXTURE_IDS, pidFixtureSubject } from "../src/configurations/shared/pid-fixtures.js";
-import { PID_MDOC_NAMESPACE } from "../src/credential-definitions.js";
-import { mdocCredentialSignOptions, sdJwtCredentialSignOptions } from "../src/credential.js";
+import { PID_MDOC_NAMESPACE } from "../src/credentials/definitions.js";
+import {
+  mdocCredentialSignOptions,
+  sdJwtCredentialSignOptions,
+} from "../src/credentials/signing.js";
 import type { AppConfig, JsonRecord } from "../src/types.js";
 
 const holderJwk: JsonRecord = {

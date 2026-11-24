@@ -1,5 +1,5 @@
+import type { JsonRecord, VpRequestMutation, VpRequestMutationEdits } from "../types.js";
 import { isJsonPointer, setJsonPointer, unsetJsonPointer } from "./json-pointer.js";
-import type { JsonRecord, VpRequestMutation, VpRequestMutationEdits } from "./types.js";
 
 const MUTATION_TARGETS = ["outer_request", "request_object", "request_object_header"] as const;
 

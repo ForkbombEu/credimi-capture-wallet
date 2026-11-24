@@ -29,8 +29,8 @@ import {
 import {
   mdocCredentialConfigurationId,
   numericSdJwtCredentialConfigurationId,
-} from "../src/metadata.js";
-import { createApp } from "../src/server.js";
+} from "../src/openid4vci/metadata.js";
+import { createApp } from "../src/server/app.js";
 import type { AppConfig, JsonRecord, SessionCapture } from "../src/types.js";
 
 const dataDir = mkdtempSync(join(tmpdir(), "notification-test-"));

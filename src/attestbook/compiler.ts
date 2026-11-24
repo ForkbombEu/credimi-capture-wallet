@@ -1,4 +1,4 @@
-import type { CredentialProofPolicy } from "../metadata.js";
+import type { CredentialProofPolicy } from "../openid4vci/metadata.js";
 import { compileJsonSchema } from "./json-schema.js";
 import {
   SD_JWT_VC_FORMAT,

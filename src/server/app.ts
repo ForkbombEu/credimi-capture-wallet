@@ -2,55 +2,56 @@ import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import express, { type NextFunction, type Request, type Response } from "express";
 import QRCode from "qrcode";
-import { sha256Hex } from "./attestbook/digest.js";
-import { attestbookIntegration } from "./attestbook/integration.js";
-import type { AttestbookCredentialDefinition } from "./attestbook/types.js";
-import { WEBHOOK_MAX_BODY_BYTES, WEBHOOK_PATH } from "./attestbook/webhook.js";
+import { sha256Hex } from "../attestbook/digest.js";
+import { attestbookIntegration } from "../attestbook/integration.js";
+import type { AttestbookCredentialDefinition } from "../attestbook/types.js";
+import { WEBHOOK_MAX_BODY_BYTES, WEBHOOK_PATH } from "../attestbook/webhook.js";
 import {
   loadIssuerJwks,
   validateIssuerMaterial,
   verifierAttestationIssuerPublicJwk,
   verifierCaCertificatePath,
   verifierDidDocument,
-} from "./config.js";
+} from "../config.js";
 import {
   DEFAULT_ISSUER_CONFIGURATION_ID,
   issuerCatalogue,
   resolvedIssuerConfigurationById,
   resolvedIssuerConfigurations,
-} from "./configurations/registry.js";
-import { issuerAppConfig } from "./configurations/resolve-urls.js";
-import { PID_FIXTURE_IDS, pidFixtureIdOrNull } from "./configurations/shared/pid-fixtures.js";
-import type { ResolvedIssuerConfiguration } from "./configurations/types.js";
+} from "../configurations/registry.js";
+import { issuerAppConfig } from "../configurations/resolve-urls.js";
+import { PID_FIXTURE_IDS, pidFixtureIdOrNull } from "../configurations/shared/pid-fixtures.js";
+import type { ResolvedIssuerConfiguration } from "../configurations/types.js";
+import {
+  DEFAULT_SD_JWT_DIGEST_ALGORITHM,
+  SD_JWT_DIGEST_ALGORITHMS,
+  sdJwtDigestAlgorithmOrNull,
+} from "../credentials/digest-algorithm.js";
+import { type CredentialRegistry, credentialRegistry } from "../credentials/registry.js";
+import { unsetJsonPointer } from "../fcaf/json-pointer.js";
+import { corruptJwsSignature, requestBehaviorOrNull } from "../fcaf/request-behavior.js";
+import {
+  offerMutationOrNull,
+  requestMutationOrNull,
+  requestMutationPointers,
+} from "../fcaf/request-mutation.js";
+import {
+  issuanceResponseScenarioOrNull,
+  responseScenarioOrNull,
+} from "../fcaf/response-scenario.js";
+import {
+  ENTITY_STATEMENT_MEDIA_TYPE,
+  signIssuerEntityConfiguration,
+} from "../federation/entity-configuration.js";
+import { apiDocsPage, openApiDocument } from "../openapi.js";
 import {
   CredentialEncryptionError,
   credentialResponseEncryption,
   decryptCredentialRequest,
   encryptCredentialResponse,
-} from "./credential-encryption.js";
-import { type CredentialRegistry, credentialRegistry } from "./credential-registry.js";
-import { credoOpenId4VciIssuer } from "./credo-openid4vci.js";
-import {
-  ClientMetadataError,
-  ResponseModeError,
-  credoOpenId4VpVerifier,
-} from "./credo-openid4vp.js";
-import {
-  DEFAULT_SD_JWT_DIGEST_ALGORITHM,
-  SD_JWT_DIGEST_ALGORITHMS,
-  sdJwtDigestAlgorithmOrNull,
-} from "./digest-algorithm.js";
-import { registerFakeOAuthServer } from "./fake-oauth-server.js";
-import {
-  ENTITY_STATEMENT_MEDIA_TYPE,
-  signIssuerEntityConfiguration,
-} from "./federation/entity-configuration.js";
-import { unsetJsonPointer } from "./json-pointer.js";
-import {
-  jwtVcIssuerMetadata,
-  signCredentialIssuerMetadata,
-  supportedCredentialConfigurationIds,
-} from "./metadata.js";
+} from "../openid4vci/credential-encryption.js";
+import { credoOpenId4VciIssuer } from "../openid4vci/credo-issuer.js";
+import { registerFakeOAuthServer } from "../openid4vci/fake-oauth-server.js";
 import {
   completeOid4vciRequestCapture,
   createOid4vciRequestCaptures,
@@ -60,8 +61,16 @@ import {
   redactHttpHeaders,
   redactOid4vciValue,
   responseBodyEvidence,
-} from "./oid4vci-capture.js";
-import { apiDocsPage, openApiDocument } from "./openapi.js";
+} from "../openid4vci/http-capture.js";
+import {
+  jwtVcIssuerMetadata,
+  signCredentialIssuerMetadata,
+  supportedCredentialConfigurationIds,
+} from "../openid4vci/metadata.js";
+import {
+  credentialRequestProofNonces,
+  credentialRequestProofsCapture,
+} from "../openid4vci/proofs.js";
 import {
   OPENID4VP_RESPONSE_MODE_VALUES,
   type OpenId4VpClientIdScheme,
@@ -75,24 +84,25 @@ import {
   isOpenId4VpResponseMode,
   signPresentationAuthorizationRequest,
   verifierClientIdentifiers,
-} from "./openid4vp.js";
-import { credentialRequestProofNonces, credentialRequestProofsCapture } from "./proofs.js";
-import { corruptJwsSignature, requestBehaviorOrNull } from "./request-behavior.js";
+} from "../openid4vp/authorization-request.js";
+import {
+  ClientMetadataError,
+  ResponseModeError,
+  credoOpenId4VpVerifier,
+} from "../openid4vp/credo-verifier.js";
 import {
   generateRequestCertificateMaterial,
   generateUnrelatedSigningKey,
   verifierChainWithTrustAnchor,
-} from "./request-certificates.js";
+} from "../openid4vp/request-certificates.js";
+import { negotiateRequestObjectEncryption } from "../openid4vp/request-object-encryption.js";
+import { RESPONSE_URI_PLACEHOLDER } from "../openid4vp/verifier-attestation.js";
+import { CaptureStore, asStringOrNull } from "../state.js";
+import { revokeStatusListReference } from "../status-list/allocation.js";
 import {
-  offerMutationOrNull,
-  requestMutationOrNull,
-  requestMutationPointers,
-} from "./request-mutation.js";
-import { negotiateRequestObjectEncryption } from "./request-object-encryption.js";
-import { issuanceResponseScenarioOrNull, responseScenarioOrNull } from "./response-scenario.js";
-import { CaptureStore, asStringOrNull } from "./state.js";
-import { revokeStatusListReference } from "./status-list.js";
-import { STATUS_REFERENCE_FIXTURES, statusReferenceFixtureOrNull } from "./status-reference.js";
+  STATUS_REFERENCE_FIXTURES,
+  statusReferenceFixtureOrNull,
+} from "../status-list/reference-fixtures.js";
 import type {
   AppConfig,
   CredentialOfferMode,
@@ -119,7 +129,7 @@ import type {
   VpResponseScenario,
   VpSessionCapture,
   VpVerifierAttestation,
-} from "./types.js";
+} from "../types.js";
 import {
   type IssuerCredentialGroup,
   VERIFIER_PAGE_PATH,
@@ -133,8 +143,7 @@ import {
   verifierPage,
   vpRedirectPage,
   vpSessionPage,
-} from "./ui.js";
-import { RESPONSE_URI_PLACEHOLDER } from "./verifier-attestation.js";
+} from "../ui.js";
 
 export function createApp(config: AppConfig, store = new CaptureStore(config)): express.Express {
   if (config.federation.enabled) validateIssuerMaterial(config);

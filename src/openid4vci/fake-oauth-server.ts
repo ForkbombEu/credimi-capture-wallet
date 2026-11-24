@@ -1,9 +1,9 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { Express, Request as ExpressRequest, Response as ExpressResponse } from "express";
-import { resolvedIssuerConfigurations } from "./configurations/registry.js";
-import type { ResolvedIssuerConfiguration } from "./configurations/types.js";
-import type { CaptureStore } from "./state.js";
-import type { AppConfig, JsonRecord } from "./types.js";
+import { resolvedIssuerConfigurations } from "../configurations/registry.js";
+import type { ResolvedIssuerConfiguration } from "../configurations/types.js";
+import type { CaptureStore } from "../state.js";
+import type { AppConfig, JsonRecord } from "../types.js";
 
 const FAKE_OAUTH_CLIENT_ID_PREFIX = "credimi-capture-wallet";
 // Public test credential used only between Credo and this non-production server.

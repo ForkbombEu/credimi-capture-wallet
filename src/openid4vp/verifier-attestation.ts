@@ -6,9 +6,9 @@ import {
   verifierAttestationIssuerPrivateJwkPath,
   verifierAttestationSubject,
   verifierJwksPath,
-} from "./config.js";
-import { corruptJwsSignature } from "./request-behavior.js";
-import type { AppConfig, JsonRecord, VpVerifierAttestation } from "./types.js";
+} from "../config.js";
+import { corruptJwsSignature } from "../fcaf/request-behavior.js";
+import type { AppConfig, JsonRecord, VpVerifierAttestation } from "../types.js";
 
 /** Section 5.10: the attestation is short-lived, since a wallet checks it at request time. */
 const ATTESTATION_LIFETIME_SECONDS = 300;
