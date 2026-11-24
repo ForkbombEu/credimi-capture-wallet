@@ -72,52 +72,39 @@ If a required design decision, convention, or security policy is not evident fro
 
 ## Repository map
 
-- `src/server/app.ts`: Express composition root: parser/capture middleware, fake OAuth server, ordered route registrations, unmatched 404 and error handling.
+- `src/cli.ts`, `src/cli/`: package `bin` entry point and command handling for service operation, federation exports, and Attestbook commands.
+- `src/config/`: service defaults, environment and URL parsing, config-file loading, path helpers, verifier identity, and issuer/verifier key material.
+- `src/configurations/`: issuer-configuration catalogue, URL resolution, registry, and validation.
+- `src/credentials/`: credential definitions, signing, digest algorithms, and the static and Attestbook credential registries.
+- `src/credo/`: shared Credo-TS agent runtime, in-memory storage, KMS, and encryption primitives.
+- `src/openid4vci/`: OpenID4VCI issuer integration, metadata, proofs, credential mapping and encryption, notifications, HTTP evidence, attestations, and the test OAuth server.
+- `src/openid4vp/`: OpenID4VP request construction, verifier integration, presentation decoding, request signing certificates, encryption negotiation, and verifier attestations.
+- `src/server/app.ts`: Express composition root with parser/capture middleware, fake OAuth server, ordered route registrations, unmatched 404, and error handling.
 - `src/server/context.ts`: per-request OpenID4VCI capture context and issuance response-scenario seam shared by route groups.
-- `src/server/issuance-session.ts`: issuance-session creation and credential supersession guard used by issuance/UI routes.
-- `src/server/presentation-session.ts`: OpenID4VP session creation, request signing material, and redirect helpers.
-- `src/server/routes/`: cohesive direct app registrations for public/UI, discovery and issuer metadata, issuance, OpenID4VP sessions/requests/responses, credential/notification and protocol forwarding.
-- `src/openid4vp/authorization-request.ts`: OpenID4VP session creation and request construction.
-- `src/openid4vp/credo-verifier.ts`: Credo-TS-backed OpenID4VP verification integration.
-- `src/openid4vci/credo-issuer.ts`: Credo-TS-backed OpenID4VCI issuer integration and credential-request mapping.
-- `src/fcaf/request-behavior.ts`: verifier Request Object integrity and delivery fault-behaviour validation.
-- `src/openid4vp/request-certificates.ts`: verifier Request Object signing keys and X.509 certificate-chain fixtures.
-- `src/fcaf/request-mutation.ts`: JSON Pointer mutations for delivered verifier requests and credential offers.
-- `src/openid4vp/request-object-encryption.ts`: wallet-metadata negotiation for encrypted verifier Request Objects.
-- `src/openid4vp/verifier-attestation.ts`: signed verifier-attestation creation and Client Identifier handling.
-- `src/fcaf/response-scenario.ts`: validation for issuance and presentation response fault scenarios.
-- `src/fcaf/json-pointer.ts`: RFC 6901 JSON Pointer parsing and document member operations.
-- `src/credentials/signing.ts`, `src/credentials/definitions.ts`, `src/openid4vci/proofs.ts`: credential generation, supported credential definitions, and holder proof handling.
-- `src/credentials/catalogue.ts`: static supported-credential catalogue, configuration ids, and claim-path helpers.
-- `src/openid4vci/http-capture.ts`: OpenID4VCI HTTP request and response evidence capture and redaction.
-- `src/openid4vci/notification.ts`: OpenID4VCI notification parsing and Credo-TS `notification_id` injection.
-- `src/openid4vci/credential-encryption.ts`: OpenID4VCI Credential Request/Response JWE validation and encryption.
-- `src/credentials/registry.ts`: active static and Attestbook credential catalogues synchronized with Credo-TS.
-- `src/credo/kms-encryption.ts`: Credo KMS-compatible ECDH-ES content-encryption primitives.
-- `src/openid4vci/key-attestation.ts`: Credo-TS issuer support for EUDI key-attested proof verification.
-- `src/credentials/digest-algorithm.ts`: supported and default SD-JWT digest-algorithm validation.
-- `src/openid4vci/metadata.ts`: issuer and authorization-server metadata output.
-- `src/state.ts`: in-memory issuance and presentation session state plus captured evidence.
-- `src/config/defaults.ts`: default service configuration and URL normalization.
-- `src/config/paths.ts`: configuration, issuer, and verifier material paths.
-- `src/config/verifier-identity.ts`: verifier key ids, DID, and attestation identity.
-- `src/config/environment.ts`: environment and listen-address parsing.
-- `src/config/load.ts`: config.yaml loading and hand-written format helpers.
-- `src/config/key-material.ts`: issuer/verifier key and certificate generation, loading, validation, and signing contexts.
-- `src/openid4vci/fake-oauth-server.ts`: test OAuth authorization server used by Credo-TS, including PKCE.
-- `src/openid4vci/client-attestation.ts`: OAuth client-attestation evidence capture for issuer requests.
-- `src/attestbook/`: Attestbook rulebook integration, credential imports, persistence, and webhooks.
-- `src/configurations/`: issuer configuration catalogue, URL resolution, registry, and validation.
+- `src/server/`: issuance and presentation session creation and input parsing, credential supersession guard, credential endpoint, request URI, redirect, and presentation-submission helpers.
+- `src/server/routes/`: direct app registrations for public/UI, discovery and issuer metadata, issuance, OpenID4VP sessions/requests/responses, credential/notification, and protocol forwarding.
+- `src/openapi/`: OpenAPI document assembly, shared schemas/helpers, route path descriptions, and interactive documentation.
+- `src/ui/`: server-rendered operator UI pages, styles, scripts, and page-family helpers.
+- `src/attestbook/`: Attestbook rulebook integration, credential imports, persistence, synchronization, and webhooks.
+- `src/status-list/`: Token Status List allocation, revocation, and valid or malformed reference fixtures.
+- `src/fcaf/`: conformance fault-behaviour validation, JSON Pointer parsing/mutation, and response-scenario machinery.
 - `src/federation/`: OpenID Federation entity-configuration signing and registration data.
-- `src/status-list/allocation.ts`: Token Status List reference allocation and revocation.
-- `src/status-list/reference-fixtures.ts`: valid and malformed Token Status List reference fixtures.
-- `src/status-list/malformed-mdoc-status.ts`: malformed mdoc Token Status List fixture generation.
-- `src/openapi/`: OpenAPI document assembly (`document.ts`), shared helpers (`common.ts`), component schemas (`components.ts`), concern-based `paths-*.ts`, and the interactive docs page (`docs-page.ts`).
-- `src/cli.ts`: package.json `"bin"` entry point.
-- `src/cli/commands.ts`: command-line argument parsing and command handling for service operation, federation exports and Attestbook commands.
-- `src/ui/`: server-rendered operator UI page families (`html`, `launcher`, `issuer`, `verifier`, `session`, `markdown`, `styles`, `scripts`).
-- `tests/`: Vitest coverage for protocol routes, Credo-TS integration, metadata, proofs, configuration, and validation.
-- `README.md`: public API and runtime documentation; update it when a public contract changes.
+- `src/shared/`: cross-domain errors and JSON guards (type-only dependency on `src/types.ts`).
+- `src/design/`: UI design source `style.css` and logo assets.
+- `src/state.ts`: in-memory issuance and presentation session state, captured evidence, and events.
+- `src/types.ts`: shared persisted capture, evidence, and application-configuration types.
+- `tests/`: Vitest suites for protocol routes, Credo-TS integration, metadata, credentials, configuration, and validation.
+- `tests/support/`: isolated test environments and reusable HTTP, key, issuance, presentation, and mdoc helpers.
+
+## Architecture boundaries
+
+The `server` layer composes HTTP routes and depends on domain modules; domain modules depend on
+`credo` and `shared` as appropriate. `shared` depends only on type declarations in `src/types.ts`
+and imports nothing else from the application. The dependency graph has no import cycles;
+`task analyze:check` enforces this (`task analyze:cycles` only reports).
+
+Static-analysis commands are `task analyze` for measurements and `task analyze:check` for the Q-01
+regression gate.
 
 ## Protocol and security rules
 
