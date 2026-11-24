@@ -60,6 +60,19 @@ describe("JSON Pointer member addressing", () => {
 
     expect(document.keys).toEqual([{ kid: "one", alg: "ECDH-ES" }, { kid: "three" }]);
   });
+  it("overwrites an existing array member", () => {
+    const document: JsonRecord = { keys: [{ kid: "one" }, { kid: "two" }] };
+
+    setJsonPointer(document, "/keys/1", { kid: "updated" });
+
+    expect(document.keys).toEqual([{ kid: "one" }, { kid: "updated" }]);
+  });
+
+  it("rejects a non-index array member", () => {
+    expect(() => setJsonPointer({ keys: [] }, "/keys/x", "value")).toThrow(
+      "JSON Pointer array member 'x' is not an index",
+    );
+  });
 
   it("creates missing intermediate objects when setting", () => {
     const document: JsonRecord = {};

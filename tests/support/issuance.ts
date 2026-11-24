@@ -108,7 +108,7 @@ export async function credentialProofJwt(
     .sign(key.privateKey);
 }
 
-async function keyAttestationJwt(
+export async function keyAttestationJwt(
   issuerConfig: AppConfig,
   key: TestKey,
   nonce: string,
