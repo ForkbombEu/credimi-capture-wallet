@@ -400,8 +400,10 @@ codes/descriptions, response structures, evidence fields and ordering as the cod
   `PresentationParameterValues`, `VerifierCredentialGroup`; `tests/attestbook-fixture.ts` `sri`;
   unexported-type candidates in `configurations/types.ts`, `attestbook/types.ts`, `pid-data.ts`,
   `attestbook/integration.ts`.
-- Keep everything tests import. Acceptance: Knip unused-export list contains only test-consumed
-  symbols or documented exceptions.
+- Keep everything tests import — re-check Knip and test imports at task time, because Phase 2 suites
+  added consumers (e.g. `CatalogueConflictError` is now asserted by `tests/credential-registry.test.ts`;
+  `credential-encryption.ts` exports may be used by `tests/credential-encryption.test.ts`).
+  Acceptance: Knip unused-export list contains only test-consumed symbols or documented exceptions.
 
 #### D-05 · Remove `openid4vp-validation.ts` (Decision 1 approved)
 - Preconditions: T-05 landed; no production/dynamic/external consumer (grep src, tests, docs,
