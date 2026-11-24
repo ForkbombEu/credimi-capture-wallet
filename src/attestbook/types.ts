@@ -1,4 +1,11 @@
-import type { CredentialProofPolicy } from "../openid4vci/metadata.js";
+import type { CredentialProofPolicy } from "../types.js";
+
+export interface AttestbookIssuerSummary {
+  readonly syncState: string;
+  readonly activeVersion: string | null;
+  readonly activeContentDigest: string | null;
+  readonly failureStage: string | null;
+}
 
 /** Kinds of schema documents a compiled definition can be built from. */
 export type AttestbookSchemaKind = "json_schema_2020_12" | "sd_jwt_vc_type_metadata";

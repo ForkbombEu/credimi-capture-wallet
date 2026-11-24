@@ -1,5 +1,5 @@
-import type { CredentialProofPolicy } from "../openid4vci/metadata.js";
 import { isRecord } from "../shared/json.js";
+import type { CredentialProofPolicy } from "../types.js";
 import { compileJsonSchema } from "./json-schema.js";
 import {
   SD_JWT_VC_FORMAT,

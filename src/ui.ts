@@ -1,3 +1,4 @@
+import type { AttestbookIssuerSummary } from "./attestbook/types.js";
 import type { ResolvedIssuerConfiguration } from "./configurations/types.js";
 import type { SupportedCredential } from "./openid4vci/metadata.js";
 import type { JsonRecord, VpDcApiRequest } from "./types.js";
@@ -14,13 +15,6 @@ export interface IssuerCredentialGroup {
   credentials: readonly SupportedCredential[];
   /** Present for an issuer that imports Attestbook credentials. */
   attestbook?: AttestbookIssuerSummary;
-}
-
-export interface AttestbookIssuerSummary {
-  readonly syncState: string;
-  readonly activeVersion: string | null;
-  readonly activeContentDigest: string | null;
-  readonly failureStage: string | null;
 }
 
 /** Allowed values of the `POST /sessions` parameters the issuer page offers as choices. */

@@ -10,7 +10,6 @@ import { errorMessage } from "../shared/errors.js";
 import { isRecord } from "../shared/json.js";
 import type { CaptureStore } from "../state.js";
 import type { AppConfig, JsonRecord, SessionCapture } from "../types.js";
-import type { AttestbookIssuerSummary } from "../ui.js";
 import {
   AttestbookClient,
   AttestbookContractError,
@@ -34,6 +33,7 @@ import {
 import type {
   AttestbookCredentialDefinition,
   AttestbookDiagnostic,
+  AttestbookIssuerSummary,
   AttestbookSnapshot,
 } from "./types.js";
 import {

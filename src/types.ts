@@ -1,4 +1,11 @@
 export type JsonRecord = Record<string, unknown>;
+
+export type CredentialFormat = "dc+sd-jwt" | "mso_mdoc";
+export type CredentialProofPolicy =
+  | "jwt-proof"
+  | "jwt-key-attestation-required"
+  | "key-attestation-required";
+
 export type CredentialOfferMode = "credential_offer" | "credential_offer_uri";
 
 /** URL scheme of the Credential Offer deeplink. `openid-credential-offer://` is the default. */

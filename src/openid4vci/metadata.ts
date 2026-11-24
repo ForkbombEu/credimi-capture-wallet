@@ -23,13 +23,7 @@ import {
   PID_SD_JWT_CLAIMS,
   PID_SD_JWT_VCT,
 } from "../credentials/definitions.js";
-import type { AppConfig, JsonRecord } from "../types.js";
-
-export type CredentialFormat = "dc+sd-jwt" | "mso_mdoc";
-export type CredentialProofPolicy =
-  | "jwt-proof"
-  | "jwt-key-attestation-required"
-  | "key-attestation-required";
+import type { AppConfig, CredentialFormat, CredentialProofPolicy, JsonRecord } from "../types.js";
 
 export interface SupportedCredential {
   id: string;
