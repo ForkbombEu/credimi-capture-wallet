@@ -609,6 +609,9 @@ C-13 → C-17 → C-08 → C-07.
   `isRecord` guards (`request-object-encryption.ts:136,143`, `response-scenario.ts:63`,
   `request-behavior.ts:87-89`). Leave Credo-TS boundary `as never` casts. Depends: B-02, B-07,
   C-14, C-15.
+- *As built:* instead of a field-by-field mapping, `loadConfig` uses one named, commented boundary
+  assertion (`fileValues`, F-03) — an explicit mapping would either filter keys or need validation,
+  both behaviour changes. Output identical to baseline.
 
 ### Test stability (inserted during execution)
 
