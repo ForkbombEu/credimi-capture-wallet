@@ -29,12 +29,6 @@ import {
   signIssuerEntityConfiguration,
 } from "../federation/entity-configuration.js";
 import { apiDocsPage, openApiDocument } from "../openapi.js";
-import {
-  CredentialEncryptionError,
-  credentialResponseEncryption,
-  decryptCredentialRequest,
-  encryptCredentialResponse,
-} from "../openid4vci/credential-encryption.js";
 import { credoOpenId4VciIssuer } from "../openid4vci/credo-issuer.js";
 import { registerFakeOAuthServer } from "../openid4vci/fake-oauth-server.js";
 import {
@@ -44,14 +38,9 @@ import {
   isRawBodyEvidencePath,
   recordResponseBody,
   redactHttpHeaders,
-  redactOid4vciValue,
   responseBodyEvidence,
 } from "../openid4vci/http-capture.js";
 import { jwtVcIssuerMetadata, signCredentialIssuerMetadata } from "../openid4vci/metadata.js";
-import {
-  credentialRequestProofNonces,
-  credentialRequestProofsCapture,
-} from "../openid4vci/proofs.js";
 import {
   OPENID4VP_RESPONSE_MODE_VALUES,
   type OpenId4VpClientIdScheme,
@@ -114,6 +103,14 @@ import {
   vpRedirectPage,
   vpSessionPage,
 } from "../ui.js";
+import {
+  type CredentialRequestBody,
+  forwardCredentialRequest,
+  interceptCredentialResponse,
+  pinnedDefinitionMismatch,
+  readCredentialRequestBody,
+  recordCredentialRequestEvidence,
+} from "./credential-endpoint.js";
 import {
   CREDENTIAL_OFFER_MODES,
   DEFAULT_OFFER_SCHEME,
@@ -1192,26 +1189,9 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     const issuer = resolvedIssuerConfigurationById(config, req.params.issuerConfigurationId);
     if (!issuer) return res.status(404).json({ error: "issuer_not_found" });
     const issuerConfig = issuerAppConfig(config, issuer);
-    const encryptedRequest = req.is("application/jwt") === "application/jwt";
-    let body: JsonRecord;
-    let responseEncryption: ReturnType<typeof credentialResponseEncryption>;
+    let requestBody: CredentialRequestBody;
     try {
-      if (encryptedRequest) {
-        if (typeof req.body !== "string" || !req.body) {
-          throw new CredentialEncryptionError(
-            "Encrypted Credential Request body must be a compact JWE",
-          );
-        }
-        body = await decryptCredentialRequest(issuerConfig, req.body);
-      } else {
-        body = requestParams(req);
-      }
-      responseEncryption = credentialResponseEncryption(body);
-      if (responseEncryption && !encryptedRequest) {
-        throw new CredentialEncryptionError(
-          "credential_response_encryption requires an encrypted Credential Request",
-        );
-      }
+      requestBody = await readCredentialRequestBody(req, issuerConfig);
     } catch (error) {
       return res.status(400).json({
         error: "invalid_encryption_parameters",
@@ -1220,57 +1200,21 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
     }
 
     const capture = oid4vciCaptures.get(req) ?? null;
-    const credentialRequestRaw = encryptedRequest ? capture?.body : undefined;
-    if (capture) {
-      capture.body = redactOid4vciValue(body);
-      const fullCapture = store.fullOid4vciRequests.get(capture);
-      if (fullCapture) fullCapture.body = redactOid4vciValue(body, undefined, "full");
-      // Recorded before Credo-TS verifies the proofs, so a rejected proof leaves evidence too.
-      // The proof nonces also attribute the Nonce Endpoint responses that issued them, since
-      // the Nonce Endpoint itself takes no session context.
-      const session = capture.session_id ? store.getSession(capture.session_id) : undefined;
-      if (session) {
-        const proofs = credentialRequestProofsCapture(capture, body);
-        store.linkNonceResponses(
-          session.session_id,
-          issuer.id,
-          credentialRequestProofNonces(proofs),
-        );
-        if (session.evidence_mode === "full") {
-          session.raw ??= {};
-          session.raw.credential_request_proofs = proofs;
-        }
-      }
-    }
-    // An imported credential keeps its configuration id across rulebook versions. A session
-    // created under a version that has since been replaced is refused rather than issued under a
-    // definition the Wallet was not offered (OpenID4VCI 1.0 Section 8.3.1.2).
+    const credentialRequestRaw = requestBody.encryptedRequest ? capture?.body : undefined;
+    recordCredentialRequestEvidence(capture, store, issuer, requestBody.body);
     const attributed = capture?.session_id ? store.getSession(capture.session_id) : undefined;
-    const pinned = attributed?.credential_definition;
-    if (attributed && pinned) {
-      const active = credentialRegistry(config, store).credentialById(
-        issuer,
-        attributed.credential_configuration_id,
-      )?.attestbook;
-      if (active?.contentDigest !== pinned.content_digest) {
-        store.addEvent(attributed, "credential_definition_superseded", {
-          pinned_version: pinned.version,
-          active_version: active?.version ?? null,
+    const pinnedVersion = pinnedDefinitionMismatch(config, store, issuer, attributed);
+    if (pinnedVersion !== null) {
+      return res
+        .status(400)
+        .set("Cache-Control", "no-store")
+        .json({
+          error: "invalid_credential_request",
+          error_description: `the offer was made under rulebook version ${pinnedVersion}, which is no longer active; request a new offer`,
         });
-        return res
-          .status(400)
-          .set("Cache-Control", "no-store")
-          .json({
-            error: "invalid_credential_request",
-            error_description: `the offer was made under rulebook version ${pinned.version}, which is no longer active; request a new offer`,
-          });
-      }
     }
-    const { credential_response_encryption: _credentialResponseEncryption, ...credoBody } = body;
-    req.body = credoBody;
-    req.headers["content-type"] = "application/json";
-    const encryptedResponse = responseEncryption
-      ? interceptCredentialResponse(res, next, issuerConfig, responseEncryption)
+    const encryptedResponse = requestBody.responseEncryption
+      ? interceptCredentialResponse(res, next, issuerConfig, requestBody.responseEncryption)
       : null;
     // Installed after the encryption interceptor so a scenario edits the plaintext response,
     // which is then encrypted only if it is still a success (OpenID4VCI 1.0 Section 8.3.1).
@@ -1282,15 +1226,15 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       return next(new Error("Credo Credential endpoint completed without sending a response"));
     };
     try {
-      return (await credoOpenId4VciIssuer(config, store)).forward(
+      return await forwardCredentialRequest(
+        config,
+        store,
         req,
         res,
         credentialEndpointNext,
         capture,
-        {
-          body,
-          raw: credentialRequestRaw,
-        },
+        requestBody.body,
+        credentialRequestRaw,
       );
     } catch (error) {
       return next(error);
@@ -1452,61 +1396,6 @@ function scenarioJsonBody(text: string, scenario: IssuanceEndpointResponseScenar
   const edited: JsonRecord = { ...json, ...(scenario.extra_parameters ?? {}) };
   for (const pointer of scenario.omit_parameters ?? []) unsetJsonPointer(edited, pointer);
   return JSON.stringify(edited);
-}
-
-function interceptCredentialResponse(
-  res: Response,
-  next: NextFunction,
-  issuerConfig: AppConfig,
-  responseEncryption: NonNullable<ReturnType<typeof credentialResponseEncryption>>,
-): { isPending: () => boolean } {
-  const send = res.send.bind(res);
-  let pending = false;
-  let settled = false;
-  res.send = ((responseBody: unknown) => {
-    if (pending || settled) return res;
-    // OpenID4VCI 1.0 Section 8.3.1: Credential Error Responses are never encrypted, even when a
-    // valid Credential Response would have been.
-    if (res.statusCode < 200 || res.statusCode >= 300) {
-      settled = true;
-      res.send = send;
-      return send(responseBody);
-    }
-    const serialized =
-      typeof responseBody === "string"
-        ? responseBody
-        : Buffer.isBuffer(responseBody)
-          ? responseBody.toString("utf8")
-          : JSON.stringify(responseBody);
-    let json: JsonRecord;
-    try {
-      json = JSON.parse(serialized) as JsonRecord;
-    } catch {
-      settled = true;
-      res.send = send;
-      return send(responseBody);
-    }
-
-    const statusCode = res.statusCode;
-    pending = true;
-    void encryptCredentialResponse(issuerConfig, responseEncryption, json)
-      .then((jwe) => {
-        pending = false;
-        settled = true;
-        res.send = send;
-        res.status(statusCode);
-        res.setHeader("Content-Type", "application/jwt");
-        send(jwe);
-      })
-      .catch((error: unknown) => {
-        pending = false;
-        settled = true;
-        res.send = send;
-        next(error);
-      });
-    return res;
-  }) as typeof res.send;
-  return { isPending: () => pending };
 }
 
 function requestParams(req: Request): JsonRecord {
