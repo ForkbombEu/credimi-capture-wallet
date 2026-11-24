@@ -1426,8 +1426,7 @@ async function createIssuanceSession(
   importedDefinition?: AttestbookCredentialDefinition,
 ): Promise<SessionCapture> {
   const create = async (): Promise<SessionCapture> => {
-    const session = store.createSession(
-      issuer,
+    const session = store.createSession(issuer, {
       credentialConfigurationId,
       flow,
       credentialOfferMode,
@@ -1437,7 +1436,7 @@ async function createIssuanceSession(
       statusReference,
       digestAlgorithm,
       evidenceMode,
-    );
+    });
     if (offerScheme !== DEFAULT_OFFER_SCHEME) session.offer_scheme = offerScheme;
     if (importedDefinition) {
       attestbookIntegration(config, store).pinSession(session, importedDefinition);

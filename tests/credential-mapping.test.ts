@@ -122,13 +122,12 @@ function sessionFor(
   options: { statusListEnabled?: boolean; issuerId?: string } = {},
 ): SessionCapture {
   const sessionIssuer = requireIssuer(config, options.issuerId ?? issuer.id);
-  return store.createSession(
-    sessionIssuer,
-    credentialId,
-    "pre_authorized_code",
-    "credential_offer",
-    options.statusListEnabled ?? false,
-  );
+  return store.createSession(sessionIssuer, {
+    credentialConfigurationId: credentialId,
+    flow: "pre_authorized_code",
+    credentialOfferMode: "credential_offer",
+    statusListEnabled: options.statusListEnabled ?? false,
+  });
 }
 
 function credential(store: CaptureStore, id: string) {

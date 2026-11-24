@@ -23,6 +23,18 @@ import type {
   VpSessionCapture,
 } from "./types.js";
 
+export interface IssuanceSessionOptions {
+  credentialConfigurationId: string;
+  flow?: SessionCapture["flow"];
+  credentialOfferMode?: CredentialOfferMode;
+  statusListEnabled?: boolean;
+  fixtureId?: string;
+  documentNumber?: string;
+  statusReference?: StatusReferenceFixture;
+  digestAlgorithm?: SdJwtDigestAlgorithm;
+  evidenceMode?: EvidenceMode;
+}
+
 export class CaptureStore {
   readonly oid4vciRequests: Oid4vciHttpRequestCapture[] = [];
   readonly sessions = new Map<string, SessionCapture>();
@@ -59,15 +71,17 @@ export class CaptureStore {
 
   createSession(
     issuer: ResolvedIssuerConfiguration,
-    credentialConfigurationId: string,
-    flow: SessionCapture["flow"] = "authorization_code",
-    credentialOfferMode: CredentialOfferMode = "credential_offer",
-    statusListEnabled = false,
-    fixtureId?: string,
-    documentNumber?: string,
-    statusReference?: StatusReferenceFixture,
-    digestAlgorithm?: SdJwtDigestAlgorithm,
-    evidenceMode: EvidenceMode = "redacted",
+    {
+      credentialConfigurationId,
+      flow = "authorization_code",
+      credentialOfferMode = "credential_offer",
+      statusListEnabled = false,
+      fixtureId,
+      documentNumber,
+      statusReference,
+      digestAlgorithm,
+      evidenceMode = "redacted",
+    }: IssuanceSessionOptions,
   ): SessionCapture {
     const sessionId = randomUUID();
     const session: SessionCapture = {

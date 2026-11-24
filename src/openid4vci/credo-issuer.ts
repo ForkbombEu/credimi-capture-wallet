@@ -652,7 +652,10 @@ export class CredoOpenId4VciIssuer {
     return registry.serialize(async () => {
       const credential = registry.credentialById(issuer, credentialConfigurationId);
       if (!credential) return undefined;
-      const session = this.store.createSession(issuer, credential.id, "authorization_code");
+      const session = this.store.createSession(issuer, {
+        credentialConfigurationId: credential.id,
+        flow: "authorization_code",
+      });
       const credoSessionId = randomUUID();
       // Registered first, so the session is discarded if anything below or in Credo fails.
       context.walletInitiated = { captureSessionId: session.session_id, credoSessionId };
