@@ -16,7 +16,6 @@ import { expect } from "vitest";
 import { issuerAppConfig } from "../../src/configurations/resolve-urls.js";
 import { PID_MDOC_DOCTYPE, PID_MDOC_NAMESPACE } from "../../src/credential-definitions.js";
 import { mdocCredentialConfigurationId } from "../../src/metadata.js";
-import { mdocSessionTranscript } from "../../src/openid4vp-validation.js";
 import type { AppConfig, JsonRecord } from "../../src/types.js";
 import {
   CONFORMING_ISSUER_ID,
@@ -30,6 +29,7 @@ import {
   preAuthorizedToken,
 } from "./issuance.js";
 import { type TestKey, dpopProof, generateEs256Key } from "./keys.js";
+import { mdocSessionTranscript } from "./mdoc-session-transcript.js";
 
 export interface MdocCredential {
   credential: string;

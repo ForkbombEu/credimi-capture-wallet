@@ -76,7 +76,6 @@ If a required design decision, convention, or security policy is not evident fro
 - `src/openid4vp.ts`: OpenID4VP session creation and request construction.
 - `src/credo-openid4vp.ts`: Credo-TS-backed OpenID4VP verification integration.
 - `src/credo-openid4vci.ts`: Credo-TS-backed OpenID4VCI issuer integration and credential-request mapping.
-- `src/openid4vp-validation.ts`: validation helpers for OpenID4VP presentations (currently imported only by tests).
 - `src/request-behavior.ts`: verifier Request Object integrity and delivery fault-behaviour validation.
 - `src/request-certificates.ts`: verifier Request Object signing keys and X.509 certificate-chain fixtures.
 - `src/request-mutation.ts`: JSON Pointer mutations for delivered verifier requests and credential offers.

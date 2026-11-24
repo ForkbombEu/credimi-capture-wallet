@@ -25,7 +25,6 @@
     "@owf/cose": "0.4.2",
     "@owf/mdoc": "0.8.2",
     "@types/qrcode": "1.5.5",
-    "dcql": "3.0.1",
     "express": "^4.19.2",
     "jose": "^5.9.6",
     "qrcode": "1.5.4"

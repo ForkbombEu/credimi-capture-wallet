@@ -153,7 +153,6 @@ Read, in this repository:
 * `CAPTURE_WALLET_API.md` and `src/openapi.ts` for the current public contract.
 * `src/server.ts` for the OpenID4VP and OpenID4VCI routes and their input validation.
 * `src/credo-openid4vp.ts`, `src/openid4vp.ts` for request construction, signing, and delivery.
-* `src/openid4vp-validation.ts` for the repository's own presentation validation.
 * `src/state.ts` and `src/types.ts` for the capture model.
 * `src/configurations/` for issuer configurations and credential fixtures.
 * `tests/` for the existing HTTP-level coverage and the conventions to follow.

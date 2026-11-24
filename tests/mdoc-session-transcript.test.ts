@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { cborEncode } from "@owf/mdoc";
 import { calculateJwkThumbprint } from "jose";
 import { describe, expect, it } from "vitest";
-import { mdocSessionTranscript } from "../src/openid4vp-validation.js";
+import { mdocSessionTranscript } from "./support/mdoc-session-transcript.js";
 
 describe("OpenID4VP 1.0 final mdoc session transcript", () => {
   it("uses the redirect handover defined by Appendix B.2.6.1", async () => {
