@@ -11,9 +11,8 @@ import {
   verifierDidPrivateJwkPath,
   verifierPrivateJwkPath,
 } from "./config.js";
-import { PID_SD_JWT_VCT } from "./credential-definitions.js";
+import { PID_MDOC_DOCTYPE, PID_SD_JWT_VCT } from "./credential-definitions.js";
 import {
-  PID_MDOC_DOCTYPE,
   type SupportedCredential,
   supportedCredentialById,
   supportedCredentials,

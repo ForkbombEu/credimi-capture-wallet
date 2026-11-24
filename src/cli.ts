@@ -8,13 +8,19 @@ import {
   verifySubscription,
   webhookCallbackUrl,
 } from "./attestbook/subscription.js";
-import { initIssuer, loadConfig, parseArgs, resolveListenAddr } from "./config.js";
+import {
+  initIssuer,
+  loadConfig,
+  loadIssuerFederationJwks,
+  parseArgs,
+  resolveListenAddr,
+} from "./config.js";
 import {
   allResolvedIssuerConfigurations,
   resolvedIssuerConfigurations,
 } from "./configurations/registry.js";
 import { credoOpenId4VciIssuer } from "./credo-openid4vci.js";
-import { issuerFederationJwks, issuerFederationRegistration } from "./federation/registration.js";
+import { issuerFederationRegistration } from "./federation/registration.js";
 import { createApp } from "./server.js";
 import { CaptureStore } from "./state.js";
 import type { AppConfig, JsonRecord } from "./types.js";
@@ -86,7 +92,7 @@ async function main(): Promise<void> {
         ? {
             issuer_configuration_id: issuer.id,
             entity_id: issuer.issuerIdentifier,
-            jwks: issuerFederationJwks(issuer),
+            jwks: loadIssuerFederationJwks(issuer),
           }
         : issuerFederationRegistration(issuer),
     );

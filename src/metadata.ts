@@ -1,7 +1,6 @@
 import { type AgentContext, JwsService, JwtPayload, Kms } from "@credo-ts/core";
 import type { AttestbookCredentialDefinition } from "./attestbook/types.js";
 import {
-  createIssuerSigningContext,
   issuerSigningKeyId,
   loadIssuerEncryptionPublicJwk,
   loadIssuerJwks,
@@ -54,8 +53,6 @@ export type StaticCatalogueIssuer = Pick<
   "proofPolicy" | "staticCredentialVcts"
 >;
 
-export { PID_MDOC_DOCTYPE, PID_MDOC_NAMESPACE, PID_SD_JWT_VCT };
-
 export function credentialIssuerMetadata(
   config: AppConfig,
   issuer: IssuerConfiguration,
@@ -104,19 +101,6 @@ export function credentialConfigurationsSupported(
       credential.id,
       credentialConfiguration(credential, proofTypesSupported(credential.proofPolicy)),
     ]),
-  );
-}
-
-export async function signedCredentialIssuerMetadata(
-  config: AppConfig,
-  issuer: IssuerConfiguration,
-  now = new Date(),
-): Promise<string> {
-  return signCredentialIssuerMetadata(
-    config,
-    credentialIssuerMetadata(config, issuer),
-    createIssuerSigningContext(config) as never,
-    now,
   );
 }
 

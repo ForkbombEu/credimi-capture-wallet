@@ -1,12 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { recordClientAuthentication } from "./client-attestation.js";
-import {
-  DEFAULT_ISSUER_CONFIGURATION_ID,
-  resolvedIssuerConfigurationById,
-} from "./configurations/registry.js";
 import type { ResolvedIssuerConfiguration } from "./configurations/types.js";
 import { DEFAULT_SD_JWT_DIGEST_ALGORITHM } from "./digest-algorithm.js";
-import { supportedCredentialConfigurationIdsForIssuer } from "./metadata.js";
 import type { VpDeliveredRequestRecipe } from "./openid4vp.js";
 import type {
   AppConfig,
@@ -63,8 +58,8 @@ export class CaptureStore {
   constructor(private readonly config: AppConfig) {}
 
   createSession(
-    issuer: ResolvedIssuerConfiguration = defaultIssuerConfiguration(this.config),
-    credentialConfigurationId = defaultCredentialConfigurationId(this.config, issuer),
+    issuer: ResolvedIssuerConfiguration,
+    credentialConfigurationId: string,
     flow: SessionCapture["flow"] = "authorization_code",
     credentialOfferMode: CredentialOfferMode = "credential_offer",
     statusListEnabled = false,
@@ -390,23 +385,6 @@ export class CaptureStore {
 
 export function asStringOrNull(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
-}
-
-function defaultIssuerConfiguration(config: AppConfig): ResolvedIssuerConfiguration {
-  const issuer = resolvedIssuerConfigurationById(config, DEFAULT_ISSUER_CONFIGURATION_ID);
-  if (!issuer) throw new Error("Default issuer configuration is unavailable");
-  return issuer;
-}
-
-function defaultCredentialConfigurationId(
-  config: AppConfig,
-  issuer: ResolvedIssuerConfiguration,
-): string {
-  const credentialConfigurationId = supportedCredentialConfigurationIdsForIssuer(config, issuer)[0];
-  if (!credentialConfigurationId) {
-    throw new Error(`Issuer '${issuer.id}' has no credential configurations`);
-  }
-  return credentialConfigurationId;
 }
 
 function emptyClientAuthenticationCapture(): SessionCapture["observed"]["client_authentication"] {

@@ -9,7 +9,6 @@ import { type PidSubject, pidSubject } from "./configurations/shared/pid-data.js
 import { encodeSdJwtPidClaims } from "./configurations/shared/sd-jwt-encoder.js";
 import {
   CREDIMI_LOGO_URL,
-  CREDIMI_WEBSITE,
   DEGREE_SD_JWT_VCT,
   DOMESTIC_PID_CLAIM,
   DOMESTIC_PID_CLAIM_VALUE,
@@ -30,7 +29,7 @@ import type {
   StatusReferenceFixture,
 } from "./types.js";
 
-export { CREDIMI_LOGO_URL, CREDIMI_WEBSITE };
+export { CREDIMI_LOGO_URL };
 
 /**
  * Makes the interiors of the `address` object and the `degrees` and `academic_programmes` arrays

@@ -28,6 +28,7 @@ import {
   issuerCertificatePath,
   issuerFederationPrivateJwkPath,
   loadConfig,
+  loadIssuerFederationJwks,
   loadIssuerJwks,
   privateJwkPath,
   resolveFederationSettings,
@@ -42,10 +43,7 @@ import {
   ENTITY_STATEMENT_MEDIA_TYPE,
   signIssuerEntityConfiguration,
 } from "../src/federation/entity-configuration.js";
-import {
-  issuerFederationJwks,
-  issuerFederationRegistration,
-} from "../src/federation/registration.js";
+import { issuerFederationRegistration } from "../src/federation/registration.js";
 import { createApp } from "../src/server.js";
 import type { AppConfig, JsonRecord } from "../src/types.js";
 
@@ -158,7 +156,7 @@ describe("OpenID Federation issuer leaf entities", () => {
     );
 
     for (const { issuer, jwt } of configurations) {
-      const jwks = issuerFederationJwks(issuer) as { keys: JWK[] };
+      const jwks = loadIssuerFederationJwks(issuer) as unknown as { keys: JWK[] };
       const issuerJwks = loadIssuerJwks(issuerAppConfig(config, issuer));
       const verified = await jwtVerify(jwt, createLocalJWKSet(jwks), {
         typ: "entity-statement+jwt",
@@ -308,7 +306,7 @@ describe("OpenID Federation issuer leaf entities", () => {
     const trustAnchor = await signingJwk();
     const trustAnchorKid = trustAnchor.publicJwk.kid;
     if (typeof trustAnchorKid !== "string") throw new Error("Trust Anchor key has no kid");
-    const leafJwks = issuerFederationJwks(issuer) as { keys: JWK[] };
+    const leafJwks = loadIssuerFederationJwks(issuer) as unknown as { keys: JWK[] };
     const subordinateStatement = await signedEntityStatement({
       privateJwk: trustAnchor.privateJwk,
       kid: trustAnchorKid,
