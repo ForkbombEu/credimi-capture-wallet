@@ -3,7 +3,7 @@ import type { Express } from "express";
 import { type JWK, SignJWT, importJWK } from "jose";
 import request from "supertest";
 import { expect } from "vitest";
-import { issuerCertificatePath, privateJwkPath } from "../../src/config.js";
+import { issuerCertificatePath, privateJwkPath } from "../../src/config/paths.js";
 import type { AppConfig, JsonRecord } from "../../src/types.js";
 import { issuerPath } from "./environment.js";
 import { getJson, postJson } from "./http.js";

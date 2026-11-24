@@ -3,14 +3,16 @@ import { readFileSync } from "node:fs";
 import { X509Certificate } from "@credo-ts/core";
 import { type JWK, SignJWT, importJWK } from "jose";
 import {
+  verifierCertificatePath,
+  verifierDidPrivateJwkPath,
+  verifierPrivateJwkPath,
+} from "../config/paths.js";
+import {
   VERIFIER_DID_KEY_ID,
   VERIFIER_KEY_ID,
   verifierAttestationSubject,
-  verifierCertificatePath,
   verifierDid,
-  verifierDidPrivateJwkPath,
-  verifierPrivateJwkPath,
-} from "../config.js";
+} from "../config/verifier-identity.js";
 import { PID_MDOC_DOCTYPE, PID_SD_JWT_VCT } from "../credentials/definitions.js";
 import { applyRequestMutationEdits } from "../fcaf/request-mutation.js";
 import {

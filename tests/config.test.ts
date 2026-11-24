@@ -6,25 +6,27 @@ import { Kms, X509Certificate } from "@credo-ts/core";
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_CONFIG,
-  accessTokenPrivateJwkPath,
   initIssuer,
-  issuerCertificatePath,
-  issuerEncryptionPrivateJwkPath,
-  jwksPath,
   loadConfig,
   loadIssuerEncryptionPublicJwk,
   loadIssuerJwks,
   normalizeBaseUrl,
   parseEnvText,
-  privateJwkPath,
   resolveGuiEnabled,
   resolveListenAddr,
   validateIssuerCertificateSubjectAlternativeName,
   validateIssuerMaterial,
+} from "../src/config.js";
+import {
+  accessTokenPrivateJwkPath,
+  issuerCertificatePath,
+  issuerEncryptionPrivateJwkPath,
+  jwksPath,
+  privateJwkPath,
   verifierCertificatePath,
   verifierDidPrivateJwkPath,
   verifierPrivateJwkPath,
-} from "../src/config.js";
+} from "../src/config/paths.js";
 import {
   resolvedIssuerConfigurationById,
   resolvedIssuerConfigurations,

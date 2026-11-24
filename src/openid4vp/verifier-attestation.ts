@@ -1,12 +1,11 @@
 import { readFileSync } from "node:fs";
 import { type JWK, SignJWT, importJWK } from "jose";
+import { verifierAttestationIssuerPrivateJwkPath, verifierJwksPath } from "../config/paths.js";
 import {
   VERIFIER_ATTESTATION_ISSUER_KEY_ID,
   verifierAttestationIssuer,
-  verifierAttestationIssuerPrivateJwkPath,
   verifierAttestationSubject,
-  verifierJwksPath,
-} from "../config.js";
+} from "../config/verifier-identity.js";
 import { corruptJwsSignature } from "../fcaf/request-behavior.js";
 import type { AppConfig, JsonRecord, VpVerifierAttestation } from "../types.js";
 

@@ -6,13 +6,12 @@ import { sha256Hex } from "../attestbook/digest.js";
 import { attestbookIntegration } from "../attestbook/integration.js";
 import type { AttestbookCredentialDefinition } from "../attestbook/types.js";
 import { WEBHOOK_MAX_BODY_BYTES, WEBHOOK_PATH } from "../attestbook/webhook.js";
+import { loadIssuerJwks, validateIssuerMaterial } from "../config.js";
+import { verifierCaCertificatePath } from "../config/paths.js";
 import {
-  loadIssuerJwks,
-  validateIssuerMaterial,
   verifierAttestationIssuerPublicJwk,
-  verifierCaCertificatePath,
   verifierDidDocument,
-} from "../config.js";
+} from "../config/verifier-identity.js";
 import {
   DEFAULT_ISSUER_CONFIGURATION_ID,
   issuerCatalogue,

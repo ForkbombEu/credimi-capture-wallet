@@ -4,7 +4,7 @@ import type { Express } from "express";
 import { decodeJwt, decodeProtectedHeader } from "jose";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { verifierCaCertificatePath } from "../src/config.js";
+import { verifierCaCertificatePath } from "../src/config/paths.js";
 import type { IssuerTestEnvironment } from "./support/environment.js";
 import { createIssuerTestEnvironment, createTestApp } from "./support/environment.js";
 import { getJson } from "./support/http.js";

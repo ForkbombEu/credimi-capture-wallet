@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { X509Certificate as NodeX509Certificate } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import {
   CredoWebCrypto,
   Kms,
@@ -12,19 +12,32 @@ import {
 import { calculateJwkThumbprint, exportJWK, generateKeyPair } from "jose";
 import { DISABLED_ATTESTBOOK_SETTINGS, resolveAttestbookSettings } from "./attestbook/settings.js";
 import {
+  accessTokenPrivateJwkPath,
+  configPath,
+  issuerCertificatePath,
+  issuerEncryptionPrivateJwkPath,
+  issuerFederationJwksPath,
+  issuerFederationPrivateJwkPath,
+  jwksPath,
+  privateJwkPath,
+  verifierAttestationIssuerPrivateJwkPath,
+  verifierCertificatePath,
+  verifierDidPrivateJwkPath,
+  verifierJwksPath,
+  verifierPrivateJwkPath,
+} from "./config/paths.js";
+import {
+  VERIFIER_ATTESTATION_ISSUER_KEY_ID,
+  VERIFIER_DID_KEY_ID,
+  VERIFIER_KEY_ID,
+} from "./config/verifier-identity.js";
+import {
   allResolvedIssuerConfigurations,
   resolvedIssuerConfigurations,
 } from "./configurations/registry.js";
 import { issuerAppConfig } from "./configurations/resolve-urls.js";
 import type { ResolvedIssuerConfiguration } from "./configurations/types.js";
 import type { AppConfig, JsonRecord } from "./types.js";
-
-export const VERIFIER_KEY_ID = "credimi-fake-verifier-key";
-export const VERIFIER_DID_KEY_ID = "credimi-fake-verifier-did-key";
-export const VERIFIER_ATTESTATION_ISSUER_KEY_ID = "credimi-fake-verifier-attestation-issuer-key";
-const ACCESS_TOKEN_PRIVATE_JWK_FILE = "access-token-private-jwk.json";
-const FEDERATION_PRIVATE_JWK_FILE = "private.jwk";
-const FEDERATION_JWKS_FILE = "jwks.json";
 
 export const DEFAULT_CONFIG: AppConfig = {
   issuer_base_url: "http://localhost:8080",
@@ -264,116 +277,6 @@ function parseYamlConfig(text: string): Partial<AppConfig> {
     }
   }
   return result as Partial<AppConfig>;
-}
-
-function configPath(dataDir: string): string {
-  return join(dataDir, "config.yaml");
-}
-
-export function jwksPath(dataDir: string): string {
-  return join(dataDir, "jwks.json");
-}
-
-export function privateJwkPath(dataDir: string): string {
-  return join(dataDir, "issuer-private-jwk.json");
-}
-
-export function issuerCertificatePath(dataDir: string): string {
-  return join(dataDir, "issuer-certificate.pem");
-}
-
-export function issuerEncryptionPrivateJwkPath(dataDir: string): string {
-  return join(dataDir, "issuer-encryption-private-jwk.json");
-}
-
-export function issuerFederationPrivateJwkPath(materialDirectory: string): string {
-  return join(materialDirectory, "federation", FEDERATION_PRIVATE_JWK_FILE);
-}
-
-function issuerFederationJwksPath(materialDirectory: string): string {
-  return join(materialDirectory, "federation", FEDERATION_JWKS_FILE);
-}
-
-export function verifierPrivateJwkPath(dataDir: string): string {
-  return join(dataDir, "verifier", "verifier-private-jwk.json");
-}
-
-export function verifierJwksPath(dataDir: string): string {
-  return join(dataDir, "verifier", "verifier-jwks.json");
-}
-
-export function verifierCertificatePath(dataDir: string): string {
-  return join(dataDir, "verifier", "verifier-certificate.pem");
-}
-
-/**
- * Optional CA certificate that issued the verifier certificate, typically the trust anchor a
- * Wallet is configured with. Operator-supplied; `init` never generates it.
- */
-export function verifierCaCertificatePath(dataDir: string): string {
-  return join(dataDir, "verifier", "verifier-ca-certificate.pem");
-}
-
-export function verifierDidPrivateJwkPath(dataDir: string): string {
-  return join(dataDir, "verifier", "verifier-did-private-jwk.json");
-}
-
-/**
- * The key of the fixture issuer of Verifier Attestation JWTs. It is a separate key from the request
- * signing key on purpose: the attestation is a statement made *about* this verifier by a third
- * party, and a wallet is expected to trust the issuer, not the verifier it attests to.
- */
-export function verifierAttestationIssuerPrivateJwkPath(dataDir: string): string {
-  return join(dataDir, "verifier", "verifier-attestation-issuer-private-jwk.json");
-}
-
-export function verifierAttestationIssuerPublicJwk(config: AppConfig): JsonRecord {
-  const { d: _private, ...publicJwk } = JSON.parse(
-    readFileSync(verifierAttestationIssuerPrivateJwkPath(config.data_dir), "utf8"),
-  ) as JsonRecord;
-  return publicJwk;
-}
-
-/** The identifier this service attests to, and the part of `verifier_attestation:<sub>`. */
-export function verifierAttestationSubject(config: AppConfig): string {
-  return new URL(config.issuer_base_url).host;
-}
-
-export function verifierAttestationIssuer(config: AppConfig): string {
-  return `${config.issuer_base_url}/openid4vp/verifier-attestation-issuer`;
-}
-
-export function verifierDid(config: AppConfig): string {
-  const url = new URL(config.issuer_base_url);
-  const authority = url.port ? `${url.hostname}%3A${url.port}` : url.hostname;
-  return `did:web:${authority}:openid4vp`;
-}
-
-export function verifierDidDocument(config: AppConfig): JsonRecord {
-  const did = verifierDid(config);
-  const privateJwk = JSON.parse(
-    readFileSync(verifierDidPrivateJwkPath(config.data_dir), "utf8"),
-  ) as JsonRecord;
-  const { d: _private, ...publicJwk } = privateJwk;
-  const keyId = `${did}#${VERIFIER_DID_KEY_ID}`;
-  return {
-    "@context": ["https://www.w3.org/ns/did/v1"],
-    id: did,
-    verificationMethod: [
-      {
-        id: keyId,
-        type: "JsonWebKey2020",
-        controller: did,
-        publicKeyJwk: publicJwk,
-      },
-    ],
-    authentication: [keyId],
-    assertionMethod: [keyId],
-  };
-}
-
-export function accessTokenPrivateJwkPath(materialDirectory: string): string {
-  return join(materialDirectory, ACCESS_TOKEN_PRIVATE_JWK_FILE);
 }
 
 export function loadConfig(

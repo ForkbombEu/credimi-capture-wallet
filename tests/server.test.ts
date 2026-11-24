@@ -40,15 +40,17 @@ import {
   DEFAULT_CONFIG,
   createJwkSigningContext,
   initIssuer,
+  loadIssuerCertificate,
+} from "../src/config.js";
+import {
   issuerCertificatePath,
   jwksPath,
-  loadIssuerCertificate,
   privateJwkPath,
   verifierCaCertificatePath,
   verifierCertificatePath,
   verifierJwksPath,
   verifierPrivateJwkPath,
-} from "../src/config.js";
+} from "../src/config/paths.js";
 import { resolvedIssuerConfigurationById } from "../src/configurations/registry.js";
 import { issuerAppConfig } from "../src/configurations/resolve-urls.js";
 import {

@@ -18,14 +18,16 @@ import { OpenId4VcModule, getOid4vcDecryptJweCallback } from "@credo-ts/openid4v
 import express from "express";
 import { type JWK, calculateJwkThumbprint, decodeJwt } from "jose";
 import {
-  VERIFIER_DID_KEY_ID,
-  VERIFIER_KEY_ID,
   verifierCertificatePath,
-  verifierDid,
-  verifierDidDocument,
   verifierDidPrivateJwkPath,
   verifierPrivateJwkPath,
-} from "../config.js";
+} from "../config/paths.js";
+import {
+  VERIFIER_DID_KEY_ID,
+  VERIFIER_KEY_ID,
+  verifierDid,
+  verifierDidDocument,
+} from "../config/verifier-identity.js";
 import { InMemoryStorageModule, NodeKmsBackend, nodeAgentDependencies } from "../credo/agent.js";
 import { corruptJwsSignature } from "../fcaf/request-behavior.js";
 import { applyRequestMutationEdits } from "../fcaf/request-mutation.js";

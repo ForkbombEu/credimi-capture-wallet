@@ -2,12 +2,12 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { CredoWebCrypto, Kms, X509Certificate, X509KeyUsage } from "@credo-ts/core";
 import { exportJWK, generateKeyPair } from "jose";
+import { createJwkSigningContext } from "../config.js";
 import {
-  createJwkSigningContext,
   verifierCaCertificatePath,
   verifierCertificatePath,
   verifierPrivateJwkPath,
-} from "../config.js";
+} from "../config/paths.js";
 import type {
   AppConfig,
   JsonRecord,

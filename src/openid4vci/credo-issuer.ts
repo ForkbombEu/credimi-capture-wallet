@@ -25,7 +25,8 @@ import {
 } from "@credo-ts/openid4vc";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { attestbookIntegration } from "../attestbook/integration.js";
-import { accessTokenPrivateJwkPath, privateJwkPath, validateIssuerMaterial } from "../config.js";
+import { validateIssuerMaterial } from "../config.js";
+import { accessTokenPrivateJwkPath, privateJwkPath } from "../config/paths.js";
 import {
   resolvedIssuerConfigurationById,
   resolvedIssuerConfigurations,

@@ -25,14 +25,16 @@ import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   initIssuer,
-  issuerCertificatePath,
-  issuerFederationPrivateJwkPath,
   loadConfig,
   loadIssuerFederationJwks,
   loadIssuerJwks,
-  privateJwkPath,
   resolveFederationSettings,
 } from "../src/config.js";
+import {
+  issuerCertificatePath,
+  issuerFederationPrivateJwkPath,
+  privateJwkPath,
+} from "../src/config/paths.js";
 import {
   resolvedIssuerConfigurationById,
   resolvedIssuerConfigurations,
