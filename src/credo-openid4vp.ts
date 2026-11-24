@@ -71,6 +71,7 @@ import {
   verifierCertificateBase64Der,
   verifierClientIdentifiers,
   verifierOrigin,
+  vpRequestUri,
 } from "./openid4vp.js";
 import { corruptJwsSignature } from "./request-behavior.js";
 import { x509HashClientId } from "./request-certificates.js";
@@ -320,9 +321,7 @@ export class CredoOpenId4VpVerifier {
         `client_metadata must retain the verifier encryption public key for ${responseMode}`,
       );
     }
-    const requestUri = dcApi
-      ? undefined
-      : `${this.config.issuer_base_url}/openid4vp/sessions/${sessionId}/request`;
+    const requestUri = dcApi ? undefined : vpRequestUri(this.config, sessionId);
     const responseUri =
       typeof authorizationRequest.response_uri === "string"
         ? authorizationRequest.response_uri

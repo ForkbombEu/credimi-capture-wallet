@@ -1,7 +1,7 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { X509Certificate } from "@credo-ts/core";
-import { type JWK, SignJWT, exportJWK, generateKeyPair, importJWK } from "jose";
+import { type JWK, SignJWT, importJWK } from "jose";
 import {
   VERIFIER_DID_KEY_ID,
   VERIFIER_KEY_ID,
@@ -18,6 +18,7 @@ import {
   supportedCredentialById,
   supportedCredentials,
 } from "./metadata.js";
+import { x509HashClientId } from "./request-certificates.js";
 import { applyRequestMutationEdits } from "./request-mutation.js";
 import type {
   AppConfig,
@@ -26,8 +27,6 @@ import type {
   RequestSigningMaterial,
   VpRequestMutationEdits,
 } from "./types.js";
-
-const REQUEST_OBJECT_AUDIENCE = "https://self-issued.me/v2";
 
 /**
  * How long a DC API session stays presentable. The browser invocation is user-driven and cannot be
@@ -135,40 +134,6 @@ export function defaultPresentationRequest(
   };
 }
 
-export async function createJarmEncryptionJwk(): Promise<{
-  publicJwk: JsonRecord;
-  privateJwk: JsonRecord;
-}> {
-  const { publicKey, privateKey } = await generateKeyPair("ECDH-ES", { extractable: true });
-  const publicJwk = (await exportJWK(publicKey)) as unknown as JsonRecord;
-  const privateJwk = (await exportJWK(privateKey)) as unknown as JsonRecord;
-  publicJwk.use = "enc";
-  publicJwk.alg = "ECDH-ES";
-  publicJwk.kid = randomUUID();
-  privateJwk.use = "enc";
-  privateJwk.alg = "ECDH-ES";
-  privateJwk.kid = publicJwk.kid;
-  return { publicJwk, privateJwk };
-}
-
-export function buildPresentationAuthorizationRequest(
-  config: AppConfig,
-  sessionId: string,
-  request: JsonRecord,
-  jarmEncryptionJwk?: JsonRecord,
-): JsonRecord {
-  const responseUri = vpResponseUri(config, sessionId);
-  const clientId = verifierClientId(config);
-  return {
-    client_id: clientId,
-    aud: REQUEST_OBJECT_AUDIENCE,
-    response_uri: responseUri,
-    state: sessionId,
-    client_metadata: verifierClientMetadata(jarmEncryptionJwk),
-    ...request,
-  };
-}
-
 /**
  * Signs the Request Object.
  *
@@ -220,24 +185,6 @@ export async function signPresentationAuthorizationRequest(
   return new SignJWT(request).setProtectedHeader(header as never).sign(key);
 }
 
-export function presentationRequestByReferenceDeeplink(
-  config: AppConfig,
-  sessionId: string,
-  requestUriMethod = "get",
-): string {
-  const requestUri = vpRequestUri(config, sessionId);
-  const params = new URLSearchParams({
-    client_id: verifierClientId(config),
-    request_uri: requestUri,
-  });
-  if (requestUriMethod !== "get") params.set("request_uri_method", requestUriMethod);
-  return `openid4vp://?${params.toString()}`;
-}
-
-export function verifierClientId(config: AppConfig): string {
-  return `x509_hash:${verifierCertificateSha256(config)}`;
-}
-
 /**
  * The Client Identifier this verifier presents under each prefix it supports. A caller that signs
  * its own `verifier_info` attestation has to bind it to the Client Identifier, and learning that
@@ -247,7 +194,7 @@ export function verifierClientIdentifiers(config: AppConfig): JsonRecord {
   const certificate = X509Certificate.fromEncodedCertificate(verifierCertificateBase64Der(config));
   const dnsName = certificate.sanDnsNames[0];
   return {
-    x509_hash: verifierClientId(config),
+    x509_hash: x509HashClientId(verifierCertificateBase64Der(config)),
     ...(dnsName === undefined ? {} : { x509_san_dns: `x509_san_dns:${dnsName}` }),
     decentralized_identifier: `decentralized_identifier:${verifierDid(config)}`,
     verifier_attestation: `verifier_attestation:${verifierAttestationSubject(config)}`,
@@ -261,18 +208,8 @@ export function verifierCertificateBase64Der(config: AppConfig): string {
     .replace(/\s+/g, "");
 }
 
-export function verifierCertificateSha256(config: AppConfig): string {
-  return createHash("sha256")
-    .update(Buffer.from(verifierCertificateBase64Der(config), "base64"))
-    .digest("base64url");
-}
-
 export function vpRequestUri(config: AppConfig, sessionId: string): string {
   return `${config.issuer_base_url}/openid4vp/sessions/${sessionId}/request`;
-}
-
-export function vpResponseUri(config: AppConfig, sessionId: string): string {
-  return `${config.issuer_base_url}/openid4vp/sessions/${sessionId}/response`;
 }
 
 /** The DCQL query requesting every listed credential with all of its claims. */
@@ -303,24 +240,6 @@ function selectedSupportedCredentials(
   return credentialConfigurationIds
     .map((credentialConfigurationId) => supportedCredentialById(config, credentialConfigurationId))
     .filter((credential): credential is SupportedCredential => credential !== null);
-}
-
-function verifierClientMetadata(jarmEncryptionJwk?: JsonRecord): JsonRecord {
-  return {
-    ...(jarmEncryptionJwk
-      ? {
-          jwks: { keys: [jarmEncryptionJwk] },
-          encrypted_response_enc_values_supported: ["A128GCM", "A256GCM", "A128CBC-HS256"],
-        }
-      : {}),
-    vp_formats_supported: {
-      "dc+sd-jwt": {
-        "sd-jwt_alg_values": ["ES256"],
-        "kb-jwt_alg_values": ["ES256"],
-      },
-      mso_mdoc: {},
-    },
-  };
 }
 
 function dcqlCredentialId(value: string): string {
