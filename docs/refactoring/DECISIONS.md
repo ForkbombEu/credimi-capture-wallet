@@ -75,3 +75,21 @@ Each entry: decision, context, alternatives, reason, consequences, tasks.
   (rejected: 13 copies of two predicates).
 - **Consequences:** undefined-returning `asRecord`/`asString` variants stay local (X-7).
 - **Tasks:** B-01, B-02.
+
+## ADR-06 · `src/types.ts` stays one module (X-5 re-evaluation)
+
+- **Decision:** keep `src/types.ts` as the single shared domain and evidence type module; X-5 stays
+  deferred.
+- **Context:** after Phase 5, `types.ts` has 791 lines and 48 exported types, imported by 78 source
+  and 43 test files. Most types describe one model: the persisted capture (`SessionCapture`,
+  `VpSessionCapture`, HTTP captures, events) plus `AppConfig`. Domain-specific types that had a
+  single owner already moved with their modules during Phases 4–5 (e.g. attestbook status types in
+  `src/attestbook/types.ts`, session options next to their functions). There are no import cycles
+  through `types.ts` (it imports nothing from the application).
+- **Alternatives:** split by domain (`types/issuance.ts`, `types/presentation.ts`, `types/config.ts`)
+  — rejected for now: it touches ~120 import sites, the capture types cross-reference each other
+  (issuance and presentation sessions share HTTP capture and event types), and the measurable
+  benefit (navigation) is small compared with the churn and merge risk.
+- **Consequences:** new types with a single owning module are declared in that module, not in
+  `types.ts`; `types.ts` is reserved for the persisted evidence model and configuration.
+- **Tasks:** X-5 (Phase 7 decision).

@@ -78,7 +78,7 @@ Batch 15 (C-01 ‖ C-12 ‖ S-00). Phases 0–4 completed. Mid-point measurement
 | S-03 | Completed | S-01b | Luna | Opus | b61d6b9 | 75e9b36 (task fc586d1) | APPROVE after amendment: config.test.ts hunk reverted (it removed explicit assertions and replaced the config returned by `initIssuer` — the subject under test); setup-failure simulation identical | jscpd tests 108 → 106 clones | small suites use the factory config instead of `loadConfig` (deep-equal in a clean environment) |
 | N-01 | Pending | S-02, S-03 | Luna | Opus | | | | | |
 | Q-01 | Pending | N-01 | Luna | Opus | | | | | |
-| X-5 | Deferred | Phase 5 (re-evaluate) | — | — | | | | | |
+| X-5 | Deferred (decided) | Phase 5 | — | — | — | — | ADR-06: keep `types.ts` as the shared evidence/config model; split rejected (≈120 import sites, cross-referencing capture types) | — | — |
 | V-01 | Pending | Q-01 | main + Luna | Opus | | | | | |
 | FR-01 | Pending | V-01 | — | Opus | | | | | |
 
