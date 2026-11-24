@@ -134,7 +134,7 @@ export interface AttestbookClaimMetadata {
   readonly displayName: string | null;
 }
 
-export interface AttestbookValidatedSchemaReference {
+interface AttestbookValidatedSchemaReference {
   readonly uri: string;
   readonly kind: AttestbookSchemaKind;
   readonly contentDigest: string;
@@ -174,7 +174,7 @@ export interface AttestbookCredentialDefinition {
   readonly disclosurePolicy: "issuer-default-selective";
 }
 
-export type AttestbookDiagnosticSeverity = "error" | "info";
+type AttestbookDiagnosticSeverity = "error" | "info";
 
 /** A typed compilation or validation finding, naming the attestation and field it concerns. */
 export interface AttestbookDiagnostic {

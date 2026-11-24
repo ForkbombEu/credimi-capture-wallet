@@ -46,13 +46,7 @@ import {
 export type SyncState = "idle" | "fetching" | "validating" | "activating" | "failed";
 export type SyncTrigger = "startup" | "webhook" | "manual" | "retry";
 /** Where a synchronization stopped; each names a distinct operator diagnosis. */
-export type SyncFailureStage =
-  | "fetch"
-  | "verify"
-  | "compile"
-  | "issuability"
-  | "activate"
-  | "persist";
+type SyncFailureStage = "fetch" | "verify" | "compile" | "issuability" | "activate" | "persist";
 
 export interface SyncFailure {
   readonly stage: SyncFailureStage;

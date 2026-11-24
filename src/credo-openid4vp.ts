@@ -144,7 +144,7 @@ export interface CredoVpVerification {
   errors: string[];
 }
 
-export type DecodedPresentation = {
+type DecodedPresentation = {
   format: string;
   document_types?: string[];
   issuer_claims?: unknown;
@@ -157,7 +157,7 @@ export type DecodedPresentation = {
   warning?: string;
 };
 
-export type DecodedPresentations = Record<string, DecodedPresentation[]>;
+type DecodedPresentations = Record<string, DecodedPresentation[]>;
 
 type WalletAuthorizationResponse = {
   response: JsonRecord;

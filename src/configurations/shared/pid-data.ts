@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 
-export interface PidAddress {
+interface PidAddress {
   readonly country: string;
   readonly formatted: string;
   readonly houseNumber: string;
@@ -10,7 +10,7 @@ export interface PidAddress {
   readonly street: string;
 }
 
-export interface PidPlaceOfBirth {
+interface PidPlaceOfBirth {
   readonly country: string;
   readonly locality: string;
   readonly region: string;

@@ -14,8 +14,8 @@ import {
 import { loadIssuerEncryptionPrivateJwk, loadIssuerEncryptionPublicJwk } from "./config.js";
 import type { AppConfig, JsonRecord } from "./types.js";
 
-export const CREDENTIAL_JWE_ALG = "ECDH-ES";
-export const CREDENTIAL_JWE_ENC = "A256GCM";
+const CREDENTIAL_JWE_ALG = "ECDH-ES";
+const CREDENTIAL_JWE_ENC = "A256GCM";
 
 export interface CredentialResponseEncryption {
   jwk: JsonRecord;

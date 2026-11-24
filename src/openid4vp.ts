@@ -31,7 +31,7 @@ import type {
  * How long a DC API session stays presentable. The browser invocation is user-driven and cannot be
  * correlated by `state`, so the window is bounded here rather than left open until process exit.
  */
-export const DC_API_PRESENTATION_TTL_SECONDS = 600;
+const DC_API_PRESENTATION_TTL_SECONDS = 600;
 
 export type { OpenId4VpResponseMode } from "./types.js";
 export type OpenId4VpClientIdScheme =
@@ -42,7 +42,7 @@ export type OpenId4VpClientIdScheme =
   | "verifier_attestation";
 
 /** The signer a session's Request Object was created with, reused whenever it is re-signed. */
-export interface VpRequestSigner {
+interface VpRequestSigner {
   clientIdScheme: Exclude<OpenId4VpClientIdScheme, "redirect_uri">;
   verifierAttestationJwt?: string;
 }

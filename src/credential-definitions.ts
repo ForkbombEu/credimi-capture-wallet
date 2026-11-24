@@ -1,4 +1,3 @@
-export const CREDIMI_WEBSITE = "https://credimi.io";
 export const CREDIMI_LOGO_URL =
   "https://raw.githubusercontent.com/ForkbombEu/credimi/main/docs/images/logo/credimi_logo-transp_emblem.png";
 

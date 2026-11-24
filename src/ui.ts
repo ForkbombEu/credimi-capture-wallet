@@ -43,13 +43,13 @@ export interface IssuerPageOptions {
 }
 
 /** Allowed values of the `POST /openid4vp/sessions` parameters the verifier page offers. */
-export interface PresentationParameterValues {
+interface PresentationParameterValues {
   readonly responseModes: readonly string[];
   readonly requestDeliveries: readonly string[];
   readonly clientIdSchemes: readonly string[];
 }
 
-export interface VerifierCredentialGroup {
+interface VerifierCredentialGroup {
   readonly issuer: ResolvedIssuerConfiguration;
   readonly credentials: readonly {
     readonly credential: SupportedCredential;

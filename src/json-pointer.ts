@@ -9,7 +9,7 @@ type JsonContainer = JsonRecord | unknown[];
  * signs, such as the mdoc namespace `eu.europa.ec.eudi.pid.1` and the credential format
  * `dc+sd-jwt`, so a dotted path could not address them unambiguously.
  */
-export function parseJsonPointer(pointer: string): string[] {
+function parseJsonPointer(pointer: string): string[] {
   if (pointer === "") {
     throw new Error("JSON Pointer must address a member, not the whole document");
   }

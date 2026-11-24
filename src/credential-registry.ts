@@ -147,9 +147,7 @@ export class CredentialRegistry {
 }
 
 /** The issuer catalogue entry of one compiled definition. */
-export function importedCredential(
-  definition: AttestbookCredentialDefinition,
-): SupportedCredential {
+function importedCredential(definition: AttestbookCredentialDefinition): SupportedCredential {
   return {
     id: definition.credentialConfigurationId,
     scope: definition.scope,

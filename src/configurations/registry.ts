@@ -24,7 +24,7 @@ export const DEFAULT_ISSUER_CONFIGURATION_ID: IssuerConfigurationId = "eu-pid-de
 validateIssuerConfigurations(issuerConfigurations);
 
 /** Whether an issuer is served: always, or only when its opt-in feature is enabled. */
-export function issuerConfigurationEnabled(
+function issuerConfigurationEnabled(
   config: AppConfig,
   configuration: IssuerConfiguration,
 ): boolean {

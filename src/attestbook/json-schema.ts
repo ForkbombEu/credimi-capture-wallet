@@ -12,7 +12,7 @@ import type {
 
 const JSON_SCHEMA_2020_12 = "https://json-schema.org/draft/2020-12/schema";
 /** Claim path segments below the payload root, counting an array's elements as one. */
-export const MAX_CLAIM_DEPTH = 4;
+const MAX_CLAIM_DEPTH = 4;
 const MAX_CLAIM_NODES = 256;
 
 const ANNOTATIONS = ["$comment", "title", "description", "examples"];
@@ -66,7 +66,7 @@ export const RESERVED_CLAIM_NAMES = new Set([
 ]);
 
 /** SD-JWT's own members, reserved at every level of the payload. */
-export function isSdJwtReservedName(name: string): boolean {
+function isSdJwtReservedName(name: string): boolean {
   return name.startsWith("_sd") || name === "...";
 }
 

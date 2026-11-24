@@ -157,7 +157,7 @@ export function jwtVcIssuerMetadata(config: AppConfig): unknown {
   };
 }
 
-export function credentialConfigurationId(
+function credentialConfigurationId(
   config: AppConfig,
   format: CredentialFormat,
   proofPolicy: CredentialProofPolicy,
@@ -208,7 +208,7 @@ export function isDomesticPidCredential(credential: SupportedCredential): boolea
   );
 }
 
-export function credentialScope(
+function credentialScope(
   config: AppConfig,
   format: CredentialFormat,
   proofPolicy: CredentialProofPolicy,
@@ -351,13 +351,6 @@ export function supportedCredentialsForIssuer(
       (issuer.staticCredentialVcts === undefined ||
         (credential.vct !== undefined && issuer.staticCredentialVcts.includes(credential.vct))),
   );
-}
-
-export function supportedCredentialConfigurationIdsForIssuer(
-  config: AppConfig,
-  issuer: StaticCatalogueIssuer,
-): string[] {
-  return supportedCredentialsForIssuer(config, issuer).map((credential) => credential.id);
 }
 
 export function supportedCredentialConfigurationIds(config: AppConfig): string[] {

@@ -22,9 +22,9 @@ import type { AppConfig, JsonRecord } from "./types.js";
 export const VERIFIER_KEY_ID = "credimi-fake-verifier-key";
 export const VERIFIER_DID_KEY_ID = "credimi-fake-verifier-did-key";
 export const VERIFIER_ATTESTATION_ISSUER_KEY_ID = "credimi-fake-verifier-attestation-issuer-key";
-export const ACCESS_TOKEN_PRIVATE_JWK_FILE = "access-token-private-jwk.json";
-export const FEDERATION_PRIVATE_JWK_FILE = "private.jwk";
-export const FEDERATION_JWKS_FILE = "jwks.json";
+const ACCESS_TOKEN_PRIVATE_JWK_FILE = "access-token-private-jwk.json";
+const FEDERATION_PRIVATE_JWK_FILE = "private.jwk";
+const FEDERATION_JWKS_FILE = "jwks.json";
 
 export const DEFAULT_CONFIG: AppConfig = {
   issuer_base_url: "http://localhost:8080",
@@ -50,15 +50,15 @@ export const DEFAULT_CONFIG: AppConfig = {
   attestbook: DISABLED_ATTESTBOOK_SETTINGS,
 };
 
-export const PORT_ENV_VAR = "PORT";
-export const GUI_ENABLED_ENV_VAR = "GUI_ENABLED";
-export const PUBLIC_BASE_URL_ENV_VAR = "PUBLIC_BASE_URL";
-export const FCAF_SCENARIOS_ENABLED_ENV_VAR = "FCAF_SCENARIOS_ENABLED";
-export const OID4VCI_NOTIFICATIONS_ENABLED_ENV_VAR = "OID4VCI_NOTIFICATIONS_ENABLED";
-export const STATUS_LIST_BASE_URL_ENV_VAR = "STATUS_LIST_BASE_URL";
-export const STATUS_LIST_API_KEY_ENV_VAR = "STATUS_LIST_API_KEY";
-export const FEDERATION_ENABLED_ENV_VAR = "FEDERATION_ENABLED";
-export const FEDERATION_AUTHORITY_HINTS_ENV_VAR = "FEDERATION_AUTHORITY_HINTS";
+const PORT_ENV_VAR = "PORT";
+const GUI_ENABLED_ENV_VAR = "GUI_ENABLED";
+const PUBLIC_BASE_URL_ENV_VAR = "PUBLIC_BASE_URL";
+const FCAF_SCENARIOS_ENABLED_ENV_VAR = "FCAF_SCENARIOS_ENABLED";
+const OID4VCI_NOTIFICATIONS_ENABLED_ENV_VAR = "OID4VCI_NOTIFICATIONS_ENABLED";
+const STATUS_LIST_BASE_URL_ENV_VAR = "STATUS_LIST_BASE_URL";
+const STATUS_LIST_API_KEY_ENV_VAR = "STATUS_LIST_API_KEY";
+const FEDERATION_ENABLED_ENV_VAR = "FEDERATION_ENABLED";
+const FEDERATION_AUTHORITY_HINTS_ENV_VAR = "FEDERATION_AUTHORITY_HINTS";
 export interface InitOptions {
   issuer_base_url?: string;
   public_base_url?: string;
@@ -111,7 +111,7 @@ function defaultBaseUrlScheme(value: string): "http" | "https" {
   return "https";
 }
 
-export function parseListenAddr(addr: string): { host?: string; port: number } {
+function parseListenAddr(addr: string): { host?: string; port: number } {
   if (addr.startsWith(":")) return { port: Number.parseInt(addr.slice(1), 10) };
   const url = new URL(addr.includes("://") ? addr : `http://${addr}`);
   return { host: url.hostname, port: Number.parseInt(url.port || "8080", 10) };
@@ -138,10 +138,7 @@ function parsePortEnv(value: string): number {
   return port;
 }
 
-export function loadEnvFile(
-  path = ".env",
-  env: NodeJS.ProcessEnv = process.env,
-): NodeJS.ProcessEnv {
+function loadEnvFile(path = ".env", env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   if (!existsSync(path)) return env;
   return { ...parseEnvText(readFileSync(path, "utf8")), ...env };
 }
@@ -165,7 +162,7 @@ export function resolveGuiEnabled(env: NodeJS.ProcessEnv = process.env): boolean
   return resolveBooleanEnv(env, GUI_ENABLED_ENV_VAR, DEFAULT_CONFIG.gui_enabled);
 }
 
-export function resolveFcafScenariosEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+function resolveFcafScenariosEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return resolveBooleanEnv(
     env,
     FCAF_SCENARIOS_ENABLED_ENV_VAR,
@@ -173,7 +170,7 @@ export function resolveFcafScenariosEnabled(env: NodeJS.ProcessEnv = process.env
   );
 }
 
-export function resolveOid4vciNotificationsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+function resolveOid4vciNotificationsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return resolveBooleanEnv(
     env,
     OID4VCI_NOTIFICATIONS_ENABLED_ENV_VAR,
@@ -253,13 +250,13 @@ function validateFederationEntityIdentifier(value: string, field: string): void 
   }
 }
 
-export function stringifyYaml(record: JsonRecord): string {
+function stringifyYaml(record: JsonRecord): string {
   return `${Object.entries(record)
     .map(([key, value]) => `${key}: ${JSON.stringify(value)}`)
     .join("\n")}\n`;
 }
 
-export function parseYamlConfig(text: string): Partial<AppConfig> {
+function parseYamlConfig(text: string): Partial<AppConfig> {
   const result: JsonRecord = {};
   for (const line of text.split(/\r?\n/)) {
     const trimmed = line.trim();
@@ -286,7 +283,7 @@ export function parseYamlConfig(text: string): Partial<AppConfig> {
   return result as Partial<AppConfig>;
 }
 
-export function configPath(dataDir: string): string {
+function configPath(dataDir: string): string {
   return join(dataDir, "config.yaml");
 }
 
@@ -310,7 +307,7 @@ export function issuerFederationPrivateJwkPath(materialDirectory: string): strin
   return join(materialDirectory, "federation", FEDERATION_PRIVATE_JWK_FILE);
 }
 
-export function issuerFederationJwksPath(materialDirectory: string): string {
+function issuerFederationJwksPath(materialDirectory: string): string {
   return join(materialDirectory, "federation", FEDERATION_JWKS_FILE);
 }
 
