@@ -123,7 +123,7 @@ In `credimi-capture-wallet` the required commands are `pnpm test`, `pnpm build`,
 
 Any command a task depends on must be declared in `mise.toml`, which `AGENTS.md` treats as a hard requirement. It currently declares only `node`, `pnpm`, and `task`. Add anything a new fixture, scenario, or validation step needs in the same change.
 
-Update the API documentation whenever the public contract changes: `src/openapi.ts`, `README.md`, and `CAPTURE_WALLET_API.md`. Flag the harness's `pkg/fcaf` mirror for update instead of editing it from here.
+Update the API documentation whenever the public contract changes: `src/openapi/`, `README.md`, and `CAPTURE_WALLET_API.md`. Flag the harness's `pkg/fcaf` mirror for update instead of editing it from here.
 
 Commit each independently completed task, following the repository's instructions.
 
@@ -150,9 +150,9 @@ This phase produces no verifier code. Its output is the list of capabilities the
 Read, in this repository:
 
 * `AGENTS.md`
-* `CAPTURE_WALLET_API.md` and `src/openapi.ts` for the current public contract.
-* `src/server.ts` for the OpenID4VP and OpenID4VCI routes and their input validation.
-* `src/credo-openid4vp.ts`, `src/openid4vp.ts` for request construction, signing, and delivery.
+* `CAPTURE_WALLET_API.md` and `src/openapi/` for the current public contract.
+* `src/server/routes/` and `src/server/*-input.ts` for the OpenID4VP and OpenID4VCI routes and their input validation.
+* `src/openid4vp/credo-verifier.ts`, `src/openid4vp/request-construction.ts`, and `src/openid4vp/authorization-request.ts` for request construction, signing, and delivery.
 * `src/state.ts` and `src/types.ts` for the capture model.
 * `src/configurations/` for issuer configurations and credential fixtures.
 * `tests/` for the existing HTTP-level coverage and the conventions to follow.
@@ -377,7 +377,7 @@ The normal verifier must remain unchanged.
 
 ## 2.1 Introduce an isolated request-mutation mechanism
 
-First inspect the existing session-creation and Request Object signing pipeline. In `credimi-capture-wallet` the relevant path is `POST /openid4vp/sessions` in `src/server.ts`, which validates the inputs and calls `createVpSession`, which calls `CredoOpenId4VpVerifier.createSession` in `src/credo-openid4vp.ts`. That method obtains Credo's request payload, applies the caller's overrides, and then re-signs it with `signPresentationAuthorizationRequest` from `src/openid4vp.ts`. The gap between Credo's payload and that re-signing is the narrowest extension point for a controlled modification, because Credo's own verification-session state stays intact while the material delivered to the Wallet changes.
+First inspect the existing session-creation and Request Object signing pipeline. In `credimi-capture-wallet` the relevant path is `POST /openid4vp/sessions` in `src/server/routes/vp-sessions.ts`, which validates the inputs in `src/server/presentation-session-input.ts` and calls `createVpSession` in `src/server/presentation-session.ts`, which calls `CredoOpenId4VpVerifier.createSession` in `src/openid4vp/credo-verifier.ts`. That method obtains Credo's request payload, applies the caller's overrides, and then re-signs it with `signPresentationAuthorizationRequest` from `src/openid4vp/authorization-request.ts`. The gap between Credo's payload and that re-signing is the narrowest extension point for a controlled modification, because Credo's own verification-session state stays intact while the material delivered to the Wallet changes.
 
 The repository already has two precedents for an isolated, explicitly enabled test mode: the `permissive_capture` configuration flag and the `allow_undecryptable_response` request field, which publishes metadata the verifier cannot decrypt with and records a `vp_undecryptable_response_allowed` event. Follow that shape — a typed field plus a recorded capture event — rather than inventing a third convention.
 
@@ -552,7 +552,7 @@ Review:
 * `WS_RP_MS_Metadata__139`
 * `WS_RP_MS_Metadata__140`
 
-The normal case already works: `POST /openid4vp/sessions/{sessionId}/request` in `src/server.ts` reads `wallet_nonce`, merges it into the stored authorization request, re-signs, and serves the result. Only the two negative variants need the scenario mechanism.
+The normal case already works: `POST /openid4vp/sessions/{sessionId}/request` in `src/server/routes/vp-request.ts` (with request handling in `src/server/vp-request-uri.ts`) reads `wallet_nonce`, merges it into the stored authorization request, re-signs, and serves the result. Only the two negative variants need the scenario mechanism.
 
 The POST Request URI flow must support the required controlled nonce scenarios:
 
@@ -623,7 +623,7 @@ Support FCAF tests requiring the verifier to return specific HTTP statuses, resp
 
 ## 3.1 Inspect current response handling
 
-Find the existing response-submission endpoints and HTTP response helper. In `credimi-capture-wallet` these are `POST /openid4vp/sessions/{sessionId}/response` and `POST /openid4vp/response` in `src/server.ts`, and the single HTTP boundary is `sendVpSubmissionResponse`, which already records the delivered status, redacted headers, and exact body in `raw.presentation_response_verifier_http`. Verification and evidence are written separately by `captureVpResponse`, so the invariant required in 3.3 is already structural: a test-selected status cannot alter `checks` unless the scenario mechanism is wired into the wrong function. Add the scenario hook inside `sendVpSubmissionResponse` and leave `captureVpResponse` alone.
+Find the existing response-submission endpoints and HTTP response helper. In `credimi-capture-wallet` these are `POST /openid4vp/sessions/{sessionId}/response` and `POST /openid4vp/response` in `src/server/routes/vp-response.ts` (routes) and `src/server/vp-submission.ts`, and the single HTTP boundary is `sendVpSubmissionResponse`, which already records the delivered status, redacted headers, and exact body in `raw.presentation_response_verifier_http`. Verification and evidence are written separately by `captureVpResponse`, so the invariant required in 3.3 is already structural: a test-selected status cannot alter `checks` unless the scenario mechanism is wired into the wrong function. Add the scenario hook inside `sendVpSubmissionResponse` and leave `captureVpResponse` alone.
 
 Determine where the verifier:
 
@@ -1354,7 +1354,7 @@ Implementing the assertions themselves is harness work and out of scope.
 
 ## F. Documentation
 
-Update `src/openapi.ts`, `README.md`, and `CAPTURE_WALLET_API.md` whenever the public contract changes, and flag the harness's mirror for update.
+Update `src/openapi/`, `README.md`, and `CAPTURE_WALLET_API.md` whenever the public contract changes, and flag the harness's mirror for update.
 
 Document any remaining unsupported capability, and record the new capability in the Phase 0 matrix.
 

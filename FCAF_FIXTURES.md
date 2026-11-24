@@ -130,7 +130,7 @@ time, and two cases reuse mechanisms that already existed.
 | `request_mutation.request_object_header.unset: ["/jwt"]` | No attestation in the JOSE header | `WS_RP_MS_Metadata__119` |
 
 None of these depend on the verifier certificate's Subject Alternative Names, so a deployed
-certificate with only a URI SAN serves them; `tests/server.test.ts` exercises that certificate.
+certificate with only a URI SAN serves them; `tests/server-verifier-attestation.test.ts` exercises that certificate.
 
 `WS_RP_MS_Metadata__123` adds non-key verifier metadata outside `client_metadata`, which is a
 `request_mutation` on the request object rather than a new control.
