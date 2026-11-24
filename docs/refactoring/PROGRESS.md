@@ -17,7 +17,9 @@ Statuses: Pending · Ready · In progress · Under review · Changes requested �
 
 ## Current batch
 
-Batch 10 (B-02). Batches 0–9 completed.
+Batch 15 (C-01 ‖ C-12 ‖ S-00). Phases 0–4 completed. Mid-point measurement at `223fe2d`: jscpd health
+64 C (duplication 72, dead code 77, complexity 46); knip production 29 unused exports + 3 types
+(test-consumed); 0 import cycles; 716 tests. Phase 5 briefs: `/home/matteo/src/ccw-refactor/briefs/phase5-{a,b,c}.md`.
 
 ## Tasks
 
@@ -51,9 +53,10 @@ Batch 10 (B-02). Batches 0–9 completed.
 | B-05 | Completed | B-02, B-04, T-05 | Luna | Opus | 980d432 | 0fd94f0 (task 9f835e4) | APPROVE; verbatim; **revised**: `trustedIssuerForX509Credential` stays in `credo-verifier.ts` (trust policy, sole caller is the agent's trust callback) after reviewer cohesion finding | inventory unchanged | none |
 | B-06 | Completed | B-03, B-09 | Luna | Opus | 0fd94f0 | b2dde4f (task d3a087c) | APPROVE; verbatim; `configPath`/`issuerFederationJwksPath` exported (still used by config.ts) | inventory identical; no cycles | AGENTS.md map updated in B-07 |
 | B-07 | Completed | B-06, T-06, T-08 | Luna | Opus | b2dde4f | 0a53661 (task 4bf659f) | APPROVE after amendment (more YAML edge cases pinned; derived key set; env constants order; AGENTS map) | +6 YAML characterisation tests; `init` output equal to base (34 files, modes 0600, config.yaml bytes, JWK structure, kid derivation, certificate fields — verified by implementer and reviewer); no cycles | attestbook/settings.ts keeps its own boolean parser: reuse would create a real `defaults ↔ settings` cycle (identical tokens/messages) |
-| B-08 | In progress | B-07 | Luna | Opus | 0a53661 | | | | |
-| C-01 | Pending | B-08, T-01 | Luna | Opus | | | | | |
-| C-02 | Pending | C-01, T-02 | Luna | Opus | | | | | |
+| B-08 | Completed | B-07 | Luna | Opus | 0a53661 | 223fe2d (task dd9e4a6) | APPROVE after amendment (AGENTS map line restored, subject, local import); reviewer proved byte-identical issuer metadata, jwt-vc metadata and catalogue outputs (551 211 bytes, all issuers, Attestbook on/off incl. imported definitions) | inventory unchanged; no cycles | none |
+| S-00 | Completed | — | Luna | Opus | 223fe2d | 4728ea4 (task 1e0c7a8) | APPROVE (reviewer forced the ms tie with a coarse clock: base failed 5/8, patched 8/8; ENOENT traced to dependency on an earlier test publishing); webhook test given the same fix | inventory unchanged; assertions unchanged | production ledger boundary unchanged (F-09) |
+| C-01 | Completed | B-08, T-01 | Luna | Opus | 223fe2d | 4c9cf37 (task d156caa; message reworded at integration) | APPROVE after amendment: **Blocking found by review** — extracted async call returned without `await` inside try/catch, so verifier rejections hung requests (reproduced); fixed + regression test; JSDoc restored; `vpPresentationCaptured` shared; `matchedIssuerOrNull` | app.ts 2586 → 2401; session route cx 11 → 4, alternative 11 → 4; jscpd app.ts 5 → 3 clones (remaining: two-failure preambles, UI QR options); +1 test | none |
+| C-02 | Changes requested | C-01, T-02 | Luna | Opus | 4c9cf37 | task b0ee9fb | first review: behaviour identical over a 2 700-request differential harness, but `parseIssuanceSessionInput` cx 55 / 231 lines (relocated, not reduced) → split into ordered domain checks | | |
 | C-03 | Pending | C-02 | Luna | Opus | | | | | |
 | C-04 | Pending | C-03 | Luna | Opus | | | | | |
 | C-05 | Pending | C-04, T-03 | Luna | Opus | | | | | |

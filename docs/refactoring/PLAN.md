@@ -610,6 +610,15 @@ C-13 → C-17 → C-08 → C-07.
   `request-behavior.ts:87-89`). Leave Credo-TS boundary `as never` casts. Depends: B-02, B-07,
   C-14, C-15.
 
+### Test stability (inserted during execution)
+
+#### S-00 · Stabilise timing-sensitive tests — **new**
+- `tests/server.test.ts` "lists a session's requests with every unattributed request since it was
+  created" (FINDINGS F-09: millisecond tie at the `entry.at >= from` boundary) and
+  `tests/attestbook-reconcile.test.ts` "records persistence failure after activation" (ENOENT when the
+  state file is not yet written). Test-only: make the preconditions deterministic, keep every
+  assertion. Reason: frequent spurious failures in every validation run (≈ 1 in 3 full runs).
+
 ### Phase 6 — Test code simplification
 
 #### S-01b · Finish the shared harness
