@@ -71,6 +71,23 @@ export interface WebhookResult {
   readonly status: number;
   readonly body: JsonRecord;
 }
+type WebhookLog = { readonly event: string; readonly fields: JsonRecord } | null;
+type WebhookVerification =
+  | { readonly kind: "challenge"; readonly challenge: string }
+  | {
+      readonly kind: "reject";
+      readonly result: WebhookResult;
+      readonly log: WebhookLog;
+    }
+  | {
+      readonly kind: "publication";
+      readonly event: AttestbookPublicationEvent;
+      readonly timestamp: string;
+    };
+
+function rejectedWebhook(result: WebhookResult, log: WebhookLog = null): WebhookVerification {
+  return { kind: "reject", result, log };
+}
 
 /** Structured, secret-free log sink; one JSON object per integration event. */
 export type AttestbookLogger = (event: string, fields: JsonRecord) => void;
@@ -240,103 +257,28 @@ export class AttestbookIntegration {
     rawBody: Buffer,
     header: (name: string) => string | undefined,
   ): Promise<WebhookResult> {
-    let body: unknown;
-    try {
-      body = JSON.parse(rawBody.toString("utf8"));
-    } catch {
-      return reject(400, "invalid_request", "body is not JSON");
-    }
-    if (!isRecord(body)) return reject(400, "invalid_request", "body is not a JSON object");
-
-    if (
-      header("x-attestbook-event-type") === undefined &&
-      header("x-attestbook-signature") === undefined
-    ) {
-      const challenge = verificationChallengeOrNull(body, Date.now());
-      if (!challenge) return reject(400, "invalid_request", "not a valid verification challenge");
+    const delivery = this.verifyDelivery(rawBody, header);
+    if (delivery.kind === "challenge") {
       this.lastVerificationChallengeAt = new Date().toISOString();
       this.logger("subscription_verification_answered", {});
-      return { status: 200, body: { challenge } };
+      return { status: 200, body: { challenge: delivery.challenge } };
     }
-
-    if (header("x-attestbook-event-type") !== PUBLICATION_EVENT_TYPE) {
-      return reject(
-        400,
-        "unsupported_event_type",
-        "only rulebook.published notifications are accepted",
-      );
-    }
-    const secret = this.config.attestbook.webhook_secret;
-    if (!secret) {
-      this.logger("notification_refused", { reason: "webhook_secret_not_configured" });
-      return reject(
-        503,
-        "webhook_secret_not_configured",
-        "the subscription webhook secret is not configured",
-      );
-    }
-    const eventId = header("x-attestbook-event-id");
-    const timestamp = header("x-attestbook-timestamp");
-    const signature = header("x-attestbook-signature");
-    if (!eventId || !timestamp || !signature) {
-      return reject(400, "invalid_request", "signature headers are missing");
-    }
-    if (!webhookSignatureValid({ secret, timestamp, eventId, body: rawBody, signature })) {
-      this.logger("notification_rejected", { reason: "invalid_signature" });
-      return reject(401, "invalid_signature", "the notification signature is not valid");
-    }
-    if (!webhookTimestampFresh(timestamp, Date.now())) {
-      this.logger("notification_rejected", { reason: "stale_timestamp" });
-      return reject(
-        401,
-        "stale_timestamp",
-        "the delivery timestamp is outside the accepted window",
-      );
-    }
-    const event = publicationEventOrNull(body);
-    if (!event) return reject(400, "invalid_event", "the body is not a rulebook publication event");
-    if (event.id !== eventId) {
-      return reject(400, "event_id_mismatch", "the event id header and body disagree");
-    }
-    if (event.rulebookId !== this.trust.rulebookId) {
-      this.logger("notification_rejected", {
-        reason: "rulebook_not_subscribed",
-        event_id: event.id,
-      });
-      return reject(
-        403,
-        "rulebook_not_subscribed",
-        "the notification is for a rulebook that is not configured",
-      );
+    if (delivery.kind === "reject") {
+      if (delivery.log) this.logger(delivery.log.event, delivery.log.fields);
+      return delivery.result;
     }
 
     const receivedAt = new Date().toISOString();
-    let duplicate = false;
+    let duplicate: boolean;
     try {
-      await this.persistence.update((state) => {
-        duplicate = state.notifications.some((entry) => entry.event_id === event.id);
-        if (duplicate) return state;
-        return {
-          ...state,
-          notifications: [
-            ...state.notifications,
-            {
-              event_id: event.id,
-              version: event.version,
-              content_digest: event.contentDigest,
-              published_at: event.publishedAt,
-              received_at: receivedAt,
-              delivery_timestamp: timestamp,
-              raw_body_base64: rawBody.toString("base64"),
-              status: "pending",
-              processed_at: null,
-              outcome: null,
-            },
-          ],
-        };
-      });
+      ({ duplicate } = await this.recordNotification(
+        delivery.event,
+        rawBody,
+        delivery.timestamp,
+        receivedAt,
+      ));
     } catch {
-      this.logger("notification_not_recorded", { event_id: event.id });
+      this.logger("notification_not_recorded", { event_id: delivery.event.id });
       return reject(
         503,
         "notification_not_recorded",
@@ -345,18 +287,138 @@ export class AttestbookIntegration {
     }
     this.lastSignedNotificationAt = receivedAt;
     if (duplicate) {
-      this.logger("notification_duplicate", { event_id: event.id });
-      return { status: 200, body: { status: "duplicate", event_id: event.id } };
+      this.logger("notification_duplicate", { event_id: delivery.event.id });
+      return { status: 200, body: { status: "duplicate", event_id: delivery.event.id } };
     }
     this.pendingNotifications += 1;
-    this.observe(event, "webhook");
+    this.observe(delivery.event, "webhook");
     this.logger("notification_received", {
-      event_id: event.id,
-      version: event.version,
-      content_digest: event.contentDigest,
+      event_id: delivery.event.id,
+      version: delivery.event.version,
+      content_digest: delivery.event.contentDigest,
     });
     void this.reconcile("webhook").catch(() => undefined);
-    return { status: 202, body: { status: "accepted", event_id: event.id } };
+    return { status: 202, body: { status: "accepted", event_id: delivery.event.id } };
+  }
+
+  private verifyDelivery(
+    rawBody: Buffer,
+    header: (name: string) => string | undefined,
+  ): WebhookVerification {
+    let body: unknown;
+    try {
+      body = JSON.parse(rawBody.toString("utf8"));
+    } catch {
+      return rejectedWebhook(reject(400, "invalid_request", "body is not JSON"));
+    }
+    if (!isRecord(body)) {
+      return rejectedWebhook(reject(400, "invalid_request", "body is not a JSON object"));
+    }
+
+    if (
+      header("x-attestbook-event-type") === undefined &&
+      header("x-attestbook-signature") === undefined
+    ) {
+      const challenge = verificationChallengeOrNull(body, Date.now());
+      if (!challenge) {
+        return rejectedWebhook(
+          reject(400, "invalid_request", "not a valid verification challenge"),
+        );
+      }
+      return { kind: "challenge", challenge };
+    }
+
+    if (header("x-attestbook-event-type") !== PUBLICATION_EVENT_TYPE) {
+      return rejectedWebhook(
+        reject(400, "unsupported_event_type", "only rulebook.published notifications are accepted"),
+      );
+    }
+    const secret = this.config.attestbook.webhook_secret;
+    if (!secret) {
+      return rejectedWebhook(
+        reject(
+          503,
+          "webhook_secret_not_configured",
+          "the subscription webhook secret is not configured",
+        ),
+        { event: "notification_refused", fields: { reason: "webhook_secret_not_configured" } },
+      );
+    }
+    const eventId = header("x-attestbook-event-id");
+    const timestamp = header("x-attestbook-timestamp");
+    const signature = header("x-attestbook-signature");
+    if (!eventId || !timestamp || !signature) {
+      return rejectedWebhook(reject(400, "invalid_request", "signature headers are missing"));
+    }
+    if (!webhookSignatureValid({ secret, timestamp, eventId, body: rawBody, signature })) {
+      return rejectedWebhook(
+        reject(401, "invalid_signature", "the notification signature is not valid"),
+        { event: "notification_rejected", fields: { reason: "invalid_signature" } },
+      );
+    }
+    if (!webhookTimestampFresh(timestamp, Date.now())) {
+      return rejectedWebhook(
+        reject(401, "stale_timestamp", "the delivery timestamp is outside the accepted window"),
+        { event: "notification_rejected", fields: { reason: "stale_timestamp" } },
+      );
+    }
+    const event = publicationEventOrNull(body);
+    if (!event) {
+      return rejectedWebhook(
+        reject(400, "invalid_event", "the body is not a rulebook publication event"),
+      );
+    }
+    if (event.id !== eventId) {
+      return rejectedWebhook(
+        reject(400, "event_id_mismatch", "the event id header and body disagree"),
+      );
+    }
+    if (event.rulebookId !== this.trust.rulebookId) {
+      return rejectedWebhook(
+        reject(
+          403,
+          "rulebook_not_subscribed",
+          "the notification is for a rulebook that is not configured",
+        ),
+        {
+          event: "notification_rejected",
+          fields: { reason: "rulebook_not_subscribed", event_id: event.id },
+        },
+      );
+    }
+    return { kind: "publication", event, timestamp };
+  }
+
+  private async recordNotification(
+    event: AttestbookPublicationEvent,
+    rawBody: Buffer,
+    timestamp: string,
+    receivedAt: string,
+  ): Promise<{ duplicate: boolean }> {
+    let duplicate = false;
+    await this.persistence.update((state) => {
+      duplicate = state.notifications.some((entry) => entry.event_id === event.id);
+      if (duplicate) return state;
+      return {
+        ...state,
+        notifications: [
+          ...state.notifications,
+          {
+            event_id: event.id,
+            version: event.version,
+            content_digest: event.contentDigest,
+            published_at: event.publishedAt,
+            received_at: receivedAt,
+            delivery_timestamp: timestamp,
+            raw_body_base64: rawBody.toString("base64"),
+            status: "pending",
+            processed_at: null,
+            outcome: null,
+          },
+        ],
+      };
+    });
+    return { duplicate };
   }
 
   /**
