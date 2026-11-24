@@ -17,7 +17,7 @@ Statuses: Pending · Ready · In progress · Under review · Changes requested �
 
 ## Current batch
 
-Batch 2 (T-01 ‖ T-03 ‖ T-04). Batches 0–1 completed.
+Batch 8 (B-10 relocation). Phases 0–3 completed (batches 0–7).
 
 ## Tasks
 
@@ -34,12 +34,12 @@ Batch 2 (T-01 ‖ T-03 ‖ T-04). Batches 0–1 completed.
 | T-05 | Completed | S-01a | Luna | Opus | 8de40a8 | ea76c05 (task ccffa76) | APPROVE after amendment (DCQL `multiple` case failed for an unrelated Credo rule → real cardinality case + positive case; DC API origin handover; exact JSON-pointer message; shared `keyAttestationJwt`) | +18 tests; mdoc branch of `decodedPresentationFromCredo` covered | Credo error strings copied verbatim |
 | T-06 | Completed | S-01a | Luna | Opus | 8de40a8 | 77c9d77 (task 9905057) | APPROVE after 3 rounds (commit format; declared vs streamed size, body-read errors, deadline, URL rules; exact sync JSON, real rollback, real EISDIR, retry schedule; webhook order/logs; json-schema order); 16/18 then 18/18 source mutants caught | +72 tests; settings 100 %, http 100 % stmts | reconcile tests share fixture state in file order |
 | T-07 | Completed | S-01a | Luna | Opus | ea76c05 | 5d9d4d3 (task 47ee0bb) | APPROVE after amendment (experimental exemption pinned); 15/18 mutants killed, survivors = check reordering (acceptable, no refactor follows) | +11 tests; validate.ts 100 % | F-11 (rule 2 reachable only with invalid compliance) |
-| T-08 | Under review | S-01a | Luna | Opus | ea76c05 | task eeaf437 | | 11 subprocess tests | |
-| T-09 | Under review | S-01a | Luna | Opus | 5d9d4d3 | task 2b9ed97 | first review: CHANGES REQUESTED (full path sets per flag case; all issuer enums; distinct public URL) | | |
-| D-01 | Under review | Phase 2 | Luna | Opus | 77c9d77 | task e2cb02c | | strict tsc clean except openid4vp-validation.ts (removed by D-05) | |
-| D-02 | Pending | D-01 | Luna | Opus | | | | | |
-| D-03 | Pending | D-01 | Luna | Opus | | | | | |
-| D-04 | Pending | T-04, D-02, D-03 | Luna | Opus | | | | | |
+| T-08 | Completed | S-01a | Luna | Opus | ea76c05 | 001853b (task bfad60d) | APPROVE after amendment (stdout compared as text incl. banner; full summary literals; token-present case; key stability across rerun; init stderr surfaced; real symlink invocation); 9/10 mutants caught (M13 `force` always false is indistinguishable by design) | +12 subprocess tests (~22 s); also verified on integration tip after D-03 | pnpm bin shell shim itself not exercised |
+| T-09 | Completed | S-01a | Luna | Opus | 5d9d4d3 | f2211eb (task 2b9ed97) | APPROVE after amendment (full path sets per flag case; every issuer enum; distinct public URL) | +8 tests; openapi.ts 100 % | operation/component content guarded only by C-08's byte-equality script |
+| D-01 | Completed | Phase 2 | Luna | Opus | 77c9d77 | 7630b46 (task e2cb02c) | APPROVE | strict tsc 0 diagnostics after D-05; inventory unchanged | only error-ordering edge case when both issuer key files are broken |
+| D-02 | Completed | D-01 | Luna | Opus | 7630b46 | 8ca8351 (task 4578198) | APPROVE; reviewer proved byte-identical `x509_hash` and request URIs over 8 generated verifier materials | openid4vp.ts 100 % stmts; inventory unchanged | none |
+| D-03 | Completed | D-01 | Luna | Opus | 7630b46 | dae9d82 (task d3f8460) | APPROVE; federation CLI output byte-identical base vs impl; `PID_MDOC_DOCTYPE` now imported from credential-definitions (same constant) | inventory unchanged | ESM import order in state.ts changed (no top-level side effects) |
+| D-04 | Completed | T-04, D-02, D-03 | Luna | Opus | bfb538a | cdbaa61 (task c6b8e53) | APPROVE; deleted `CREDIMI_WEBSITE`, `supportedCredentialConfigurationIdsForIssuer` (no references); 62 symbols unexported | knip default 40+26 → 3+1 (tests/support exceptions for S-01b); knip production 71+28 → 35+3; 707/707 | `CredentialFormat` export handled in B-03 |
 | D-05 | Completed | T-05 | Luna | Opus | 99e3f0c | e554463 (task 2413a62, message blank line fixed at integration) | APPROVE (only commit-message format) | 615/615; inventory: 7 tests relocated to `tests/mdoc-session-transcript.test.ts`, names unchanged; direct `dcql` removed (still transitive via Credo 3.0.1); knip prod no longer reports the file/dependency | none |
 | D-06 | Completed | Phase 2 | Luna | Opus | 99e3f0c | e5c3cd8 (task 80eb750) | APPROVE | removed `jwkToJwks`, `firstWalletJwks` (no src consumers); no tests removed; renamed "extracts jwk from proof JWT header and converts it to JWKS" → "captures jwk from proof JWT header" and "detects kid-only proof headers without treating a key as observable" → "captures kid-only proof headers"; dead-helper assertions replaced by direct `captureProofHeaders` assertions (`source`, `jwk`); 615/615 | observed-field list in `mapCredentialRequest` still not unit-tested (pre-existing) |
 | B-10 | Pending | Phase 3 | Luna | Opus | | | | | |
@@ -95,3 +95,18 @@ Batch 2 (T-01 ‖ T-03 ‖ T-04). Batches 0–1 completed.
   89 clone pairs (the audit's 3.2 % / 97 also counted CSS and markup).
 - Reviewer found a pre-existing intermittent failure (`asn1 … illegal padding` in
   `validateIssuerMaterial`); recorded as FINDINGS F-06, root cause under investigation.
+
+### Batches 2–7 — Phase 2 (T-01…T-09) and Phase 3 (D-01…D-06) (completed)
+
+- Integration tip after Phase 3: `cdbaa61`. Validation: build, `task lint`, strict tsc 0 diagnostics,
+  707/707 tests in 35 files (inventory `reports/inventory-after-phase3.txt`).
+- Test inventory grew 471 → 707: +236 characterisation tests; D-06 renamed 2 tests; D-05 relocated 7
+  tests to `tests/mdoc-session-transcript.test.ts` (names unchanged). No test removed.
+- Inventory names include temp paths in some `it.each` titles; `scripts/test-inventory.sh` now
+  normalises `/tmp/<prefix>-XXXXXX` to `/tmp/<tmp>`.
+- Reviews were substantive: several suites initially asserted too little; reviewers mutation-tested
+  production code in throwaway copies and every Major finding was fixed before integration.
+- New findings: F-07 (alternative `/openid4vp/response` route), F-08, F-09 (ledger millisecond race,
+  flaky), F-10 (possible Credo state flake), F-11 (dead conformance rule).
+- Subagent tooling incident: one implementer tried the eval `commit` namespace (which targets the
+  user's checkout); it did not commit there. Briefs now forbid it; user checkout verified unchanged.
