@@ -111,7 +111,7 @@ interface SignedDeliveryPlan {
   deliveredRequestRecipe: VpDeliveredRequestRecipe;
 }
 
-function requestSigningOptions(
+export function requestSigningOptions(
   requestMutation: VpRequestMutation | undefined,
   requestSigningMaterial: RequestSigningMaterial | undefined,
   verifierAttestationJwt: string | undefined,
