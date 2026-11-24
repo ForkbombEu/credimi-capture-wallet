@@ -2,4 +2,7 @@
 node = "latest"
 pnpm = "latest"
 task = "latest"
+"npm:knip" = "6.48.0"
+"npm:jscpd" = "5.4.3"
+"npm:madge" = "8.0.0"
 

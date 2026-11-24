@@ -1,0 +1,5 @@
+{
+  "format": "typescript",
+  "path": ["src", "tests"],
+  "reporters": ["console", "ai"]
+}
