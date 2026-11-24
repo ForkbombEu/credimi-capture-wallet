@@ -46,11 +46,11 @@ Batch 10 (B-02). Batches 0–9 completed.
 | B-01 | Completed | B-10 | Luna | Opus | 5a14aef | fcf97d8 (task 3455d70) | APPROVE | 4 identical copies → `src/shared/errors.ts`; inline variants left (not helpers) | none |
 | B-04 | Completed | B-10 | Luna | Opus | 5a14aef | 2c3a254 (task 71172bd) | APPROVE; verbatim move verified; `defaultBackend: kms.backend` (same value) | openid4vci no longer imports openid4vp | none |
 | B-09 | Completed | B-10, T-08 | Luna | Opus | 5a14aef | 47729f9 (task 7e3c7ab) | APPROVE after amendment (AGENTS map, exact regex, two parseArgs quirks pinned) | +3 in-process tests; T-08 subprocess suite unchanged; 710/710 | in-process coverage excludes init/serve/attestbook (subprocess only) |
-| B-02 | In progress | B-01 | Luna | Opus | 47729f9 | | | | |
-| B-03 | Pending | B-02 | Luna | Opus | | | | | |
-| B-05 | Pending | B-02, B-04, T-05 | Luna | Opus | | | | | |
-| B-06 | Pending | B-03, B-09 | Luna | Opus | | | | | |
-| B-07 | Pending | B-06, T-06, T-08 | Luna | Opus | | | | | |
+| B-02 | Completed | B-01 | Luna | Opus | 47729f9 | 980d432 (task 7014364) | APPROVE; equivalence argued for every input class (only `document.all` could differ — absent in Node) | 8 copies → `src/shared/json.ts` (`isRecord`, null-returning `asRecord`, `asStringOrNull`); undefined-returning variants untouched (X-7) | none |
+| B-03 | Completed | B-02 | Luna | Opus | 980d432 | e221d77 (task 71943dc) | APPROVE; compiled JS byte-identical to base | madge: 2 → **0 cycles**; `attestbook/integration.ts` no longer imports `ui.ts` | `src/types.ts` remains a large shared type module (X-5) |
+| B-05 | Completed | B-02, B-04, T-05 | Luna | Opus | 980d432 | 0fd94f0 (task 9f835e4) | APPROVE; verbatim; **revised**: `trustedIssuerForX509Credential` stays in `credo-verifier.ts` (trust policy, sole caller is the agent's trust callback) after reviewer cohesion finding | inventory unchanged | none |
+| B-06 | Completed | B-03, B-09 | Luna | Opus | 0fd94f0 | b2dde4f (task d3a087c) | APPROVE; verbatim; `configPath`/`issuerFederationJwksPath` exported (still used by config.ts) | inventory identical; no cycles | AGENTS.md map updated in B-07 |
+| B-07 | In progress | B-06, T-06, T-08 | Luna | Opus | b2dde4f | | | | |
 | B-08 | Pending | B-07 | Luna | Opus | | | | | |
 | C-01 | Pending | B-08, T-01 | Luna | Opus | | | | | |
 | C-02 | Pending | C-01, T-02 | Luna | Opus | | | | | |
