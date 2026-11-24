@@ -1,7 +1,7 @@
+import { isRecord } from "../shared/json.js";
 import type {
   IssuanceEndpointResponseScenario,
   IssuanceResponseScenario,
-  JsonRecord,
   VpResponseScenario,
 } from "../types.js";
 import { isJsonPointer } from "./json-pointer.js";
@@ -26,7 +26,7 @@ export function issuanceResponseScenarioOrNull(
   value: unknown,
 ): IssuanceResponseScenario | null | undefined {
   if (value === undefined) return undefined;
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  if (!isRecord(value)) return null;
   const scenario: IssuanceResponseScenario = {};
   for (const [endpoint, endpointValue] of Object.entries(value)) {
     if (!isIssuanceScenarioEndpoint(endpoint)) return null;
@@ -41,7 +41,7 @@ function endpointScenarioOrNull(
   value: unknown,
   allowOmitParameters: boolean,
 ): IssuanceEndpointResponseScenario | null {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  if (!isRecord(value)) return null;
   const scenario: IssuanceEndpointResponseScenario = {};
   for (const [member, memberValue] of Object.entries(value)) {
     if (member === "status") {
@@ -57,10 +57,8 @@ function endpointScenarioOrNull(
       continue;
     }
     if (member === "extra_parameters") {
-      if (typeof memberValue !== "object" || memberValue === null || Array.isArray(memberValue)) {
-        return null;
-      }
-      scenario.extra_parameters = memberValue as JsonRecord;
+      if (!isRecord(memberValue)) return null;
+      scenario.extra_parameters = memberValue;
       continue;
     }
     if (member === "omit_parameters" && allowOmitParameters) {

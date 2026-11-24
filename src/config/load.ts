@@ -22,7 +22,7 @@ export function stringifyYaml(record: JsonRecord): string {
     .join("\n")}\n`;
 }
 
-export function parseYamlConfig(text: string): Partial<AppConfig> {
+export function parseYamlConfig(text: string): Record<string, unknown> {
   const result: JsonRecord = {};
   for (const line of text.split(/\r?\n/)) {
     const trimmed = line.trim();
@@ -46,7 +46,7 @@ export function parseYamlConfig(text: string): Partial<AppConfig> {
       result[key] = raw.replace(/^"|"$/g, "");
     }
   }
-  return result as Partial<AppConfig>;
+  return result;
 }
 
 export function loadConfig(
@@ -54,32 +54,35 @@ export function loadConfig(
   env: NodeJS.ProcessEnv = loadEnvFile(),
 ): AppConfig {
   const path = configPath(dataDir);
-  const fileConfig = existsSync(path) ? parseYamlConfig(readFileSync(path, "utf8")) : {};
+  const fileConfig: Record<string, unknown> = existsSync(path)
+    ? parseYamlConfig(readFileSync(path, "utf8"))
+    : {};
+  const fileValues = fileConfig as Partial<AppConfig>; // F-03: config.yaml values pass through unvalidated
   const config: AppConfig = {
     ...DEFAULT_CONFIG,
-    ...fileConfig,
-    issuer_base_url: normalizeBaseUrl(fileConfig.issuer_base_url ?? DEFAULT_CONFIG.issuer_base_url),
+    ...fileValues,
+    issuer_base_url: normalizeBaseUrl(fileValues.issuer_base_url ?? DEFAULT_CONFIG.issuer_base_url),
     public_base_url: normalizeBaseUrl(
       env[PUBLIC_BASE_URL_ENV_VAR]?.trim() ||
-        fileConfig.public_base_url ||
-        fileConfig.issuer_base_url ||
+        fileValues.public_base_url ||
+        fileValues.issuer_base_url ||
         DEFAULT_CONFIG.issuer_base_url,
       "public_base_url",
     ),
-    data_dir: fileConfig.data_dir ?? dataDir,
+    data_dir: fileValues.data_dir ?? dataDir,
     gui_enabled: resolveGuiEnabled(env),
     fcaf_scenarios_enabled: resolveFcafScenariosEnabled(env),
     oid4vci_notifications_enabled: resolveOid4vciNotificationsEnabled(env),
     status_list_base_url:
       env[STATUS_LIST_BASE_URL_ENV_VAR]?.trim() ||
-      fileConfig.status_list_base_url ||
+      fileValues.status_list_base_url ||
       DEFAULT_CONFIG.status_list_base_url,
     status_list_api_key:
       env[STATUS_LIST_API_KEY_ENV_VAR]?.trim() ||
-      fileConfig.status_list_api_key ||
+      fileValues.status_list_api_key ||
       DEFAULT_CONFIG.status_list_api_key,
     status_list_trusted_certificates: statusListTrustedCertificates(
-      fileConfig.status_list_trusted_certificates ??
+      fileValues.status_list_trusted_certificates ??
         DEFAULT_CONFIG.status_list_trusted_certificates,
     ),
     federation: resolveFederationSettings(env),

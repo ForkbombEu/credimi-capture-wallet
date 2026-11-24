@@ -34,7 +34,13 @@ import type {
   AttestbookCredentialDefinition,
   AttestbookDiagnostic,
   AttestbookIssuerSummary,
+  AttestbookObservedEvent,
   AttestbookSnapshot,
+  AttestbookSyncFailure,
+  AttestbookSyncFailureStage,
+  AttestbookSyncState,
+  AttestbookSyncStatus,
+  AttestbookSyncTrigger,
 } from "./types.js";
 import {
   PUBLICATION_EVENT_TYPE,
@@ -43,29 +49,6 @@ import {
   webhookSignatureValid,
   webhookTimestampFresh,
 } from "./webhook.js";
-
-export type SyncState = "idle" | "fetching" | "validating" | "activating" | "failed";
-export type SyncTrigger = "startup" | "webhook" | "manual" | "retry";
-/** Where a synchronization stopped; each names a distinct operator diagnosis. */
-type SyncFailureStage = "fetch" | "verify" | "compile" | "issuability" | "activate" | "persist";
-
-export interface SyncFailure {
-  readonly stage: SyncFailureStage;
-  readonly code: string;
-  readonly message: string;
-  readonly at: string;
-  readonly version: string | null;
-  readonly content_digest: string | null;
-}
-
-export interface ObservedEvent {
-  readonly event_id: string;
-  readonly version: string;
-  readonly content_digest: string;
-  readonly published_at: string;
-  readonly observed_at: string;
-  readonly source: "webhook" | "event_feed";
-}
 
 export interface WebhookResult {
   readonly status: number;
@@ -104,7 +87,7 @@ const MAX_RETRIES = 8;
 
 class SyncStageError extends Error {
   constructor(
-    readonly stage: SyncFailureStage,
+    readonly stage: AttestbookSyncFailureStage,
     readonly code: string,
     message: string,
     readonly diagnostics: readonly AttestbookDiagnostic[] = [],
@@ -151,17 +134,17 @@ export class AttestbookIntegration {
   private retryAttempts = 0;
   private restored = false;
 
-  private state: SyncState = "idle";
-  private lastTrigger: SyncTrigger | null = null;
-  private failure: SyncFailure | null = null;
+  private state: AttestbookSyncState = "idle";
+  private lastTrigger: AttestbookSyncTrigger | null = null;
+  private failure: AttestbookSyncFailure | null = null;
   private diagnostics: readonly AttestbookDiagnostic[] = [];
-  private lastObservedEvent: ObservedEvent | null = null;
+  private lastObservedEvent: AttestbookObservedEvent | null = null;
   private lastSuccessfulSyncAt: string | null = null;
   private lastVerificationChallengeAt: string | null = null;
   private lastSignedNotificationAt: string | null = null;
   private pendingNotifications = 0;
   /** Content digests whose verification or compilation failed; not retried automatically. */
-  private readonly rejectedDigests = new Map<string, SyncFailure>();
+  private readonly rejectedDigests = new Map<string, AttestbookSyncFailure>();
 
   constructor(
     private readonly config: AppConfig,
@@ -194,7 +177,7 @@ export class AttestbookIntegration {
     return `${this.config.public_base_url}${WEBHOOK_PATH}`;
   }
 
-  get syncState(): SyncState {
+  get syncState(): AttestbookSyncState {
     return this.state;
   }
 
@@ -246,7 +229,7 @@ export class AttestbookIntegration {
   }
 
   /** Reconciles against the authoritative event feed; one reconciliation runs at a time. */
-  reconcile(trigger: SyncTrigger): Promise<void> {
+  reconcile(trigger: AttestbookSyncTrigger): Promise<void> {
     const run = this.queue.then(() => this.runReconcile(trigger));
     this.queue = run.catch(() => undefined);
     return run;
@@ -464,7 +447,7 @@ export class AttestbookIntegration {
   }
 
   /** Non-sensitive integration status: no secret, token, key or claim value. */
-  status(): JsonRecord {
+  status(): AttestbookSyncStatus {
     const registry = credentialRegistry(this.config, this.store);
     const active = registry.activeCatalogue(this.issuer.id);
     return {
@@ -479,7 +462,7 @@ export class AttestbookIntegration {
         last_verification_challenge_at: this.lastVerificationChallengeAt,
         last_signed_notification_at: this.lastSignedNotificationAt,
       },
-      last_observed_event: this.lastObservedEvent as JsonRecord | null,
+      last_observed_event: this.lastObservedEvent,
       pending_notifications: this.pendingNotifications,
       active: active
         ? {
@@ -497,13 +480,13 @@ export class AttestbookIntegration {
       sync: {
         state: this.state,
         last_trigger: this.lastTrigger,
-        failure: this.failure as JsonRecord | null,
-        diagnostics: this.diagnostics as unknown as JsonRecord[],
+        failure: this.failure,
+        diagnostics: this.diagnostics,
       },
     };
   }
 
-  private async runReconcile(trigger: SyncTrigger): Promise<void> {
+  private async runReconcile(trigger: AttestbookSyncTrigger): Promise<void> {
     this.lastTrigger = trigger;
     this.state = "fetching";
     this.logger("sync_started", { trigger });
@@ -705,7 +688,7 @@ export class AttestbookIntegration {
 
   private async completeSync(
     outcome: "up_to_date" | "activated",
-    trigger: SyncTrigger,
+    trigger: AttestbookSyncTrigger,
   ): Promise<void> {
     const now = new Date().toISOString();
     this.state = "idle";
@@ -743,7 +726,10 @@ export class AttestbookIntegration {
     this.retryTimer.unref();
   }
 
-  private observe(event: AttestbookPublicationEvent, source: ObservedEvent["source"]): void {
+  private observe(
+    event: AttestbookPublicationEvent,
+    source: AttestbookObservedEvent["source"],
+  ): void {
     if (
       this.lastObservedEvent &&
       Date.parse(this.lastObservedEvent.published_at) > Date.parse(event.publishedAt)
@@ -764,7 +750,7 @@ export class AttestbookIntegration {
     error: unknown,
     snapshot: AttestbookSnapshot | null,
     event?: AttestbookPublicationEvent,
-  ): SyncFailure {
+  ): AttestbookSyncFailure {
     const stageError =
       error instanceof SyncStageError
         ? error
@@ -799,7 +785,7 @@ function reject(status: number, error: string, description: string): WebhookResu
   return { status, body: { error, error_description: description } };
 }
 
-function observedFromNotification(entry: PersistedNotification): ObservedEvent {
+function observedFromNotification(entry: PersistedNotification): AttestbookObservedEvent {
   return {
     event_id: entry.event_id,
     version: entry.version,
@@ -820,7 +806,7 @@ function catalogueLogFields(catalogue: ImportedCatalogue): JsonRecord {
   };
 }
 
-function failureLogFields(failure: SyncFailure): JsonRecord {
+function failureLogFields(failure: AttestbookSyncFailure): JsonRecord {
   return {
     stage: failure.stage,
     code: failure.code,

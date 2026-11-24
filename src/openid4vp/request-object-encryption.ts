@@ -3,6 +3,7 @@ import {
   type EcdhEsContentEncryption,
   isEcdhEsContentEncryption,
 } from "../credo/kms-encryption.js";
+import { isRecord } from "../shared/json.js";
 import type { JsonRecord, RequestObjectEncryptionSource } from "../types.js";
 
 const KEY_AGREEMENT_CURVES: Record<string, readonly string[]> = {
@@ -132,19 +133,19 @@ function walletMetadataObject(value: unknown): JsonRecord | null {
       return null;
     }
   }
-  return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
-    ? (parsed as JsonRecord)
-    : null;
+  return isRecord(parsed) ? parsed : null;
 }
 
 /** A public EC or OKP key usable for ECDH-ES and not restricted to another purpose. */
 function isKeyAgreementPublicJwk(candidate: unknown): candidate is JsonRecord {
-  if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) return false;
-  const value = candidate as JsonRecord;
-  if (value.d !== undefined) return false;
-  if (value.use !== undefined && value.use !== "enc") return false;
-  if (value.alg !== undefined && value.alg !== "ECDH-ES") return false;
-  const curves = typeof value.kty === "string" ? KEY_AGREEMENT_CURVES[value.kty] : undefined;
-  if (!curves || typeof value.crv !== "string" || !curves.includes(value.crv)) return false;
-  return typeof value.x === "string" && (value.kty === "OKP" || typeof value.y === "string");
+  if (!isRecord(candidate)) return false;
+  if (candidate.d !== undefined) return false;
+  if (candidate.use !== undefined && candidate.use !== "enc") return false;
+  if (candidate.alg !== undefined && candidate.alg !== "ECDH-ES") return false;
+  const curves =
+    typeof candidate.kty === "string" ? KEY_AGREEMENT_CURVES[candidate.kty] : undefined;
+  if (!curves || typeof candidate.crv !== "string" || !curves.includes(candidate.crv)) return false;
+  return (
+    typeof candidate.x === "string" && (candidate.kty === "OKP" || typeof candidate.y === "string")
+  );
 }

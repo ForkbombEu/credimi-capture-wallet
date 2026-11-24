@@ -1,3 +1,4 @@
+import { isRecord } from "../shared/json.js";
 import type { VpRequestBehavior, VpRequestUriResponseBehavior } from "../types.js";
 
 /**
@@ -25,7 +26,7 @@ export function corruptJwsSignature(jwt: string): string {
  */
 export function requestBehaviorOrNull(value: unknown): VpRequestBehavior | null | undefined {
   if (value === undefined) return undefined;
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  if (!isRecord(value)) return null;
   const behavior: VpRequestBehavior = {};
   for (const [member, memberValue] of Object.entries(value)) {
     if (member === "signature") {
@@ -74,7 +75,7 @@ export function requestBehaviorOrNull(value: unknown): VpRequestBehavior | null 
 }
 
 function requestUriResponseOrNull(value: unknown): VpRequestUriResponseBehavior | null {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  if (!isRecord(value)) return null;
   const response: VpRequestUriResponseBehavior = {};
   for (const [member, memberValue] of Object.entries(value)) {
     if (member === "status") {
