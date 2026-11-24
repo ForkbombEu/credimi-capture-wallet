@@ -7,6 +7,7 @@ import type { ResolvedIssuerConfiguration } from "../configurations/types.js";
 import { type ImportedCatalogue, credentialRegistry } from "../credentials/registry.js";
 import { importedSdJwtCredentialSignOptions } from "../credentials/signing.js";
 import { errorMessage } from "../shared/errors.js";
+import { isRecord } from "../shared/json.js";
 import type { CaptureStore } from "../state.js";
 import type { AppConfig, JsonRecord, SessionCapture } from "../types.js";
 import type { AttestbookIssuerSummary } from "../ui.js";
@@ -28,7 +29,6 @@ import {
   AttestbookIntegrityError,
   type SnapshotTrust,
   type VerifiedRulebook,
-  isRecord,
   verifySnapshot,
 } from "./snapshot.js";
 import type {

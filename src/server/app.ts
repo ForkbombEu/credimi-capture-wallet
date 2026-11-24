@@ -98,7 +98,8 @@ import {
 import { negotiateRequestObjectEncryption } from "../openid4vp/request-object-encryption.js";
 import { RESPONSE_URI_PLACEHOLDER } from "../openid4vp/verifier-attestation.js";
 import { errorMessage } from "../shared/errors.js";
-import { CaptureStore, asStringOrNull } from "../state.js";
+import { asRecord, asStringOrNull } from "../shared/json.js";
+import { CaptureStore } from "../state.js";
 import { revokeStatusListReference } from "../status-list/allocation.js";
 import {
   STATUS_REFERENCE_FIXTURES,
@@ -1249,7 +1250,7 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
           .json({ error: "allow_undecryptable_response_requires_client_metadata" });
       }
       const requestOverride: JsonRecord = {
-        ...(objectOrNull(body.presentation_request) ?? vpRequestBody(body)),
+        ...(asRecord(body.presentation_request) ?? vpRequestBody(body)),
         ...(body.response_type !== undefined ? { response_type: body.response_type } : {}),
       };
       // `state` is generated per request; a caller may only ask for it to be omitted.
@@ -2432,7 +2433,7 @@ function responseRedirectUriInputOrNull(
 
 function clientMetadataOrNull(value: unknown): JsonRecord | null | undefined {
   if (value === null) return null;
-  return objectOrNull(value) ?? undefined;
+  return asRecord(value) ?? undefined;
 }
 
 function redirectUriWithResponseCode(redirectUri: string): string {
@@ -2460,11 +2461,6 @@ function redirectUriVisitHttpCapture(req: Request): RedirectUriVisitHttpCapture 
     method: req.method,
     headers: redactHttpHeaders(req.headers),
   };
-}
-
-function objectOrNull(value: unknown): JsonRecord | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  return value as JsonRecord;
 }
 
 function requestUriMethodOrNull(value: unknown): string | null {
@@ -2547,7 +2543,7 @@ function clientIdSchemeOrNull(value: unknown): OpenId4VpClientIdScheme | null {
  */
 function verifierAttestationOrNull(value: unknown): VpVerifierAttestation | null | undefined {
   if (value === undefined) return undefined;
-  const attestation = objectOrNull(value);
+  const attestation = asRecord(value);
   if (!attestation) return null;
   const { subject, issuer, redirect_uris, claims, signature, ...rest } = attestation;
   if (Object.keys(rest).length > 0) return null;
@@ -2559,7 +2555,7 @@ function verifierAttestationOrNull(value: unknown): VpVerifierAttestation | null
   ) {
     return null;
   }
-  if (claims !== undefined && !objectOrNull(claims)) return null;
+  if (claims !== undefined && !asRecord(claims)) return null;
   if (signature !== undefined && signature !== "corrupt") return null;
   return {
     ...(subject === undefined ? {} : { subject }),

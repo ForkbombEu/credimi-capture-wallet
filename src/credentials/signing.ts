@@ -1,6 +1,5 @@
 import { Kms, SdJwtVcService, type SdJwtVcSignOptions } from "@credo-ts/core";
 import { RESERVED_CLAIM_NAMES, claimValueErrors } from "../attestbook/json-schema.js";
-import { isRecord } from "../attestbook/snapshot.js";
 import type { AttestbookClaimNode, AttestbookCredentialDefinition } from "../attestbook/types.js";
 import {
   createIssuerSigningContext,
@@ -11,6 +10,7 @@ import { DEGREE_CREDENTIAL_SUBJECT } from "../configurations/shared/degree-data.
 import { encodeMdocPidClaims } from "../configurations/shared/mdoc-encoder.js";
 import { type PidSubject, pidSubject } from "../configurations/shared/pid-data.js";
 import { encodeSdJwtPidClaims } from "../configurations/shared/sd-jwt-encoder.js";
+import { isRecord } from "../shared/json.js";
 import type { MdocSignOptionsWithStatusReference } from "../status-list/malformed-mdoc-status.js";
 import { derivedStatusListUri } from "../status-list/reference-fixtures.js";
 import type {

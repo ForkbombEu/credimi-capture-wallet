@@ -383,10 +383,6 @@ export class CaptureStore {
   }
 }
 
-export function asStringOrNull(value: unknown): string | null {
-  return typeof value === "string" && value.length > 0 ? value : null;
-}
-
 function emptyClientAuthenticationCapture(): SessionCapture["observed"]["client_authentication"] {
   const emptyJwt = { present: false, source: null, header: null, claims: null, error: null };
   return {

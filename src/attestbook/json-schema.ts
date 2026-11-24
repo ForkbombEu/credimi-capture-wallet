@@ -1,4 +1,4 @@
-import { isRecord } from "./snapshot.js";
+import { isRecord } from "../shared/json.js";
 import type {
   AttestbookArrayClaim,
   AttestbookClaimNode,

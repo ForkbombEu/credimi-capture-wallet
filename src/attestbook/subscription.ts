@@ -1,4 +1,4 @@
-import { isRecord } from "./snapshot.js";
+import { isRecord } from "../shared/json.js";
 import { WEBHOOK_PATH } from "./webhook.js";
 
 const REQUEST_TIMEOUT_MS = 15_000;

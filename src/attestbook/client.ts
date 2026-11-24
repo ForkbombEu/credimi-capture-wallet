@@ -1,3 +1,4 @@
+import { isRecord } from "../shared/json.js";
 import { sha256Hex } from "./digest.js";
 import { type BoundedGetOptions, type BoundedResponse, boundedGet } from "./http.js";
 import { SAFE_ATTESTBOOK_IDENTIFIER } from "./settings.js";
@@ -5,7 +6,6 @@ import {
   AttestbookIntegrityError,
   type SnapshotTrust,
   detectSchemaKind,
-  isRecord,
   requiredSchemaReferences,
   verifyExportedBytes,
   verifyRulebook,

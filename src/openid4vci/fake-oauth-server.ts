@@ -2,6 +2,7 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { Express, Request as ExpressRequest, Response as ExpressResponse } from "express";
 import { resolvedIssuerConfigurations } from "../configurations/registry.js";
 import type { ResolvedIssuerConfiguration } from "../configurations/types.js";
+import { isRecord } from "../shared/json.js";
 import type { CaptureStore } from "../state.js";
 import type { AppConfig, JsonRecord } from "../types.js";
 
@@ -310,8 +311,4 @@ function constantTimeEqual(left: string, right: string): boolean {
   const leftBuffer = Buffer.from(left);
   const rightBuffer = Buffer.from(right);
   return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
-}
-
-function isRecord(value: unknown): value is JsonRecord {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }

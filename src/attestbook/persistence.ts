@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { mkdir, open, readFile, rename } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { isRecord } from "./snapshot.js";
+import { isRecord } from "../shared/json.js";
 import type { AttestbookSnapshot } from "./types.js";
 
 const STATE_FORMAT = "credimi.attestbook-state@1";

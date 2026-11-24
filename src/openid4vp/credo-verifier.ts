@@ -30,6 +30,7 @@ import {
 import { InMemoryStorageModule, NodeKmsBackend, nodeAgentDependencies } from "../credo/agent.js";
 import { corruptJwsSignature } from "../fcaf/request-behavior.js";
 import { applyRequestMutationEdits } from "../fcaf/request-mutation.js";
+import { asRecord } from "../shared/json.js";
 import type {
   AppConfig,
   JsonRecord,
@@ -1099,8 +1100,4 @@ function unboundPresentationRequestedWithoutState(session: VpSessionCapture): bo
       (credential) => asRecord(credential)?.require_cryptographic_holder_binding === false,
     )
   );
-}
-
-function asRecord(value: unknown): JsonRecord | null {
-  return value && typeof value === "object" && !Array.isArray(value) ? (value as JsonRecord) : null;
 }

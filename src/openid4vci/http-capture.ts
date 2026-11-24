@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Request, Response } from "express";
+import { isRecord } from "../shared/json.js";
 import type {
   EvidenceMode,
   JsonRecord,
@@ -284,8 +285,4 @@ function redactedValue(value: unknown): JsonRecord {
     present: value !== undefined && value !== null,
     length: serialized.length,
   };
-}
-
-function isRecord(value: unknown): value is JsonRecord {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }

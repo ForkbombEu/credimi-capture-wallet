@@ -46,7 +46,8 @@ import {
 } from "../credentials/signing.js";
 import { InMemoryStorageModule, NodeKmsBackend, nodeAgentDependencies } from "../credo/agent.js";
 import { applyRequestMutationEdits } from "../fcaf/request-mutation.js";
-import { type CaptureStore, asStringOrNull } from "../state.js";
+import { asStringOrNull, isRecord } from "../shared/json.js";
+import type { CaptureStore } from "../state.js";
 import {
   allocateStatusListReference,
   statusListCredentialType,
@@ -1098,10 +1099,6 @@ function setObservedString(
   }
   observed.value = value;
   observed.source ??= source;
-}
-
-function isRecord(value: unknown): value is JsonRecord {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function redactCredentialRequest(request: JsonRecord): JsonRecord {

@@ -1,10 +1,10 @@
 import type { CredentialProofPolicy } from "../openid4vci/metadata.js";
+import { isRecord } from "../shared/json.js";
 import { compileJsonSchema } from "./json-schema.js";
 import {
   SD_JWT_VC_FORMAT,
   type VerifiedRulebook,
   type VerifiedSchemaDocument,
-  isRecord,
 } from "./snapshot.js";
 import type {
   AttestbookClaimMetadata,

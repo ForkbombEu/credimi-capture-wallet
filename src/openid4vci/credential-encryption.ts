@@ -13,6 +13,7 @@ import {
 } from "jose";
 import { loadIssuerEncryptionPrivateJwk, loadIssuerEncryptionPublicJwk } from "../config.js";
 import { errorMessage } from "../shared/errors.js";
+import { asRecord } from "../shared/json.js";
 import type { AppConfig, JsonRecord } from "../types.js";
 
 const CREDENTIAL_JWE_ALG = "ECDH-ES";
@@ -307,8 +308,4 @@ function parseJsonRecord(value: string, label: string): JsonRecord {
   const record = asRecord(parsed);
   if (!record) throw new CredentialEncryptionError(`${label} must be a JSON object`);
   return record;
-}
-
-function asRecord(value: unknown): JsonRecord | null {
-  return value && typeof value === "object" && !Array.isArray(value) ? (value as JsonRecord) : null;
 }
