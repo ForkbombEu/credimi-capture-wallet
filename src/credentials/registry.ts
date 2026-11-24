@@ -1,10 +1,10 @@
 import type { AttestbookCredentialDefinition } from "../attestbook/types.js";
 import { resolvedIssuerConfigurationById } from "../configurations/registry.js";
 import type { IssuerConfiguration, ResolvedIssuerConfiguration } from "../configurations/types.js";
-import { type SupportedCredential, supportedCredentialsForIssuer } from "../openid4vci/metadata.js";
 import { errorMessage } from "../shared/errors.js";
 import type { CaptureStore } from "../state.js";
 import type { AppConfig } from "../types.js";
+import { type SupportedCredential, supportedCredentialsForIssuer } from "./catalogue.js";
 
 /** One activated, integrity-verified rulebook version's credentials for one issuer. */
 export interface ImportedCatalogue {

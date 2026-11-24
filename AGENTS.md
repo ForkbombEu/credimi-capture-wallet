@@ -84,6 +84,7 @@ If a required design decision, convention, or security policy is not evident fro
 - `src/fcaf/response-scenario.ts`: validation for issuance and presentation response fault scenarios.
 - `src/fcaf/json-pointer.ts`: RFC 6901 JSON Pointer parsing and document member operations.
 - `src/credentials/signing.ts`, `src/credentials/definitions.ts`, `src/openid4vci/proofs.ts`: credential generation, supported credential definitions, and holder proof handling.
+- `src/credentials/catalogue.ts`: static supported-credential catalogue, configuration ids, and claim-path helpers.
 - `src/openid4vci/http-capture.ts`: OpenID4VCI HTTP request and response evidence capture and redaction.
 - `src/openid4vci/notification.ts`: OpenID4VCI notification parsing and Credo-TS `notification_id` injection.
 - `src/openid4vci/credential-encryption.ts`: OpenID4VCI Credential Request/Response JWE validation and encryption.
@@ -91,7 +92,7 @@ If a required design decision, convention, or security policy is not evident fro
 - `src/credo/kms-encryption.ts`: Credo KMS-compatible ECDH-ES content-encryption primitives.
 - `src/openid4vci/key-attestation.ts`: Credo-TS issuer support for EUDI key-attested proof verification.
 - `src/credentials/digest-algorithm.ts`: supported and default SD-JWT digest-algorithm validation.
-- `src/openid4vci/metadata.ts`: issuer and authorization-server metadata.
+- `src/openid4vci/metadata.ts`: issuer and authorization-server metadata output.
 - `src/state.ts`: in-memory issuance and presentation session state plus captured evidence.
 - `src/config/defaults.ts`: default service configuration and URL normalization.
 - `src/config/paths.ts`: configuration, issuer, and verifier material paths.

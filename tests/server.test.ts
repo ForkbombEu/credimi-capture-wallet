@@ -54,6 +54,13 @@ import {
 import { resolvedIssuerConfigurationById } from "../src/configurations/registry.js";
 import { issuerAppConfig } from "../src/configurations/resolve-urls.js";
 import {
+  degreeSdJwtCredentialConfigurationId,
+  domesticPidCredentialConfigurationId,
+  mdocCredentialConfigurationId,
+  numericSdJwtCredentialConfigurationId,
+  sdJwtCredentialConfigurationId,
+} from "../src/credentials/catalogue.js";
+import {
   DEGREE_SD_JWT_CLAIMS,
   DEGREE_SD_JWT_VCT,
   DOMESTIC_PID_MDOC_NAMESPACE,
@@ -66,13 +73,6 @@ import {
   PID_SD_JWT_VCT,
 } from "../src/credentials/definitions.js";
 import { issueSdJwtCredential } from "../src/credentials/signing.js";
-import {
-  degreeSdJwtCredentialConfigurationId,
-  domesticPidCredentialConfigurationId,
-  mdocCredentialConfigurationId,
-  numericSdJwtCredentialConfigurationId,
-  sdJwtCredentialConfigurationId,
-} from "../src/openid4vci/metadata.js";
 import { createApp } from "../src/server/app.js";
 import { CaptureStore } from "../src/state.js";
 import type { JsonRecord, Oid4vciHttpRequestCapture, SessionCapture } from "../src/types.js";

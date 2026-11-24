@@ -13,13 +13,13 @@ import {
   verifierAttestationSubject,
   verifierDid,
 } from "../config/verifier-identity.js";
-import { PID_MDOC_DOCTYPE, PID_SD_JWT_VCT } from "../credentials/definitions.js";
-import { applyRequestMutationEdits } from "../fcaf/request-mutation.js";
 import {
   type SupportedCredential,
   supportedCredentialById,
   supportedCredentials,
-} from "../openid4vci/metadata.js";
+} from "../credentials/catalogue.js";
+import { PID_MDOC_DOCTYPE, PID_SD_JWT_VCT } from "../credentials/definitions.js";
+import { applyRequestMutationEdits } from "../fcaf/request-mutation.js";
 import type {
   AppConfig,
   JsonRecord,

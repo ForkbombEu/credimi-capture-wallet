@@ -4,6 +4,13 @@ import { euPidDeviceBound } from "../src/configurations/eu-pid-device-bound/inde
 import { euPidJwtKeyAttestation } from "../src/configurations/eu-pid-jwt-key-attestation/index.js";
 import { euPidJwtProofOnly } from "../src/configurations/eu-pid-jwt-proof-only/index.js";
 import {
+  degreeSdJwtCredentialConfigurationId,
+  domesticPidCredentialConfigurationId,
+  mdocCredentialConfigurationId,
+  numericSdJwtCredentialConfigurationId,
+  sdJwtCredentialConfigurationId,
+} from "../src/credentials/catalogue.js";
+import {
   DEGREE_SD_JWT_CLAIMS,
   DEGREE_SD_JWT_VCT,
   DOMESTIC_PID_MDOC_NAMESPACE,
@@ -18,15 +25,7 @@ import {
   PID_SD_JWT_VCT,
 } from "../src/credentials/definitions.js";
 import { CREDIMI_LOGO_URL } from "../src/credentials/signing.js";
-import {
-  credentialIssuerMetadata,
-  degreeSdJwtCredentialConfigurationId,
-  domesticPidCredentialConfigurationId,
-  jwtVcIssuerMetadata,
-  mdocCredentialConfigurationId,
-  numericSdJwtCredentialConfigurationId,
-  sdJwtCredentialConfigurationId,
-} from "../src/openid4vci/metadata.js";
+import { credentialIssuerMetadata, jwtVcIssuerMetadata } from "../src/openid4vci/metadata.js";
 import type { JsonRecord } from "../src/types.js";
 
 describe("metadata", () => {

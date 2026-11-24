@@ -26,7 +26,7 @@ import {
 import {
   mdocCredentialConfigurationId,
   numericSdJwtCredentialConfigurationId,
-} from "../src/openid4vci/metadata.js";
+} from "../src/credentials/catalogue.js";
 import { createApp } from "../src/server/app.js";
 import type { AppConfig, JsonRecord, SessionCapture } from "../src/types.js";
 

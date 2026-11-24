@@ -21,6 +21,7 @@ import {
 import { issuerAppConfig } from "../configurations/resolve-urls.js";
 import { PID_FIXTURE_IDS, pidFixtureIdOrNull } from "../configurations/shared/pid-fixtures.js";
 import type { ResolvedIssuerConfiguration } from "../configurations/types.js";
+import { supportedCredentialConfigurationIds } from "../credentials/catalogue.js";
 import {
   DEFAULT_SD_JWT_DIGEST_ALGORITHM,
   SD_JWT_DIGEST_ALGORITHMS,
@@ -61,11 +62,7 @@ import {
   redactOid4vciValue,
   responseBodyEvidence,
 } from "../openid4vci/http-capture.js";
-import {
-  jwtVcIssuerMetadata,
-  signCredentialIssuerMetadata,
-  supportedCredentialConfigurationIds,
-} from "../openid4vci/metadata.js";
+import { jwtVcIssuerMetadata, signCredentialIssuerMetadata } from "../openid4vci/metadata.js";
 import {
   credentialRequestProofNonces,
   credentialRequestProofsCapture,

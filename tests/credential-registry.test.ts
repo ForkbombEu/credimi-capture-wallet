@@ -4,15 +4,15 @@ import type { AttestbookCredentialDefinition } from "../src/attestbook/types.js"
 import { attestbookExperimental } from "../src/configurations/attestbook-experimental/index.js";
 import type { ResolvedIssuerConfiguration } from "../src/configurations/types.js";
 import {
+  type SupportedCredential,
+  supportedCredentialsForIssuer,
+} from "../src/credentials/catalogue.js";
+import {
   CatalogueConflictError,
   CredentialRegistry,
   type ImportedCatalogue,
   type IssuerRecordSynchronizer,
 } from "../src/credentials/registry.js";
-import {
-  type SupportedCredential,
-  supportedCredentialsForIssuer,
-} from "../src/openid4vci/metadata.js";
 import {
   type IssuerTestEnvironment,
   createIssuerTestEnvironment,

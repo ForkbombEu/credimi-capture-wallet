@@ -1,5 +1,5 @@
+import type { SupportedCredential } from "../credentials/catalogue.js";
 import { PID_MDOC_DOCTYPE } from "../credentials/definitions.js";
-import type { SupportedCredential } from "../openid4vci/metadata.js";
 import type { AppConfig, StatusListReference, StatusListUpdateResult } from "../types.js";
 
 const STATUS_LIST_TAKE_PATH = "/token_status_list/take";

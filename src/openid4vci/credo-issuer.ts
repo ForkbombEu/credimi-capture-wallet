@@ -34,6 +34,7 @@ import {
 import { issuerAppConfig } from "../configurations/resolve-urls.js";
 import { pidFixtureIdOrNull, pidFixtureSubject } from "../configurations/shared/pid-fixtures.js";
 import type { ResolvedIssuerConfiguration } from "../configurations/types.js";
+import { type SupportedCredential, isDomesticPidCredential } from "../credentials/catalogue.js";
 import { DEGREE_SD_JWT_VCT, NUMERIC_SD_JWT_VCT } from "../credentials/definitions.js";
 import { credentialRegistry } from "../credentials/registry.js";
 import {
@@ -65,12 +66,7 @@ import type {
   VpRequestMutationEdits,
 } from "../types.js";
 import { fakeOAuthServer } from "./fake-oauth-server.js";
-import {
-  type SupportedCredential,
-  credentialConfigurationsSupported,
-  credentialIssuerMetadata,
-  isDomesticPidCredential,
-} from "./metadata.js";
+import { credentialConfigurationsSupported, credentialIssuerMetadata } from "./metadata.js";
 import { NotifyingIssuerService, parseNotificationRequest } from "./notification.js";
 import { captureProofHeaders, decodeDpopHeader, decodeJwtForEvidence } from "./proofs.js";
 

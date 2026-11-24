@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CONFIG } from "../src/config/defaults.js";
 import { resolvedIssuerConfigurationById } from "../src/configurations/registry.js";
-import type { SupportedCredential } from "../src/openid4vci/metadata.js";
+import type { SupportedCredential } from "../src/credentials/catalogue.js";
 import { defaultDcqlQuery } from "../src/openid4vp/authorization-request.js";
 import {
   type IssuanceParameterValues,
