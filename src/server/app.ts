@@ -90,20 +90,19 @@ import type {
   VpSessionCapture,
   VpVerifierAttestation,
 } from "../types.js";
+import { issuerPage } from "../ui/issuer.js";
+import type { IssuerCredentialGroup } from "../ui/launcher.js";
+import { VERIFIER_PAGE_PATH, indexPage } from "../ui/launcher.js";
 import {
-  type IssuerCredentialGroup,
-  VERIFIER_PAGE_PATH,
   credentialOfferEngagementPage,
   dcApiPresentationPage,
   errorPage,
   helpPage,
-  indexPage,
-  issuerPage,
   sessionPage,
-  verifierPage,
   vpRedirectPage,
   vpSessionPage,
-} from "../ui.js";
+} from "../ui/session.js";
+import { verifierPage } from "../ui/verifier.js";
 import {
   type CredentialRequestBody,
   forwardCredentialRequest,

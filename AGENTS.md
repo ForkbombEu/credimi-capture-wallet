@@ -111,7 +111,7 @@ If a required design decision, convention, or security policy is not evident fro
 - `src/openapi/`: OpenAPI document assembly (`document.ts`), shared helpers (`common.ts`), component schemas (`components.ts`), concern-based `paths-*.ts`, and the interactive docs page (`docs-page.ts`).
 - `src/cli.ts`: package.json `"bin"` entry point.
 - `src/cli/commands.ts`: command-line argument parsing and command handling for service operation, federation exports and Attestbook commands.
-- `src/ui.ts`: server-rendered operator UI.
+- `src/ui/`: server-rendered operator UI page families (`html`, `launcher`, `issuer`, `verifier`, `session`, `markdown`, `styles`, `scripts`).
 - `tests/`: Vitest coverage for protocol routes, Credo-TS integration, metadata, proofs, configuration, and validation.
 - `README.md`: public API and runtime documentation; update it when a public contract changes.
 

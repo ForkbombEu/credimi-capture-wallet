@@ -1,0 +1,308 @@
+import type { AttestbookIssuerSummary } from "../attestbook/types.js";
+import type { ResolvedIssuerConfiguration } from "../configurations/types.js";
+import type { SupportedCredential } from "../credentials/catalogue.js";
+import { API_DOCS_URL, OPENAPI_URL, REPOSITORY_URL, escapeHtml, htmlPage } from "./html.js";
+
+const REGULATION_2026_1731_URL =
+  "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ%3AL_202601731";
+export const VERIFIER_PAGE_PATH = "/openid4vp";
+
+export interface IssuerCredentialGroup {
+  issuer: ResolvedIssuerConfiguration;
+  credentials: readonly SupportedCredential[];
+  /** Present for an issuer that imports Attestbook credentials. */
+  attestbook?: AttestbookIssuerSummary;
+}
+
+/** Allowed values of the `POST /sessions` parameters the issuer page offers as choices. */
+export interface IssuanceParameterValues {
+  readonly flows: readonly string[];
+  readonly credentialOfferModes: readonly string[];
+  readonly offerSchemes: readonly string[];
+  readonly fixtureIds: readonly string[];
+  readonly digestAlgorithms: readonly string[];
+  readonly evidenceModes: readonly string[];
+  readonly statusReferences: readonly string[];
+}
+export function indexPage(groups: readonly IssuerCredentialGroup[]): string {
+  return htmlPage({
+    title: "Wallet Metadata Capture",
+    body: [
+      launcherTopbarHtml(),
+      "<main>",
+      '<section class="hero-band">',
+      '<div class="hero-inner">',
+      '<div class="hero-copy">',
+      "<h1>Wallet metadata capture</h1>",
+      "<p>Open an issuer to issue one of its credentials to a wallet, or open the verifier to request a presentation. Every session captures the protocol evidence the wallet leaves behind.</p>",
+      "</div>",
+      issuerCatalogueHtml(groups),
+      verifierCatalogueHtml(),
+      "</div>",
+      "</section>",
+      "</main>",
+    ].join(""),
+  });
+}
+export function launcherTopbarHtml(): string {
+  return [
+    '<header class="topbar">',
+    '<div class="topbar-inner">',
+    '<a class="brand-lockup" href="/">',
+    '<img class="brand-logo" src="/assets/credimi_logo.svg" alt="Credimi">',
+    "<span>Wallet metadata capture</span>",
+    "</a>",
+    '<div class="topbar-actions">',
+    '<span class="status-chip status-issuer">ISSUER READY</span>',
+    '<span class="status-chip status-wallet">VERIFIER READY</span>',
+    '<a class="btn btn-outline btn-md" href="',
+    API_DOCS_URL,
+    '">API docs</a>',
+    '<a class="btn btn-outline btn-md" href="',
+    OPENAPI_URL,
+    '" download="openapi.json">OpenAPI</a>',
+    '<a class="btn btn-outline btn-md" href="',
+    REPOSITORY_URL,
+    '" target="_blank" rel="noreferrer">Repository</a>',
+    "</div>",
+    "</div>",
+    "</header>",
+  ].join("");
+}
+export function issuerLabel(issuer: ResolvedIssuerConfiguration): string {
+  return issuer.compliance === "deliberately-nonconforming"
+    ? `${issuer.display.name} — deliberately non-conforming`
+    : issuer.compliance === "experimental"
+      ? `${issuer.display.name} — experimental`
+      : issuer.display.name;
+}
+
+function issuerCatalogueHtml(groups: readonly IssuerCredentialGroup[]): string {
+  return [
+    '<section class="issuer-catalogue" aria-labelledby="issuer-catalogue-title">',
+    '<h2 id="issuer-catalogue-title">Issuers</h2>',
+    groups.length > 0
+      ? `<div class="issuer-cards">${groups.map(issuerCardHtml).join("")}</div>`
+      : '<p class="issuer-empty">No issuers available</p>',
+    "</section>",
+  ].join("");
+}
+
+function issuerCardHtml(group: IssuerCredentialGroup): string {
+  const { issuer } = group;
+  const count = group.credentials.length;
+
+  return [
+    '<article class="issuer-card">',
+    "<h3>",
+    escapeHtml(issuerLabel(issuer)),
+    "</h3>",
+    '<p class="issuer-description">',
+    issuerDescriptionHtml(group),
+    "</p>",
+    group.attestbook ? attestbookSummaryHtml(group.attestbook) : "",
+    '<p class="issuer-credential-count">',
+    `${count} credential configuration${count === 1 ? "" : "s"}`,
+    "</p>",
+    '<nav class="issuer-links" aria-label="',
+    escapeHtml(issuer.display.name),
+    '">',
+    safeLinkHtml("Open issuer", issuer.issuerIdentifier, "btn btn-primary btn-md"),
+    "</nav>",
+    "</article>",
+  ].join("");
+}
+
+function verifierCatalogueHtml(): string {
+  return [
+    '<section class="issuer-catalogue" aria-labelledby="verifier-catalogue-title">',
+    '<h2 id="verifier-catalogue-title">Verifier</h2>',
+    '<div class="issuer-cards">',
+    '<article class="issuer-card verifier-card">',
+    "<h3>OpenID4VP verifier</h3>",
+    '<p class="issuer-description">Request a presentation of any credential the issuers above serve, then inspect the wallet response, its decoded claims, and the verifier checks.</p>',
+    '<nav class="issuer-links" aria-label="Verifier">',
+    safeLinkHtml("Open verifier", VERIFIER_PAGE_PATH, "btn btn-primary btn-md"),
+    "</nav>",
+    "</article>",
+    "</div>",
+    "</section>",
+  ].join("");
+}
+
+export function attestbookSummaryHtml(summary: AttestbookIssuerSummary): string {
+  const active =
+    summary.activeVersion && summary.activeContentDigest
+      ? `Attestbook rulebook version ${summary.activeVersion} (sha-256 ${summary.activeContentDigest.slice(0, 12)}…) is active`
+      : "No Attestbook rulebook version is active";
+  const sync = summary.failureStage
+    ? `last synchronization failed at the ${summary.failureStage} stage`
+    : `synchronization ${summary.syncState}`;
+  return `<p class="issuer-description">${escapeHtml(`${active}; ${sync}.`)}</p>`;
+}
+
+export function issuerDescriptionHtml(group: IssuerCredentialGroup): string {
+  if (group.issuer.compliance !== "eudi-pid-device-bound") {
+    return escapeHtml(group.issuer.display.description);
+  }
+
+  return [
+    "Conformant to ",
+    '<a href="',
+    REGULATION_2026_1731_URL,
+    '" target="_blank" rel="noreferrer">',
+    "Commission Implementing Regulation (EU) 2026/1731",
+    "</a>",
+    ", in particular <code>TR_KA-4</code>: both <code>jwt</code> and ",
+    "<code>attestation</code> proof types are present and both include ",
+    "<code>key_attestations_required</code>.",
+  ].join("");
+}
+
+/** Renders a link, or plain text when the target is not an HTTP(S) URL or a same-origin path. */
+export function safeLinkHtml(
+  label: string,
+  href: string,
+  className: string,
+  newTab = false,
+): string {
+  if (!isHttpUrl(href) && !href.startsWith("/")) {
+    return `<span class="${className}">${escapeHtml(label)}: ${escapeHtml(href)}</span>`;
+  }
+
+  return [
+    `<a class="${className}" href="`,
+    escapeHtml(href),
+    newTab ? '" target="_blank" rel="noreferrer">' : '">',
+    escapeHtml(label),
+    "</a>",
+  ].join("");
+}
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const protocol = new URL(value).protocol;
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * When a parameter applies: `static-credential` fields are refused by the API for an imported
+ * Attestbook credential, and `sd-jwt` fields for an mdoc.
+ */
+type ParameterRequirement = "static-credential" | "sd-jwt";
+
+export interface ParameterField {
+  /** The API body member; `merge` fields are an object merged into the body instead. */
+  readonly name: string;
+  readonly label: string;
+  readonly kind: "select" | "text" | "json" | "flag" | "merge";
+  readonly values?: readonly string[];
+  readonly hint?: string;
+  readonly placeholder?: string;
+  /** The value a `flag` sends when checked, as JSON. */
+  readonly flagValue?: "true" | "null";
+  readonly requires?: ParameterRequirement;
+}
+
+export interface ParameterGroup {
+  readonly legend: string;
+  readonly fields: readonly ParameterField[];
+}
+
+export function additionalParametersField(placeholder: string): ParameterField {
+  return {
+    name: "additional_parameters",
+    label: "Additional body members",
+    kind: "merge",
+    placeholder,
+    hint: "A JSON object merged into the request body last, overriding the fields above.",
+  };
+}
+
+export function launcherActionsHtml(label: string, disabled: boolean): string {
+  return [
+    '<div class="session-actions">',
+    '<button class="btn btn-primary btn-lg" type="submit"',
+    disabled ? " disabled" : "",
+    ">",
+    escapeHtml(label),
+    "</button>",
+    "</div>",
+    '<pre class="launcher-error" role="alert" data-launcher-error hidden></pre>',
+  ].join("");
+}
+
+export function advancedSettingsHtml(groups: readonly ParameterGroup[]): string {
+  return [
+    '<details class="advanced-settings">',
+    "<summary>Advanced settings</summary>",
+    '<p class="field-hint">Every field left empty takes the API default.</p>',
+    groups.map(parameterGroupHtml).join(""),
+    "</details>",
+  ].join("");
+}
+
+function parameterGroupHtml(group: ParameterGroup): string {
+  return [
+    '<fieldset class="parameter-group">',
+    "<legend>",
+    escapeHtml(group.legend),
+    "</legend>",
+    '<div class="parameter-fields">',
+    group.fields.map(parameterFieldHtml).join(""),
+    "</div>",
+    "</fieldset>",
+  ].join("");
+}
+
+function parameterFieldHtml(field: ParameterField): string {
+  const type = field.kind === "select" || field.kind === "text" ? "string" : field.kind;
+  const attributes = [
+    ` data-param="${escapeHtml(field.name)}"`,
+    ` data-type="${type}"`,
+    field.requires ? ` data-requires="${field.requires}"` : "",
+    field.placeholder ? ` placeholder="${escapeHtml(field.placeholder)}"` : "",
+  ].join("");
+  const hint = field.hint ? `<span class="field-hint">${escapeHtml(field.hint)}</span>` : "";
+  const label = [
+    '<span class="field-label">',
+    escapeHtml(field.label),
+    field.kind === "merge" ? "" : ` <code>${escapeHtml(field.name)}</code>`,
+    "</span>",
+  ].join("");
+
+  if (field.kind === "flag") {
+    return [
+      '<label class="field field-flag">',
+      `<input type="checkbox" value="${field.flagValue ?? "true"}"${attributes}>`,
+      label,
+      hint,
+      "</label>",
+    ].join("");
+  }
+
+  const control =
+    field.kind === "select"
+      ? [
+          `<select${attributes}>`,
+          '<option value="">API default</option>',
+          (field.values ?? [])
+            .map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`)
+            .join(""),
+          "</select>",
+        ].join("")
+      : field.kind === "text"
+        ? `<input type="text" autocomplete="off" spellcheck="false"${attributes}>`
+        : `<textarea rows="4" spellcheck="false"${attributes}></textarea>`;
+  const className = field.kind === "json" || field.kind === "merge" ? "field field-wide" : "field";
+  return [`<label class="${className}">`, label, control, hint, "</label>"].join("");
+}
+
+export function credentialLabel(credential: SupportedCredential): string {
+  return credential.attestbook
+    ? `${credential.displayName} (Attestbook ${credential.attestbook.version})`
+    : credential.displayName;
+}
