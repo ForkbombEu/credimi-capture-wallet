@@ -66,16 +66,13 @@ import {
   signPresentationAuthorizationRequest,
   verifierClientIdentifiers,
 } from "../openid4vp/authorization-request.js";
-import {
-  ClientMetadataError,
-  ResponseModeError,
-  credoOpenId4VpVerifier,
-} from "../openid4vp/credo-verifier.js";
+import { credoOpenId4VpVerifier } from "../openid4vp/credo-verifier.js";
 import {
   generateRequestCertificateMaterial,
   generateUnrelatedSigningKey,
   verifierChainWithTrustAnchor,
 } from "../openid4vp/request-certificates.js";
+import { ClientMetadataError, ResponseModeError } from "../openid4vp/request-construction.js";
 import { negotiateRequestObjectEncryption } from "../openid4vp/request-object-encryption.js";
 import { errorMessage } from "../shared/errors.js";
 import { asStringOrNull, booleanOrNull } from "../shared/json.js";
