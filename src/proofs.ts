@@ -132,30 +132,6 @@ export function captureProofHeaders(body: JsonRecord): ProofHeaderCapture[] {
   });
 }
 
-export function jwkToJwks(jwk: JsonRecord): { keys: JsonRecord[] } {
-  const key = { ...jwk };
-  if (!key.alg) key.alg = "ES256";
-  if (!key.use) key.use = "sig";
-  return { keys: [key] };
-}
-
-export function firstWalletJwks(headers: ProofHeaderCapture[]): {
-  source: string | null;
-  jwks: { keys: JsonRecord[] } | null;
-  observedFields: string[];
-} {
-  const observedFields = Array.from(
-    new Set(
-      headers.flatMap((header) =>
-        ["typ", "alg", "kid", "jwk", "x5c"].filter((key) => key in header),
-      ),
-    ),
-  );
-  const header = headers.find((candidate) => candidate.jwk);
-  if (!header?.jwk) return { source: null, jwks: null, observedFields };
-  return { source: header.source, jwks: jwkToJwks(header.jwk), observedFields };
-}
-
 export async function decodeDpopHeader(dpop: string | undefined): Promise<{
   jwk: JsonRecord | null;
   thumbprint: string | null;
