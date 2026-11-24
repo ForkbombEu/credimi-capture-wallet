@@ -55,7 +55,7 @@ At most three implementation subagents run concurrently, and only on disjoint fi
 | `tsc --noUnusedLocals --noUnusedParameters` | 8 diagnostics (5 src, 3 tests) |
 | Coverage (v8, measured on a throwaway copy) | 87.05 % statements, 81.78 % branches |
 | jscpd 5.4.3 health | 61 C (duplication 78, dead code 74, complexity 38; 33 947 code lines) |
-| Duplication | 3.2 % lines, 97 clone pairs (≈ 70 in tests) |
+| Duplication | all formats: 3.2 % lines, 97 clone pairs; **TypeScript only (`.jscpd.json`, the tracked baseline): 3.03 %, 89 clone pairs** (≈ 70 in tests) |
 | Knip 6.48.0 (production) | unused file `src/openid4vp-validation.ts`; unused dependency `dcql`; 17 unused exports groups |
 | Madge 8.0.0 | 2 cycles: `attestbook/types.ts > metadata.ts`; `metadata.ts > config.ts > configurations/registry.ts > configurations/attestbook-experimental/index.ts > configurations/types.ts` |
 | Largest modules | `tests/server.test.ts` 7922, `src/server.ts` 2590, `src/openapi.ts` 2257, `src/ui.ts` 1866, `src/credo-openid4vp.ts` 1473, `src/credo-openid4vci.ts` 1116, `src/config.ts` 1003 |
@@ -260,9 +260,11 @@ Validation, Acceptance.
   - `keys.ts`: `generateEs256Key()` (extractable ES256, `{ publicJwk, privateKey }`),
     `dpopProof(key, { method, url, accessToken? })` producing the same claims as
     `server.test.ts:7591-7606` (`typ: dpop+jwt`, `jti`, `iat`, `htm`, `htu`, `ath` when token).
-  - `issuance.ts`: `createIssuanceSession(app, body)`, `redeemPreAuthorizedCode(app, { issuerPath,
-    session, dpopKey, baseUrl })`, `credentialProofJwt(key, nonce, audience, …)` as in
-    `server.test.ts:7510-7630`.
+  - `issuance.ts`: `postToken(app, body, dpopKey, baseUrl, issuerConfigurationId)`,
+    `preAuthorizedToken(app, session, dpopKey, baseUrl)` (**as built**: names kept from
+    `server.test.ts` for traceability instead of the planned `redeemPreAuthorizedCode`),
+    `credentialProofJwt(...)` (key attestation built by a module-private helper) as in
+    `server.test.ts:7510-7691`.
   - `presentation.ts`: `createVpSession(app, body)`, `fetchRequestObject(app, session)`,
     `dcqlForClaims(claims)`, `sdJwtCredential(config)`, `sdJwtPresentation(...)`,
     `encryptedAuthorizationResponse(...)` as in `server.test.ts:7555-7798`.

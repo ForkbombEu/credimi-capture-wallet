@@ -17,16 +17,16 @@ Statuses: Pending · Ready · In progress · Under review · Changes requested �
 
 ## Current batch
 
-Batch 0 (R-01 ‖ R-02 ‖ R-03).
+Batch 2 (T-01 ‖ T-03 ‖ T-04). Batches 0–1 completed.
 
 ## Tasks
 
 | Task | Status | Depends on | Impl | Reviewer | Base | Commit | Review | Validation | Remaining risks |
 |---|---|---|---|---|---|---|---|---|---|
-| R-01 | Ready | — | Luna | Opus | | | | | |
-| R-02 | Ready | — | Luna | Opus | | | | | |
-| R-03 | Ready | — | Luna | Opus | | | | | |
-| S-01a | Pending | R-01, R-02, R-03 | Luna | Opus | | | | | |
+| R-01 | Completed | — | Luna | Opus | de5eddf | 1787e51 (task 683e207) | APPROVE (no findings; optional: `./graft` pattern) | lint/task lint pass; 471 tests; build; Biome 89→88 files (only graft wiring.json dropped) | none |
+| R-02 | Completed | — | Luna | Opus | de5eddf | b69173d (task 90d1287) | APPROVE after amendment (two optional findings adopted: 7 missing modules, server.ts description) | all 37 documented paths exist | map rewritten again in N-01 |
+| R-03 | Completed | — | Luna | Opus | de5eddf | f6d6220 (task e4826a4) | APPROVE after amendment (analyze sequential; madge rc=1 for cycles and config errors, so `ignore_error` kept) | task analyze: 471 tests, 87.05 % stmts / 81.84 % branches, jscpd 61 C, madge 2 cycles, knip prod = openid4vp-validation.ts + dcql | madge failures indistinguishable from cycles until Q-01 |
+| S-01a | Completed | R-01, R-02, R-03 | Luna | Opus | f6d6220 | 6e715cd (task a5f1771) | APPROVE after amendment (temp-dir cleanup on init failure, `data_dir` override blocked, exact VP assertions, nits); helper names kept (`postToken`, `preAuthorizedToken`) | 473/473 (+2 support tests), lint, build, strict tsc 8 pre-existing | callers must pass `issuerAppConfig(...)` to `credentialProofJwt` |
 | T-01 | Pending | S-01a | Luna | Opus | | | | | |
 | T-02 | Pending | S-01a | Luna | Opus | | | | | |
 | T-03 | Pending | S-01a | Luna | Opus | | | | | |
@@ -86,3 +86,12 @@ Batch 0 (R-01 ‖ R-02 ‖ R-03).
 - Baseline captured in `/home/matteo/src/ccw-refactor/baseline/` (PLAN.md §2).
 - Models verified by probe subagents (ADR-01).
 - Plan, decisions, findings and this tracker committed as documentation.
+
+### Batch 0 — R-01 ‖ R-02 ‖ R-03 (completed)
+
+- Integrated as 1787e51, b69173d, f6d6220. Integration validation: lint pass (90 files), build pass,
+  471/471 tests.
+- Duplication baseline corrected to the TypeScript-only figure tracked by `.jscpd.json`: 3.03 %,
+  89 clone pairs (the audit's 3.2 % / 97 also counted CSS and markup).
+- Reviewer found a pre-existing intermittent failure (`asn1 … illegal padding` in
+  `validateIssuerMaterial`); recorded as FINDINGS F-06, root cause under investigation.
