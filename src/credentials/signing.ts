@@ -77,6 +77,25 @@ export async function issueSdJwtCredential(options: {
   return credential.compact;
 }
 
+function sdJwtSigningEnvelope(
+  config: AppConfig,
+  holderJwk: JsonRecord,
+  digestAlgorithm?: SdJwtDigestAlgorithm,
+) {
+  const issuerCertificate = loadIssuerCertificate(config);
+  issuerCertificate.keyId = issuerSigningKeyId(config);
+  return {
+    issuer: { method: "x5c" as const, issuer: config.issuer_base_url, x5c: [issuerCertificate] },
+    holder: { method: "jwk" as const, jwk: Kms.PublicJwk.fromUnknown(holderJwk) },
+    headerType: "dc+sd-jwt" as const,
+    ...(digestAlgorithm ? { hashingAlgorithm: digestAlgorithm } : {}),
+  };
+}
+
+function expiresAt(now: Date): number {
+  return Math.floor(now.getTime() / 1000) + 365 * 24 * 60 * 60;
+}
+
 export function sdJwtCredentialSignOptions(options: {
   config: AppConfig;
   holderJwk: JsonRecord;
@@ -86,17 +105,12 @@ export function sdJwtCredentialSignOptions(options: {
   subject?: PidSubject;
   now?: Date;
 }): SdJwtVcSignOptions {
-  const issuerCertificate = loadIssuerCertificate(options.config);
-  issuerCertificate.keyId = issuerSigningKeyId(options.config);
-  const now = options.now ?? new Date();
+  const envelope = sdJwtSigningEnvelope(options.config, options.holderJwk, options.digestAlgorithm);
   return {
-    issuer: { method: "x5c", issuer: options.config.issuer_base_url, x5c: [issuerCertificate] },
-    holder: { method: "jwk", jwk: Kms.PublicJwk.fromUnknown(options.holderJwk) },
-    headerType: "dc+sd-jwt",
-    ...(options.digestAlgorithm ? { hashingAlgorithm: options.digestAlgorithm } : {}),
+    ...envelope,
     payload: {
       vct: PID_SD_JWT_VCT,
-      exp: Math.floor(now.getTime() / 1000) + 365 * 24 * 60 * 60,
+      exp: expiresAt(options.now ?? new Date()),
       ...encodeSdJwtPidClaims(options.subject ?? pidSubject()),
       ...sdJwtStatusClaim(options.statusListReference, options.statusReference),
     },
@@ -154,17 +168,12 @@ export function degreeSdJwtCredentialSignOptions(options: {
   digestAlgorithm?: SdJwtDigestAlgorithm;
   now?: Date;
 }): SdJwtVcSignOptions {
-  const issuerCertificate = loadIssuerCertificate(options.config);
-  issuerCertificate.keyId = issuerSigningKeyId(options.config);
-  const now = options.now ?? new Date();
+  const envelope = sdJwtSigningEnvelope(options.config, options.holderJwk, options.digestAlgorithm);
   return {
-    issuer: { method: "x5c", issuer: options.config.issuer_base_url, x5c: [issuerCertificate] },
-    holder: { method: "jwk", jwk: Kms.PublicJwk.fromUnknown(options.holderJwk) },
-    headerType: "dc+sd-jwt",
-    ...(options.digestAlgorithm ? { hashingAlgorithm: options.digestAlgorithm } : {}),
+    ...envelope,
     payload: {
       vct: DEGREE_SD_JWT_VCT,
-      exp: Math.floor(now.getTime() / 1000) + 365 * 24 * 60 * 60,
+      exp: expiresAt(options.now ?? new Date()),
       ...DEGREE_CREDENTIAL_SUBJECT,
       ...sdJwtStatusClaim(options.statusListReference, options.statusReference),
     },
@@ -176,25 +185,15 @@ export function degreeSdJwtCredentialSignOptions(options: {
  * The numeric test credential intentionally carries a float. It exists solely to exercise DCQL
  * value-type matching when a verifier expects an integer `kg` claim.
  */
-export function numericSdJwtCredentialSignOptions(options: {
-  config: AppConfig;
-  holderJwk: JsonRecord;
-  statusListReference?: StatusListReference;
-  statusReference?: StatusReferenceFixture;
-  digestAlgorithm?: SdJwtDigestAlgorithm;
-  now?: Date;
-}): SdJwtVcSignOptions {
-  const issuerCertificate = loadIssuerCertificate(options.config);
-  issuerCertificate.keyId = issuerSigningKeyId(options.config);
-  const now = options.now ?? new Date();
+export function numericSdJwtCredentialSignOptions(
+  options: Parameters<typeof degreeSdJwtCredentialSignOptions>[0],
+): SdJwtVcSignOptions {
+  const envelope = sdJwtSigningEnvelope(options.config, options.holderJwk, options.digestAlgorithm);
   return {
-    issuer: { method: "x5c", issuer: options.config.issuer_base_url, x5c: [issuerCertificate] },
-    holder: { method: "jwk", jwk: Kms.PublicJwk.fromUnknown(options.holderJwk) },
-    headerType: "dc+sd-jwt",
-    ...(options.digestAlgorithm ? { hashingAlgorithm: options.digestAlgorithm } : {}),
+    ...envelope,
     payload: {
       vct: NUMERIC_SD_JWT_VCT,
-      exp: Math.floor(now.getTime() / 1000) + 365 * 24 * 60 * 60,
+      exp: expiresAt(options.now ?? new Date()),
       kg: 70.5,
       ...sdJwtStatusClaim(options.statusListReference, options.statusReference),
     },
@@ -224,18 +223,13 @@ export function importedSdJwtCredentialSignOptions(options: {
       `Claims are not issuable for ${definition.credentialConfigurationId}: ${[...errors, ...reserved].join("; ")}`,
     );
   }
-  const issuerCertificate = loadIssuerCertificate(options.config);
-  issuerCertificate.keyId = issuerSigningKeyId(options.config);
-  const now = options.now ?? new Date();
+  const envelope = sdJwtSigningEnvelope(options.config, options.holderJwk, options.digestAlgorithm);
   return {
-    issuer: { method: "x5c", issuer: options.config.issuer_base_url, x5c: [issuerCertificate] },
-    holder: { method: "jwk", jwk: Kms.PublicJwk.fromUnknown(options.holderJwk) },
-    headerType: "dc+sd-jwt",
-    ...(options.digestAlgorithm ? { hashingAlgorithm: options.digestAlgorithm } : {}),
+    ...envelope,
     payload: {
       ...claims,
       vct: definition.vct,
-      exp: Math.floor(now.getTime() / 1000) + 365 * 24 * 60 * 60,
+      exp: expiresAt(options.now ?? new Date()),
     },
     // Numeric array indices, as for DEGREE_DISCLOSURE_FRAME: Credo's type declares them as strings.
     disclosureFrame: disclosureFrameFor(
