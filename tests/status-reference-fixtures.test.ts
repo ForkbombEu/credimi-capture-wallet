@@ -1,11 +1,7 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { SdJwtVcService } from "@credo-ts/core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { DEFAULT_CONFIG } from "../src/config/defaults.js";
-import { createIssuerSigningContext, initIssuer } from "../src/config/key-material.js";
-import { resolvedIssuerConfigurationById } from "../src/configurations/registry.js";
+import { createIssuerSigningContext } from "../src/config/key-material.js";
 import { issuerAppConfig } from "../src/configurations/resolve-urls.js";
 import { sdJwtCredentialSignOptions } from "../src/credentials/signing.js";
 import {
@@ -18,13 +14,8 @@ import type {
   StatusListReference,
   StatusReferenceFixture,
 } from "../src/types.js";
-
-const holderJwk: JsonRecord = {
-  kty: "EC",
-  crv: "P-256",
-  x: "f83OJ3D2xF4PabXB8yiT4rHXkLExz-b8l2kKj7sKk1g",
-  y: "x_FEzRu9S2Z9ZvRI4fOMrPCvPj0S6TBOA4jI8tKXPjo",
-};
+import { createIssuerTestEnvironmentFactory, requireIssuer } from "./support/environment.js";
+import { holderJwk } from "./support/keys.js";
 
 const allocated: StatusListReference = {
   uri: "https://status-list.example.test/statuslists/1",
@@ -32,18 +23,22 @@ const allocated: StatusListReference = {
 };
 
 describe("Token Status List reference fixtures", () => {
-  const dataDir = mkdtempSync(join(tmpdir(), "status-reference-test-"));
-  let config: AppConfig = { ...DEFAULT_CONFIG, data_dir: dataDir };
+  const environment = createIssuerTestEnvironmentFactory({
+    prefix: "status-reference-test-",
+    config: { issuer_base_url: DEFAULT_CONFIG.issuer_base_url },
+  });
+  let config!: AppConfig;
 
   beforeAll(async () => {
-    const initialized = await initIssuer({ data_dir: dataDir, force: true });
-    const issuer = resolvedIssuerConfigurationById(initialized, "eu-pid-device-bound");
-    if (!issuer) throw new Error("device-bound issuer configuration unavailable");
-    config = issuerAppConfig(initialized, issuer);
+    await environment.initialize();
+    config = issuerAppConfig(
+      environment.config,
+      requireIssuer(environment.config, "eu-pid-device-bound"),
+    );
   });
 
   afterAll(() => {
-    rmSync(dataDir, { force: true, recursive: true });
+    environment.cleanup();
   });
 
   async function issuedStatusClaim(fixture?: StatusReferenceFixture): Promise<unknown> {

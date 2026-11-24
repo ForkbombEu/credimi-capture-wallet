@@ -6,6 +6,12 @@ export interface TestKey {
   publicJwk: JsonRecord;
   privateKey: KeyLike | Uint8Array;
 }
+export const holderJwk: JsonRecord = {
+  kty: "EC",
+  crv: "P-256",
+  x: "f83OJ3D2xF4PabXB8yiT4rHXkLExz-b8l2kKj7sKk1g",
+  y: "x_FEzRu9S2Z9ZvRI4fOMrPCvPj0S6TBOA4jI8tKXPjo",
+};
 
 export async function generateEs256Key(): Promise<TestKey> {
   const { publicKey, privateKey } = await generateKeyPair("ES256", { extractable: true });

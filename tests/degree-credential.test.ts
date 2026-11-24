@@ -1,11 +1,7 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { Kms, SdJwtVcService } from "@credo-ts/core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { DEFAULT_CONFIG } from "../src/config/defaults.js";
-import { createIssuerSigningContext, initIssuer } from "../src/config/key-material.js";
-import { resolvedIssuerConfigurationById } from "../src/configurations/registry.js";
+import { createIssuerSigningContext } from "../src/config/key-material.js";
 import { issuerAppConfig } from "../src/configurations/resolve-urls.js";
 import { DEGREE_SD_JWT_VCT } from "../src/credentials/definitions.js";
 import {
@@ -13,30 +9,30 @@ import {
   mdocCredentialSignOptions,
   sdJwtCredentialSignOptions,
 } from "../src/credentials/signing.js";
-import type { JsonRecord } from "../src/types.js";
+import type { AppConfig } from "../src/types.js";
+import { createIssuerTestEnvironmentFactory, requireIssuer } from "./support/environment.js";
+import { holderJwk } from "./support/keys.js";
 
 describe("degree SD-JWT VC", () => {
-  const dataDir = mkdtempSync(join(tmpdir(), "degree-credential-test-"));
-  let config = { ...DEFAULT_CONFIG, data_dir: dataDir };
+  const environment = createIssuerTestEnvironmentFactory({
+    prefix: "degree-credential-test-",
+    config: { issuer_base_url: DEFAULT_CONFIG.issuer_base_url },
+  });
+  let config!: AppConfig;
 
   beforeAll(async () => {
-    const initialized = await initIssuer({ data_dir: dataDir, force: true });
-    const issuer = resolvedIssuerConfigurationById(initialized, "eu-pid-device-bound");
-    if (!issuer) throw new Error("device-bound issuer configuration unavailable");
-    config = issuerAppConfig(initialized, issuer);
+    await environment.initialize();
+    config = issuerAppConfig(
+      environment.config,
+      requireIssuer(environment.config, "eu-pid-device-bound"),
+    );
   });
 
   afterAll(() => {
-    rmSync(dataDir, { force: true, recursive: true });
+    environment.cleanup();
   });
 
   it("contains the degree claims used by textual-encoding conformance tests", async () => {
-    const holderJwk: JsonRecord = {
-      kty: "EC",
-      crv: "P-256",
-      x: "f83OJ3D2xF4PabXB8yiT4rHXkLExz-b8l2kKj7sKk1g",
-      y: "x_FEzRu9S2Z9ZvRI4fOMrPCvPj0S6TBOA4jI8tKXPjo",
-    };
     const service = new SdJwtVcService({} as never);
     const compact = (
       await service.sign(
@@ -68,12 +64,6 @@ describe("degree SD-JWT VC", () => {
   });
 
   it("discloses degree object and array interiors claim by claim", async () => {
-    const holderJwk: JsonRecord = {
-      kty: "EC",
-      crv: "P-256",
-      x: "f83OJ3D2xF4PabXB8yiT4rHXkLExz-b8l2kKj7sKk1g",
-      y: "x_FEzRu9S2Z9ZvRI4fOMrPCvPj0S6TBOA4jI8tKXPjo",
-    };
     const service = new SdJwtVcService({} as never);
     const compact = (
       await service.sign(
@@ -156,12 +146,6 @@ describe("degree SD-JWT VC", () => {
   });
 
   it("adds status references only when explicitly requested", () => {
-    const holderJwk: JsonRecord = {
-      kty: "EC",
-      crv: "P-256",
-      x: "f83OJ3D2xF4PabXB8yiT4rHXkLExz-b8l2kKj7sKk1g",
-      y: "x_FEzRu9S2Z9ZvRI4fOMrPCvPj0S6TBOA4jI8tKXPjo",
-    };
     const reference = { uri: "https://tsl.example.test/status/1", idx: 7 };
 
     expect(sdJwtCredentialSignOptions({ config, holderJwk }).payload).not.toHaveProperty("status");
