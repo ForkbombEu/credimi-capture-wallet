@@ -44,12 +44,8 @@ import {
   numericSdJwtCredentialSignOptions,
   sdJwtCredentialSignOptions,
 } from "../credentials/signing.js";
+import { InMemoryStorageModule, NodeKmsBackend, nodeAgentDependencies } from "../credo/agent.js";
 import { applyRequestMutationEdits } from "../fcaf/request-mutation.js";
-import {
-  InMemoryStorageModule,
-  NodeKmsBackend,
-  nodeAgentDependencies,
-} from "../openid4vp/credo-verifier.js";
 import { type CaptureStore, asStringOrNull } from "../state.js";
 import {
   allocateStatusListReference,

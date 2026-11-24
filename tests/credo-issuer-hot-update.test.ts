@@ -10,7 +10,7 @@ import {
   InMemoryStorageModule,
   NodeKmsBackend,
   nodeAgentDependencies,
-} from "../src/openid4vp/credo-verifier.js";
+} from "../src/credo/agent.js";
 
 /**
  * Phase 0 feasibility: the pinned Credo-TS issuer serves credential configurations and the chained
