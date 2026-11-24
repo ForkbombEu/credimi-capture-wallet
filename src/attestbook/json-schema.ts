@@ -138,15 +138,19 @@ function compileNode(
   return compileScalar(schema, schema.type as AttestbookScalarType, name, pointer, report);
 }
 
-function compileObject(
+interface ObjectShape {
+  readonly valid: boolean;
+  readonly properties: Record<string, unknown>;
+  readonly required: readonly string[];
+}
+
+function validateObjectShape(
   schema: Record<string, unknown>,
   pointer: string,
-  depth: number,
   keywords: ReadonlySet<string>,
   report: Report,
-  counter: { nodes: number },
   root: boolean,
-): AttestbookObjectClaim | null {
+): ObjectShape | null {
   let valid = unknownKeywords(schema, keywords, pointer, report);
   if (
     schema.additionalProperties !== undefined &&
@@ -187,6 +191,19 @@ function compileObject(
       valid = false;
     }
   }
+  return { valid, properties, required };
+}
+
+function compileProperties(
+  properties: Record<string, unknown>,
+  required: readonly string[],
+  pointer: string,
+  depth: number,
+  report: Report,
+  counter: { nodes: number },
+  root: boolean,
+): { properties: AttestbookClaimProperty[]; valid: boolean } {
+  let valid = true;
   const compiled: AttestbookClaimProperty[] = [];
   for (const [name, property] of Object.entries(properties)) {
     const propertyPointer = `${pointer}/properties/${escapePointer(name)}`;
@@ -215,10 +232,33 @@ function compileObject(
     }
     compiled.push({ name, required: required.includes(name), node });
   }
-  if (!valid) return null;
+  return { properties: compiled, valid };
+}
+
+function compileObject(
+  schema: Record<string, unknown>,
+  pointer: string,
+  depth: number,
+  keywords: ReadonlySet<string>,
+  report: Report,
+  counter: { nodes: number },
+  root: boolean,
+): AttestbookObjectClaim | null {
+  const shape = validateObjectShape(schema, pointer, keywords, report, root);
+  if (!shape) return null;
+  const compiled = compileProperties(
+    shape.properties,
+    shape.required,
+    pointer,
+    depth,
+    report,
+    counter,
+    root,
+  );
+  if (!shape.valid || !compiled.valid) return null;
   return {
     kind: "object",
-    properties: compiled,
+    properties: compiled.properties,
     additionalProperties: schema.additionalProperties !== false,
     displayName: typeof schema.title === "string" ? schema.title : null,
     selectivelyDisclosable: true,
@@ -268,13 +308,13 @@ function compileArray(
   };
 }
 
-function compileScalar(
+function checkScalarKeywords(
   schema: Record<string, unknown>,
   type: AttestbookScalarType,
   name: string,
   pointer: string,
   report: Report,
-): AttestbookScalarClaim | null {
+): boolean {
   let valid = unknownKeywords(schema, SCALAR_KEYWORDS, pointer, report);
   for (const keyword of [...STRING_BOUNDS, ...NUMBER_BOUNDS]) {
     const value = schema[keyword];
@@ -313,7 +353,18 @@ function compileScalar(
     );
     valid = false;
   }
-  if (!valid) return null;
+  return valid;
+}
+
+function compileScalar(
+  schema: Record<string, unknown>,
+  type: AttestbookScalarType,
+  name: string,
+  pointer: string,
+  report: Report,
+): AttestbookScalarClaim | null {
+  if (!checkScalarKeywords(schema, type, name, pointer, report)) return null;
+  const enumValues = schema.enum;
   const bounds: Record<string, number> = {};
   for (const keyword of [...STRING_BOUNDS, ...NUMBER_BOUNDS]) {
     const value = schema[keyword];

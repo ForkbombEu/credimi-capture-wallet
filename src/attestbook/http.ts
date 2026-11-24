@@ -71,8 +71,8 @@ export async function boundedGet(
   options: BoundedGetOptions,
 ): Promise<BoundedResponse> {
   const target = allowedUrl(url, options.allowedOrigins);
-  let response: Response;
   const signal = AbortSignal.timeout(options.timeoutMs);
+  let response: Response;
   try {
     response = await (options.fetch ?? fetch)(target, {
       method: "GET",
@@ -83,6 +83,25 @@ export async function boundedGet(
   } catch (error) {
     throw transportError(error);
   }
+  await assertResponseAcceptable(response, target, options.maxBytes);
+  try {
+    const bytes = await readBoundedBody(response, options.maxBytes, target);
+    return {
+      bytes,
+      contentType: response.headers.get("content-type"),
+      contentDigest: response.headers.get("content-digest"),
+    };
+  } catch (error) {
+    if (error instanceof AttestbookFetchError) throw error;
+    throw transportError(error);
+  }
+}
+
+async function assertResponseAcceptable(
+  response: Response,
+  target: URL,
+  maxBytes: number,
+): Promise<void> {
   if (response.type === "opaqueredirect" || (response.status >= 300 && response.status < 400)) {
     await response.body?.cancel();
     throw new AttestbookFetchError(
@@ -102,33 +121,31 @@ export async function boundedGet(
     );
   }
   const declaredLength = Number(response.headers.get("content-length") ?? Number.NaN);
-  if (Number.isFinite(declaredLength) && declaredLength > options.maxBytes) {
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
     await response.body?.cancel();
-    throw tooLarge(target, options.maxBytes);
+    throw tooLarge(target, maxBytes);
   }
+}
+
+async function readBoundedBody(
+  response: Response,
+  maxBytes: number,
+  target: URL,
+): Promise<Uint8Array> {
   const chunks: Uint8Array[] = [];
   let length = 0;
-  try {
-    const reader = response.body?.getReader();
-    while (reader) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      length += value.byteLength;
-      if (length > options.maxBytes) {
-        await reader.cancel();
-        throw tooLarge(target, options.maxBytes);
-      }
-      chunks.push(value);
+  const reader = response.body?.getReader();
+  while (reader) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    length += value.byteLength;
+    if (length > maxBytes) {
+      await reader.cancel();
+      throw tooLarge(target, maxBytes);
     }
-  } catch (error) {
-    if (error instanceof AttestbookFetchError) throw error;
-    throw transportError(error);
+    chunks.push(value);
   }
-  return {
-    bytes: Buffer.concat(chunks),
-    contentType: response.headers.get("content-type"),
-    contentDigest: response.headers.get("content-digest"),
-  };
+  return Buffer.concat(chunks);
 }
 
 function tooLarge(target: URL, maxBytes: number): AttestbookFetchError {
