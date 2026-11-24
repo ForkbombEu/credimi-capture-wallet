@@ -50,7 +50,7 @@ export const OFFER_SCHEMES: CredentialOfferScheme[] = [
   "haip-vci://",
 ];
 
-export type IssuanceSessionInput = {
+type IssuanceSessionInput = {
   issuer: ResolvedIssuerConfiguration;
   credentialConfigurationId: string;
   flow: SessionCapture["flow"];

@@ -25,6 +25,7 @@ export function captureAuthorizationEvidence(
   }
 }
 
+/** @internal */
 export function setObservedString(
   observed: SessionCapture["observed"]["client_id"],
   value: unknown,

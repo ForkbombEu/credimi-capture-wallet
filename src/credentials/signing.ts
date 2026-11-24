@@ -33,6 +33,7 @@ import {
   PID_SD_JWT_VCT,
 } from "./definitions.js";
 
+/** @internal */
 export { CREDIMI_LOGO_URL };
 
 /**
@@ -61,6 +62,7 @@ const DEGREE_DISCLOSURE_FRAME = {
   },
 } as unknown as SdJwtVcSignOptions["disclosureFrame"];
 
+/** @internal */
 export async function issueSdJwtCredential(options: {
   config: AppConfig;
   credentialConfigurationId: string;

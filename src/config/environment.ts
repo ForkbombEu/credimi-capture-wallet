@@ -46,6 +46,7 @@ export function loadEnvFile(
   return { ...parseEnvText(readFileSync(path, "utf8")), ...env };
 }
 
+/** @internal */
 export function parseEnvText(text: string): Record<string, string> {
   const result: Record<string, string> = {};
   for (const line of text.split(/\r?\n/)) {

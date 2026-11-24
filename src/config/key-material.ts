@@ -198,6 +198,7 @@ export function validateIssuerMaterial(config: AppConfig): void {
   }
 }
 
+/** @internal */
 export function validateIssuerCertificateSubjectAlternativeName(
   subjectAlternativeName: string | undefined,
   issuerIdentifier: string,

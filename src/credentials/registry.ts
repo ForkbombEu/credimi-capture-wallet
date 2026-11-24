@@ -22,6 +22,7 @@ export interface ImportedCatalogue {
 /** Applies the registry's current credentials to the issuer's real Credo-TS record. */
 export type IssuerRecordSynchronizer = (issuer: ResolvedIssuerConfiguration) => Promise<void>;
 
+/** @internal */
 export class CatalogueConflictError extends Error {
   constructor(message: string) {
     super(message);

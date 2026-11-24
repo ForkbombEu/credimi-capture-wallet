@@ -8,6 +8,7 @@ import type {
   ProofJwtEvidence,
 } from "../types.js";
 
+/** @internal */
 export function decodeJwtHeader(jwt: string): JsonRecord {
   const [header] = jwt.split(".");
   if (!header) throw new Error("JWT is missing a JOSE header");
@@ -97,6 +98,7 @@ function jwtEvidence(compact: string): JwtEvidence {
   return { compact, ...decodeJwtForEvidence(compact) };
 }
 
+/** @internal */
 export function extractProofJwts(body: JsonRecord): Array<{ jwt: string; source: string }> {
   const result: Array<{ jwt: string; source: string }> = [];
   const proof = body.proof as JsonRecord | undefined;

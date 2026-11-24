@@ -2,7 +2,7 @@ import { ClaimFormat } from "@credo-ts/core";
 import { asRecord } from "../shared/json.js";
 import type { JsonRecord } from "../types.js";
 
-export type DecodedPresentation = {
+type DecodedPresentation = {
   format: string;
   document_types?: string[];
   issuer_claims?: unknown;
@@ -81,6 +81,7 @@ function decodedPresentationFromCredo(presentation: unknown): DecodedPresentatio
   };
 }
 
+/** @internal */
 export function toJsonSafe(value: unknown): unknown {
   return toJsonSafeValue(value, new WeakSet<object>());
 }

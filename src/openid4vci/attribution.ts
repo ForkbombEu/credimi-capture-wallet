@@ -60,7 +60,10 @@ export function issuanceSessionQuery(endpoint: string, req: Request): IssuanceSe
   }
 }
 
-/** The grant an access token names, as Credo-TS's Credential endpoint reads it. */
+/**
+ * The grant an access token names, as Credo-TS's Credential endpoint reads it.
+ * @internal
+ */
 export function accessTokenSessionQuery(
   authorization: string | undefined,
 ): IssuanceSessionQuery | null {

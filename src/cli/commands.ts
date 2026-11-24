@@ -48,6 +48,7 @@ const ASCII_HEADER = `
  ╚══╝╚══╝ ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝   ╚═╝
 `;
 
+/** @internal */
 export function parseArgs(argv: string[]): Record<string, string | boolean> {
   const parsed: Record<string, string | boolean> = {};
   for (let index = 0; index < argv.length; index += 1) {

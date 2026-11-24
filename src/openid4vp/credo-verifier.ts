@@ -727,6 +727,7 @@ function credoErrorMessage(error: unknown, fallback?: string): string {
   return fallback ?? String(error);
 }
 
+/** @internal */
 export function trustedIssuerForX509Credential(
   config: AppConfig,
   credentialCertificateChain: string[],

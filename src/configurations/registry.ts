@@ -12,6 +12,7 @@ import type {
 } from "./types.js";
 import { validateIssuerConfigurations } from "./validate.js";
 
+/** @internal */
 export const issuerConfigurations = [
   euPidDeviceBound,
   euPidJwtKeyAttestation,

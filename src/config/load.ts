@@ -22,6 +22,7 @@ export function stringifyYaml(record: JsonRecord): string {
     .join("\n")}\n`;
 }
 
+/** @internal */
 export function parseYamlConfig(text: string): Record<string, unknown> {
   const result: JsonRecord = {};
   for (const line of text.split(/\r?\n/)) {

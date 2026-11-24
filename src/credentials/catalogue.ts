@@ -46,6 +46,7 @@ function credentialConfigurationId(
   return `${config.credential_configuration_id}.${credentialFormatId(format)}.${proofPolicy}`;
 }
 
+/** @internal */
 export function sdJwtCredentialConfigurationId(
   config: AppConfig,
   proofPolicy: CredentialProofPolicy,
@@ -53,6 +54,7 @@ export function sdJwtCredentialConfigurationId(
   return credentialConfigurationId(config, "dc+sd-jwt", proofPolicy);
 }
 
+/** @internal */
 export function mdocCredentialConfigurationId(
   config: AppConfig,
   proofPolicy: CredentialProofPolicy,
@@ -60,6 +62,7 @@ export function mdocCredentialConfigurationId(
   return credentialConfigurationId(config, "mso_mdoc", proofPolicy);
 }
 
+/** @internal */
 export function degreeSdJwtCredentialConfigurationId(
   _config: AppConfig,
   proofPolicy: CredentialProofPolicy,
@@ -67,6 +70,7 @@ export function degreeSdJwtCredentialConfigurationId(
   return `urn:credimi:degree:1.sd-jwt.${proofPolicy}`;
 }
 
+/** @internal */
 export function numericSdJwtCredentialConfigurationId(
   _config: AppConfig,
   proofPolicy: CredentialProofPolicy,
@@ -74,7 +78,9 @@ export function numericSdJwtCredentialConfigurationId(
   return `urn:credimi:numeric-claims:1.sd-jwt.${proofPolicy}`;
 }
 
-/** Fixed identifier, also used as scope, for a domestic PID configuration. */
+/** Fixed identifier, also used as scope, for a domestic PID configuration.
+ * @internal
+ */
 export function domesticPidCredentialConfigurationId(
   format: CredentialFormat,
   proofPolicy: CredentialProofPolicy,

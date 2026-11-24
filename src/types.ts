@@ -766,6 +766,7 @@ export interface CredoIssuanceOffer {
   credo_issuance_session_id: string;
 }
 
+/** @internal */
 export interface SessionCredentialDefinition {
   source: "attestbook";
   origin: string;

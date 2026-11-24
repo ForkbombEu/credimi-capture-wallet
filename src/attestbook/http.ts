@@ -39,6 +39,7 @@ export interface BoundedGetOptions {
  * The URL a retrieval may use: an allowed origin over HTTPS (plain HTTP only on a literal loopback
  * host), without embedded credentials or a fragment. It is checked before any connection, so a
  * value taken from a document can never direct a request elsewhere.
+ * @internal
  */
 export function allowedUrl(value: string, allowedOrigins: readonly string[]): URL {
   let url: URL;

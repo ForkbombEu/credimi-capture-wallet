@@ -118,6 +118,7 @@ export function compileRulebook(
  * The credential type of an attestation, derived from its name alone: `urn:attestbook:<slug>`.
  * It stays the same across rulebook versions and changes when the attestation is renamed. The
  * rulebook is deliberately not part of it, so two rulebooks naming a type alike share its vct.
+ * @internal
  */
 export function vctForAttestationName(name: string): string | null {
   const slug = slugify(name).slice(0, MAX_VCT_SLUG_LENGTH).replace(/-+$/, "");

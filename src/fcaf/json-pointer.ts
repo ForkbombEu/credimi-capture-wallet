@@ -77,6 +77,7 @@ export function unsetJsonPointer(document: JsonRecord, pointer: string): boolean
   return true;
 }
 
+/** @internal */
 export function readJsonPointer(document: JsonRecord, pointer: string): unknown {
   const tokens = parseJsonPointer(pointer);
   let node: unknown = document;

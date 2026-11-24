@@ -31,7 +31,10 @@ function webhookSigningInput(timestamp: string, eventId: string, body: Uint8Arra
   return [SIGNING_CONTEXT, timestamp, eventId, sha256Hex(body)].join("\n");
 }
 
-/** `v1=` followed by the lowercase hex HMAC-SHA-256 of the signing input. */
+/**
+ * `v1=` followed by the lowercase hex HMAC-SHA-256 of the signing input.
+ * @internal
+ */
 export function webhookSignature(
   secret: string,
   timestamp: string,
