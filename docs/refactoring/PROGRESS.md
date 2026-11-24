@@ -56,22 +56,22 @@ Batch 15 (C-01 ‖ C-12 ‖ S-00). Phases 0–4 completed. Mid-point measurement
 | B-08 | Completed | B-07 | Luna | Opus | 0a53661 | 223fe2d (task dd9e4a6) | APPROVE after amendment (AGENTS map line restored, subject, local import); reviewer proved byte-identical issuer metadata, jwt-vc metadata and catalogue outputs (551 211 bytes, all issuers, Attestbook on/off incl. imported definitions) | inventory unchanged; no cycles | none |
 | S-00 | Completed | — | Luna | Opus | 223fe2d | 4728ea4 (task 1e0c7a8) | APPROVE (reviewer forced the ms tie with a coarse clock: base failed 5/8, patched 8/8; ENOENT traced to dependency on an earlier test publishing); webhook test given the same fix | inventory unchanged; assertions unchanged | production ledger boundary unchanged (F-09) |
 | C-01 | Completed | B-08, T-01 | Luna | Opus | 223fe2d | 4c9cf37 (task d156caa; message reworded at integration) | APPROVE after amendment: **Blocking found by review** — extracted async call returned without `await` inside try/catch, so verifier rejections hung requests (reproduced); fixed + regression test; JSDoc restored; `vpPresentationCaptured` shared; `matchedIssuerOrNull` | app.ts 2586 → 2401; session route cx 11 → 4, alternative 11 → 4; jscpd app.ts 5 → 3 clones (remaining: two-failure preambles, UI QR options); +1 test | none |
-| C-02 | Changes requested | C-01, T-02 | Luna | Opus | 4c9cf37 | task b0ee9fb | first review: behaviour identical over a 2 700-request differential harness, but `parseIssuanceSessionInput` cx 55 / 231 lines (relocated, not reduced) → split into ordered domain checks | | |
-| C-03 | Pending | C-02 | Luna | Opus | | | | | |
-| C-04 | Pending | C-03 | Luna | Opus | | | | | |
+| C-02 | Completed | C-01, T-02 | Luna | Opus | 4c9cf37 | 3334f8a (task b028e5f) | APPROVE after restructuring: first version relocated complexity (`parseIssuanceSessionInput` cx 55 / 231 lines) → orchestrator (cx 8) + 7 named ordered checks (max cx 15); reviewer differential harness 2 700 requests (single + pairwise invalid fields, 3 configs, JSON + form) identical incl. persisted sessions | handler cx 65 → 13, 209 → 73 lines; `issuerCredentialRegistry` moved with its comment; `booleanOrNull` → `shared/json.ts` | triples spot-checked only |
+| C-03 | Completed | C-02 | Luna | Opus | 3334f8a | f4847eb (task 7df4453) | APPROVE after amendment (cx 26 parse step split; two protocol docblocks restored; unrequested `vpRequestBody` change reverted); reviewer harness 8 125 requests over 5 configs incl. trust-anchor CA variants: 0 differences (only second-resolution `iat`/`exp` in plain deeplinks) | handler cx 91 → 9, 210 → 44 lines; module max cx 12 (moved `verifierAttestationOrNull` cx 20 unchanged, C-06) | form-encoded bodies not exercised by harness |
+| C-04 | In progress | C-03 | Luna | Opus | 5ef10de | | | | |
 | C-05 | Pending | C-04, T-03 | Luna | Opus | | | | | |
 | C-06 | Pending | C-05 | Luna | Opus | | | | | |
 | C-13 | Pending | C-06, C-11, D-03 | Luna | Opus | | | | | |
 | C-17 | Pending | C-13, B-03 | Luna | Opus | | | | | |
 | C-08 | Pending | C-17, T-09 | Luna | Opus | | | | | |
 | C-07 | Pending | C-08 | Luna | Opus | | | | | |
-| C-09 | Pending | B-08, T-05, B-04 | Luna | Opus | | | | | |
-| C-10 | Pending | B-08 | Luna | Opus | | | | | |
+| C-09 | Completed | B-08, T-05, B-04 | Luna | Opus | 4728ea4 | 5ef10de (task 6f62596, squashed from 3 commits) | APPROVE after 2 rounds: first version moved orchestration into a second orchestrator with callbacks + compatibility re-export + 6 deleted protocol JSDocs; reworked to a single orchestrator, `signer` replaces invented fallback; reviewer differential harness 133 scenarios (all delivery modes, schemes, attestation, mutations, corruption, wallet_nonce, DC API) identical | createSession cx 50 → 15, 229 → 129 lines (length = 13-param signature + return literal + positional calls); signedDeliveryPlan cx 11; +7 tests | long positional calls with adjacent same-typed args (recipe object suggested; optional) |
+| C-10 | Under review | B-08 | Luna | Opus | 4728ea4 | task 368ada8 | first review: move verbatim; tests had gaps (unknown endpoint, RFC 6750 escaping, missing sub) — fixed | +34 tests | |
 | C-11 | Pending | C-10, T-04 | Luna | Opus | | | | | |
-| C-12 | Pending | B-08 | Luna | Opus | | | | | |
-| C-14 | Pending | B-08, T-06 | Luna | Opus | | | | | |
-| C-15 | Pending | C-14 | Luna | Opus | | | | | |
-| C-16 | Pending | B-08, T-06 | Luna | Opus | | | | | |
+| C-12 | Completed | B-08 | Luna | Opus | 223fe2d | 58c17fc (task 2f0b5ed) | APPROVE after 2 rounds (precedence test pinned with invalid holder JWK; evaluation order restored: envelope before status claim; positional helper removed; remaining intra-file clone removed); 8/8 mutants caught | +9 tests; signing.ts clones 3 → 0 (one accepted source↔test fixture clone) | none |
+| C-14 | Completed | B-08, T-06 | Luna | Opus | 63a26ff | f013bb0 (task 34dd6e6) | APPROVE; reviewer harness 76 webhook cases (incl. pairwise invalid, secret null/"") identical in status, body, logs, persistence | handleWebhook cx 18 → 6, 122 → 47; verifyDelivery cx 16 | none |
+| C-16 | Completed | B-08, T-06 | Luna | Opus | 63a26ff | b545534 (task b8eb48d) | APPROVE after amendment: an added `signal.throwIfAborted()` in body reads (new behaviour with signal-ignoring fetch) removed; schema diagnostics byte-identical over 39 239 schemas | compileObject cx 20 → 5, compileScalar 20 → 7, boundedGet 16 → 5 | declared-length position and `>`/`>=` boundary not pinned by tests (pre-existing) |
+| C-15 | In progress | C-14 | Luna | Opus | b545534 | | | | |
 | C-18 | Pending | C-15, B-07 | Luna | Opus | | | | | |
 | S-01b | Pending | Phase 5 | Luna | Opus | | | | | |
 | S-02 | Pending | S-01b | Luna | Opus | | | | | |
