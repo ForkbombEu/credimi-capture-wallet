@@ -1,15 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomBytes, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import {
-  Agent,
-  ClaimFormat,
-  ConsoleLogger,
-  Kms,
-  LogLevel,
-  MdocApi,
-  X509Module,
-} from "@credo-ts/core";
+import { Agent, ConsoleLogger, Kms, LogLevel, MdocApi, X509Module } from "@credo-ts/core";
 import {
   type OpenId4VcIssuanceSessionRecord,
   OpenId4VcIssuanceSessionRepository,
@@ -32,27 +24,12 @@ import {
   resolvedIssuerConfigurations,
 } from "../configurations/registry.js";
 import { issuerAppConfig } from "../configurations/resolve-urls.js";
-import { pidFixtureIdOrNull, pidFixtureSubject } from "../configurations/shared/pid-fixtures.js";
 import type { ResolvedIssuerConfiguration } from "../configurations/types.js";
-import { type SupportedCredential, isDomesticPidCredential } from "../credentials/catalogue.js";
-import { DEGREE_SD_JWT_VCT, NUMERIC_SD_JWT_VCT } from "../credentials/definitions.js";
+import type { SupportedCredential } from "../credentials/catalogue.js";
 import { credentialRegistry } from "../credentials/registry.js";
-import {
-  degreeSdJwtCredentialSignOptions,
-  domesticPidMdocCredentialSignOptions,
-  domesticPidSdJwtCredentialSignOptions,
-  importedSdJwtCredentialSignOptions,
-  mdocCredentialSignOptions,
-  numericSdJwtCredentialSignOptions,
-  sdJwtCredentialSignOptions,
-} from "../credentials/signing.js";
 import { InMemoryStorageModule, NodeKmsBackend, nodeAgentDependencies } from "../credo/agent.js";
 import { applyRequestMutationEdits } from "../fcaf/request-mutation.js";
 import type { CaptureStore } from "../state.js";
-import {
-  allocateStatusListReference,
-  statusListCredentialType,
-} from "../status-list/allocation.js";
 import { applyMdocStatusReferenceFixture } from "../status-list/malformed-mdoc-status.js";
 import type {
   AppConfig,
@@ -71,7 +48,13 @@ import {
   issuanceSessionQuery,
   requestHeaders,
 } from "./attribution.js";
-import { captureAuthorizationEvidence, redactCredentialRequest } from "./evidence.js";
+import {
+  type CredentialRequestEvidence,
+  allocateStatusListReferences,
+  recordCredentialRequestEvidence,
+  signingOptionsForCredential,
+} from "./credential-mapping.js";
+import { captureAuthorizationEvidence } from "./evidence.js";
 import { fakeOAuthServer } from "./fake-oauth-server.js";
 import { credentialConfigurationsSupported, credentialIssuerMetadata } from "./metadata.js";
 import {
@@ -92,10 +75,7 @@ const VALIDITY_SKEW_SECONDS = 60;
 type RequestContext = {
   capture: Oid4vciHttpRequestCapture | null;
   dpop: string | undefined;
-  credentialRequestEvidence?: {
-    body: JsonRecord;
-    raw?: unknown;
-  };
+  credentialRequestEvidence?: CredentialRequestEvidence;
   /** The sessions created for this request's wallet-initiated Pushed Authorization Request. */
   walletInitiated?: { captureSessionId: string; credoSessionId: string };
   /** The `notification_id` this request's Credential Response carries, registered once sent. */
@@ -745,130 +725,27 @@ export class CredoOpenId4VciIssuer {
       .map((key) => key.jwk.toJson() as JsonRecord);
     if (holderJwks.length === 0) throw new Error("Credo did not resolve a JWK holder binding");
 
-    const evidence = this.requestContext.getStore()?.credentialRequestEvidence;
-    captureSession.raw ??= {};
-    captureSession.raw.credential_request = redactCredentialRequest(evidence?.body ?? request);
-    if (evidence?.raw !== undefined) {
-      captureSession.raw.credential_request_raw = evidence.raw;
-    }
-    captureSession.raw.proof_headers = proofHeaders;
-    captureSession.checks.proof_jwt_present = proofType === "jwt";
-    captureSession.checks.proof_attestation_present = proofType === "attestation";
-    captureSession.checks.proof_jwt_header_jwk_present = proofHeaders.some(
-      (header) => header.proof_type === "jwt" && Boolean(header.jwk),
-    );
-    captureSession.checks.key_attestation_verified =
-      proofType === "attestation" || proofHeaders.some((header) => header.key_attestation_present);
-    captureSession.checks.nonce_verified = true;
-    captureSession.observed.wallet_jwks = {
-      observed: true,
-      source: "credo.verified_holder_binding",
-      jwks: { keys: holderJwks },
-      observed_proof_header_fields: Array.from(
-        new Set(
-          proofHeaders.flatMap((header) =>
-            ["typ", "alg", "kid", "jwk", "x5c"].filter(
-              (field) => header[field as keyof typeof header] !== undefined,
-            ),
-          ),
-        ),
-      ),
-    };
-
-    const statusListReferences = captureSession.status_list_enabled
-      ? await Promise.all(
-          holderJwks.map(async (_, index) => {
-            const allocationId = statusAllocationId(captureSession, index);
-            const reference = await allocateStatusListReference({
-              config: this.config,
-              allocationId,
-              doctype: statusListCredentialType(credential),
-            });
-            // Kept at the credential's index, so a retried request replaces rather than appends,
-            // and `POST /sessions/{id}/status` can revoke exactly what was allocated.
-            captureSession.status_list_references ??= [];
-            captureSession.status_list_references[index] = {
-              allocation_id: allocationId,
-              ...reference,
-            };
-            return reference;
-          }),
-        )
-      : holderJwks.map(() => undefined);
-
-    const signingConfig = issuerAppConfig(this.config, issuer);
-    const definition = credential.attestbook;
-    if (definition) {
-      // Refused earlier at the Credential Endpoint with `invalid_credential_request`; this guards
-      // a newer version activated between that check and signing.
-      if (captureSession.credential_definition?.content_digest !== definition.contentDigest) {
-        throw new Error("Capture session was created under a superseded credential definition");
-      }
-      const generated = captureSession.generated_claims;
-      if (!generated) throw new Error("Capture session has no generated claims");
-      return {
-        type: "credentials" as const,
-        format: ClaimFormat.SdJwtDc,
-        credentials: holderJwks.map((holderJwk) =>
-          importedSdJwtCredentialSignOptions({
-            config: signingConfig,
-            holderJwk,
-            definition,
-            claims: generated.claims,
-            digestAlgorithm: captureSession.digest_algorithm,
-          }),
-        ),
-      };
-    }
-    const fixtureSubject = pidFixtureSubject(
-      pidFixtureIdOrNull(captureSession.fixture_id) ?? undefined,
-    );
-    const subject =
-      captureSession.document_number === undefined
-        ? fixtureSubject
-        : { ...fixtureSubject, documentNumber: captureSession.document_number };
-    const domesticPid = isDomesticPidCredential(credential);
-    if (credential.format === "mso_mdoc") {
-      return {
-        type: "credentials" as const,
-        format: ClaimFormat.MsoMdoc,
-        credentials: holderJwks.map((holderJwk, index) => {
-          const signingOptions = {
-            config: signingConfig,
-            holderJwk,
-            statusListReference: statusListReferences[index],
-            statusReference: captureSession.status_reference,
-            subject,
-          };
-          return domesticPid
-            ? domesticPidMdocCredentialSignOptions(signingOptions)
-            : mdocCredentialSignOptions(signingOptions);
-        }),
-      };
-    }
-    return {
-      type: "credentials" as const,
-      format: ClaimFormat.SdJwtDc,
-      credentials: holderJwks.map((holderJwk, index) => {
-        const signingOptions = {
-          config: signingConfig,
-          holderJwk,
-          statusListReference: statusListReferences[index],
-          statusReference: captureSession.status_reference,
-          digestAlgorithm: captureSession.digest_algorithm,
-        };
-        if (credential.vct === DEGREE_SD_JWT_VCT) {
-          return degreeSdJwtCredentialSignOptions(signingOptions);
-        }
-        if (credential.vct === NUMERIC_SD_JWT_VCT) {
-          return numericSdJwtCredentialSignOptions(signingOptions);
-        }
-        if (domesticPid) {
-          return domesticPidSdJwtCredentialSignOptions({ ...signingOptions, subject });
-        }
-        return sdJwtCredentialSignOptions({ ...signingOptions, subject });
-      }),
-    };
+    recordCredentialRequestEvidence({
+      captureSession,
+      request,
+      evidence: this.requestContext.getStore()?.credentialRequestEvidence,
+      holderJwks,
+      proofHeaders,
+      proofType,
+    });
+    const statusListReferences = await allocateStatusListReferences({
+      config: this.config,
+      captureSession,
+      credential,
+      holderJwks,
+    });
+    return signingOptionsForCredential({
+      signingConfig: issuerAppConfig(this.config, issuer),
+      credential,
+      captureSession,
+      holderJwks,
+      statusListReferences,
+    });
   }
 
   private async linkCurrentRequest(captureSessionId: string): Promise<void> {
@@ -903,18 +780,6 @@ export class CredoOpenId4VciIssuer {
     if (!issuer) throw new Error(`Unknown issuer configuration '${issuerConfigurationId}'`);
     return issuer;
   }
-}
-
-function statusAllocationId(session: SessionCapture, index: number): string {
-  let allocationIds = session.status_list_allocation_ids;
-  if (!allocationIds) {
-    allocationIds = [];
-    session.status_list_allocation_ids = allocationIds;
-  }
-  if (!allocationIds[index]) allocationIds[index] = `${session.session_id}:${index}`;
-  const allocationId = allocationIds[index];
-  if (!allocationId) throw new Error(`Missing status allocation id at index ${index}`);
-  return allocationId;
 }
 
 function credentialOfferByValue(byReference: string, offer: JsonRecord): string {
