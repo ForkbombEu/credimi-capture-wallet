@@ -13,32 +13,20 @@ import {
   verifierDidDocument,
 } from "../config/verifier-identity.js";
 import {
-  DEFAULT_ISSUER_CONFIGURATION_ID,
   issuerCatalogue,
   resolvedIssuerConfigurationById,
   resolvedIssuerConfigurations,
 } from "../configurations/registry.js";
 import { issuerAppConfig } from "../configurations/resolve-urls.js";
-import { PID_FIXTURE_IDS, pidFixtureIdOrNull } from "../configurations/shared/pid-fixtures.js";
+import { PID_FIXTURE_IDS } from "../configurations/shared/pid-fixtures.js";
 import type { ResolvedIssuerConfiguration } from "../configurations/types.js";
 import { supportedCredentialConfigurationIds } from "../credentials/catalogue.js";
-import {
-  DEFAULT_SD_JWT_DIGEST_ALGORITHM,
-  SD_JWT_DIGEST_ALGORITHMS,
-  sdJwtDigestAlgorithmOrNull,
-} from "../credentials/digest-algorithm.js";
-import { type CredentialRegistry, credentialRegistry } from "../credentials/registry.js";
+import { SD_JWT_DIGEST_ALGORITHMS } from "../credentials/digest-algorithm.js";
+import { credentialRegistry } from "../credentials/registry.js";
 import { unsetJsonPointer } from "../fcaf/json-pointer.js";
 import { corruptJwsSignature, requestBehaviorOrNull } from "../fcaf/request-behavior.js";
-import {
-  offerMutationOrNull,
-  requestMutationOrNull,
-  requestMutationPointers,
-} from "../fcaf/request-mutation.js";
-import {
-  issuanceResponseScenarioOrNull,
-  responseScenarioOrNull,
-} from "../fcaf/response-scenario.js";
+import { requestMutationOrNull, requestMutationPointers } from "../fcaf/request-mutation.js";
+import { responseScenarioOrNull } from "../fcaf/response-scenario.js";
 import {
   ENTITY_STATEMENT_MEDIA_TYPE,
   signIssuerEntityConfiguration,
@@ -94,13 +82,10 @@ import {
 import { negotiateRequestObjectEncryption } from "../openid4vp/request-object-encryption.js";
 import { RESPONSE_URI_PLACEHOLDER } from "../openid4vp/verifier-attestation.js";
 import { errorMessage } from "../shared/errors.js";
-import { asRecord, asStringOrNull } from "../shared/json.js";
+import { asRecord, asStringOrNull, booleanOrNull } from "../shared/json.js";
 import { CaptureStore } from "../state.js";
 import { revokeStatusListReference } from "../status-list/allocation.js";
-import {
-  STATUS_REFERENCE_FIXTURES,
-  statusReferenceFixtureOrNull,
-} from "../status-list/reference-fixtures.js";
+import { STATUS_REFERENCE_FIXTURES } from "../status-list/reference-fixtures.js";
 import type {
   AppConfig,
   CredentialOfferMode,
@@ -141,6 +126,16 @@ import {
   vpRedirectPage,
   vpSessionPage,
 } from "../ui.js";
+import {
+  CREDENTIAL_OFFER_MODES,
+  DEFAULT_OFFER_SCHEME,
+  EVIDENCE_MODES,
+  ISSUANCE_FLOWS,
+  OFFER_SCHEMES,
+  issuerCredentialRegistry,
+  issuerFromRequest,
+  parseIssuanceSessionInput,
+} from "./issuance-session-input.js";
 import {
   dcApiSubmissionRejectionOrNull,
   presentationResponseHttpCapture,
@@ -776,178 +771,42 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
 
   app.post("/sessions", async (req, res, next) => {
     try {
-      const body = requestParams(req);
-      if (body.broken !== undefined) {
-        return res.status(400).json({
-          error: "invalid_request",
-          error_description:
-            "'broken' is unavailable because the legacy root issuer has been removed",
-        });
-      }
-      const flow = issuanceFlowOrNull(body.flow);
-      if (body.flow !== undefined && !flow) {
-        return res.status(400).json({
-          error: "unsupported_issuance_flow",
-          supported_flows: ["pre_authorized_code", "authorization_code"],
-        });
-      }
-      const credentialOfferMode = credentialOfferModeOrNull(body.credential_offer_mode);
-      if (body.credential_offer_mode !== undefined && !credentialOfferMode) {
-        return res.status(400).json({
-          error: "unsupported_credential_offer_mode",
-          supported_credential_offer_modes: ["credential_offer", "credential_offer_uri"],
-        });
-      }
-      const statusListEnabled = booleanOrNull(body.status_list_enabled);
-      if (body.status_list_enabled !== undefined && statusListEnabled === null) {
-        return res.status(400).json({
-          error: "invalid_status_list_enabled",
-          error_description: "status_list_enabled must be a boolean",
-        });
-      }
-      const issuer = issuerFromRequest(config, body.issuer_configuration_id);
-      if (!issuer) {
-        return res.status(400).json({
-          error: "unsupported_issuer_configuration",
-          supported_issuer_configuration_ids: resolvedIssuerConfigurations(config).map(
-            (candidate) => candidate.id,
-          ),
-        });
-      }
-      const registry = await issuerCredentialRegistry(config, store);
-      const supportedCredentialIds = registry
-        .credentialsForIssuer(issuer)
-        .map((credential) => credential.id);
-      const credentialConfigurationId =
-        asStringOrNull(body.credential_configuration_id) ?? supportedCredentialIds[0];
-      const credential = credentialConfigurationId
-        ? registry.credentialById(issuer, credentialConfigurationId)
-        : null;
-      if (!credentialConfigurationId || !credential) {
-        return res.status(400).json({
-          error: "unsupported_credential_configuration",
-          issuer_configuration_id: issuer.id,
-          supported_credential_configuration_ids: supportedCredentialIds,
-        });
-      }
-      const imported = credential.attestbook;
-      if (imported) {
-        // PID-specific and status-list options have no meaning for an imported credential type.
-        const unsupported = [
-          ...(statusListEnabled ? ["status_list_enabled"] : []),
-          ...(body.status_reference !== undefined ? ["status_reference"] : []),
-          ...(body.document_number !== undefined ? ["document_number"] : []),
-          ...(body.fixture_id !== undefined ? ["fixture_id"] : []),
-        ];
-        if (unsupported.length > 0) {
-          return res.status(400).json({
-            error: "unsupported_for_imported_credential",
-            error_description:
-              "these parameters are not supported for an imported Attestbook credential",
-            unsupported_parameters: unsupported,
-          });
-        }
-      }
-      const statusReference = statusReferenceFixtureOrNull(body.status_reference ?? "valid");
-      if (!statusReference) {
-        return res.status(400).json({
-          error: "unsupported_status_reference",
-          supported_status_references: STATUS_REFERENCE_FIXTURES,
-        });
-      }
-      if (statusReference !== "valid" && !config.fcaf_scenarios_enabled) {
-        return res.status(400).json({ error: "status_reference_not_enabled" });
-      }
-      if (statusReference !== "valid" && !statusListEnabled) {
-        return res.status(400).json({ error: "status_reference_requires_status_list" });
-      }
-      let fixtureId: string | undefined;
-      if (!imported) {
-        const pidFixtureId = pidFixtureIdOrNull(body.fixture_id ?? "pid_default");
-        if (!pidFixtureId) {
-          return res.status(400).json({
-            error: "unsupported_fixture_id",
-            supported_fixture_ids: PID_FIXTURE_IDS,
-          });
-        }
-        fixtureId = pidFixtureId;
-      }
-      const documentNumber =
-        typeof body.document_number === "string" && body.document_number.length > 0
-          ? body.document_number
-          : null;
-      if (body.document_number !== undefined && documentNumber === null) {
-        return res.status(400).json({ error: "invalid_document_number" });
-      }
-      const digestAlgorithm = sdJwtDigestAlgorithmOrNull(
-        body.digest_algorithm ?? DEFAULT_SD_JWT_DIGEST_ALGORITHM,
-      );
-      if (!digestAlgorithm) {
-        return res.status(400).json({
-          error: "unsupported_digest_algorithm",
-          supported_digest_algorithms: SD_JWT_DIGEST_ALGORITHMS,
-        });
-      }
-      if (digestAlgorithm !== DEFAULT_SD_JWT_DIGEST_ALGORITHM && credential.format === "mso_mdoc") {
-        return res.status(400).json({ error: "digest_algorithm_unsupported_for_mdoc" });
-      }
-      const evidenceMode = evidenceModeOrNull(body.evidence_mode ?? "redacted");
-      if (!evidenceMode) {
-        return res.status(400).json({
-          error: "unsupported_evidence_mode",
-          supported_evidence_modes: EVIDENCE_MODES,
-        });
-      }
-      if (evidenceMode === "full" && !config.fcaf_scenarios_enabled) {
-        return res.status(400).json({ error: "evidence_mode_not_enabled" });
-      }
-      const issuanceResponseScenario = issuanceResponseScenarioOrNull(
-        body.issuance_response_scenario,
-      );
-      if (issuanceResponseScenario === null) {
-        return res.status(400).json({ error: "invalid_issuance_response_scenario" });
-      }
-      if (issuanceResponseScenario && !config.fcaf_scenarios_enabled) {
-        return res.status(400).json({ error: "issuance_response_scenario_not_enabled" });
-      }
-      const offerScheme = offerSchemeOrNull(body.offer_scheme ?? DEFAULT_OFFER_SCHEME);
-      if (!offerScheme) {
-        return res.status(400).json({
-          error: "unsupported_offer_scheme",
-          supported_offer_schemes: OFFER_SCHEMES,
-        });
-      }
-      const offerMutation = offerMutationOrNull(body.offer_mutation);
-      if (offerMutation === null) {
-        return res.status(400).json({ error: "invalid_offer_mutation" });
-      }
-      if (offerMutation && !config.fcaf_scenarios_enabled) {
-        return res.status(400).json({ error: "offer_mutation_not_enabled" });
-      }
-      if (offerMutation && credentialOfferMode === "credential_offer_uri") {
-        return res.status(400).json({ error: "offer_mutation_requires_by_value_offer" });
-      }
-
+      const parsed = await parseIssuanceSessionInput(config, store, requestParams(req));
+      if (!parsed.ok) return res.status(parsed.status).json(parsed.body);
+      const {
+        issuer,
+        credentialConfigurationId,
+        flow,
+        credentialOfferMode,
+        statusListEnabled,
+        fixtureId,
+        documentNumber,
+        statusReference,
+        digestAlgorithm,
+        evidenceMode,
+        issuanceResponseScenario,
+        offerScheme,
+        offerMutation,
+        importedDefinition,
+      } = parsed.value;
       const session = await createIssuanceSession(
         config,
         store,
         issuer,
         credentialConfigurationId,
-        flow ?? "authorization_code",
-        credentialOfferMode ?? "credential_offer",
-        statusListEnabled ?? false,
+        flow,
+        credentialOfferMode,
+        statusListEnabled,
         fixtureId,
-        documentNumber ?? undefined,
+        documentNumber,
         statusReference,
         digestAlgorithm,
         evidenceMode,
         offerScheme,
         offerMutation,
-        imported,
+        importedDefinition,
       );
-      if (issuanceResponseScenario) {
-        session.issuance_response_scenario = issuanceResponseScenario;
-      }
+      if (issuanceResponseScenario) session.issuance_response_scenario = issuanceResponseScenario;
       const offer = store.credoIssuanceOffers.get(session.session_id);
       if (!offer) throw new Error("Credo credential offer was not stored");
       return res.status(201).json({
@@ -1989,15 +1848,6 @@ async function createIssuanceSession(
 
 class CredentialSupersededError extends Error {}
 
-/** The issuer's credential registry, with any restored imported catalogue already loaded. */
-async function issuerCredentialRegistry(
-  config: AppConfig,
-  store: CaptureStore,
-): Promise<CredentialRegistry> {
-  if (config.attestbook.enabled) await credoOpenId4VciIssuer(config, store);
-  return credentialRegistry(config, store);
-}
-
 /** Every served issuer with the credentials it currently serves, static and imported. */
 async function issuerCredentialGroups(
   config: AppConfig,
@@ -2011,49 +1861,6 @@ async function issuerCredentialGroups(
       ? { attestbook: attestbookIntegration(config, store).summary() }
       : {}),
   }));
-}
-
-function issuerFromRequest(config: AppConfig, value: unknown): ResolvedIssuerConfiguration | null {
-  const id = asStringOrNull(value) ?? DEFAULT_ISSUER_CONFIGURATION_ID;
-  return resolvedIssuerConfigurationById(config, id);
-}
-
-const ISSUANCE_FLOWS: SessionCapture["flow"][] = ["authorization_code", "pre_authorized_code"];
-
-function issuanceFlowOrNull(value: unknown): SessionCapture["flow"] | null {
-  return ISSUANCE_FLOWS.find((flow) => flow === value) ?? null;
-}
-
-const CREDENTIAL_OFFER_MODES: CredentialOfferMode[] = ["credential_offer", "credential_offer_uri"];
-
-function credentialOfferModeOrNull(value: unknown): CredentialOfferMode | null {
-  return CREDENTIAL_OFFER_MODES.find((mode) => mode === value) ?? null;
-}
-
-const EVIDENCE_MODES: EvidenceMode[] = ["redacted", "full"];
-
-function evidenceModeOrNull(value: unknown): EvidenceMode | null {
-  return EVIDENCE_MODES.find((mode) => mode === value) ?? null;
-}
-
-const DEFAULT_OFFER_SCHEME: CredentialOfferScheme = "openid-credential-offer://";
-const OFFER_SCHEMES: CredentialOfferScheme[] = [
-  DEFAULT_OFFER_SCHEME,
-  "eu-eaa-offer://",
-  "haip-vci://",
-];
-
-function offerSchemeOrNull(value: unknown): CredentialOfferScheme | null {
-  return OFFER_SCHEMES.find((scheme) => scheme === value) ?? null;
-}
-
-function booleanOrNull(value: unknown): boolean | null {
-  if (typeof value === "boolean") return value;
-  if (typeof value !== "string") return null;
-  const normalized = value.trim().toLowerCase();
-  if (["true", "1", "yes", "on"].includes(normalized)) return true;
-  if (["false", "0", "no", "off"].includes(normalized)) return false;
-  return null;
 }
 
 async function createVpSession(
