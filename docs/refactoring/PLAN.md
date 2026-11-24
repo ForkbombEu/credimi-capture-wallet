@@ -73,7 +73,7 @@ conflict/rollback; Attestbook settings, bounded fetch and webhook rejections; `c
 ```
 src/
 ├── cli.ts                      # package.json "bin" entry (path is part of the CLI contract)
-├── cli/commands.ts             # B-09: side-effect-free command implementations
+├── cli/commands.ts             # B-09: runCli(argv, output) — command handling behind the bin entry
 ├── state.ts                    # CaptureStore: issuance + VP session state, events (cross-domain)
 ├── types.ts                    # shared domain and evidence types (X-5 re-evaluated in Phase 7)
 ├── shared/
@@ -84,8 +84,7 @@ src/
 │   ├── paths.ts                # *Path helpers and *_FILE constants
 │   ├── verifier-identity.ts    # verifier key ids, DID, attestation-issuer identity
 │   ├── environment.ts          # env/URL parsing, resolve* helpers, .env loading
-│   ├── config-file.ts          # config.yaml parse/stringify (hand-written format, unchanged)
-│   ├── load.ts                 # loadConfig (env/file precedence)
+│   ├── load.ts                 # config.yaml format (parse/stringify, unchanged) and loadConfig
 │   └── key-material.ts         # initIssuer, validateIssuerMaterial, signing contexts, certificates
 ├── configurations/             # issuer configuration registry (unchanged layout)
 ├── credentials/                # credential types, independent of the protocol
@@ -474,7 +473,9 @@ codes/descriptions, response structures, evidence fields and ordering as the cod
   (every key `init` writes; `""`, quoted strings, `"true"` vs `true` case-sensitivity, negative and
   decimal numbers, JSON arrays, inline `#`, CRLF, duplicate key last-wins).
 - Split remaining `config.ts` into `config/defaults.ts`, `config/environment.ts` (114-254),
-  `config/config-file.ts` (256-287), `config/load.ts` (399-454), `config/key-material.ts` (456-1003);
+  `config/load.ts` (YAML format 256-287 + `loadConfig` 399-454; **revised**: no separate
+  `config-file.ts`, see `/home/matteo/src/ccw-refactor/briefs/batch12-14.md`),
+  `config/key-material.ts` (456-1003);
   delete `src/config.ts`. `attestbook/settings.ts:28-34` reuses the environment boolean parser only if
   accepted tokens and error text are identical. No YAML library; `config.yaml` mode `0o600`.
 - Acceptance: `init` output files and contents identical (output-equality over a temp dir; key
@@ -487,10 +488,12 @@ codes/descriptions, response structures, evidence fields and ordering as the cod
 - Acceptance: metadata JSON byte-identical per issuer; `tests/metadata.test.ts` unchanged.
 
 #### B-09 · CLI testability → `src/cli/commands.ts`
-- `runCommand(command, args, io)` and `initSummary` without side effects; `parseArgs` moves from
-  `config.ts:70-85`; `src/cli.ts` keeps calling `main()` (no `import.meta.url === argv[1]` guard:
-  breaks under pnpm bin symlinks).
-- Acceptance: T-08 unchanged; direct `runCommand` tests added.
+- **As built:** `runCli(argv, output: CliOutput)` in `src/cli/commands.ts` holds the former `main()`
+  (console writes go through `output`); `parseArgs` moved there from `config.ts`; `initSummary`,
+  `ASCII_HEADER`, `attestbookCommand` private. `src/cli.ts` (bin, shebang) calls `runCli` with
+  `console` and maps errors to stderr + exit code 1; no `import.meta.url === argv[1]` guard (breaks
+  under pnpm bin symlinks).
+- Acceptance: T-08 unchanged; `tests/cli-commands.test.ts` adds in-process `parseArgs`/`runCli` tests.
 
 ### Phase 5 — Production code simplification
 

@@ -17,7 +17,7 @@ Statuses: Pending · Ready · In progress · Under review · Changes requested �
 
 ## Current batch
 
-Batch 8 (B-10 relocation). Phases 0–3 completed (batches 0–7).
+Batch 10 (B-02). Batches 0–9 completed.
 
 ## Tasks
 
@@ -42,11 +42,11 @@ Batch 8 (B-10 relocation). Phases 0–3 completed (batches 0–7).
 | D-04 | Completed | T-04, D-02, D-03 | Luna | Opus | bfb538a | cdbaa61 (task c6b8e53) | APPROVE; deleted `CREDIMI_WEBSITE`, `supportedCredentialConfigurationIdsForIssuer` (no references); 62 symbols unexported | knip default 40+26 → 3+1 (tests/support exceptions for S-01b); knip production 71+28 → 35+3; 707/707 | `CredentialFormat` export handled in B-03 |
 | D-05 | Completed | T-05 | Luna | Opus | 99e3f0c | e554463 (task 2413a62, message blank line fixed at integration) | APPROVE (only commit-message format) | 615/615; inventory: 7 tests relocated to `tests/mdoc-session-transcript.test.ts`, names unchanged; direct `dcql` removed (still transitive via Credo 3.0.1); knip prod no longer reports the file/dependency | none |
 | D-06 | Completed | Phase 2 | Luna | Opus | 99e3f0c | e5c3cd8 (task 80eb750) | APPROVE | removed `jwkToJwks`, `firstWalletJwks` (no src consumers); no tests removed; renamed "extracts jwk from proof JWT header and converts it to JWKS" → "captures jwk from proof JWT header" and "detects kid-only proof headers without treating a key as observable" → "captures kid-only proof headers"; dead-helper assertions replaced by direct `captureProofHeaders` assertions (`source`, `jwk`); 615/615 | observed-field list in `mapCredentialRequest` still not unit-tested (pre-existing) |
-| B-10 | Pending | Phase 3 | Luna | Opus | | | | | |
-| B-01 | Pending | B-10 | Luna | Opus | | | | | |
-| B-04 | Pending | B-10 | Luna | Opus | | | | | |
-| B-09 | Pending | B-10, T-08 | Luna | Opus | | | | | |
-| B-02 | Pending | B-01 | Luna | Opus | | | | | |
+| B-10 | Completed | Phase 3 | Luna | Opus | 65010ca | 5a14aef (task ce71c32) | APPROVE; reviewer script proved only specifiers changed in all 61 files; vi.mock path verified behaviourally (negative control) | 27 renames (91–100 %); inventory identical (707); same 2 type-only cycles | none |
+| B-01 | Completed | B-10 | Luna | Opus | 5a14aef | fcf97d8 (task 3455d70) | APPROVE | 4 identical copies → `src/shared/errors.ts`; inline variants left (not helpers) | none |
+| B-04 | Completed | B-10 | Luna | Opus | 5a14aef | 2c3a254 (task 71172bd) | APPROVE; verbatim move verified; `defaultBackend: kms.backend` (same value) | openid4vci no longer imports openid4vp | none |
+| B-09 | Completed | B-10, T-08 | Luna | Opus | 5a14aef | 47729f9 (task 7e3c7ab) | APPROVE after amendment (AGENTS map, exact regex, two parseArgs quirks pinned) | +3 in-process tests; T-08 subprocess suite unchanged; 710/710 | in-process coverage excludes init/serve/attestbook (subprocess only) |
+| B-02 | In progress | B-01 | Luna | Opus | 47729f9 | | | | |
 | B-03 | Pending | B-02 | Luna | Opus | | | | | |
 | B-05 | Pending | B-02, B-04, T-05 | Luna | Opus | | | | | |
 | B-06 | Pending | B-03, B-09 | Luna | Opus | | | | | |
