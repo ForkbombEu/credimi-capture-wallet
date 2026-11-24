@@ -13,13 +13,14 @@ export const CONFORMING_ISSUER_ID = "eu-pid-device-bound";
 export interface IssuerTestEnvironment {
   dataDir: string;
   config: AppConfig;
+  initialize(): Promise<void>;
   cleanup(): void;
 }
 
-export async function createIssuerTestEnvironment(options: {
+export function createIssuerTestEnvironmentFactory(options: {
   prefix: string;
   config?: Partial<Omit<AppConfig, "data_dir">>;
-}): Promise<IssuerTestEnvironment> {
+}): IssuerTestEnvironment {
   const dataDir = mkdtempSync(join(tmpdir(), options.prefix));
   const config: AppConfig = {
     ...DEFAULT_CONFIG,
@@ -28,23 +29,33 @@ export async function createIssuerTestEnvironment(options: {
     ...options.config,
   };
 
-  try {
-    await initIssuer({
-      issuer_base_url: config.issuer_base_url,
-      data_dir: dataDir,
-      credential_configuration_id: config.credential_configuration_id,
-      force: true,
-    });
-  } catch (error) {
-    rmSync(dataDir, { recursive: true, force: true });
-    throw error;
-  }
-
   return {
     dataDir,
     config,
+    initialize: async () => {
+      try {
+        await initIssuer({
+          issuer_base_url: config.issuer_base_url,
+          data_dir: dataDir,
+          credential_configuration_id: config.credential_configuration_id,
+          force: true,
+        });
+      } catch (error) {
+        rmSync(dataDir, { recursive: true, force: true });
+        throw error;
+      }
+    },
     cleanup: () => rmSync(dataDir, { recursive: true, force: true }),
   };
+}
+
+export async function createIssuerTestEnvironment(options: {
+  prefix: string;
+  config?: Partial<Omit<AppConfig, "data_dir">>;
+}): Promise<IssuerTestEnvironment> {
+  const environment = createIssuerTestEnvironmentFactory(options);
+  await environment.initialize();
+  return environment;
 }
 
 export function issuerPath(issuerId: string): string {

@@ -86,7 +86,7 @@ export async function encryptedAuthorizationResponse(
     .encrypt(await importJWK(publicJwk, "ECDH-ES"));
 }
 
-export function disclosureClaimName(disclosure: string): string {
+function disclosureClaimName(disclosure: string): string {
   const decoded = JSON.parse(Buffer.from(disclosure, "base64url").toString("utf8")) as unknown[];
   return typeof decoded[1] === "string" ? decoded[1] : "";
 }

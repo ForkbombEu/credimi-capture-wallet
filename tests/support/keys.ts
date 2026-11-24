@@ -17,7 +17,7 @@ export async function generateEs256Key(): Promise<TestKey> {
 
 export async function dpopProof(
   key: TestKey,
-  options: { method: string; url: string; accessToken?: string },
+  options: { method: string; url: string; accessToken?: string; overrides?: JsonRecord },
 ): Promise<string> {
   return new SignJWT({
     htm: options.method,
@@ -27,6 +27,7 @@ export async function dpopProof(
     ...(options.accessToken
       ? { ath: createHash("sha256").update(options.accessToken).digest("base64url") }
       : {}),
+    ...options.overrides,
   })
     .setProtectedHeader({
       alg: "ES256",

@@ -1,7 +1,6 @@
 import { createHash, createPrivateKey, sign as nodeSign, randomBytes } from "node:crypto";
-import { SignatureAlgorithm } from "@owf/cose";
+import { CoseKey, DataItem, Sign1, SignatureAlgorithm, cborDecode } from "@owf/cose";
 import {
-  CoseKey,
   DeviceRequest,
   DeviceResponse,
   DocRequest,
@@ -34,6 +33,38 @@ import { mdocSessionTranscript } from "./mdoc-session-transcript.js";
 export interface MdocCredential {
   credential: string;
   holder: TestKey;
+}
+
+function isCoseSign1(
+  value: unknown,
+): value is [Uint8Array, Map<number, unknown>, Uint8Array | null, Uint8Array] {
+  return (
+    Array.isArray(value) &&
+    value.length === 4 &&
+    value[0] instanceof Uint8Array &&
+    value[1] instanceof Map &&
+    (value[2] === null || value[2] instanceof Uint8Array) &&
+    value[3] instanceof Uint8Array
+  );
+}
+
+export function mdocStatusAndSignature(encoded: string): {
+  signature: Sign1;
+  status: Map<unknown, unknown>;
+} {
+  const issuerSigned = cborDecode(Buffer.from(encoded, "base64url"));
+  if (!(issuerSigned instanceof Map)) throw new Error("Issued mdoc is not a CBOR map");
+  const issuerAuth = issuerSigned.get("issuerAuth");
+  if (!isCoseSign1(issuerAuth)) throw new Error("Issued mdoc issuerAuth is not a COSE Sign1");
+  const signature = Sign1.fromEncodedStructure(issuerAuth);
+  if (!signature.payload) throw new Error("Issued mdoc COSE Sign1 has no payload");
+  const mobileSecurityObject = cborDecode(signature.payload, { unwrapTopLevelDataItem: false });
+  if (!(mobileSecurityObject instanceof DataItem) || !(mobileSecurityObject.data instanceof Map)) {
+    throw new Error("Issued mdoc Mobile Security Object is not an encoded CBOR map");
+  }
+  const status = mobileSecurityObject.data.get("status");
+  if (!(status instanceof Map)) throw new Error("Issued mdoc Mobile Security Object has no status");
+  return { signature, status };
 }
 
 export function mdocDcqlForClaims(claims: string[]): JsonRecord {

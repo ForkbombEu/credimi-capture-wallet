@@ -17,7 +17,7 @@ import {
   X509Certificate,
   X509KeyUsage,
 } from "@credo-ts/core";
-import { CoseKey, DataItem, DateOnly, Sign1, cborDecode } from "@owf/cose";
+import { CoseKey, DateOnly } from "@owf/cose";
 import { IssuerSigned } from "@owf/mdoc";
 import type { Express } from "express";
 import {
@@ -36,7 +36,6 @@ import {
 } from "jose";
 import request from "supertest";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { DEFAULT_CONFIG } from "../src/config/defaults.js";
 import {
   createJwkSigningContext,
   initIssuer,
@@ -72,11 +71,36 @@ import {
   PID_MDOC_NAMESPACE,
   PID_SD_JWT_VCT,
 } from "../src/credentials/definitions.js";
-import { issueSdJwtCredential } from "../src/credentials/signing.js";
 import { createApp } from "../src/server/app.js";
 import { CaptureStore } from "../src/state.js";
 import type { JsonRecord, Oid4vciHttpRequestCapture, SessionCapture } from "../src/types.js";
 import { unsignedJwt } from "./helpers.js";
+import {
+  CONFORMING_ISSUER_ID,
+  createIssuerTestEnvironmentFactory,
+  requireIssuer,
+} from "./support/environment.js";
+import { getJson, postJson } from "./support/http.js";
+import {
+  type CredentialOfferResponse,
+  type CredentialResponse,
+  type SessionCreateResponse,
+  type TokenResponse,
+  credentialProofJwt,
+  keyAttestationJwt,
+  postToken,
+  preAuthorizedToken,
+} from "./support/issuance.js";
+import { type TestKey, dpopProof, generateEs256Key } from "./support/keys.js";
+import { mdocStatusAndSignature } from "./support/mdoc.js";
+import {
+  type VpSessionCreateResponse,
+  type VpSessionResponse,
+  dcqlForClaims,
+  encryptedAuthorizationResponse,
+  sdJwtCredential,
+  sdJwtPresentation,
+} from "./support/presentation.js";
 
 const credentialEncryptionTestState = vi.hoisted(() => ({ responseDelayMs: 0 }));
 vi.mock("../src/openid4vci/credential-encryption.js", async (importOriginal) => {
@@ -97,13 +121,9 @@ vi.mock("../src/openid4vci/credential-encryption.js", async (importOriginal) => 
   };
 });
 
-const dataDir = mkdtempSync(join(tmpdir(), "fake-issuer-test-"));
-const config = {
-  ...DEFAULT_CONFIG,
-  issuer_base_url: "http://issuer.example.test",
-  data_dir: dataDir,
-};
-const conformingIssuerId = "eu-pid-device-bound";
+const environment = createIssuerTestEnvironmentFactory({ prefix: "fake-issuer-test-" });
+const { dataDir, config } = environment;
+const conformingIssuerId = CONFORMING_ISSUER_ID;
 const jwtKeyAttestationIssuerId = "eu-pid-jwt-key-attestation";
 const jwtOnlyIssuerId = "eu-pid-jwt-proof-only";
 const conformingIssuerPath = `/issuers/${conformingIssuerId}`;
@@ -112,55 +132,12 @@ const jwtOnlyIssuerPath = `/issuers/${jwtOnlyIssuerId}`;
 const conformingMetadataPath = `/.well-known/openid-credential-issuer/issuers/${conformingIssuerId}`;
 const conformingAuthorizationServerMetadataPath = `/.well-known/oauth-authorization-server/issuers/${conformingIssuerId}`;
 const conformingUpstreamAuthorizationServerMetadataPath = `/.well-known/oauth-authorization-server/authorization-servers/${conformingIssuerId}`;
-const conformingIssuer = resolvedIssuerConfigurationById(config, conformingIssuerId);
-if (!conformingIssuer) throw new Error("conforming issuer configuration unavailable");
+const conformingIssuer = requireIssuer(config, conformingIssuerId);
 const conformingMaterialDirectory = conformingIssuer.materialDirectory;
 const conformingIssuerConfig = issuerAppConfig(config, conformingIssuer);
 
-function isCoseSign1(
-  value: unknown,
-): value is [Uint8Array, Map<number, unknown>, Uint8Array | null, Uint8Array] {
-  return (
-    Array.isArray(value) &&
-    value.length === 4 &&
-    value[0] instanceof Uint8Array &&
-    value[1] instanceof Map &&
-    (value[2] === null || value[2] instanceof Uint8Array) &&
-    value[3] instanceof Uint8Array
-  );
-}
-
-function mdocStatusAndSignature(encoded: string): {
-  signature: Sign1;
-  status: Map<unknown, unknown>;
-} {
-  const issuerSigned = cborDecode(Buffer.from(encoded, "base64url"));
-  if (!(issuerSigned instanceof Map)) throw new Error("Issued mdoc is not a CBOR map");
-  const issuerAuth = issuerSigned.get("issuerAuth");
-  if (!isCoseSign1(issuerAuth)) throw new Error("Issued mdoc issuerAuth is not a COSE Sign1");
-  const signature = Sign1.fromEncodedStructure(issuerAuth);
-  if (!signature.payload) throw new Error("Issued mdoc COSE Sign1 has no payload");
-  const mobileSecurityObject = cborDecode(signature.payload, { unwrapTopLevelDataItem: false });
-  if (!(mobileSecurityObject instanceof DataItem) || !(mobileSecurityObject.data instanceof Map)) {
-    throw new Error("Issued mdoc Mobile Security Object is not an encoded CBOR map");
-  }
-  const status = mobileSecurityObject.data.get("status");
-  if (!(status instanceof Map)) throw new Error("Issued mdoc Mobile Security Object has no status");
-  return { signature, status };
-}
-
-beforeAll(async () => {
-  await initIssuer({
-    issuer_base_url: config.issuer_base_url,
-    data_dir: dataDir,
-    credential_configuration_id: config.credential_configuration_id,
-    force: true,
-  });
-});
-
-afterAll(() => {
-  rmSync(dataDir, { recursive: true, force: true });
-});
+beforeAll(() => environment.initialize());
+afterAll(() => environment.cleanup());
 
 afterEach(() => {
   credentialEncryptionTestState.responseDelayMs = 0;
@@ -1066,7 +1043,7 @@ describe("capture issuer server", () => {
     expect(decodeJwt(requestObject.text)).not.toHaveProperty("state");
 
     const presentation = await sdJwtPresentation({
-      credential: await sdJwtCredential(),
+      credential: await pidSdJwtCredential(),
       authorizationRequest: session.authorization_request,
       disclosedClaims: ["family_name"],
     });
@@ -1111,7 +1088,7 @@ describe("capture issuer server", () => {
         presentation_request: { ...override, dcql_query: dcqlQuery },
       });
       const presentation = await sdJwtPresentation({
-        credential: await sdJwtCredential(),
+        credential: await pidSdJwtCredential(),
         authorizationRequest: session.authorization_request,
         disclosedClaims: ["family_name"],
       });
@@ -1956,7 +1933,7 @@ describe("capture issuer server", () => {
         dcql_query: dcqlForClaims(["family_name", "given_name"]),
       },
     });
-    const credential = await sdJwtCredential();
+    const credential = await pidSdJwtCredential();
     const presentation = await sdJwtPresentation({
       credential,
       authorizationRequest: session.authorization_request,
@@ -1992,7 +1969,7 @@ describe("capture issuer server", () => {
         dcql_query: dcqlForClaims(["family_name", "given_name"]),
       },
     });
-    const credential = await sdJwtCredential();
+    const credential = await pidSdJwtCredential();
     const presentation = await sdJwtPresentation({
       credential,
       authorizationRequest: session.authorization_request,
@@ -2069,7 +2046,7 @@ describe("capture issuer server", () => {
       const metadata = session.authorization_request.client_metadata as JsonRecord;
       expect(metadata.encrypted_response_enc_values_supported).toEqual([enc]);
 
-      const credential = await sdJwtCredential();
+      const credential = await pidSdJwtCredential();
       const presentation = await sdJwtPresentation({
         credential,
         authorizationRequest: session.authorization_request,
@@ -2153,7 +2130,7 @@ describe("capture issuer server", () => {
       },
     });
     const presentation = await sdJwtPresentation({
-      credential: await sdJwtCredential(),
+      credential: await pidSdJwtCredential(),
       authorizationRequest: session.authorization_request,
       disclosedClaims: ["family_name"],
     });
@@ -2218,7 +2195,7 @@ describe("capture issuer server", () => {
         dcql_query: dcqlQuery,
       },
     });
-    const credential = await sdJwtCredential();
+    const credential = await pidSdJwtCredential();
     const presentation = await sdJwtPresentation({
       credential,
       authorizationRequest: session.authorization_request,
@@ -2663,18 +2640,22 @@ describe("capture issuer server", () => {
       ),
       flow: "pre_authorized_code",
     });
-    const dpop = await dpopKey();
-    const token = await preAuthorizedToken(app, session, dpop);
-    const walletKey = await dpopKey();
+    const dpop = await generateEs256Key();
+    const token = await preAuthorizedToken(app, session, dpop, config.issuer_base_url);
+    const walletKey = await generateEs256Key();
     const credentialPath = issuerProtocolPath(session, "/credential");
     const refreshedNonce = await request(app).post(issuerProtocolPath(session, "/nonce"));
     expect(refreshedNonce.status).toBe(200);
-    const proof = await keyAttestationJwt(walletKey, String(refreshedNonce.body.c_nonce));
+    const proof = await keyAttestationJwt(
+      conformingIssuerConfig,
+      walletKey,
+      String(refreshedNonce.body.c_nonce),
+    );
 
     const credential = await request(app)
       .post(credentialPath)
       .set("authorization", `DPoP ${token.access_token}`)
-      .set("DPoP", await dpopProof(dpop, "POST", credentialPath, token.access_token))
+      .set("DPoP", await postDpopProof(dpop, credentialPath, token.access_token))
       .send({
         credential_configuration_id: session.credential_configuration_id,
         proofs: { attestation: [proof] },
@@ -2823,16 +2804,20 @@ describe("capture issuer server", () => {
         status_list_enabled: true,
         status_reference: statusReference,
       });
-      const dpop = await dpopKey();
-      const token = await preAuthorizedToken(app, session, dpop);
-      const walletKey = await dpopKey();
+      const dpop = await generateEs256Key();
+      const token = await preAuthorizedToken(app, session, dpop, config.issuer_base_url);
+      const walletKey = await generateEs256Key();
       const credentialPath = issuerProtocolPath(session, "/credential");
       const nonce = await request(app).post(issuerProtocolPath(session, "/nonce"));
-      const proof = await keyAttestationJwt(walletKey, String(nonce.body.c_nonce));
+      const proof = await keyAttestationJwt(
+        conformingIssuerConfig,
+        walletKey,
+        String(nonce.body.c_nonce),
+      );
       const credential = await request(app)
         .post(credentialPath)
         .set("authorization", `DPoP ${token.access_token}`)
-        .set("DPoP", await dpopProof(dpop, "POST", credentialPath, token.access_token))
+        .set("DPoP", await postDpopProof(dpop, credentialPath, token.access_token))
         .send({
           credential_configuration_id: session.credential_configuration_id,
           proofs: { attestation: [proof] },
@@ -2898,15 +2883,19 @@ describe("capture issuer server", () => {
       status_list_enabled: true,
       status_reference: statusReference,
     });
-    const dpop = await dpopKey();
-    const token = await preAuthorizedToken(app, session, dpop);
+    const dpop = await generateEs256Key();
+    const token = await preAuthorizedToken(app, session, dpop, config.issuer_base_url);
     const credentialPath = issuerProtocolPath(session, "/credential");
     const nonce = await request(app).post(issuerProtocolPath(session, "/nonce"));
-    const proof = await keyAttestationJwt(await dpopKey(), String(nonce.body.c_nonce));
+    const proof = await keyAttestationJwt(
+      conformingIssuerConfig,
+      await generateEs256Key(),
+      String(nonce.body.c_nonce),
+    );
     const credential = await request(app)
       .post(credentialPath)
       .set("authorization", `DPoP ${token.access_token}`)
-      .set("DPoP", await dpopProof(dpop, "POST", credentialPath, token.access_token))
+      .set("DPoP", await postDpopProof(dpop, credentialPath, token.access_token))
       .send({
         credential_configuration_id: session.credential_configuration_id,
         proofs: { attestation: [proof] },
@@ -2944,18 +2933,24 @@ describe("capture issuer server", () => {
         flow: "pre_authorized_code",
         status_list_enabled: statusListEnabled,
       });
-      const dpop = await dpopKey();
-      const token = await preAuthorizedToken(app, session, dpop);
+      const dpop = await generateEs256Key();
+      const token = await preAuthorizedToken(app, session, dpop, config.issuer_base_url);
       const credentialPath = issuerProtocolPath(session, "/credential");
       const nonce = await request(app).post(issuerProtocolPath(session, "/nonce"));
       const credential = await request(app)
         .post(credentialPath)
         .set("authorization", `DPoP ${token.access_token}`)
-        .set("DPoP", await dpopProof(dpop, "POST", credentialPath, token.access_token))
+        .set("DPoP", await postDpopProof(dpop, credentialPath, token.access_token))
         .send({
           credential_configuration_id: session.credential_configuration_id,
           proofs: {
-            attestation: [await keyAttestationJwt(await dpopKey(), String(nonce.body.c_nonce))],
+            attestation: [
+              await keyAttestationJwt(
+                conformingIssuerConfig,
+                await generateEs256Key(),
+                String(nonce.body.c_nonce),
+              ),
+            ],
           },
         });
       expect(credential.status, JSON.stringify(credential.body)).toBe(200);
@@ -3101,9 +3096,9 @@ describe("capture issuer server", () => {
       "urn:ietf:params:oauth:grant-type:pre-authorized_code"
     ] as JsonRecord;
     const preAuthorizedCode = String(grant["pre-authorized_code"]);
-    const dpopKeyPair = await dpopKey();
+    const dpopKeyPair = await generateEs256Key();
     const tokenPath = issuerProtocolPath(session, "/token");
-    const dpop = await dpopProof(dpopKeyPair, "POST", tokenPath);
+    const dpop = await postDpopProof(dpopKeyPair, tokenPath);
 
     const token = await request(app).post(tokenPath).set("DPoP", dpop).type("form").send({
       grant_type: "urn:ietf:params:oauth:grant-type:pre-authorized_code",
@@ -3172,15 +3167,15 @@ describe("capture issuer server", () => {
     const grant = offer.grants[
       "urn:ietf:params:oauth:grant-type:pre-authorized_code"
     ] as JsonRecord;
-    const walletInstanceKey = await dpopKey();
+    const walletInstanceKey = await generateEs256Key();
     const clientId = "https://wallet.example.test";
     const walletAttestation = await walletAttestationJwt(walletInstanceKey, clientId);
     const walletAttestationPop = await walletAttestationPopJwt(walletInstanceKey, clientId);
-    const dpop = await dpopKey();
+    const dpop = await generateEs256Key();
 
     const response = await request(app)
       .post(issuerProtocolPath(session, "/token"))
-      .set("DPoP", await dpopProof(dpop, "POST", issuerProtocolPath(session, "/token")))
+      .set("DPoP", await postDpopProof(dpop, issuerProtocolPath(session, "/token")))
       .set("OAuth-Client-Attestation", walletAttestation)
       .set("OAuth-Client-Attestation-PoP", walletAttestationPop)
       .type("form")
@@ -3211,7 +3206,7 @@ describe("capture issuer server", () => {
       const parPath = issuerProtocolPath(session, "/par");
       const pending = request(app)
         .post(parPath)
-        .set("DPoP", await dpopProof(await dpopKey(), "POST", parPath));
+        .set("DPoP", await postDpopProof(await generateEs256Key(), parPath));
       // The object form passes an array through, which Node sends as repeated header fields.
       for (const [name, value] of Object.entries(headers)) pending.set({ [name]: value });
       return pending.type("form").send({
@@ -3238,7 +3233,7 @@ describe("capture issuer server", () => {
     it("decodes client attestations into a default session while the ledger stays redacted", async () => {
       const app = createApp(config);
       const session = await postJson<SessionCreateResponse>(app, "/sessions", {});
-      const walletInstanceKey = await dpopKey();
+      const walletInstanceKey = await generateEs256Key();
       const attestation = await walletAttestationJwt(walletInstanceKey, walletClientId);
       const pop = await walletAttestationPopJwt(walletInstanceKey, walletClientId);
 
@@ -3292,9 +3287,9 @@ describe("capture issuer server", () => {
       const session = await postJson<SessionCreateResponse>(app, "/sessions", {
         evidence_mode: "full",
       });
-      const walletInstanceKey = await dpopKey();
+      const walletInstanceKey = await generateEs256Key();
       const attestation = await walletAttestationJwt(walletInstanceKey, walletClientId);
-      const otherAttestation = await walletAttestationJwt(await dpopKey(), "other-client");
+      const otherAttestation = await walletAttestationJwt(await generateEs256Key(), "other-client");
       const pop = await walletAttestationPopJwt(walletInstanceKey, walletClientId);
 
       const pushed = await pushAuthorization(app, session, {
@@ -3337,7 +3332,7 @@ describe("capture issuer server", () => {
     it("attributes a PoP Credo rejects for its audience", async () => {
       const app = createApp(config);
       const session = await postJson<SessionCreateResponse>(app, "/sessions", {});
-      const walletInstanceKey = await dpopKey();
+      const walletInstanceKey = await generateEs256Key();
       const pop = await new SignJWT({
         iss: walletClientId,
         aud: "https://elsewhere.example.test",
@@ -3366,7 +3361,7 @@ describe("capture issuer server", () => {
     it("records a missing attestation header as absent", async () => {
       const app = createApp(config);
       const session = await postJson<SessionCreateResponse>(app, "/sessions", {});
-      const walletInstanceKey = await dpopKey();
+      const walletInstanceKey = await generateEs256Key();
 
       await pushAuthorization(app, session, {
         "OAuth-Client-Attestation-PoP": await walletAttestationPopJwt(
@@ -3394,15 +3389,16 @@ describe("capture issuer server", () => {
       app: Express,
       session: SessionCreateResponse,
       body: JsonRecord,
-      token?: { dpop: DpopKey; response: TokenResponse },
+      token?: { dpop: TestKey; response: TokenResponse },
     ) {
-      const dpop = token?.dpop ?? (await dpopKey());
-      const tokenResponse = token?.response ?? (await preAuthorizedToken(app, session, dpop));
+      const dpop = token?.dpop ?? (await generateEs256Key());
+      const tokenResponse =
+        token?.response ?? (await preAuthorizedToken(app, session, dpop, config.issuer_base_url));
       const credentialPath = issuerProtocolPath(session, "/credential");
       const response = await request(app)
         .post(credentialPath)
         .set("authorization", `DPoP ${tokenResponse.access_token}`)
-        .set("DPoP", await dpopProof(dpop, "POST", credentialPath, tokenResponse.access_token))
+        .set("DPoP", await postDpopProof(dpop, credentialPath, tokenResponse.access_token))
         .send({ credential_configuration_id: session.credential_configuration_id, ...body });
       return {
         response,
@@ -3420,10 +3416,14 @@ describe("capture issuer server", () => {
     it("keeps a jwt proof Credo rejects, with its key attestation decoded", async () => {
       const app = createApp(scenarioConfig);
       const session = await preAuthorizedFull(app);
-      const dpop = await dpopKey();
-      const tokenResponse = await preAuthorizedToken(app, session, dpop);
-      const holderKey = await dpopKey();
-      const keyAttestation = await keyAttestationJwt(holderKey, tokenResponse.c_nonce);
+      const dpop = await generateEs256Key();
+      const tokenResponse = await preAuthorizedToken(app, session, dpop, config.issuer_base_url);
+      const holderKey = await generateEs256Key();
+      const keyAttestation = await keyAttestationJwt(
+        conformingIssuerConfig,
+        holderKey,
+        tokenResponse.c_nonce,
+      );
       const proof = await new SignJWT({
         aud: `${config.issuer_base_url}${conformingIssuerPath}`,
         nonce: tokenResponse.c_nonce,
@@ -3435,7 +3435,7 @@ describe("capture issuer server", () => {
           jwk: holderKey.publicJwk as unknown as JWK,
           key_attestation: keyAttestation,
         })
-        .sign((await dpopKey()).privateKey);
+        .sign((await generateEs256Key()).privateKey);
 
       const { response, capture } = await requestCredential(
         app,
@@ -3504,9 +3504,13 @@ describe("capture issuer server", () => {
     it("keeps an attestation proof and still records the accepted proof headers", async () => {
       const app = createApp(scenarioConfig);
       const session = await preAuthorizedFull(app);
-      const dpop = await dpopKey();
-      const tokenResponse = await preAuthorizedToken(app, session, dpop);
-      const keyAttestation = await keyAttestationJwt(await dpopKey(), tokenResponse.c_nonce);
+      const dpop = await generateEs256Key();
+      const tokenResponse = await preAuthorizedToken(app, session, dpop, config.issuer_base_url);
+      const keyAttestation = await keyAttestationJwt(
+        conformingIssuerConfig,
+        await generateEs256Key(),
+        tokenResponse.c_nonce,
+      );
 
       const { response, capture } = await requestCredential(
         app,
@@ -3549,13 +3553,13 @@ describe("capture issuer server", () => {
 
     async function sendRawCredentialRequest(app: Express, contentType: string, bytes: Buffer) {
       const session = await preAuthorizedFull(app);
-      const dpop = await dpopKey();
-      const tokenResponse = await preAuthorizedToken(app, session, dpop);
+      const dpop = await generateEs256Key();
+      const tokenResponse = await preAuthorizedToken(app, session, dpop, config.issuer_base_url);
       const credentialPath = issuerProtocolPath(session, "/credential");
       const response = await request(app)
         .post(credentialPath)
         .set("authorization", `DPoP ${tokenResponse.access_token}`)
-        .set("DPoP", await dpopProof(dpop, "POST", credentialPath, tokenResponse.access_token))
+        .set("DPoP", await postDpopProof(dpop, credentialPath, tokenResponse.access_token))
         .set("Content-Type", contentType)
         // superagent writes a Buffer as-is once no serializer touches it; its type names strings.
         .serialize((body) => body)
@@ -3622,7 +3626,12 @@ describe("capture issuer server", () => {
         .query({ client_id: walletClientId, request_uri: requestUri })
         .redirects(0);
       const preAuthorized = await preAuthorizedFull(app);
-      await preAuthorizedToken(app, preAuthorized, await dpopKey());
+      await preAuthorizedToken(
+        app,
+        preAuthorized,
+        await generateEs256Key(),
+        config.issuer_base_url,
+      );
 
       const capture = await getJson<SessionCapture>(app, `/sessions/${session.session_id}`);
       const parCapture = capture.raw?.oid4vci_requests?.find((entry) =>
@@ -3662,13 +3671,17 @@ describe("capture issuer server", () => {
       const session = await postJson<SessionCreateResponse>(app, "/sessions", {
         flow: "pre_authorized_code",
       });
-      const dpop = await dpopKey();
-      const tokenResponse = await preAuthorizedToken(app, session, dpop);
+      const dpop = await generateEs256Key();
+      const tokenResponse = await preAuthorizedToken(app, session, dpop, config.issuer_base_url);
 
       const { response, capture } = await requestCredential(
         app,
         session,
-        { proofs: { jwt: [await credentialProofJwt(await dpopKey(), tokenResponse.c_nonce)] } },
+        {
+          proofs: {
+            jwt: [await conformingProofJwt(await generateEs256Key(), tokenResponse.c_nonce)],
+          },
+        },
         { dpop, response: tokenResponse },
       );
 
@@ -3749,7 +3762,9 @@ describe("capture issuer server", () => {
       const cNonce = String(nonce.body.c_nonce);
 
       const { response, capture } = await requestCredential(app, session, {
-        proofs: { jwt: [await credentialProofJwt(await dpopKey(), cNonce)] },
+        proofs: {
+          jwt: [await conformingProofJwt(await generateEs256Key(), cNonce)],
+        },
       });
 
       expect(response.status, JSON.stringify(response.body)).toBe(200);
@@ -3851,10 +3866,12 @@ describe("capture issuer server", () => {
           },
         },
       });
-      const dpop = await dpopKey();
-      const tokenResponse = await preAuthorizedToken(app, session, dpop);
+      const dpop = await generateEs256Key();
+      const tokenResponse = await preAuthorizedToken(app, session, dpop, config.issuer_base_url);
       const proofs = async () => ({
-        proofs: { jwt: [await credentialProofJwt(await dpopKey(), tokenResponse.c_nonce)] },
+        proofs: {
+          jwt: [await conformingProofJwt(await generateEs256Key(), tokenResponse.c_nonce)],
+        },
       });
 
       const denied = await requestCredential(app, session, await proofs(), {
@@ -3900,8 +3917,8 @@ describe("capture issuer server", () => {
           },
         },
       });
-      const dpop = await dpopKey();
-      const token = await preAuthorizedToken(app, session, dpop);
+      const dpop = await generateEs256Key();
+      const token = await preAuthorizedToken(app, session, dpop, config.issuer_base_url);
       const responseEncryptionKeyPair = await generateKeyPair("ECDH-ES", {
         crv: "P-256",
         extractable: true,
@@ -3914,7 +3931,9 @@ describe("capture issuer server", () => {
       const issuerEncryptionJwk = requestEncryption.jwks.keys[0];
       const credentialRequest = {
         credential_configuration_id: session.credential_configuration_id,
-        proofs: { jwt: [await credentialProofJwt(await dpopKey(), token.c_nonce)] },
+        proofs: {
+          jwt: [await conformingProofJwt(await generateEs256Key(), token.c_nonce)],
+        },
         credential_response_encryption: {
           jwk: {
             ...(await exportJWK(responseEncryptionKeyPair.publicKey)),
@@ -3934,7 +3953,7 @@ describe("capture issuer server", () => {
       const response = await request(app)
         .post(credentialPath)
         .set("authorization", `DPoP ${token.access_token}`)
-        .set("DPoP", await dpopProof(dpop, "POST", credentialPath, token.access_token))
+        .set("DPoP", await postDpopProof(dpop, credentialPath, token.access_token))
         .type("application/jwt")
         .send(encryptedRequest);
 
@@ -4133,9 +4152,14 @@ describe("capture issuer server", () => {
       ),
       flow: "pre_authorized_code",
     });
-    const requiredDpop = await dpopKey();
-    const requiredToken = await preAuthorizedToken(app, requiredSession, requiredDpop);
-    const holderKey = await dpopKey();
+    const requiredDpop = await generateEs256Key();
+    const requiredToken = await preAuthorizedToken(
+      app,
+      requiredSession,
+      requiredDpop,
+      config.issuer_base_url,
+    );
+    const holderKey = await generateEs256Key();
     const proofWithoutAttestation = await credentialProofJwtWithoutKeyAttestation(
       holderKey,
       requiredToken.c_nonce,
@@ -4147,7 +4171,7 @@ describe("capture issuer server", () => {
       .set("authorization", `DPoP ${requiredToken.access_token}`)
       .set(
         "DPoP",
-        await dpopProof(requiredDpop, "POST", requiredCredentialPath, requiredToken.access_token),
+        await postDpopProof(requiredDpop, requiredCredentialPath, requiredToken.access_token),
       )
       .send({
         credential_configuration_id: requiredSession.credential_configuration_id,
@@ -4165,8 +4189,13 @@ describe("capture issuer server", () => {
       credential_configuration_id: sdJwtCredentialConfigurationId(config, "jwt-proof"),
       flow: "pre_authorized_code",
     });
-    const jwtProofDpop = await dpopKey();
-    const jwtProofToken = await preAuthorizedToken(app, jwtProofSession, jwtProofDpop);
+    const jwtProofDpop = await generateEs256Key();
+    const jwtProofToken = await preAuthorizedToken(
+      app,
+      jwtProofSession,
+      jwtProofDpop,
+      config.issuer_base_url,
+    );
     const acceptedProof = await credentialProofJwtWithoutKeyAttestation(
       holderKey,
       jwtProofToken.c_nonce,
@@ -4178,7 +4207,7 @@ describe("capture issuer server", () => {
       .set("authorization", `DPoP ${jwtProofToken.access_token}`)
       .set(
         "DPoP",
-        await dpopProof(jwtProofDpop, "POST", jwtOnlyCredentialPath, jwtProofToken.access_token),
+        await postDpopProof(jwtProofDpop, jwtOnlyCredentialPath, jwtProofToken.access_token),
       )
       .send({
         credential_configuration_id: jwtProofSession.credential_configuration_id,
@@ -4199,14 +4228,14 @@ describe("capture issuer server", () => {
       credential_configuration_id: numericSdJwtCredentialConfigurationId(config, "jwt-proof"),
       flow: "pre_authorized_code",
     });
-    const dpop = await dpopKey();
-    const token = await preAuthorizedToken(app, session, dpop);
-    const holderKey = await dpopKey();
+    const dpop = await generateEs256Key();
+    const token = await preAuthorizedToken(app, session, dpop, config.issuer_base_url);
+    const holderKey = await generateEs256Key();
     const credentialPath = issuerProtocolPath(session, "/credential");
     const credential = await request(app)
       .post(credentialPath)
       .set("authorization", `DPoP ${token.access_token}`)
-      .set("DPoP", await dpopProof(dpop, "POST", credentialPath, token.access_token))
+      .set("DPoP", await postDpopProof(dpop, credentialPath, token.access_token))
       .send({
         credential_configuration_id: session.credential_configuration_id,
         proofs: {
@@ -4236,14 +4265,14 @@ describe("capture issuer server", () => {
         credential_configuration_id: domesticPidCredentialConfigurationId(format, "jwt-proof"),
         flow: "pre_authorized_code",
       });
-      const dpop = await dpopKey();
-      const token = await preAuthorizedToken(app, session, dpop);
-      const holderKey = await dpopKey();
+      const dpop = await generateEs256Key();
+      const token = await preAuthorizedToken(app, session, dpop, config.issuer_base_url);
+      const holderKey = await generateEs256Key();
       const credentialPath = issuerProtocolPath(session, "/credential");
       const credential = await request(app)
         .post(credentialPath)
         .set("authorization", `DPoP ${token.access_token}`)
-        .set("DPoP", await dpopProof(dpop, "POST", credentialPath, token.access_token))
+        .set("DPoP", await postDpopProof(dpop, credentialPath, token.access_token))
         .send({
           credential_configuration_id: session.credential_configuration_id,
           proofs: {
@@ -4285,14 +4314,20 @@ describe("capture issuer server", () => {
     const invalidSession = await postJson<SessionCreateResponse>(app, "/sessions", {
       flow: "pre_authorized_code",
     });
-    const invalidDpop = await dpopKey();
-    const invalidToken = await preAuthorizedToken(app, invalidSession, invalidDpop);
-    const walletKey = await dpopKey();
-    const unrelatedAttestedKey = await dpopKey();
+    const invalidDpop = await generateEs256Key();
+    const invalidToken = await preAuthorizedToken(
+      app,
+      invalidSession,
+      invalidDpop,
+      config.issuer_base_url,
+    );
+    const walletKey = await generateEs256Key();
+    const unrelatedAttestedKey = await generateEs256Key();
     const mismatchedProof = await credentialProofJwt(
       walletKey,
       invalidToken.c_nonce,
       config.issuer_base_url,
+      conformingIssuerConfig,
       unrelatedAttestedKey,
     );
     const invalidCredentialPath = issuerProtocolPath(invalidSession, "/credential");
@@ -4301,7 +4336,7 @@ describe("capture issuer server", () => {
       .set("authorization", `DPoP ${invalidToken.access_token}`)
       .set(
         "DPoP",
-        await dpopProof(invalidDpop, "POST", invalidCredentialPath, invalidToken.access_token),
+        await postDpopProof(invalidDpop, invalidCredentialPath, invalidToken.access_token),
       )
       .send({
         credential_configuration_id: invalidSession.credential_configuration_id,
@@ -4313,14 +4348,14 @@ describe("capture issuer server", () => {
     const session = await postJson<SessionCreateResponse>(app, "/sessions", {
       flow: "pre_authorized_code",
     });
-    const dpop = await dpopKey();
-    const token = await preAuthorizedToken(app, session, dpop);
-    const proof = await credentialProofJwt(walletKey, token.c_nonce);
+    const dpop = await generateEs256Key();
+    const token = await preAuthorizedToken(app, session, dpop, config.issuer_base_url);
+    const proof = await conformingProofJwt(walletKey, token.c_nonce);
     const credentialPath = issuerProtocolPath(session, "/credential");
     const credential = await request(app)
       .post(credentialPath)
       .set("authorization", `DPoP ${token.access_token}`)
-      .set("DPoP", await dpopProof(dpop, "POST", credentialPath, token.access_token))
+      .set("DPoP", await postDpopProof(dpop, credentialPath, token.access_token))
       .send({
         credential_configuration_id: session.credential_configuration_id,
         proofs: { jwt: [proof] },
@@ -4420,10 +4455,10 @@ describe("capture issuer server", () => {
         ),
         flow: "pre_authorized_code",
       });
-      const dpop = await dpopKey();
-      const token = await preAuthorizedToken(app, session, dpop);
-      const attestedKey = await dpopKey();
-      const signingKey = signedByFirstAttestedKey ? attestedKey : await dpopKey();
+      const dpop = await generateEs256Key();
+      const token = await preAuthorizedToken(app, session, dpop, config.issuer_base_url);
+      const attestedKey = await generateEs256Key();
+      const signingKey = signedByFirstAttestedKey ? attestedKey : await generateEs256Key();
       const proof = await eudiCredentialProofJwt(
         attestedKey,
         token.c_nonce,
@@ -4434,7 +4469,7 @@ describe("capture issuer server", () => {
       const credential = await request(app)
         .post(credentialPath)
         .set("authorization", `DPoP ${token.access_token}`)
-        .set("DPoP", await dpopProof(dpop, "POST", credentialPath, token.access_token))
+        .set("DPoP", await postDpopProof(dpop, credentialPath, token.access_token))
         .send({
           credential_configuration_id: session.credential_configuration_id,
           proofs: { jwt: [proof] },
@@ -4459,10 +4494,10 @@ describe("capture issuer server", () => {
     const session = await postJson<SessionCreateResponse>(app, "/sessions", {
       flow: "pre_authorized_code",
     });
-    const dpop = await dpopKey();
-    const token = await preAuthorizedToken(app, session, dpop);
-    const holderKey = await dpopKey();
-    const proof = await credentialProofJwt(holderKey, token.c_nonce);
+    const dpop = await generateEs256Key();
+    const token = await preAuthorizedToken(app, session, dpop, config.issuer_base_url);
+    const holderKey = await generateEs256Key();
+    const proof = await conformingProofJwt(holderKey, token.c_nonce);
     const responseEncryptionKeyPair = await generateKeyPair("ECDH-ES", {
       crv: "P-256",
       extractable: true,
@@ -4486,7 +4521,7 @@ describe("capture issuer server", () => {
     const plaintextResponseEncryptionRequest = await request(app)
       .post(credentialPath)
       .set("authorization", `DPoP ${token.access_token}`)
-      .set("DPoP", await dpopProof(dpop, "POST", credentialPath, token.access_token))
+      .set("DPoP", await postDpopProof(dpop, credentialPath, token.access_token))
       .send(credentialRequest);
     expect(plaintextResponseEncryptionRequest.status).toBe(400);
     expect(plaintextResponseEncryptionRequest.body).toMatchObject({
@@ -4513,7 +4548,7 @@ describe("capture issuer server", () => {
     const credentialResponse = await request(app)
       .post(credentialPath)
       .set("authorization", `DPoP ${token.access_token}`)
-      .set("DPoP", await dpopProof(dpop, "POST", credentialPath, token.access_token))
+      .set("DPoP", await postDpopProof(dpop, credentialPath, token.access_token))
       .type("application/jwt")
       .send(encryptedRequest);
     credentialEncryptionTestState.responseDelayMs = 0;
@@ -4612,14 +4647,14 @@ describe("capture issuer server", () => {
     const session = await postJson<SessionCreateResponse>(app, "/sessions", {
       flow: "pre_authorized_code",
     });
-    const dpop = await dpopKey();
-    const token = await preAuthorizedToken(app, session, dpop);
+    const dpop = await generateEs256Key();
+    const token = await preAuthorizedToken(app, session, dpop, config.issuer_base_url);
     const credentialPath = `${jwtOnlyIssuerPath}/credential`;
 
     const response = await request(app)
       .post(credentialPath)
       .set("authorization", `DPoP ${token.access_token}`)
-      .set("DPoP", await dpopProof(dpop, "POST", credentialPath, token.access_token))
+      .set("DPoP", await postDpopProof(dpop, credentialPath, token.access_token))
       .send({
         credential_configuration_id: sdJwtCredentialConfigurationId(config, "jwt-proof"),
         proofs: { jwt: [unsignedJwt({ alg: "ES256", jwk: dpop.publicJwk })] },
@@ -4635,9 +4670,9 @@ describe("capture issuer server", () => {
     const session = await postJson<SessionCreateResponse>(app, "/sessions", {});
     const offer = await getJson<CredentialOfferResponse>(app, new URL(session.offer_url).pathname);
     const grant = offer.grants.authorization_code;
-    const walletInstanceKey = await dpopKey();
-    const unrelatedWalletInstanceKey = await dpopKey();
-    const dpop = await dpopKey();
+    const walletInstanceKey = await generateEs256Key();
+    const unrelatedWalletInstanceKey = await generateEs256Key();
+    const dpop = await generateEs256Key();
     const walletAttestation = await walletAttestationJwt(walletInstanceKey, clientId);
     const parPath = issuerProtocolPath(session, "/par");
     const codeVerifier = randomBytes(48).toString("base64url");
@@ -4655,7 +4690,7 @@ describe("capture issuer server", () => {
 
     const invalidProof = await request(app)
       .post(parPath)
-      .set("DPoP", await dpopProof(dpop, "POST", parPath))
+      .set("DPoP", await postDpopProof(dpop, parPath))
       .set("OAuth-Client-Attestation", walletAttestation)
       .set(
         "OAuth-Client-Attestation-PoP",
@@ -4669,7 +4704,7 @@ describe("capture issuer server", () => {
 
     const accepted = await request(app)
       .post(parPath)
-      .set("DPoP", await dpopProof(dpop, "POST", parPath))
+      .set("DPoP", await postDpopProof(dpop, parPath))
       .set("OAuth-Client-Attestation", walletAttestation)
       .set(
         "OAuth-Client-Attestation-PoP",
@@ -4712,7 +4747,7 @@ describe("capture issuer server", () => {
     const tokenPath = issuerProtocolPath(session, "/token");
     const token = await request(app)
       .post(tokenPath)
-      .set("DPoP", await dpopProof(dpop, "POST", tokenPath))
+      .set("DPoP", await postDpopProof(dpop, tokenPath))
       .set("OAuth-Client-Attestation", walletAttestation)
       .set(
         "OAuth-Client-Attestation-PoP",
@@ -4737,7 +4772,7 @@ describe("capture issuer server", () => {
   it("accepts a Client Attestation PoP from a wallet clock up to 60 seconds ahead", async () => {
     const app = createApp(config);
     const clientId = "https://wallet.example.test";
-    const walletInstanceKey = await dpopKey();
+    const walletInstanceKey = await generateEs256Key();
     const walletAttestation = await walletAttestationJwt(walletInstanceKey, clientId);
 
     const pushWithClockAhead = async (seconds: number) => {
@@ -4749,7 +4784,7 @@ describe("capture issuer server", () => {
       const parPath = issuerProtocolPath(session, "/par");
       return request(app)
         .post(parPath)
-        .set("DPoP", await dpopProof(await dpopKey(), "POST", parPath))
+        .set("DPoP", await postDpopProof(await generateEs256Key(), parPath))
         .set("OAuth-Client-Attestation", walletAttestation)
         .set(
           "OAuth-Client-Attestation-PoP",
@@ -4785,15 +4820,15 @@ describe("capture issuer server", () => {
     });
     expect(session.fixture_id).toBe("pid_under_18");
 
-    const walletKey = await dpopKey();
-    const dpop = await dpopKey();
-    const token = await preAuthorizedToken(app, session, dpop);
-    const proof = await credentialProofJwt(walletKey, token.c_nonce);
+    const walletKey = await generateEs256Key();
+    const dpop = await generateEs256Key();
+    const token = await preAuthorizedToken(app, session, dpop, config.issuer_base_url);
+    const proof = await conformingProofJwt(walletKey, token.c_nonce);
     const credentialPath = issuerProtocolPath(session, "/credential");
     const credential = await request(app)
       .post(credentialPath)
       .set("authorization", `DPoP ${token.access_token}`)
-      .set("DPoP", await dpopProof(dpop, "POST", credentialPath, token.access_token))
+      .set("DPoP", await postDpopProof(dpop, credentialPath, token.access_token))
       .send({
         credential_configuration_id: session.credential_configuration_id,
         proofs: { jwt: [proof] },
@@ -4828,15 +4863,15 @@ describe("capture issuer server", () => {
     expect(session.fixture_id).toBe("pid_default");
     expect(session.document_number).toBe(documentNumber);
 
-    const walletKey = await dpopKey();
-    const dpop = await dpopKey();
-    const token = await preAuthorizedToken(app, session, dpop);
-    const proof = await credentialProofJwt(walletKey, token.c_nonce);
+    const walletKey = await generateEs256Key();
+    const dpop = await generateEs256Key();
+    const token = await preAuthorizedToken(app, session, dpop, config.issuer_base_url);
+    const proof = await conformingProofJwt(walletKey, token.c_nonce);
     const credentialPath = issuerProtocolPath(session, "/credential");
     const credential = await request(app)
       .post(credentialPath)
       .set("authorization", `DPoP ${token.access_token}`)
-      .set("DPoP", await dpopProof(dpop, "POST", credentialPath, token.access_token))
+      .set("DPoP", await postDpopProof(dpop, credentialPath, token.access_token))
       .send({
         credential_configuration_id: session.credential_configuration_id,
         proofs: { jwt: [proof] },
@@ -4865,15 +4900,15 @@ describe("capture issuer server", () => {
     });
     expect(session.digest_algorithm).toBe("sha-512");
 
-    const walletKey = await dpopKey();
-    const dpop = await dpopKey();
-    const token = await preAuthorizedToken(app, session, dpop);
-    const proof = await credentialProofJwt(walletKey, token.c_nonce);
+    const walletKey = await generateEs256Key();
+    const dpop = await generateEs256Key();
+    const token = await preAuthorizedToken(app, session, dpop, config.issuer_base_url);
+    const proof = await conformingProofJwt(walletKey, token.c_nonce);
     const credentialPath = issuerProtocolPath(session, "/credential");
     const credential = await request(app)
       .post(credentialPath)
       .set("authorization", `DPoP ${token.access_token}`)
-      .set("DPoP", await dpopProof(dpop, "POST", credentialPath, token.access_token))
+      .set("DPoP", await postDpopProof(dpop, credentialPath, token.access_token))
       .send({
         credential_configuration_id: session.credential_configuration_id,
         proofs: { jwt: [proof] },
@@ -4969,7 +5004,7 @@ describe("capture issuer server", () => {
     const walletState = "wallet-state";
     const codeVerifier = randomBytes(48).toString("base64url");
     const codeChallenge = createHash("sha256").update(codeVerifier).digest("base64url");
-    const dpop = await dpopKey();
+    const dpop = await generateEs256Key();
     const session = await postJson<SessionCreateResponse>(app, "/sessions", {});
     const offer = JSON.parse(
       String(new URL(session.deeplink).searchParams.get("credential_offer")),
@@ -4986,7 +5021,7 @@ describe("capture issuer server", () => {
     const parPath = issuerProtocolPath(session, "/par");
     const pushed = await request(app)
       .post(parPath)
-      .set("DPoP", await dpopProof(dpop, "POST", parPath))
+      .set("DPoP", await postDpopProof(dpop, parPath))
       .type("form")
       .send({
         response_type: "code",
@@ -5048,6 +5083,8 @@ describe("capture issuer server", () => {
         client_id: walletClientId,
       },
       dpop,
+      config.issuer_base_url,
+      conformingIssuerId,
     );
     expect(token).toMatchObject({
       access_token: expect.any(String),
@@ -5082,7 +5119,7 @@ describe("capture issuer server", () => {
     const walletClientId = "https://wallet.example.test";
     const walletRedirectUri = "https://wallet.example.test/callback";
     const codeVerifier = randomBytes(48).toString("base64url");
-    const dpop = await dpopKey();
+    const dpop = await generateEs256Key();
     const session = await postJson<SessionCreateResponse>(app, "/sessions", {});
     const offer = JSON.parse(
       String(new URL(session.deeplink).searchParams.get("credential_offer")),
@@ -5099,7 +5136,7 @@ describe("capture issuer server", () => {
 
     const withoutPkce = await request(app)
       .post(parPath)
-      .set("DPoP", await dpopProof(dpop, "POST", parPath))
+      .set("DPoP", await postDpopProof(dpop, parPath))
       .type("form")
       .send(parRequest);
     expect(withoutPkce.status).toBe(400);
@@ -5107,7 +5144,7 @@ describe("capture issuer server", () => {
 
     const pushed = await request(app)
       .post(parPath)
-      .set("DPoP", await dpopProof(dpop, "POST", parPath))
+      .set("DPoP", await postDpopProof(dpop, parPath))
       .type("form")
       .send({
         ...parRequest,
@@ -5132,7 +5169,7 @@ describe("capture issuer server", () => {
     const tokenPath = issuerProtocolPath(session, "/token");
     const token = await request(app)
       .post(tokenPath)
-      .set("DPoP", await dpopProof(dpop, "POST", tokenPath))
+      .set("DPoP", await postDpopProof(dpop, tokenPath))
       .type("form")
       .send({
         grant_type: "authorization_code",
@@ -5207,9 +5244,9 @@ describe("wallet-initiated issuance", () => {
     };
   }
 
-  async function postWalletPar(app: Express, body: Record<string, string>, dpop?: DpopKey) {
+  async function postWalletPar(app: Express, body: Record<string, string>, dpop?: TestKey) {
     const pending = request(app).post(parPath);
-    if (dpop) pending.set("DPoP", await dpopProof(dpop, "POST", parPath));
+    if (dpop) pending.set("DPoP", await postDpopProof(dpop, parPath));
     return pending.type("form").send(body);
   }
 
@@ -5222,8 +5259,8 @@ describe("wallet-initiated issuance", () => {
     const store = new CaptureStore(config);
     const app = createApp(config, store);
     const configuration = await supportedConfiguration(app, sdJwtId);
-    const dpop = await dpopKey();
-    const walletKey = await dpopKey();
+    const dpop = await generateEs256Key();
+    const walletKey = await generateEs256Key();
     const codeVerifier = randomBytes(48).toString("base64url");
 
     const pushed = await postWalletPar(app, walletParBody(configuration.scope, codeVerifier), dpop);
@@ -5284,6 +5321,8 @@ describe("wallet-initiated issuance", () => {
         client_id: walletClientId,
       },
       dpop,
+      config.issuer_base_url,
+      conformingIssuerId,
     );
     expect(token.token_type).toBe("DPoP");
 
@@ -5291,19 +5330,11 @@ describe("wallet-initiated issuance", () => {
     const credential = await request(app)
       .post(credentialPath)
       .set("authorization", `DPoP ${token.access_token}`)
-      .set("DPoP", await dpopProof(dpop, "POST", credentialPath, token.access_token))
+      .set("DPoP", await postDpopProof(dpop, credentialPath, token.access_token))
       .send({
         credential_configuration_id: sdJwtId,
         proofs: {
-          jwt: [
-            await credentialProofJwt(
-              walletKey,
-              token.c_nonce,
-              undefined,
-              walletKey,
-              walletClientId,
-            ),
-          ],
+          jwt: [await conformingProofJwt(walletKey, token.c_nonce, walletKey, walletClientId)],
         },
       });
     expect(credential.status, JSON.stringify(credential.body)).toBe(200);
@@ -5335,8 +5366,8 @@ describe("wallet-initiated issuance", () => {
     const app = createApp(config, store);
     const sdJwt = await supportedConfiguration(app, sdJwtId);
     const mdoc = await supportedConfiguration(app, mdocId);
-    const sdJwtDpop = await dpopKey();
-    const mdocDpop = await dpopKey();
+    const sdJwtDpop = await generateEs256Key();
+    const mdocDpop = await generateEs256Key();
 
     const [sdJwtPar, mdocPar] = await Promise.all([
       postWalletPar(
@@ -5371,7 +5402,7 @@ describe("wallet-initiated issuance", () => {
     const app = createApp(config, store);
     const sdJwt = await supportedConfiguration(app, sdJwtId);
     const mdoc = await supportedConfiguration(app, mdocId);
-    const dpop = await dpopKey();
+    const dpop = await generateEs256Key();
     const codeVerifier = randomBytes(48).toString("base64url");
 
     const refusals = [
@@ -5542,7 +5573,7 @@ describe("OpenID4VP over the Digital Credentials API", () => {
   it("accepts an encrypted DC API presentation bound to the browser origin", async () => {
     const app = createApp(dcApiConfig);
     const session = await dcApiSession(app);
-    const credential = await sdJwtCredential();
+    const credential = await pidSdJwtCredential();
     const presentation = await sdJwtPresentation({
       credential,
       authorizationRequest: session.authorization_request,
@@ -5584,7 +5615,7 @@ describe("OpenID4VP over the Digital Credentials API", () => {
       presentation_request: { state: null, dcql_query: dcqlQuery },
     });
     const presentation = await sdJwtPresentation({
-      credential: await sdJwtCredential(),
+      credential: await pidSdJwtCredential(),
       authorizationRequest: session.authorization_request,
       disclosedClaims: ["family_name"],
       audience: `origin:${dcApiOrigin}`,
@@ -5655,7 +5686,7 @@ describe("OpenID4VP over the Digital Credentials API", () => {
     const app = createApp(dcApiConfig);
     const session = await dcApiSession(app, { request_delivery: "multisigned" });
     const presentation = await sdJwtPresentation({
-      credential: await sdJwtCredential(),
+      credential: await pidSdJwtCredential(),
       authorizationRequest: session.authorization_request,
       disclosedClaims: ["family_name"],
       audience: `origin:${dcApiOrigin}`,
@@ -5708,7 +5739,7 @@ describe("OpenID4VP over the Digital Credentials API", () => {
   it("rejects a DC API presentation bound to the client_id instead of the origin", async () => {
     const app = createApp(dcApiConfig);
     const session = await dcApiSession(app);
-    const credential = await sdJwtCredential();
+    const credential = await pidSdJwtCredential();
     const presentation = await sdJwtPresentation({
       credential,
       authorizationRequest: session.authorization_request,
@@ -5772,7 +5803,7 @@ describe("OpenID4VP over the Digital Credentials API", () => {
   it("keeps the first presentation when a DC API response is replayed", async () => {
     const app = createApp(dcApiConfig);
     const session = await dcApiSession(app);
-    const credential = await sdJwtCredential();
+    const credential = await pidSdJwtCredential();
     const presentation = await sdJwtPresentation({
       credential,
       authorizationRequest: session.authorization_request,
@@ -5873,12 +5904,6 @@ function encryptingWalletMetadata(publicJwk: JWK, enc: string): string {
     request_object_encryption_alg_values_supported: ["ECDH-ES"],
     request_object_encryption_enc_values_supported: [enc],
   });
-}
-
-async function postJson<T>(app: Express, path: string, body: object): Promise<T> {
-  const response = await request(app).post(path).send(body);
-  expect(response.status).toBeLessThan(400);
-  return response.body as T;
 }
 
 describe("FCAF request mutation", () => {
@@ -6122,7 +6147,7 @@ describe("FCAF request mutation", () => {
       request_object: { set: { "/nonce": "nonce-the-wallet-must-not-use" } },
       verification_applies: true,
     });
-    const credential = await sdJwtCredential();
+    const credential = await pidSdJwtCredential();
     const presentation = await sdJwtPresentation({
       credential,
       authorizationRequest: session.authorization_request,
@@ -6508,7 +6533,7 @@ describe("FCAF request mutation", () => {
       presentation_request: { dcql_query: dcqlForClaims(["family_name"]) },
       request_behavior: { certificate_chain: "unrelated_self_signed" },
     });
-    const credential = await sdJwtCredential();
+    const credential = await pidSdJwtCredential();
     const presentation = await sdJwtPresentation({
       credential,
       authorizationRequest: session.authorization_request,
@@ -6679,7 +6704,7 @@ describe("FCAF request mutation", () => {
       });
       const delivered = decodeJwt(await deliveredRequestObject(app, session)) as JsonRecord;
       const presentation = await sdJwtPresentation({
-        credential: await sdJwtCredential(),
+        credential: await pidSdJwtCredential(),
         authorizationRequest: delivered,
         disclosedClaims: ["family_name"],
       });
@@ -6808,7 +6833,7 @@ describe("scope-based presentation requests", () => {
     );
     expect((decodeJwt(requestObject.text) as JsonRecord).dcql_query).toBeUndefined();
 
-    const credential = await sdJwtCredential();
+    const credential = await pidSdJwtCredential();
     const presentation = await sdJwtPresentation({
       credential,
       authorizationRequest: session.authorization_request,
@@ -6982,7 +7007,7 @@ describe("verifier attestation requests", () => {
   it("verifies a presentation returned for an attestation-based request", async () => {
     const app = createApp(config);
     const { session } = await attestationRequest(app);
-    const credential = await sdJwtCredential();
+    const credential = await pidSdJwtCredential();
     const presentation = await sdJwtPresentation({
       credential,
       authorizationRequest: session.authorization_request,
@@ -7106,7 +7131,7 @@ describe("verifier attestation requests under a certificate with only a URI SAN"
     const app = createApp(uriSanConfig);
     const session = await uriSanAttestationSession(app);
     const presentation = await sdJwtPresentation({
-      credential: await sdJwtCredential(),
+      credential: await pidSdJwtCredential(),
       authorizationRequest: session.authorization_request,
       disclosedClaims: ["family_name"],
     });
@@ -7170,7 +7195,7 @@ describe("presentation digest algorithms", () => {
       response_mode: "direct_post",
       presentation_request: { dcql_query: dcqlForClaims(["family_name"]) },
     });
-    const credential = await sdJwtCredential();
+    const credential = await pidSdJwtCredential();
     const presentation = await sdJwtPresentation({
       credential,
       authorizationRequest: session.authorization_request,
@@ -7265,7 +7290,7 @@ describe("transaction data binding", () => {
       },
     });
     const delivered = session.authorization_request.transaction_data as string[];
-    const credential = await sdJwtCredential();
+    const credential = await pidSdJwtCredential();
     const presentation = await sdJwtPresentation({
       credential,
       authorizationRequest: session.authorization_request,
@@ -7352,7 +7377,7 @@ describe("transaction data binding", () => {
       response_mode: "direct_post",
       presentation_request: { dcql_query: dcqlForClaims(["family_name"]) },
     });
-    const credential = await sdJwtCredential();
+    const credential = await pidSdJwtCredential();
     const presentation = await sdJwtPresentation({
       credential,
       authorizationRequest: session.authorization_request,
@@ -7383,7 +7408,7 @@ describe("FCAF verifier response scenarios", () => {
       presentation_request: { dcql_query: dcqlForClaims(["family_name"]) },
       ...(responseScenario ? { response_scenario: responseScenario } : {}),
     });
-    const credential = await sdJwtCredential();
+    const credential = await pidSdJwtCredential();
     const presentation = await sdJwtPresentation({
       credential,
       authorizationRequest: session.authorization_request,
@@ -7508,135 +7533,52 @@ describe("FCAF verifier response scenarios", () => {
   });
 });
 
-async function postToken(
-  app: Express,
-  body: Record<string, string>,
-  dpopKey: DpopKey,
-  issuerConfigurationId = conformingIssuerId,
-): Promise<TokenResponse> {
-  const tokenPath = `/issuers/${issuerConfigurationId}/token`;
-  const response = await request(app)
-    .post(tokenPath)
-    .set("DPoP", await dpopProof(dpopKey, "POST", tokenPath))
-    .type("form")
-    .send(body);
-  expect(response.status, JSON.stringify(response.body)).toBeLessThan(400);
-  return response.body as TokenResponse;
-}
-
-async function preAuthorizedToken(
-  app: Express,
-  session: SessionCreateResponse,
-  dpopKey: DpopKey,
-): Promise<TokenResponse> {
-  const offer = await getJson<CredentialOfferResponse>(app, new URL(session.offer_url).pathname);
-  const grant = offer.grants["urn:ietf:params:oauth:grant-type:pre-authorized_code"] as JsonRecord;
-  return postToken(
-    app,
-    {
-      grant_type: "urn:ietf:params:oauth:grant-type:pre-authorized_code",
-      "pre-authorized_code": String(grant["pre-authorized_code"]),
-    },
-    dpopKey,
-    session.issuer_configuration_id,
-  );
-}
-
-async function getJson<T>(app: Express, path: string): Promise<T> {
-  const response = await request(app).get(path);
-  expect(response.status).toBeLessThan(400);
-  return response.body as T;
-}
-
 function verifierPublicJwk(): JWK {
   const jwks = JSON.parse(readFileSync(verifierJwksPath(dataDir), "utf8")) as { keys: JWK[] };
   return jwks.keys[0];
-}
-
-function dcqlForClaims(claims: string[]): JsonRecord {
-  return {
-    credentials: [
-      {
-        id: "query_0",
-        format: "dc+sd-jwt",
-        meta: {
-          vct_values: [PID_SD_JWT_VCT],
-        },
-        claims: claims.map((claim) => ({ path: [claim] })),
-      },
-    ],
-  };
-}
-
-function endpointUrl(path: string): string {
-  return `${config.issuer_base_url}${path}`;
 }
 
 function issuerProtocolPath(session: SessionCreateResponse, suffix: `/${string}`): string {
   return `/issuers/${session.issuer_configuration_id}${suffix}`;
 }
 
-interface DpopKey {
-  publicJwk: JsonRecord;
-  privateKey: KeyLike | Uint8Array;
+function endpointUrl(path: string): string {
+  return `${config.issuer_base_url}${path}`;
 }
 
-async function dpopKey(): Promise<DpopKey> {
-  const { publicKey, privateKey } = await generateKeyPair("ES256", { extractable: true });
-  return {
-    publicJwk: (await exportJWK(publicKey)) as unknown as JsonRecord,
-    privateKey,
-  };
+async function pidSdJwtCredential() {
+  return sdJwtCredential(conformingIssuerConfig, config.credential_configuration_id);
 }
-
-async function dpopProof(
-  key: DpopKey,
-  method: string,
-  path: string,
-  accessToken?: string,
-): Promise<string> {
-  return new SignJWT({
-    htm: method,
-    htu: endpointUrl(path),
-    iat: Math.floor(Date.now() / 1000),
-    jti: randomUUID(),
-    ...(accessToken ? { ath: createHash("sha256").update(accessToken).digest("base64url") } : {}),
-  })
-    .setProtectedHeader({ alg: "ES256", typ: "dpop+jwt", jwk: key.publicJwk as unknown as JWK })
-    .sign(key.privateKey);
-}
-
-async function credentialProofJwt(
-  key: DpopKey,
+async function conformingProofJwt(
+  key: TestKey,
   nonce: string,
-  audience = `${config.issuer_base_url}${conformingIssuerPath}`,
   attestedKey = key,
-  /** The client_id of an authorization-code client (OpenID4VCI 1.0 Appendix F.1). */
   clientId?: string,
 ): Promise<string> {
-  const keyAttestation = await keyAttestationJwt(attestedKey, nonce);
-  return new SignJWT({
-    ...(clientId ? { iss: clientId } : {}),
-    aud: audience,
+  return credentialProofJwt(
+    key,
     nonce,
-    iat: Math.floor(Date.now() / 1000),
-  })
-    .setProtectedHeader({
-      alg: "ES256",
-      typ: "openid4vci-proof+jwt",
-      jwk: key.publicJwk as unknown as JWK,
-      key_attestation: keyAttestation,
-    })
-    .sign(key.privateKey);
+    `${config.issuer_base_url}${conformingIssuerPath}`,
+    conformingIssuerConfig,
+    attestedKey,
+    clientId,
+  );
+}
+async function postDpopProof(key: TestKey, path: string, accessToken?: string): Promise<string> {
+  return dpopProof(key, {
+    method: "POST",
+    url: endpointUrl(path),
+    ...(accessToken ? { accessToken } : {}),
+  });
 }
 
 async function eudiCredentialProofJwt(
-  attestedKey: DpopKey,
+  attestedKey: TestKey,
   nonce: string,
   audience: string,
   signingKey = attestedKey,
 ): Promise<string> {
-  const keyAttestation = await keyAttestationJwt(attestedKey, nonce);
+  const keyAttestation = await keyAttestationJwt(conformingIssuerConfig, attestedKey, nonce);
   return new SignJWT({
     aud: audience,
     nonce,
@@ -7651,7 +7593,7 @@ async function eudiCredentialProofJwt(
 }
 
 async function credentialProofJwtWithoutKeyAttestation(
-  key: DpopKey,
+  key: TestKey,
   nonce: string,
   audience = `${config.issuer_base_url}${conformingIssuerPath}`,
 ): Promise<string> {
@@ -7668,30 +7610,7 @@ async function credentialProofJwtWithoutKeyAttestation(
     .sign(key.privateKey);
 }
 
-async function keyAttestationJwt(key: DpopKey, nonce: string): Promise<string> {
-  const privateJwk = JSON.parse(
-    readFileSync(privateJwkPath(conformingMaterialDirectory), "utf8"),
-  ) as JWK;
-  const certificate = readFileSync(issuerCertificatePath(conformingMaterialDirectory), "utf8")
-    .replace(/-----BEGIN CERTIFICATE-----/g, "")
-    .replace(/-----END CERTIFICATE-----/g, "")
-    .replace(/\s+/g, "");
-  const now = Math.floor(Date.now() / 1000);
-  return new SignJWT({
-    iat: now,
-    exp: now + 300,
-    nonce,
-    attested_keys: [key.publicJwk],
-  })
-    .setProtectedHeader({
-      alg: "ES256",
-      typ: "key-attestation+jwt",
-      x5c: [certificate],
-    })
-    .sign(await importJWK(privateJwk, "ES256"));
-}
-
-async function walletAttestationJwt(key: DpopKey, clientId: string): Promise<string> {
+async function walletAttestationJwt(key: TestKey, clientId: string): Promise<string> {
   const privateJwk = JSON.parse(
     readFileSync(privateJwkPath(conformingMaterialDirectory), "utf8"),
   ) as JWK;
@@ -7716,7 +7635,7 @@ async function walletAttestationJwt(key: DpopKey, clientId: string): Promise<str
 }
 
 async function walletAttestationPopJwt(
-  key: DpopKey,
+  key: TestKey,
   clientId: string,
   clockAheadSeconds = 0,
 ): Promise<string> {
@@ -7735,189 +7654,10 @@ async function walletAttestationPopJwt(
     .sign(key.privateKey);
 }
 
-async function sdJwtCredential(): Promise<{
-  compact: string;
-  privateKey: Parameters<SignJWT["sign"]>[0];
-}> {
-  const { publicKey, privateKey } = await generateKeyPair("ES256", { extractable: true });
-  const holderJwk = (await exportJWK(publicKey)) as unknown as JsonRecord;
-  return {
-    compact: await issueSdJwtCredential({
-      config: conformingIssuerConfig,
-      credentialConfigurationId: config.credential_configuration_id,
-      holderJwk,
-    }),
-    privateKey,
-  };
-}
-
-async function sdJwtPresentation(options: {
-  credential: { compact: string; privateKey: Parameters<SignJWT["sign"]>[0] };
-  authorizationRequest: JsonRecord;
-  disclosedClaims: string[];
-  audience?: string;
-  transactionDataHashes?: string[];
-  transactionDataHashesAlg?: string;
-}): Promise<string> {
-  const [issuerJwt, ...tail] = options.credential.compact.split("~");
-  const selected = tail
-    .filter((part) => part.length > 0)
-    .filter((disclosure) => options.disclosedClaims.includes(disclosureClaimName(disclosure)));
-  const withoutKeyBinding = `${issuerJwt}~${selected.join("~")}~`;
-  const keyBindingJwt = await new SignJWT({
-    iat: Math.floor(Date.now() / 1000),
-    aud: options.audience ?? String(options.authorizationRequest.client_id),
-    nonce: String(options.authorizationRequest.nonce),
-    sd_hash: createHash("sha256").update(withoutKeyBinding).digest("base64url"),
-    ...(options.transactionDataHashes
-      ? { transaction_data_hashes: options.transactionDataHashes }
-      : {}),
-    ...(options.transactionDataHashesAlg
-      ? { transaction_data_hashes_alg: options.transactionDataHashesAlg }
-      : {}),
-  })
-    .setProtectedHeader({ alg: "ES256", typ: "kb+jwt" })
-    .sign(options.credential.privateKey);
-  return `${withoutKeyBinding}${keyBindingJwt}`;
-}
-
-async function encryptedAuthorizationResponse(
-  authorizationRequest: JsonRecord,
-  payload: JsonRecord,
-  enc = "A256GCM",
-): Promise<string> {
-  const clientMetadata = authorizationRequest.client_metadata as JsonRecord;
-  const jwks = clientMetadata.jwks as { keys: JsonRecord[] };
-  const publicJwk = jwks.keys[0] as unknown as JWK;
-  return new CompactEncrypt(Buffer.from(JSON.stringify(payload), "utf8"))
-    .setProtectedHeader({
-      alg: "ECDH-ES",
-      enc,
-      kid: publicJwk.kid,
-    })
-    .encrypt(await importJWK(publicJwk, "ECDH-ES"));
-}
-
-function disclosureClaimName(disclosure: string): string {
-  const decoded = JSON.parse(Buffer.from(disclosure, "base64url").toString("utf8")) as unknown[];
-  return typeof decoded[1] === "string" ? decoded[1] : "";
-}
-
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-interface SessionCreateResponse extends JsonRecord {
-  session_id: string;
-  issuer_configuration_id: string;
-  issuer_identifier: string;
-  authorization_server_identifier: string;
-  flow: "pre_authorized_code" | "authorization_code";
-  credential_offer_mode: "credential_offer" | "credential_offer_uri";
-  credential_configuration_id: string;
-  status_list_enabled: boolean;
-  fixture_id?: string;
-  document_number?: string;
-  digest_algorithm?: string;
-  offer_url: string;
-  deeplink: string;
-}
-
-interface TokenResponse extends JsonRecord {
-  access_token: string;
-  c_nonce: string;
-}
-
 interface JwksResponse extends JsonRecord {
   keys: JsonRecord[];
-}
-
-interface CredentialOfferResponse extends JsonRecord {
-  credential_configuration_ids: string[];
-  grants: Record<string, JsonRecord>;
-}
-
-interface CredentialResponse extends JsonRecord {
-  credentials: Array<{
-    credential: string;
-  }>;
-}
-
-interface VpSessionCreateResponse extends JsonRecord {
-  session_id: string;
-  request_delivery: "by_reference" | "by_value" | "plain";
-  request_uri?: string;
-  request_uri_method?: string;
-  scheme?: string;
-  redirect_uri?: string;
-  response_uri?: string;
-  deeplink: string;
-  dc_api_request?: { protocol: string; data: JsonRecord };
-  authorization_request: JsonRecord;
-  status: string;
-}
-
-interface VpSessionResponse extends JsonRecord {
-  session_id: string;
-  status: string;
-  redirect_uri_visited_at?: string;
-  redirect_uri_visit_count?: number;
-  authorization_request: JsonRecord;
-  decoded_presentations?: JsonRecord;
-  request_mutation?: JsonRecord;
-  response_scenario?: JsonRecord;
-  verifier_attestation?: JsonRecord;
-  dc_api?: {
-    request: { protocol: string; data: JsonRecord };
-    expected_origin: string;
-    expires_at: string;
-    invocation?: JsonRecord;
-  };
-  checks: {
-    presentation_valid: boolean | null;
-    vp_token_format_valid: boolean;
-    nonce_verified: boolean;
-    transaction_data_verified: boolean | null;
-    holder_binding_verified: boolean;
-    dcql_query_matched: boolean;
-    errors: string[];
-  };
-  observed: {
-    vp_token?: { value: unknown };
-    request_uri_payload: { value: JsonRecord | null; source: string | null };
-    wallet_response: { value: JsonRecord | null };
-    presentation_submission?: { value: unknown };
-  };
-  events: Array<{ type: string; detail: JsonRecord }>;
-  raw?: {
-    authorization_request_jwt?: string;
-    authorization_request_jwe?: string;
-    authorization_request_delivered?: JsonRecord;
-    outer_request_delivered?: JsonRecord;
-    request_uri_response_http?: { status: number; headers: JsonRecord; body: string };
-    request_uri_http?: {
-      method: string;
-      target: string;
-      headers: JsonRecord;
-      body?: string;
-    };
-    presentation_response?: JsonRecord;
-    presentation_response_http?: {
-      method: string;
-      headers: JsonRecord;
-      body: string;
-    };
-    presentation_response_verifier_http?: {
-      status: number;
-      headers: JsonRecord;
-      body: string;
-    };
-    redirect_uri_visits?: Array<{
-      method: string;
-      headers: JsonRecord;
-    }>;
-    presentation_response_decrypted?: JsonRecord;
-    presentation_response_decrypted_raw?: string;
-    decoded_presentations?: JsonRecord;
-  };
 }
