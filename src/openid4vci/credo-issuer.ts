@@ -48,7 +48,6 @@ import {
 } from "../credentials/signing.js";
 import { InMemoryStorageModule, NodeKmsBackend, nodeAgentDependencies } from "../credo/agent.js";
 import { applyRequestMutationEdits } from "../fcaf/request-mutation.js";
-import { asStringOrNull, isRecord } from "../shared/json.js";
 import type { CaptureStore } from "../state.js";
 import {
   allocateStatusListReference,
@@ -65,10 +64,22 @@ import type {
   SessionCapture,
   VpRequestMutationEdits,
 } from "../types.js";
+import {
+  captureSessionIdFromCredo,
+  captureStatus,
+  issuanceSessionAuthorizes,
+  issuanceSessionQuery,
+  requestHeaders,
+} from "./attribution.js";
+import { captureAuthorizationEvidence, redactCredentialRequest } from "./evidence.js";
 import { fakeOAuthServer } from "./fake-oauth-server.js";
 import { credentialConfigurationsSupported, credentialIssuerMetadata } from "./metadata.js";
-import { NotifyingIssuerService, parseNotificationRequest } from "./notification.js";
-import { captureProofHeaders, decodeDpopHeader, decodeJwtForEvidence } from "./proofs.js";
+import {
+  NotifyingIssuerService,
+  parseNotificationRequest,
+  wwwAuthenticateChallenge,
+} from "./notification.js";
+import { captureProofHeaders, decodeDpopHeader } from "./proofs.js";
 
 const issuers = new WeakMap<CaptureStore, Promise<CredoOpenId4VciIssuer>>();
 
@@ -77,17 +88,6 @@ const issuers = new WeakMap<CaptureStore, Promise<CredoOpenId4VciIssuer>>();
  * Client Attestation PoP, and DPoP proofs at the issuer's authorization server.
  */
 const VALIDITY_SKEW_SECONDS = 60;
-
-/** RFC 9126 Section 2.2 prefix of a PAR `request_uri`; Credo-TS issues its reference after it. */
-const PUSHED_AUTHORIZATION_REQUEST_URI_PREFIX = "urn:ietf:params:oauth:request_uri:";
-
-type IssuanceSessionQuery = {
-  issuerState?: string;
-  preAuthorizedCode?: string;
-  authorizationCode?: string;
-  chainedIdentityRequestUriReferenceValue?: string;
-  chainedIdentityState?: string;
-};
 
 type RequestContext = {
   capture: Oid4vciHttpRequestCapture | null;
@@ -922,192 +922,4 @@ function credentialOfferByValue(byReference: string, offer: JsonRecord): string 
   deeplink.searchParams.delete("credential_offer_uri");
   deeplink.searchParams.set("credential_offer", JSON.stringify(offer));
   return deeplink.toString();
-}
-
-function captureSessionIdFromCredo(issuanceSession: OpenId4VcIssuanceSessionRecord): string | null {
-  const value = issuanceSession.issuanceMetadata?.captureSessionId;
-  return typeof value === "string" ? value : null;
-}
-
-function issuanceSessionQuery(endpoint: string, req: Request): IssuanceSessionQuery | null {
-  const body = isRecord(req.body) ? req.body : {};
-  switch (endpoint) {
-    case "par": {
-      const issuerState = asStringOrNull(body.issuer_state);
-      return issuerState ? { issuerState } : null;
-    }
-    case "authorize": {
-      const requestUri = asStringOrNull(req.query.request_uri);
-      return requestUri?.startsWith(PUSHED_AUTHORIZATION_REQUEST_URI_PREFIX)
-        ? {
-            chainedIdentityRequestUriReferenceValue: requestUri.slice(
-              PUSHED_AUTHORIZATION_REQUEST_URI_PREFIX.length,
-            ),
-          }
-        : null;
-    }
-    case "redirect": {
-      const state = asStringOrNull(req.query.state);
-      return state ? { chainedIdentityState: state } : null;
-    }
-    case "token": {
-      const preAuthorizedCode = asStringOrNull(body["pre-authorized_code"]);
-      if (preAuthorizedCode) return { preAuthorizedCode };
-      const code = asStringOrNull(body.code);
-      return code ? { authorizationCode: code } : null;
-    }
-    case "credential":
-    case "deferred-credential":
-    case "notification":
-      return accessTokenSessionQuery(req.header("authorization"));
-    default:
-      return null;
-  }
-}
-
-/** The grant an access token names, as Credo-TS's Credential endpoint reads it. */
-function accessTokenSessionQuery(authorization: string | undefined): IssuanceSessionQuery | null {
-  const accessToken = /^(?:DPoP|Bearer) (.+)$/i.exec(authorization ?? "")?.[1];
-  if (!accessToken) return null;
-  const { payload } = decodeJwtForEvidence(accessToken);
-  const preAuthorizedCode = asStringOrNull(payload?.["pre-authorized_code"]);
-  if (preAuthorizedCode) return { preAuthorizedCode };
-  const issuerState = asStringOrNull(payload?.issuer_state);
-  return issuerState ? { issuerState } : null;
-}
-
-/** The request headers as a Fetch `Headers`, the form Credo-TS's resource server reads. */
-function requestHeaders(req: Request): Headers {
-  const headers = new Headers();
-  for (const [name, value] of Object.entries(req.headers)) {
-    if (typeof value === "string") headers.append(name, value);
-    else for (const item of value ?? []) headers.append(name, item);
-  }
-  return headers;
-}
-
-/**
- * The RFC 6750 Section 3 challenge of an access token or DPoP proof Credo-TS's resource server
- * refused, or null for any other error. The pinned `@openid4vc/oauth2` error class is not a
- * dependency of this package, so the error is recognized by the challenges it carries. They are
- * encoded here rather than with the error's own encoder, which keeps line breaks of Credo's error
- * descriptions that no HTTP header may contain: every value is limited to the characters RFC 6750
- * Section 3 allows in `error_description`.
- */
-function wwwAuthenticateChallenge(error: unknown): string | null {
-  if (!(error instanceof Error) || !("wwwAuthenticateHeaders" in error)) return null;
-  const challenges = error.wwwAuthenticateHeaders;
-  if (!Array.isArray(challenges)) return null;
-  const encoded = challenges.flatMap((challenge: unknown) => {
-    if (!isRecord(challenge) || typeof challenge.scheme !== "string") return [];
-    const parameters = (["error", "error_description", "scope"] as const).flatMap((name) => {
-      const value = challenge[name];
-      if (typeof value !== "string") return [];
-      return [`${name}="${value.replace(/[^\x20\x21\x23-\x5B\x5D-\x7E]/g, " ")}"`];
-    });
-    return [
-      parameters.length > 0 ? `${challenge.scheme} ${parameters.join(", ")}` : challenge.scheme,
-    ];
-  });
-  return encoded.length > 0 ? encoded.join(", ") : null;
-}
-
-/**
- * Whether a verified access token belongs to the issuance session that received a Credential
- * Response. Credo-TS binds the session to the `sub` of the access token used at its Credential
- * endpoint, and the token's grant, when it names one, must be this session's grant too.
- */
-function issuanceSessionAuthorizes(
-  issuanceSession: OpenId4VcIssuanceSessionRecord,
-  tokenPayload: { sub?: string; [claim: string]: unknown },
-): boolean {
-  if (!tokenPayload.sub || issuanceSession.authorization?.subject !== tokenPayload.sub) {
-    return false;
-  }
-  const preAuthorizedCode = asStringOrNull(tokenPayload["pre-authorized_code"]);
-  if (preAuthorizedCode !== null && preAuthorizedCode !== issuanceSession.preAuthorizedCode) {
-    return false;
-  }
-  const issuerState = asStringOrNull(tokenPayload.issuer_state);
-  return issuerState === null || issuerState === issuanceSession.authorization?.issuerState;
-}
-
-function captureStatus(state: OpenId4VcIssuanceSessionState): string {
-  switch (state) {
-    case OpenId4VcIssuanceSessionState.OfferCreated:
-      return "created";
-    case OpenId4VcIssuanceSessionState.OfferUriRetrieved:
-      return "offer_retrieved";
-    case OpenId4VcIssuanceSessionState.AuthorizationInitiated:
-      return "authorization_requested";
-    case OpenId4VcIssuanceSessionState.AuthorizationGranted:
-      return "authorization_granted";
-    case OpenId4VcIssuanceSessionState.AccessTokenRequested:
-      return "token_requested";
-    case OpenId4VcIssuanceSessionState.AccessTokenCreated:
-      return "token_issued";
-    case OpenId4VcIssuanceSessionState.CredentialRequestReceived:
-      return "credential_requested";
-    case OpenId4VcIssuanceSessionState.CredentialsPartiallyIssued:
-      return "credentials_partially_issued";
-    case OpenId4VcIssuanceSessionState.Completed:
-      return "credential_issued";
-    case OpenId4VcIssuanceSessionState.Error:
-      return "error";
-    default:
-      return state;
-  }
-}
-
-function captureAuthorizationEvidence(
-  session: SessionCapture,
-  capture: Oid4vciHttpRequestCapture,
-): void {
-  const body = isRecord(capture.body) ? capture.body : {};
-  session.raw ??= {};
-  if (capture.path.endsWith("/par")) {
-    session.raw.par_request = body;
-    setObservedString(session.observed.client_id, body.client_id, `${capture.path}.body.client_id`);
-    setObservedString(
-      session.observed.redirect_uri,
-      body.redirect_uri,
-      `${capture.path}.body.redirect_uri`,
-    );
-    session.checks.pkce_present =
-      typeof body.code_challenge === "string" && body.code_challenge_method === "S256";
-    session.checks.state_present = typeof body.state === "string";
-    session.checks.issuer_state_present = typeof body.issuer_state === "string";
-  }
-  if (capture.path.endsWith("/token")) {
-    session.raw.token_request = body;
-  }
-}
-
-function setObservedString(
-  observed: SessionCapture["observed"]["client_id"],
-  value: unknown,
-  source: string,
-): void {
-  if (typeof value !== "string" || value.length === 0) return;
-  if (observed.value && observed.value !== value) {
-    observed.also_seen_in ??= [];
-    observed.also_seen_in.push(source);
-    return;
-  }
-  observed.value = value;
-  observed.source ??= source;
-}
-
-function redactCredentialRequest(request: JsonRecord): JsonRecord {
-  const redacted = structuredClone(request);
-  const proofs = redacted.proofs as JsonRecord | undefined;
-  if (proofs) {
-    for (const proofType of Object.keys(proofs)) {
-      proofs[proofType] = { redacted: true, present: true };
-    }
-  }
-  if (redacted.proof !== undefined) {
-    redacted.proof = { redacted: true, present: true };
-  }
-  return redacted;
 }

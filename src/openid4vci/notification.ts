@@ -4,6 +4,7 @@ import type {
   OpenId4VciCreateCredentialResponseOptions,
 } from "@credo-ts/openid4vc";
 import type { CredentialResponse, NotificationEvent } from "@openid4vc/openid4vci";
+import { isRecord } from "../shared/json.js";
 import type { CredentialNotificationEvent } from "../types.js";
 import { EudiKeyAttestationIssuerService } from "./key-attestation.js";
 
@@ -40,6 +41,32 @@ export function parseNotificationRequest(body: unknown): NotificationRequest | n
     return null;
   }
   return { notification_id, event: knownEvent, event_description };
+}
+
+/**
+ * The RFC 6750 Section 3 challenge of an access token or DPoP proof Credo-TS's resource server
+ * refused, or null for any other error. The pinned `@openid4vc/oauth2` error class is not a
+ * dependency of this package, so the error is recognized by the challenges it carries. They are
+ * encoded here rather than with the error's own encoder, which keeps line breaks of Credo's error
+ * descriptions that no HTTP header may contain: every value is limited to the characters RFC 6750
+ * Section 3 allows in `error_description`.
+ */
+export function wwwAuthenticateChallenge(error: unknown): string | null {
+  if (!(error instanceof Error) || !("wwwAuthenticateHeaders" in error)) return null;
+  const challenges = error.wwwAuthenticateHeaders;
+  if (!Array.isArray(challenges)) return null;
+  const encoded = challenges.flatMap((challenge: unknown) => {
+    if (!isRecord(challenge) || typeof challenge.scheme !== "string") return [];
+    const parameters = (["error", "error_description", "scope"] as const).flatMap((name) => {
+      const value = challenge[name];
+      if (typeof value !== "string") return [];
+      return [`${name}="${value.replace(/[^\x20\x21\x23-\x5B\x5D-\x7E]/g, " ")}"`];
+    });
+    return [
+      parameters.length > 0 ? `${challenge.scheme} ${parameters.join(", ")}` : challenge.scheme,
+    ];
+  });
+  return encoded.length > 0 ? encoded.join(", ") : null;
 }
 
 /**
