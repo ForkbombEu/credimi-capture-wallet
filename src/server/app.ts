@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import express, { type NextFunction, type Request, type Response } from "express";
 import QRCode from "qrcode";
 import { sha256Hex } from "../attestbook/digest.js";
@@ -7,7 +7,6 @@ import { attestbookIntegration } from "../attestbook/integration.js";
 import type { AttestbookCredentialDefinition } from "../attestbook/types.js";
 import { WEBHOOK_MAX_BODY_BYTES, WEBHOOK_PATH } from "../attestbook/webhook.js";
 import { loadIssuerJwks, validateIssuerMaterial } from "../config/key-material.js";
-import { verifierCaCertificatePath } from "../config/paths.js";
 import {
   verifierAttestationIssuerPublicJwk,
   verifierDidDocument,
@@ -24,9 +23,8 @@ import { supportedCredentialConfigurationIds } from "../credentials/catalogue.js
 import { SD_JWT_DIGEST_ALGORITHMS } from "../credentials/digest-algorithm.js";
 import { credentialRegistry } from "../credentials/registry.js";
 import { unsetJsonPointer } from "../fcaf/json-pointer.js";
-import { corruptJwsSignature, requestBehaviorOrNull } from "../fcaf/request-behavior.js";
-import { requestMutationOrNull, requestMutationPointers } from "../fcaf/request-mutation.js";
-import { responseScenarioOrNull } from "../fcaf/response-scenario.js";
+import { corruptJwsSignature } from "../fcaf/request-behavior.js";
+import { requestMutationPointers } from "../fcaf/request-mutation.js";
 import {
   ENTITY_STATEMENT_MEDIA_TYPE,
   signIssuerEntityConfiguration,
@@ -65,7 +63,6 @@ import {
   deliveredAuthorizationRequest,
   isDcApiResponseMode,
   isEncryptedResponseMode,
-  isOpenId4VpResponseMode,
   signPresentationAuthorizationRequest,
   verifierClientIdentifiers,
 } from "../openid4vp/authorization-request.js";
@@ -80,9 +77,8 @@ import {
   verifierChainWithTrustAnchor,
 } from "../openid4vp/request-certificates.js";
 import { negotiateRequestObjectEncryption } from "../openid4vp/request-object-encryption.js";
-import { RESPONSE_URI_PLACEHOLDER } from "../openid4vp/verifier-attestation.js";
 import { errorMessage } from "../shared/errors.js";
-import { asRecord, asStringOrNull, booleanOrNull } from "../shared/json.js";
+import { asStringOrNull, booleanOrNull } from "../shared/json.js";
 import { CaptureStore } from "../state.js";
 import { revokeStatusListReference } from "../status-list/allocation.js";
 import { STATUS_REFERENCE_FIXTURES } from "../status-list/reference-fixtures.js";
@@ -136,6 +132,15 @@ import {
   issuerFromRequest,
   parseIssuanceSessionInput,
 } from "./issuance-session-input.js";
+import {
+  VP_CLIENT_ID_SCHEMES,
+  VP_REQUEST_DELIVERIES,
+  deriveVpSessionOptions,
+  parseVpRequestOverride,
+  parseVpSessionInput,
+  serializeVpSession,
+  validateVpSessionCombination,
+} from "./presentation-session-input.js";
 import {
   dcApiSubmissionRejectionOrNull,
   presentationResponseHttpCapture,
@@ -962,204 +967,38 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
 
   app.post("/openid4vp/sessions", async (req, res, next) => {
     try {
-      const body = requestParams(req);
-      const requestUriMethod = requestUriMethodOrNull(body.request_uri_method);
-      if (body.request_uri_method !== undefined && !requestUriMethod) {
-        return res.status(400).json({ error: "unsupported_request_uri_method" });
+      const input = parseVpSessionInput(config, requestParams(req));
+      if (!input.ok) return res.status(input.status).json(input.body);
+      const options = deriveVpSessionOptions(input.value);
+      const combinationError = await validateVpSessionCombination(config, options);
+      if (combinationError) {
+        return res.status(combinationError.status).json(combinationError.body);
       }
-      const requestDelivery = requestDeliveryOrNull(body.request_delivery);
-      if (body.request_delivery !== undefined && !requestDelivery) {
-        return res.status(400).json({ error: "unsupported_request_delivery" });
-      }
-      const clientIdScheme = clientIdSchemeOrNull(body.client_id_scheme);
-      if (body.client_id_scheme !== undefined && !clientIdScheme) {
-        return res.status(400).json({ error: "unsupported_client_id_scheme" });
-      }
-      if (requestDelivery && requestDelivery !== "by_reference" && requestUriMethod) {
-        return res.status(400).json({ error: "request_uri_method_requires_by_reference_delivery" });
-      }
-      const responseMode = responseModeOrNull(body.response_mode);
-      if (body.response_mode !== undefined && !responseMode) {
-        return res.status(400).json({ error: "unsupported_response_mode" });
-      }
-      const deeplinkScheme = deeplinkSchemeOrNull(body.scheme);
-      if (body.scheme !== undefined && !deeplinkScheme) {
-        return res.status(400).json({ error: "invalid_deeplink_scheme" });
-      }
-      const redirectUri = responseRedirectUriInputOrNull(body.redirect_uri, config);
-      if (body.redirect_uri !== undefined && !redirectUri) {
-        return res.status(400).json({ error: "invalid_redirect_uri" });
-      }
-      const clientMetadata = clientMetadataOrNull(body.client_metadata);
-      if (body.client_metadata !== undefined && clientMetadata === undefined) {
-        return res.status(400).json({ error: "invalid_client_metadata" });
-      }
-      const allowUndecryptableResponse = booleanOrNull(body.allow_undecryptable_response ?? false);
-      if (allowUndecryptableResponse === null) {
-        return res.status(400).json({ error: "invalid_allow_undecryptable_response" });
-      }
-      const requestMutation = requestMutationOrNull(body.request_mutation);
-      if (requestMutation === null) {
-        return res.status(400).json({ error: "invalid_request_mutation" });
-      }
-      if (requestMutation && !config.fcaf_scenarios_enabled) {
-        return res.status(400).json({ error: "request_mutation_not_enabled" });
-      }
-      const requestBehavior = requestBehaviorOrNull(body.request_behavior);
-      if (requestBehavior === null) {
-        return res.status(400).json({ error: "invalid_request_behavior" });
-      }
-      if (requestBehavior && !config.fcaf_scenarios_enabled) {
-        return res.status(400).json({ error: "request_behavior_not_enabled" });
-      }
-      const verifierAttestation = verifierAttestationOrNull(body.verifier_attestation);
-      if (verifierAttestation === null) {
-        return res.status(400).json({ error: "invalid_verifier_attestation" });
-      }
-      if (verifierAttestation?.signature && !config.fcaf_scenarios_enabled) {
-        return res.status(400).json({ error: "request_behavior_not_enabled" });
-      }
-      const responseScenario = responseScenarioOrNull(body.response_scenario);
-      if (responseScenario === null) {
-        return res.status(400).json({ error: "invalid_response_scenario" });
-      }
-      if (responseScenario && !config.fcaf_scenarios_enabled) {
-        return res.status(400).json({ error: "response_scenario_not_enabled" });
-      }
-      const selectedResponseMode = responseMode ?? "direct_post.jwt";
-      const selectedClientIdScheme = clientIdScheme ?? "x509_hash";
-      const dcApi = isDcApiResponseMode(selectedResponseMode);
-      const selectedRequestDelivery = requestDelivery ?? (dcApi ? "by_value" : "by_reference");
-      if (dcApi && selectedRequestDelivery === "by_reference") {
-        return res.status(400).json({ error: "request_delivery_unsupported_for_dc_api" });
-      }
-      if (dcApi && selectedClientIdScheme === "redirect_uri") {
-        return res.status(400).json({ error: "client_id_scheme_unsupported_for_dc_api" });
-      }
-      if (dcApi && requestUriMethod) {
-        return res.status(400).json({ error: "request_uri_method_unsupported_for_dc_api" });
-      }
-      if (dcApi && redirectUri) {
-        return res.status(400).json({ error: "redirect_uri_unsupported_for_dc_api" });
-      }
-      if (dcApi && verifierAttestation?.redirect_uris?.includes(RESPONSE_URI_PLACEHOLDER)) {
-        return res.status(400).json({ error: "response_uri_placeholder_unsupported_for_dc_api" });
-      }
-      if (requestBehavior?.signature === "corrupt" && selectedClientIdScheme === "redirect_uri") {
-        return res.status(400).json({ error: "signature_behavior_requires_a_signed_request" });
-      }
-      if (
-        (requestBehavior?.signing_key || requestBehavior?.certificate_chain) &&
-        selectedClientIdScheme === "redirect_uri"
-      ) {
-        return res.status(400).json({ error: "signature_behavior_requires_a_signed_request" });
-      }
-      if (requestBehavior?.certificate_chain && selectedClientIdScheme !== "x509_hash") {
-        return res.status(400).json({ error: "certificate_chain_requires_x509_hash_client_id" });
-      }
-      if (
-        requestBehavior?.certificate_chain === "with_trust_anchor" &&
-        !existsSync(verifierCaCertificatePath(config.data_dir))
-      ) {
-        return res.status(400).json({
-          error: "verifier_ca_certificate_not_configured",
-          error_description:
-            "certificate_chain with_trust_anchor needs the CA certificate at verifier/verifier-ca-certificate.pem in the data directory",
-        });
-      }
-      if (requestBehavior?.certificate_chain === "with_trust_anchor") {
-        const chainError = await trustAnchorChainError(config);
-        if (chainError) {
-          return res
-            .status(400)
-            .json({ error: "verifier_ca_certificate_invalid", error_description: chainError });
-        }
-      }
-      if (verifierAttestation && selectedClientIdScheme !== "verifier_attestation") {
-        return res
-          .status(400)
-          .json({ error: "verifier_attestation_requires_verifier_attestation_client_id" });
-      }
-      if (selectedClientIdScheme === "redirect_uri" && selectedRequestDelivery !== "plain") {
-        return res.status(400).json({ error: "redirect_uri_client_id_requires_plain_delivery" });
-      }
-      if (selectedRequestDelivery === "multisigned") {
-        if (!dcApi) {
-          return res.status(400).json({ error: "multisigned_request_delivery_requires_dc_api" });
-        }
-        if (clientIdScheme && clientIdScheme !== "x509_hash") {
-          return res.status(400).json({ error: "client_id_scheme_unsupported_for_multisigned" });
-        }
-        if (
-          requestBehavior?.signature ||
-          requestBehavior?.signing_key ||
-          requestBehavior?.certificate_chain ||
-          requestMutation?.request_object_header ||
-          verifierAttestation
-        ) {
-          return res.status(400).json({ error: "signature_behavior_unsupported_for_multisigned" });
-        }
-      }
-      if (clientMetadata === null && isEncryptedResponseMode(selectedResponseMode)) {
-        return res.status(400).json({ error: "client_metadata_required_for_encrypted_response" });
-      }
-      if (allowUndecryptableResponse && !clientMetadata) {
-        return res
-          .status(400)
-          .json({ error: "allow_undecryptable_response_requires_client_metadata" });
-      }
-      const requestOverride: JsonRecord = {
-        ...(asRecord(body.presentation_request) ?? vpRequestBody(body)),
-        ...(body.response_type !== undefined ? { response_type: body.response_type } : {}),
-      };
-      // `state` is generated per request; a caller may only ask for it to be omitted.
-      if (requestOverride.state !== undefined && requestOverride.state !== null) {
-        return res.status(400).json({ error: "invalid_state" });
-      }
-      // Appendix A.3.2.2 binds `verifier_info` to one signature's Client Identifier, and a
-      // caller-supplied attestation names only one of the two this request is signed under.
-      if (
-        selectedRequestDelivery === "multisigned" &&
-        requestOverride.verifier_info !== undefined
-      ) {
-        return res.status(400).json({ error: "verifier_info_unsupported_for_multisigned" });
+      const requestOverride = parseVpRequestOverride(options);
+      if (!requestOverride.ok) {
+        return res.status(requestOverride.status).json(requestOverride.body);
       }
       const session = await createVpSession(
         config,
         store,
-        requestOverride,
+        requestOverride.value,
         undefined,
-        requestUriMethod ?? "get",
-        selectedResponseMode,
-        selectedRequestDelivery,
-        deeplinkScheme ?? "openid4vp://",
-        redirectUri?.value,
-        redirectUri?.capture,
-        clientMetadata,
-        selectedClientIdScheme,
-        allowUndecryptableResponse,
-        requestMutation,
-        requestBehavior,
-        responseScenario,
-        verifierAttestation,
+        options.requestUriMethod ?? "get",
+        options.selectedResponseMode,
+        options.selectedRequestDelivery,
+        options.deeplinkScheme ?? "openid4vp://",
+        options.redirectUri?.value,
+        options.redirectUri?.capture,
+        options.clientMetadata,
+        options.selectedClientIdScheme,
+        options.allowUndecryptableResponse,
+        options.requestMutation,
+        options.requestBehavior,
+        options.responseScenario,
+        options.verifierAttestation,
       );
       store.addEvent(session, "vp_deeplink_generated", {});
-      return res.status(201).json({
-        session_id: session.session_id,
-        request_delivery: session.request_delivery,
-        ...(session.request_uri === undefined ? {} : { request_uri: session.request_uri }),
-        ...(session.request_uri_method === undefined
-          ? {}
-          : { request_uri_method: session.request_uri_method }),
-        response_mode: session.response_mode,
-        ...(session.deeplink_scheme === undefined ? {} : { scheme: session.deeplink_scheme }),
-        ...(session.response_uri === undefined ? {} : { response_uri: session.response_uri }),
-        ...(session.redirect_uri ? { redirect_uri: session.redirect_uri } : {}),
-        deeplink: session.deeplink,
-        ...(session.dc_api ? { dc_api_request: session.dc_api.request } : {}),
-        authorization_request: session.authorization_request,
-        status: session.status,
-      });
+      return res.status(201).json(serializeVpSession(session));
     } catch (error) {
       if (error instanceof ClientMetadataError) {
         return res.status(400).json({ error: "invalid_client_metadata" });
@@ -2000,24 +1839,6 @@ async function requestSigningMaterialOrUndefined(
 }
 
 /**
- * `with_trust_anchor` must add exactly one defect, the anchor in `x5c`. A configured CA that did
- * not issue the deployed verifier certificate would also break the chain, and a Wallet could then
- * reject the request for that reason instead, so the chain is validated with Credo first.
- */
-async function trustAnchorChainError(config: AppConfig): Promise<string | undefined> {
-  let chain: string[];
-  try {
-    chain = verifierChainWithTrustAnchor(config).x5c ?? [];
-  } catch (error) {
-    return `verifier/verifier-ca-certificate.pem is not a parseable certificate: ${errorMessage(error)}`;
-  }
-  const reason = await (await credoOpenId4VpVerifier(config)).certificateChainError(chain);
-  return reason === undefined
-    ? undefined
-    : `the configured CA certificate does not validate the deployed verifier certificate: ${reason}`;
-}
-
-/**
  * Serves the Request Object. A session's `request_uri_response` behaviour replaces the status,
  * media type, or body so that a Wallet receives the specifically wrong retrieval response a test
  * requires; the delivered response is recorded either way.
@@ -2056,34 +1877,6 @@ function requestUriHttpCapture(req: Request): RequestUriHttpCapture {
   };
 }
 
-const CAPTURE_REDIRECT_URI_TEMPLATE = "{{base_url}}/openid4vp/redirect";
-
-function responseRedirectUriInputOrNull(
-  value: unknown,
-  config: AppConfig,
-): { value: string; capture?: true } | null {
-  if (typeof value !== "string") return null;
-  const captureRedirectUri = `${config.issuer_base_url}/openid4vp/redirect`;
-  const redirectUri = value === CAPTURE_REDIRECT_URI_TEMPLATE ? captureRedirectUri : value;
-  try {
-    const url = new URL(redirectUri);
-    const isCaptureRedirect = url.toString() === new URL(captureRedirectUri).toString();
-    return url.protocol === "http:" || url.protocol === "https:"
-      ? {
-          value: url.toString(),
-          ...(isCaptureRedirect ? { capture: true } : {}),
-        }
-      : null;
-  } catch {
-    return null;
-  }
-}
-
-function clientMetadataOrNull(value: unknown): JsonRecord | null | undefined {
-  if (value === null) return null;
-  return asRecord(value) ?? undefined;
-}
-
 function redirectUriWithResponseCode(redirectUri: string): string {
   const url = new URL(redirectUri);
   url.searchParams.append("response_code", randomBytes(16).toString("base64url"));
@@ -2111,16 +1904,6 @@ function redirectUriVisitHttpCapture(req: Request): RedirectUriVisitHttpCapture 
   };
 }
 
-function requestUriMethodOrNull(value: unknown): string | null {
-  return typeof value === "string" ? value : null;
-}
-
-function responseModeOrNull(value: unknown): OpenId4VpResponseMode | null {
-  if (typeof value !== "string") return null;
-  const normalized = value.toLowerCase();
-  return isOpenId4VpResponseMode(normalized) ? normalized : null;
-}
-
 function dcApiInvocationOutcomeOrNull(value: unknown): VpDcApiInvocationOutcome | null {
   return value === "api_unavailable" ||
     value === "rejected" ||
@@ -2128,81 +1911,4 @@ function dcApiInvocationOutcomeOrNull(value: unknown): VpDcApiInvocationOutcome 
     value === "failed"
     ? value
     : null;
-}
-
-const VP_REQUEST_DELIVERIES: VpRequestDelivery[] = [
-  "by_reference",
-  "by_value",
-  "plain",
-  "multisigned",
-];
-
-function requestDeliveryOrNull(value: unknown): VpRequestDelivery | null {
-  if (typeof value !== "string") return null;
-  const normalized = value.toLowerCase();
-  return VP_REQUEST_DELIVERIES.find((delivery) => delivery === normalized) ?? null;
-}
-
-const VP_CLIENT_ID_SCHEMES: OpenId4VpClientIdScheme[] = [
-  "x509_hash",
-  "x509_san_dns",
-  "decentralized_identifier",
-  "verifier_attestation",
-  "redirect_uri",
-];
-
-function clientIdSchemeOrNull(value: unknown): OpenId4VpClientIdScheme | null {
-  return VP_CLIENT_ID_SCHEMES.find((scheme) => scheme === value) ?? null;
-}
-
-/**
- * Parses the Verifier Attestation content. Returning null refuses the request rather than signing
- * an attestation whose defect is not the one the caller asked for.
- */
-function verifierAttestationOrNull(value: unknown): VpVerifierAttestation | null | undefined {
-  if (value === undefined) return undefined;
-  const attestation = asRecord(value);
-  if (!attestation) return null;
-  const { subject, issuer, redirect_uris, claims, signature, ...rest } = attestation;
-  if (Object.keys(rest).length > 0) return null;
-  if (subject !== undefined && typeof subject !== "string") return null;
-  if (issuer !== undefined && typeof issuer !== "string") return null;
-  if (
-    redirect_uris !== undefined &&
-    (!Array.isArray(redirect_uris) || redirect_uris.some((uri) => typeof uri !== "string"))
-  ) {
-    return null;
-  }
-  if (claims !== undefined && !asRecord(claims)) return null;
-  if (signature !== undefined && signature !== "corrupt") return null;
-  return {
-    ...(subject === undefined ? {} : { subject }),
-    ...(issuer === undefined ? {} : { issuer }),
-    ...(redirect_uris === undefined ? {} : { redirect_uris: redirect_uris as string[] }),
-    ...(claims === undefined ? {} : { claims: claims as JsonRecord }),
-    ...(signature === undefined ? {} : { signature: "corrupt" as const }),
-  };
-}
-
-function deeplinkSchemeOrNull(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  return /^[a-z][a-z0-9+.-]*:\/\/$/i.test(value) ? value : null;
-}
-
-function vpRequestBody(body: JsonRecord): JsonRecord {
-  const {
-    request_delivery: _requestDelivery,
-    request_uri_method: _requestUriMethod,
-    response_mode: _responseMode,
-    redirect_uri: _redirectUri,
-    client_metadata: _clientMetadata,
-    client_id_scheme: _clientIdScheme,
-    scheme: _scheme,
-    allow_undecryptable_response: _allowUndecryptableResponse,
-    request_mutation: _requestMutation,
-    request_behavior: _requestBehavior,
-    response_scenario: _responseScenario,
-    ...request
-  } = body;
-  return request;
 }
