@@ -331,7 +331,7 @@ describe("Attestbook webhook HTTP contract", () => {
 
   it("returns notification_not_recorded when durable persistence fails", async () => {
     const harness = await createHarness();
-    rmSync(attestbookStatePath(harness.dataDir));
+    rmSync(attestbookStatePath(harness.dataDir), { force: true });
     mkdirSync(attestbookStatePath(harness.dataDir), { recursive: true });
     const event = eventFor("persistence-failure");
     const response = await postDelivery(harness, signedDelivery(webhookSecret, event));

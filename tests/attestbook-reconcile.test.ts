@@ -132,7 +132,7 @@ describe("Attestbook reconciliation failures", () => {
 
   it("records persistence failure after activation", async () => {
     const harness = await createHarness();
-    rmSync(attestbookStatePath(harness.dataDir));
+    rmSync(attestbookStatePath(harness.dataDir), { force: true });
     mkdirSync(attestbookStatePath(harness.dataDir), { recursive: true });
     const event = eventWithMembership("persistence-failure");
     await expect(

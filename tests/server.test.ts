@@ -4092,6 +4092,11 @@ describe("capture issuer server", () => {
     it("lists a session's requests with every unattributed request since it was created", async () => {
       const app = createApp(config);
       await request(app).get("/.well-known/oauth-authorization-server");
+      // The window's millisecond-inclusive `from` needs the next tick to exclude this request.
+      const preSessionRequestCompletedAt = Date.now();
+      while (Date.now() === preSessionRequestCompletedAt) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
       const session = await postJson<SessionCreateResponse>(app, "/sessions", {
         credential_offer_mode: "credential_offer_uri",
       });
