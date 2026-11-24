@@ -72,7 +72,11 @@ If a required design decision, convention, or security policy is not evident fro
 
 ## Repository map
 
-- `src/server/app.ts`: Express routes for both the OpenID4VCI issuer and the OpenID4VP verifier (sessions, request URIs, responses, DC API), the UI routes and metadata/discovery endpoints.
+- `src/server/app.ts`: Express composition root: parser/capture middleware, fake OAuth server, ordered route registrations, unmatched 404 and error handling.
+- `src/server/context.ts`: per-request OpenID4VCI capture context and issuance response-scenario seam shared by route groups.
+- `src/server/issuance-session.ts`: issuance-session creation and credential supersession guard used by issuance/UI routes.
+- `src/server/presentation-session.ts`: OpenID4VP session creation, request signing material, and redirect helpers.
+- `src/server/routes/`: cohesive direct app registrations for public/UI, discovery and issuer metadata, issuance, OpenID4VP sessions/requests/responses, credential/notification and protocol forwarding.
 - `src/openid4vp/authorization-request.ts`: OpenID4VP session creation and request construction.
 - `src/openid4vp/credo-verifier.ts`: Credo-TS-backed OpenID4VP verification integration.
 - `src/openid4vci/credo-issuer.ts`: Credo-TS-backed OpenID4VCI issuer integration and credential-request mapping.
