@@ -50,8 +50,8 @@ Batch 10 (B-02). Batches 0–9 completed.
 | B-03 | Completed | B-02 | Luna | Opus | 980d432 | e221d77 (task 71943dc) | APPROVE; compiled JS byte-identical to base | madge: 2 → **0 cycles**; `attestbook/integration.ts` no longer imports `ui.ts` | `src/types.ts` remains a large shared type module (X-5) |
 | B-05 | Completed | B-02, B-04, T-05 | Luna | Opus | 980d432 | 0fd94f0 (task 9f835e4) | APPROVE; verbatim; **revised**: `trustedIssuerForX509Credential` stays in `credo-verifier.ts` (trust policy, sole caller is the agent's trust callback) after reviewer cohesion finding | inventory unchanged | none |
 | B-06 | Completed | B-03, B-09 | Luna | Opus | 0fd94f0 | b2dde4f (task d3a087c) | APPROVE; verbatim; `configPath`/`issuerFederationJwksPath` exported (still used by config.ts) | inventory identical; no cycles | AGENTS.md map updated in B-07 |
-| B-07 | In progress | B-06, T-06, T-08 | Luna | Opus | b2dde4f | | | | |
-| B-08 | Pending | B-07 | Luna | Opus | | | | | |
+| B-07 | Completed | B-06, T-06, T-08 | Luna | Opus | b2dde4f | 0a53661 (task 4bf659f) | APPROVE after amendment (more YAML edge cases pinned; derived key set; env constants order; AGENTS map) | +6 YAML characterisation tests; `init` output equal to base (34 files, modes 0600, config.yaml bytes, JWK structure, kid derivation, certificate fields — verified by implementer and reviewer); no cycles | attestbook/settings.ts keeps its own boolean parser: reuse would create a real `defaults ↔ settings` cycle (identical tokens/messages) |
+| B-08 | In progress | B-07 | Luna | Opus | 0a53661 | | | | |
 | C-01 | Pending | B-08, T-01 | Luna | Opus | | | | | |
 | C-02 | Pending | C-01, T-02 | Luna | Opus | | | | | |
 | C-03 | Pending | C-02 | Luna | Opus | | | | | |
