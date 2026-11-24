@@ -28,7 +28,8 @@ import {
   ENTITY_STATEMENT_MEDIA_TYPE,
   signIssuerEntityConfiguration,
 } from "../federation/entity-configuration.js";
-import { apiDocsPage, openApiDocument } from "../openapi.js";
+import { apiDocsPage } from "../openapi/docs-page.js";
+import { openApiDocument } from "../openapi/document.js";
 import { credoOpenId4VciIssuer } from "../openid4vci/credo-issuer.js";
 import { registerFakeOAuthServer } from "../openid4vci/fake-oauth-server.js";
 import {

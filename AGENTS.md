@@ -108,7 +108,7 @@ If a required design decision, convention, or security policy is not evident fro
 - `src/status-list/allocation.ts`: Token Status List reference allocation and revocation.
 - `src/status-list/reference-fixtures.ts`: valid and malformed Token Status List reference fixtures.
 - `src/status-list/malformed-mdoc-status.ts`: malformed mdoc Token Status List fixture generation.
-- `src/openapi.ts`: OpenAPI document and interactive API documentation page.
+- `src/openapi/`: OpenAPI document assembly (`document.ts`), shared helpers (`common.ts`), component schemas (`components.ts`), concern-based `paths-*.ts`, and the interactive docs page (`docs-page.ts`).
 - `src/cli.ts`: package.json `"bin"` entry point.
 - `src/cli/commands.ts`: command-line argument parsing and command handling for service operation, federation exports and Attestbook commands.
 - `src/ui.ts`: server-rendered operator UI.

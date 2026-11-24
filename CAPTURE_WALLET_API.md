@@ -754,4 +754,4 @@ The issuer page and the verifier page (`/openid4vp`) create sessions by calling 
 
 ## Keeping this reference current
 
-When the public contract changes, update this file and `src/openapi.ts` in the same change. Add or update route-level tests for every changed protocol, metadata, or security boundary. For exact schemas, error objects, and media types, consult `/openapi.json` and the relevant OpenID specification.
+When the public contract changes, update this file and `src/openapi/` in the same change. Add or update route-level tests for every changed protocol, metadata, or security boundary. For exact schemas, error objects, and media types, consult `/openapi.json` and the relevant OpenID specification.
