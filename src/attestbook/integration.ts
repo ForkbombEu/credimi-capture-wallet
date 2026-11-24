@@ -521,8 +521,7 @@ export class AttestbookIntegration {
         );
       }
       this.observe(latest, "event_feed");
-      const registry = credentialRegistry(this.config, this.store);
-      const active = registry.activeCatalogue(this.issuer.id);
+      const active = credentialRegistry(this.config, this.store).activeCatalogue(this.issuer.id);
       if (active?.contentDigest === latest.contentDigest && active.version === latest.version) {
         await this.completeSync("up_to_date", trigger);
         return;
@@ -546,20 +545,7 @@ export class AttestbookIntegration {
       this.state = "validating";
       const catalogue = await this.prepareCatalogue(snapshot, new Date().toISOString());
       this.state = "activating";
-      try {
-        await registry.activate(catalogue);
-      } catch (error) {
-        throw new SyncStageError("activate", "activation_failed", errorMessage(error));
-      }
-      this.logger("catalogue_activated", catalogueLogFields(catalogue));
-      try {
-        await this.persistence.update((state) => ({
-          ...state,
-          active: { snapshot, activated_at: catalogue.activatedAt },
-        }));
-      } catch (error) {
-        throw new SyncStageError("persist", "persist_failed", errorMessage(error));
-      }
+      await this.publishCatalogue(catalogue, snapshot);
       await this.completeSync("activated", trigger);
     } catch (error) {
       const failure = this.recordFailure(error, null, latest);
@@ -615,37 +601,7 @@ export class AttestbookIntegration {
       definitions: compiled.definitions.length,
       diagnostics: compiled.diagnostics.length,
     });
-    const issuability: AttestbookDiagnostic[] = [];
-    for (const definition of compiled.definitions) {
-      let claims: JsonRecord;
-      try {
-        // A seed fixed by the version, so a constraint no generated value can meet is found here.
-        claims = generateClaims(
-          definition,
-          `${definition.contentDigest}:${definition.credentialConfigurationId}`,
-        );
-      } catch (error) {
-        issuability.push({
-          severity: "error",
-          code: "claim_generation_failed",
-          attestation: definition.attestation.name,
-          field: "claims",
-          message: errorMessage(error),
-        });
-        continue;
-      }
-      try {
-        await this.dryRunSign(definition, claims);
-      } catch (error) {
-        issuability.push({
-          severity: "error",
-          code: "dry_run_signing_failed",
-          attestation: definition.attestation.name,
-          field: null,
-          message: errorMessage(error),
-        });
-      }
-    }
+    const issuability = await this.evaluateIssuability(compiled.definitions);
     if (issuability.length > 0) {
       this.diagnostics = [...compiled.diagnostics, ...issuability];
       throw new SyncStageError(
@@ -666,6 +622,64 @@ export class AttestbookIntegration {
       activatedAt,
       definitions: compiled.definitions,
     };
+  }
+
+  private async evaluateIssuability(
+    definitions: readonly AttestbookCredentialDefinition[],
+  ): Promise<readonly AttestbookDiagnostic[]> {
+    const diagnostics: AttestbookDiagnostic[] = [];
+    for (const definition of definitions) {
+      let claims: JsonRecord;
+      try {
+        // A seed fixed by the version, so a constraint no generated value can meet is found here.
+        claims = generateClaims(
+          definition,
+          `${definition.contentDigest}:${definition.credentialConfigurationId}`,
+        );
+      } catch (error) {
+        diagnostics.push({
+          severity: "error",
+          code: "claim_generation_failed",
+          attestation: definition.attestation.name,
+          field: "claims",
+          message: errorMessage(error),
+        });
+        continue;
+      }
+      try {
+        await this.dryRunSign(definition, claims);
+      } catch (error) {
+        diagnostics.push({
+          severity: "error",
+          code: "dry_run_signing_failed",
+          attestation: definition.attestation.name,
+          field: null,
+          message: errorMessage(error),
+        });
+      }
+    }
+    return diagnostics;
+  }
+
+  private async publishCatalogue(
+    catalogue: ImportedCatalogue,
+    snapshot: AttestbookSnapshot,
+  ): Promise<void> {
+    const registry = credentialRegistry(this.config, this.store);
+    try {
+      await registry.activate(catalogue);
+    } catch (error) {
+      throw new SyncStageError("activate", "activation_failed", errorMessage(error));
+    }
+    this.logger("catalogue_activated", catalogueLogFields(catalogue));
+    try {
+      await this.persistence.update((state) => ({
+        ...state,
+        active: { snapshot, activated_at: catalogue.activatedAt },
+      }));
+    } catch (error) {
+      throw new SyncStageError("persist", "persist_failed", errorMessage(error));
+    }
   }
 
   private async dryRunSign(
