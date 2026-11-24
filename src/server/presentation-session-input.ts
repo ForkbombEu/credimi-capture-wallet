@@ -458,21 +458,23 @@ function verifierAttestationOrNull(value: unknown): VpVerifierAttestation | null
   if (Object.keys(rest).length > 0) return null;
   if (subject !== undefined && typeof subject !== "string") return null;
   if (issuer !== undefined && typeof issuer !== "string") return null;
-  if (
-    redirect_uris !== undefined &&
-    (!Array.isArray(redirect_uris) || redirect_uris.some((uri) => typeof uri !== "string"))
-  ) {
-    return null;
-  }
+  const redirectUris = redirectUrisOrNull(redirect_uris);
+  if (redirectUris === null) return null;
   if (claims !== undefined && !asRecord(claims)) return null;
   if (signature !== undefined && signature !== "corrupt") return null;
   return {
     ...(subject === undefined ? {} : { subject }),
     ...(issuer === undefined ? {} : { issuer }),
-    ...(redirect_uris === undefined ? {} : { redirect_uris: redirect_uris as string[] }),
+    ...(redirectUris === undefined ? {} : { redirect_uris: redirectUris }),
     ...(claims === undefined ? {} : { claims: claims as JsonRecord }),
     ...(signature === undefined ? {} : { signature: "corrupt" as const }),
   };
+}
+
+function redirectUrisOrNull(value: unknown): string[] | null | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.some((uri) => typeof uri !== "string")) return null;
+  return value as string[];
 }
 
 function deeplinkSchemeOrNull(value: unknown): string | null {

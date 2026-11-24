@@ -52,7 +52,7 @@ import {
   isEncryptedResponseMode,
   verifierClientIdentifiers,
 } from "../openid4vp/authorization-request.js";
-import { credoOpenId4VpVerifier } from "../openid4vp/credo-verifier.js";
+import { type CredoVpSession, credoOpenId4VpVerifier } from "../openid4vp/credo-verifier.js";
 import {
   generateRequestCertificateMaterial,
   generateUnrelatedSigningKey,
@@ -489,7 +489,10 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
             .send(errorPage("Unsupported credential configuration"));
         }
 
-        const session = await createVpSession(config, store, {}, [credentialConfigurationId]);
+        const session = await createVpSession(config, store, {
+          requestOverride: {},
+          credentialConfigurationIds: [credentialConfigurationId],
+        });
         store.addEvent(session, "vp_deeplink_generated", {});
         return res.redirect(
           303,
@@ -974,25 +977,22 @@ export function createApp(config: AppConfig, store = new CaptureStore(config)): 
       if (!requestOverride.ok) {
         return res.status(requestOverride.status).json(requestOverride.body);
       }
-      const session = await createVpSession(
-        config,
-        store,
-        requestOverride.value,
-        undefined,
-        options.requestUriMethod ?? "get",
-        options.selectedResponseMode,
-        options.selectedRequestDelivery,
-        options.deeplinkScheme ?? "openid4vp://",
-        options.redirectUri?.value,
-        options.redirectUri?.capture,
-        options.clientMetadata,
-        options.selectedClientIdScheme,
-        options.allowUndecryptableResponse,
-        options.requestMutation,
-        options.requestBehavior,
-        options.responseScenario,
-        options.verifierAttestation,
-      );
+      const session = await createVpSession(config, store, {
+        requestOverride: requestOverride.value,
+        requestUriMethod: options.requestUriMethod ?? "get",
+        responseMode: options.selectedResponseMode,
+        requestDelivery: options.selectedRequestDelivery,
+        deeplinkScheme: options.deeplinkScheme ?? "openid4vp://",
+        redirectUri: options.redirectUri?.value,
+        captureRedirect: options.redirectUri?.capture,
+        clientMetadata: options.clientMetadata,
+        clientIdScheme: options.selectedClientIdScheme,
+        allowUndecryptableResponse: options.allowUndecryptableResponse,
+        requestMutation: options.requestMutation,
+        requestBehavior: options.requestBehavior,
+        responseScenario: options.responseScenario,
+        verifierAttestation: options.verifierAttestation,
+      });
       store.addEvent(session, "vp_deeplink_generated", {});
       return res.status(201).json(serializeVpSession(session));
     } catch (error) {
@@ -1507,24 +1507,56 @@ async function issuerCredentialGroups(
   }));
 }
 
+type CreateVpSessionOptions = {
+  requestOverride: JsonRecord;
+  credentialConfigurationIds?: string[];
+  requestUriMethod?: string;
+  responseMode?: OpenId4VpResponseMode;
+  requestDelivery?: VpRequestDelivery;
+  deeplinkScheme?: string;
+  redirectUri?: string;
+  captureRedirect?: boolean;
+  clientMetadata?: JsonRecord | null;
+  clientIdScheme?: OpenId4VpClientIdScheme;
+  allowUndecryptableResponse?: boolean;
+  requestMutation?: VpRequestMutation;
+  requestBehavior?: VpRequestBehavior;
+  responseScenario?: VpResponseScenario;
+  verifierAttestation?: VpVerifierAttestation;
+};
+
+type RecordVpSessionStateOptions = {
+  store: CaptureStore;
+  session: VpSessionCapture;
+  credoSession: CredoVpSession;
+  captureRedirect: boolean;
+  sessionRedirectUri?: string;
+  requestBehavior?: VpRequestBehavior;
+  requestSigningMaterial?: RequestSigningMaterial;
+  responseScenario?: VpResponseScenario;
+  requestMutation?: VpRequestMutation;
+};
+
 async function createVpSession(
   config: AppConfig,
   store: CaptureStore,
-  requestOverride: JsonRecord,
-  credentialConfigurationIds?: string[],
-  requestUriMethod = "get",
-  responseMode: OpenId4VpResponseMode = "direct_post.jwt",
-  requestDelivery: VpRequestDelivery = "by_reference",
-  deeplinkScheme = "openid4vp://",
-  redirectUri?: string,
-  captureRedirect = false,
-  clientMetadata?: JsonRecord | null,
-  clientIdScheme: OpenId4VpClientIdScheme = "x509_hash",
-  allowUndecryptableResponse = false,
-  requestMutation?: VpRequestMutation,
-  requestBehavior?: VpRequestBehavior,
-  responseScenario?: VpResponseScenario,
-  verifierAttestation?: VpVerifierAttestation,
+  {
+    requestOverride,
+    credentialConfigurationIds,
+    requestUriMethod = "get",
+    responseMode = "direct_post.jwt",
+    requestDelivery = "by_reference",
+    deeplinkScheme = "openid4vp://",
+    redirectUri,
+    captureRedirect = false,
+    clientMetadata,
+    clientIdScheme = "x509_hash",
+    allowUndecryptableResponse = false,
+    requestMutation,
+    requestBehavior,
+    responseScenario,
+    verifierAttestation,
+  }: CreateVpSessionOptions,
 ): Promise<VpSessionCapture> {
   const sessionId = randomUUID();
   const defaultRequest = defaultPresentationRequest(
@@ -1577,18 +1609,47 @@ async function createVpSession(
     },
     dcApi,
   );
+  recordVpSessionState({
+    store,
+    session,
+    credoSession,
+    captureRedirect,
+    sessionRedirectUri,
+    requestBehavior,
+    requestSigningMaterial,
+    responseScenario,
+    requestMutation,
+  });
+  session.deeplink = credoSession.deeplink;
+  return session;
+}
+
+function recordVpSessionState({
+  store,
+  session,
+  credoSession,
+  captureRedirect,
+  sessionRedirectUri,
+  requestBehavior,
+  requestSigningMaterial,
+  responseScenario,
+  requestMutation,
+}: RecordVpSessionStateOptions): void {
   const responseCode = sessionRedirectUri ? responseCodeFromRedirectUri(sessionRedirectUri) : null;
   if (captureRedirect && responseCode) {
-    store.linkVpRedirectResponseCode(sessionId, responseCode);
+    store.linkVpRedirectResponseCode(session.session_id, responseCode);
   }
-  store.vpCredoVerificationSessionIds.set(sessionId, credoSession.verificationSessionId);
+  store.vpCredoVerificationSessionIds.set(session.session_id, credoSession.verificationSessionId);
   if (credoSession.deliveredAuthorizationRequestJwt) {
     store.vpCredoAuthorizationRequestJwts.set(
-      sessionId,
+      session.session_id,
       credoSession.deliveredAuthorizationRequestJwt,
     );
   }
-  if (isEncryptedResponseMode(responseMode) && !credoSession.verifierEncryptionKeyPublished) {
+  if (
+    isEncryptedResponseMode(session.response_mode) &&
+    !credoSession.verifierEncryptionKeyPublished
+  ) {
     store.addEvent(session, "vp_undecryptable_response_allowed", {
       verifier_encryption_key_published: false,
     });
@@ -1598,9 +1659,9 @@ async function createVpSession(
     store.addEvent(session, "vp_request_behavior_applied", { ...requestBehavior });
   }
   if (requestSigningMaterial) {
-    store.vpRequestSigningMaterial.set(sessionId, requestSigningMaterial);
+    store.vpRequestSigningMaterial.set(session.session_id, requestSigningMaterial);
   }
-  store.vpDeliveredRequestRecipes.set(sessionId, credoSession.deliveredRequestRecipe);
+  store.vpDeliveredRequestRecipes.set(session.session_id, credoSession.deliveredRequestRecipe);
   if (responseScenario) {
     session.response_scenario = responseScenario;
     store.addEvent(session, "vp_response_scenario_selected", { ...responseScenario });
@@ -1618,8 +1679,6 @@ async function createVpSession(
       verification_applies: requestMutation.verification_applies ?? null,
     });
   }
-  session.deeplink = credoSession.deeplink;
-  return session;
 }
 
 /**
