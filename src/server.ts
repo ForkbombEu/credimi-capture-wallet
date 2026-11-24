@@ -50,7 +50,6 @@ import {
   jwtVcIssuerMetadata,
   signCredentialIssuerMetadata,
   supportedCredentialConfigurationIds,
-  supportedCredentials,
 } from "./metadata.js";
 import {
   completeOid4vciRequestCapture,
@@ -111,7 +110,6 @@ import type {
   SessionCapture,
   StatusListUpdateCapture,
   StatusReferenceFixture,
-  VerifierResponseHttpCapture,
   VpDcApiInvocationCapture,
   VpDcApiInvocationOutcome,
   VpRequestBehavior,

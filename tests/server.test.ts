@@ -61,10 +61,9 @@ import {
   PID_MDOC_CLAIMS,
   PID_MDOC_DOCTYPE,
   PID_MDOC_NAMESPACE,
-  PID_SD_JWT_CLAIMS,
   PID_SD_JWT_VCT,
 } from "../src/credential-definitions.js";
-import { CREDIMI_LOGO_URL, issueSdJwtCredential } from "../src/credential.js";
+import { issueSdJwtCredential } from "../src/credential.js";
 import {
   degreeSdJwtCredentialConfigurationId,
   domesticPidCredentialConfigurationId,
@@ -7500,12 +7499,6 @@ describe("FCAF verifier response scenarios", () => {
     expect(response.body).toEqual({ error: "response_scenario_not_enabled" });
   });
 });
-
-async function postForm<T>(app: Express, path: string, body: Record<string, string>): Promise<T> {
-  const response = await request(app).post(path).type("form").send(body);
-  expect(response.status).toBeLessThan(400);
-  return response.body as T;
-}
 
 async function postToken(
   app: Express,

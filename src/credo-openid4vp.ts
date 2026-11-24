@@ -339,7 +339,7 @@ export class CredoOpenId4VpVerifier {
         ? await createVerifierAttestation(this.config, resolvedVerifierAttestation)
         : undefined;
     const attestedClientId = verifierAttestationJwt
-      ? verifierAttestationClientId(this.config, resolvedVerifierAttestation)
+      ? verifierAttestationClientId(this.config)
       : undefined;
     if (attestedClientId) authorizationRequest.client_id = attestedClientId;
     const authorizationRequestJwt = signRequest

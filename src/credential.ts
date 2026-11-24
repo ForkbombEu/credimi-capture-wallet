@@ -1,4 +1,4 @@
-import { Kms, type MdocSignOptions, SdJwtVcService, type SdJwtVcSignOptions } from "@credo-ts/core";
+import { Kms, SdJwtVcService, type SdJwtVcSignOptions } from "@credo-ts/core";
 import { RESERVED_CLAIM_NAMES, claimValueErrors } from "./attestbook/json-schema.js";
 import { isRecord } from "./attestbook/snapshot.js";
 import type { AttestbookClaimNode, AttestbookCredentialDefinition } from "./attestbook/types.js";
@@ -66,8 +66,6 @@ export async function issueSdJwtCredential(options: {
   subject?: PidSubject;
   now?: Date;
 }): Promise<string> {
-  const issuerCertificate = loadIssuerCertificate(options.config);
-  issuerCertificate.keyId = issuerSigningKeyId(options.config);
   const agentContext = createIssuerSigningContext(options.config);
   const service = new SdJwtVcService({} as never);
   const signOptions = sdJwtCredentialSignOptions(options);

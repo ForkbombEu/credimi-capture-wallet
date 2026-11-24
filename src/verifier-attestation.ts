@@ -76,10 +76,7 @@ export async function createVerifierAttestation(
   return attestation?.signature === "corrupt" ? corruptJwsSignature(signed) : signed;
 }
 
-export function verifierAttestationClientId(
-  config: AppConfig,
-  attestation: VpVerifierAttestation | undefined,
-): string {
+export function verifierAttestationClientId(config: AppConfig): string {
   // The Client Identifier keeps the real subject even when the attestation carries a different
   // one: the mismatch between the two is the defect under test, not a different verifier identity.
   return `verifier_attestation:${verifierAttestationSubject(config)}`;
