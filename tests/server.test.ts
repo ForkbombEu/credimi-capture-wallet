@@ -36,12 +36,12 @@ import {
 } from "jose";
 import request from "supertest";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { DEFAULT_CONFIG } from "../src/config/defaults.js";
 import {
-  DEFAULT_CONFIG,
   createJwkSigningContext,
   initIssuer,
   loadIssuerCertificate,
-} from "../src/config.js";
+} from "../src/config/key-material.js";
 import {
   issuerCertificatePath,
   jwksPath,

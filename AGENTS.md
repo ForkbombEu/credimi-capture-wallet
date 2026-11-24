@@ -93,7 +93,12 @@ If a required design decision, convention, or security policy is not evident fro
 - `src/credentials/digest-algorithm.ts`: supported and default SD-JWT digest-algorithm validation.
 - `src/openid4vci/metadata.ts`: issuer and authorization-server metadata.
 - `src/state.ts`: in-memory issuance and presentation session state plus captured evidence.
-- `src/config.ts`: service configuration and issuer/verifier key material.
+- `src/config/defaults.ts`: default service configuration and URL normalization.
+- `src/config/paths.ts`: configuration, issuer, and verifier material paths.
+- `src/config/verifier-identity.ts`: verifier key ids, DID, and attestation identity.
+- `src/config/environment.ts`: environment and listen-address parsing.
+- `src/config/load.ts`: config.yaml loading and hand-written format helpers.
+- `src/config/key-material.ts`: issuer/verifier key and certificate generation, loading, validation, and signing contexts.
 - `src/openid4vci/fake-oauth-server.ts`: test OAuth authorization server used by Credo-TS, including PKCE.
 - `src/openid4vci/client-attestation.ts`: OAuth client-attestation evidence capture for issuer requests.
 - `src/attestbook/`: Attestbook rulebook integration, credential imports, persistence, and webhooks.

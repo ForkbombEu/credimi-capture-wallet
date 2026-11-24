@@ -1,6 +1,6 @@
 import { DateOnly } from "@owf/cose";
 import { describe, expect, it } from "vitest";
-import { DEFAULT_CONFIG } from "../src/config.js";
+import { DEFAULT_CONFIG } from "../src/config/defaults.js";
 import {
   DEFAULT_ISSUER_CONFIGURATION_ID,
   issuerConfigurations,

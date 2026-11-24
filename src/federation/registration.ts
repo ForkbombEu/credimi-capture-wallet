@@ -1,4 +1,4 @@
-import { loadIssuerFederationJwks } from "../config.js";
+import { loadIssuerFederationJwks } from "../config/key-material.js";
 import type { ResolvedIssuerConfiguration } from "../configurations/types.js";
 import type { JsonRecord } from "../types.js";
 

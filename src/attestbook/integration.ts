@@ -1,6 +1,6 @@
 import { SdJwtVcService } from "@credo-ts/core";
 import { exportJWK, generateKeyPair } from "jose";
-import { createIssuerSigningContext } from "../config.js";
+import { createIssuerSigningContext } from "../config/key-material.js";
 import { resolvedIssuerConfigurations } from "../configurations/registry.js";
 import { issuerAppConfig } from "../configurations/resolve-urls.js";
 import type { ResolvedIssuerConfiguration } from "../configurations/types.js";

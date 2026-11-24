@@ -7,7 +7,9 @@ import {
   verifySubscription,
   webhookCallbackUrl,
 } from "../attestbook/subscription.js";
-import { initIssuer, loadConfig, loadIssuerFederationJwks, resolveListenAddr } from "../config.js";
+import { resolveListenAddr } from "../config/environment.js";
+import { initIssuer, loadIssuerFederationJwks } from "../config/key-material.js";
+import { loadConfig } from "../config/load.js";
 import {
   allResolvedIssuerConfigurations,
   resolvedIssuerConfigurations,

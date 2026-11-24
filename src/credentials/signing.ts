@@ -5,7 +5,7 @@ import {
   createIssuerSigningContext,
   issuerSigningKeyId,
   loadIssuerCertificate,
-} from "../config.js";
+} from "../config/key-material.js";
 import { DEGREE_CREDENTIAL_SUBJECT } from "../configurations/shared/degree-data.js";
 import { encodeMdocPidClaims } from "../configurations/shared/mdoc-encoder.js";
 import { type PidSubject, pidSubject } from "../configurations/shared/pid-data.js";

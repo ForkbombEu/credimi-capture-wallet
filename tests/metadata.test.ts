@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_CONFIG } from "../src/config.js";
+import { DEFAULT_CONFIG } from "../src/config/defaults.js";
 import { euPidDeviceBound } from "../src/configurations/eu-pid-device-bound/index.js";
 import { euPidJwtKeyAttestation } from "../src/configurations/eu-pid-jwt-key-attestation/index.js";
 import { euPidJwtProofOnly } from "../src/configurations/eu-pid-jwt-proof-only/index.js";

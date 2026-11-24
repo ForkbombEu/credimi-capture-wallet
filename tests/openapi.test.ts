@@ -1,6 +1,6 @@
 import request from "supertest";
 import { describe, expect, it } from "vitest";
-import { DEFAULT_CONFIG } from "../src/config.js";
+import { DEFAULT_CONFIG } from "../src/config/defaults.js";
 import { openApiDocument } from "../src/openapi.js";
 import { createApp } from "../src/server/app.js";
 import type { AppConfig, JsonRecord } from "../src/types.js";

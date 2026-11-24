@@ -28,7 +28,8 @@ import {
   verifySubscription,
   webhookCallbackUrl,
 } from "../src/attestbook/subscription.js";
-import { DEFAULT_CONFIG, initIssuer } from "../src/config.js";
+import { DEFAULT_CONFIG } from "../src/config/defaults.js";
+import { initIssuer } from "../src/config/key-material.js";
 import { issuerCertificatePath, privateJwkPath } from "../src/config/paths.js";
 import { credoOpenId4VciIssuer } from "../src/openid4vci/credo-issuer.js";
 import { createApp } from "../src/server/app.js";

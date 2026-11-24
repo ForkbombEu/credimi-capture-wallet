@@ -23,13 +23,13 @@ import {
 } from "jose";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { resolveFederationSettings } from "../src/config/environment.js";
 import {
   initIssuer,
-  loadConfig,
   loadIssuerFederationJwks,
   loadIssuerJwks,
-  resolveFederationSettings,
-} from "../src/config.js";
+} from "../src/config/key-material.js";
+import { loadConfig } from "../src/config/load.js";
 import {
   issuerCertificatePath,
   issuerFederationPrivateJwkPath,

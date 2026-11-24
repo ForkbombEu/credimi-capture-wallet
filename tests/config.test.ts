@@ -4,19 +4,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Kms, X509Certificate } from "@credo-ts/core";
 import { describe, expect, it } from "vitest";
+import { DEFAULT_CONFIG, normalizeBaseUrl } from "../src/config/defaults.js";
+import { parseEnvText, resolveGuiEnabled, resolveListenAddr } from "../src/config/environment.js";
 import {
-  DEFAULT_CONFIG,
   initIssuer,
-  loadConfig,
   loadIssuerEncryptionPublicJwk,
   loadIssuerJwks,
-  normalizeBaseUrl,
-  parseEnvText,
-  resolveGuiEnabled,
-  resolveListenAddr,
   validateIssuerCertificateSubjectAlternativeName,
   validateIssuerMaterial,
-} from "../src/config.js";
+} from "../src/config/key-material.js";
+import { loadConfig } from "../src/config/load.js";
 import {
   accessTokenPrivateJwkPath,
   issuerCertificatePath,

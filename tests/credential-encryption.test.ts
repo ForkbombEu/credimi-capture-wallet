@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CompactEncrypt, compactDecrypt, exportJWK, generateKeyPair, importJWK } from "jose";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { loadIssuerEncryptionPublicJwk } from "../src/config.js";
+import { loadIssuerEncryptionPublicJwk } from "../src/config/key-material.js";
 import { issuerEncryptionPrivateJwkPath } from "../src/config/paths.js";
 import { issuerAppConfig } from "../src/configurations/resolve-urls.js";
 import type { ResolvedIssuerConfiguration } from "../src/configurations/types.js";

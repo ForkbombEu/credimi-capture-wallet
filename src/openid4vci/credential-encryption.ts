@@ -11,7 +11,10 @@ import {
   generateKeyPair,
   importJWK,
 } from "jose";
-import { loadIssuerEncryptionPrivateJwk, loadIssuerEncryptionPublicJwk } from "../config.js";
+import {
+  loadIssuerEncryptionPrivateJwk,
+  loadIssuerEncryptionPublicJwk,
+} from "../config/key-material.js";
 import { errorMessage } from "../shared/errors.js";
 import { asRecord } from "../shared/json.js";
 import type { AppConfig, JsonRecord } from "../types.js";

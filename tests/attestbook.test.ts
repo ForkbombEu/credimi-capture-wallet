@@ -21,7 +21,8 @@ import {
   webhookSignatureValid,
   webhookTimestampFresh,
 } from "../src/attestbook/webhook.js";
-import { DEFAULT_CONFIG, createIssuerSigningContext, initIssuer } from "../src/config.js";
+import { DEFAULT_CONFIG } from "../src/config/defaults.js";
+import { createIssuerSigningContext, initIssuer } from "../src/config/key-material.js";
 import { resolvedIssuerConfigurationById } from "../src/configurations/registry.js";
 import { issuerAppConfig } from "../src/configurations/resolve-urls.js";
 import { importedSdJwtCredentialSignOptions } from "../src/credentials/signing.js";

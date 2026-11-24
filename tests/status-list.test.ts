@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_CONFIG } from "../src/config.js";
+import { DEFAULT_CONFIG } from "../src/config/defaults.js";
 import {
   allocateStatusListReference,
   revokeStatusListReference,

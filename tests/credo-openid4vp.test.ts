@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_CONFIG } from "../src/config.js";
+import { DEFAULT_CONFIG } from "../src/config/defaults.js";
 import { trustedIssuerForX509Credential } from "../src/openid4vp/credo-verifier.js";
 import { toJsonSafe } from "../src/openid4vp/presentation-decoding.js";
 

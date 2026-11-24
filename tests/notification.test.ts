@@ -16,7 +16,8 @@ import {
 } from "jose";
 import request from "supertest";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { DEFAULT_CONFIG, initIssuer } from "../src/config.js";
+import { DEFAULT_CONFIG } from "../src/config/defaults.js";
+import { initIssuer } from "../src/config/key-material.js";
 import { issuerCertificatePath, privateJwkPath } from "../src/config/paths.js";
 import {
   resolvedIssuerConfigurationById,

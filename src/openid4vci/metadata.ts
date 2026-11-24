@@ -5,7 +5,7 @@ import {
   loadIssuerEncryptionPublicJwk,
   loadIssuerJwks,
   loadIssuerPublicJwk,
-} from "../config.js";
+} from "../config/key-material.js";
 import type { IssuerConfiguration } from "../configurations/types.js";
 import {
   CREDIMI_LOGO_URL,
