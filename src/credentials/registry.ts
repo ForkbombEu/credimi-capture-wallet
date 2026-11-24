@@ -2,6 +2,7 @@ import type { AttestbookCredentialDefinition } from "../attestbook/types.js";
 import { resolvedIssuerConfigurationById } from "../configurations/registry.js";
 import type { IssuerConfiguration, ResolvedIssuerConfiguration } from "../configurations/types.js";
 import { type SupportedCredential, supportedCredentialsForIssuer } from "../openid4vci/metadata.js";
+import { errorMessage } from "../shared/errors.js";
 import type { CaptureStore } from "../state.js";
 import type { AppConfig } from "../types.js";
 
@@ -158,8 +159,4 @@ function importedCredential(definition: AttestbookCredentialDefinition): Support
     claimPaths: definition.claimMetadata.map((claim) => claim.path),
     attestbook: definition,
   };
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

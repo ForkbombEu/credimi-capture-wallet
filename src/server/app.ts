@@ -97,6 +97,7 @@ import {
 } from "../openid4vp/request-certificates.js";
 import { negotiateRequestObjectEncryption } from "../openid4vp/request-object-encryption.js";
 import { RESPONSE_URI_PLACEHOLDER } from "../openid4vp/verifier-attestation.js";
+import { errorMessage } from "../shared/errors.js";
 import { CaptureStore, asStringOrNull } from "../state.js";
 import { revokeStatusListReference } from "../status-list/allocation.js";
 import {
@@ -1953,10 +1954,6 @@ function interceptCredentialResponse(
     return res;
   }) as typeof res.send;
   return { isPending: () => pending };
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function requestParams(req: Request): JsonRecord {

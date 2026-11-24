@@ -6,6 +6,7 @@ import { issuerAppConfig } from "../configurations/resolve-urls.js";
 import type { ResolvedIssuerConfiguration } from "../configurations/types.js";
 import { type ImportedCatalogue, credentialRegistry } from "../credentials/registry.js";
 import { importedSdJwtCredentialSignOptions } from "../credentials/signing.js";
+import { errorMessage } from "../shared/errors.js";
 import type { CaptureStore } from "../state.js";
 import type { AppConfig, JsonRecord, SessionCapture } from "../types.js";
 import type { AttestbookIssuerSummary } from "../ui.js";
@@ -751,8 +752,4 @@ function failureLogFields(failure: SyncFailure): JsonRecord {
     version: failure.version,
     content_digest: failure.content_digest,
   };
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

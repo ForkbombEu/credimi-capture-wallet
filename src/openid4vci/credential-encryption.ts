@@ -12,6 +12,7 @@ import {
   importJWK,
 } from "jose";
 import { loadIssuerEncryptionPrivateJwk, loadIssuerEncryptionPublicJwk } from "../config.js";
+import { errorMessage } from "../shared/errors.js";
 import type { AppConfig, JsonRecord } from "../types.js";
 
 const CREDENTIAL_JWE_ALG = "ECDH-ES";
@@ -310,8 +311,4 @@ function parseJsonRecord(value: string, label: string): JsonRecord {
 
 function asRecord(value: unknown): JsonRecord | null {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as JsonRecord) : null;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
