@@ -67,23 +67,6 @@ export interface InitOptions {
   force?: boolean;
 }
 
-export function parseArgs(argv: string[]): Record<string, string | boolean> {
-  const parsed: Record<string, string | boolean> = {};
-  for (let index = 0; index < argv.length; index += 1) {
-    const token = argv[index];
-    if (!token.startsWith("--")) continue;
-    const key = token.slice(2).replaceAll("-", "_");
-    const next = argv[index + 1];
-    if (!next || next.startsWith("--")) {
-      parsed[key] = true;
-      continue;
-    }
-    parsed[key] = next;
-    index += 1;
-  }
-  return parsed;
-}
-
 export function normalizeBaseUrl(value: string, field = "issuer_base_url"): string {
   const trimmed = value.trim().replace(/\/+$/, "");
   const normalized = trimmed.includes("://")

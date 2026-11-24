@@ -103,7 +103,8 @@ If a required design decision, convention, or security policy is not evident fro
 - `src/status-list/reference-fixtures.ts`: valid and malformed Token Status List reference fixtures.
 - `src/status-list/malformed-mdoc-status.ts`: malformed mdoc Token Status List fixture generation.
 - `src/openapi.ts`: OpenAPI document and interactive API documentation page.
-- `src/cli.ts`: command-line entry point for service operation, federation exports, and Attestbook commands.
+- `src/cli.ts`: package.json `"bin"` entry point.
+- `src/cli/commands.ts`: command-line argument parsing and command handling for service operation, federation exports and Attestbook commands.
 - `src/ui.ts`: server-rendered operator UI.
 - `tests/`: Vitest coverage for protocol routes, Credo-TS integration, metadata, proofs, configuration, and validation.
 - `README.md`: public API and runtime documentation; update it when a public contract changes.
