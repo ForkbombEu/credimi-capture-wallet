@@ -8,6 +8,7 @@ export function launcherScript(): string {
   async function launch(endpoint, sessionPage, body, errorBox, button) {
     errorBox.hidden = true;
     button.disabled = true;
+    button.dataset.launching = "true";
     try {
       const response = await fetch(endpoint, {
         method: "POST",
@@ -24,7 +25,17 @@ export function launcherScript(): string {
       showError(errorBox, "The session request failed: " + error.message);
     }
     button.disabled = false;
+    delete button.dataset.launching;
   }
+
+  // The disabled button navigates away; Back restores the page from the back/forward cache as it
+  // was left, so the buttons a launch disabled are released when the page is shown again.
+  window.addEventListener("pageshow", () => {
+    for (const button of document.querySelectorAll("[data-launching]")) {
+      button.disabled = false;
+      delete button.dataset.launching;
+    }
+  });
 
   function showError(errorBox, message) {
     errorBox.textContent = message;

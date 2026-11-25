@@ -199,7 +199,7 @@ function launchButtonHtml(
   { statusList }: { statusList: boolean },
 ): string {
   return [
-    `<button class="btn ${variant} btn-md" type="button" data-launch="`,
+    `<button class="btn ${variant} btn-md" type="button" autocomplete="off" data-launch="`,
     escapeHtml(endpoint),
     '" data-session-page="',
     escapeHtml(sessionPage),
@@ -308,7 +308,7 @@ export function additionalParametersField(placeholder: string): ParameterField {
 export function launcherActionsHtml(label: string, disabled: boolean): string {
   return [
     '<div class="session-actions">',
-    '<button class="btn btn-primary btn-lg" type="submit"',
+    '<button class="btn btn-primary btn-lg" type="submit" autocomplete="off"',
     disabled ? " disabled" : "",
     ">",
     escapeHtml(label),
