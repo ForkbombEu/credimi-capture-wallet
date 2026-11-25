@@ -11,6 +11,7 @@ import {
   issuanceParameterGroups,
   parameterGroupsHtml,
   presentationParameterGroups,
+  statusListOptionHtml,
 } from "./session-parameters.js";
 
 const REGULATION_2026_1731_URL =
@@ -42,6 +43,8 @@ export interface IndexPageOptions {
   readonly fcafScenariosEnabled: boolean;
   readonly issuanceParameters: IssuanceParameterValues;
   readonly presentationParameters: PresentationParameterValues;
+  /** Absent when OpenID Federation is disabled. */
+  readonly federationEntityConfigurationUrl?: (issuer: ResolvedIssuerConfiguration) => string;
 }
 
 export function indexPage(options: IndexPageOptions): string {
@@ -65,7 +68,7 @@ export function indexPage(options: IndexPageOptions): string {
         id: "launcher-title",
         title: "Issue and verify",
         paragraphsHtml: [
-          "Choose a flow and a credential, then start a session. The advanced settings follow the flow and the credential you choose.",
+          "Choose a flow and a credential, then start a session. Advanced follows the flow and the credential you choose.",
         ],
       }),
       sessionLauncherHtml(options),
@@ -81,16 +84,12 @@ export function indexPage(options: IndexPageOptions): string {
 }
 
 /**
- * One form for both flows. The flow switch picks the endpoint and which advanced settings apply:
- * the other flow's settings are a hidden, disabled fieldset, so they are never sent. An issuance
- * takes its issuer and credential configuration from the selected option.
+ * One form for both flows. The flow switch picks the endpoint and which settings apply: the other
+ * flow's settings are hidden, disabled fieldsets, so they are never sent. An issuance takes its
+ * issuer and credential configuration from the selected option, whose issuer's links are shown.
  */
-function sessionLauncherHtml({
-  groups,
-  fcafScenariosEnabled,
-  issuanceParameters,
-  presentationParameters,
-}: IndexPageOptions): string {
+function sessionLauncherHtml(options: IndexPageOptions): string {
+  const { groups, fcafScenariosEnabled, issuanceParameters, presentationParameters } = options;
   const empty = groups.every((group) => group.credentials.length === 0);
   return [
     '<form class="launcher-form session-launcher" novalidate>',
@@ -119,6 +118,10 @@ function sessionLauncherHtml({
         '<fieldset class="flow-settings" data-flow="issuance">',
         '<input type="hidden" data-param="issuer_configuration_id" data-type="string" data-option="issuer">',
         '<input type="hidden" data-param="credential_configuration_id" data-type="string" data-option="credential">',
+        statusListOptionHtml(),
+        "</fieldset>",
+        issuerLinksGroupHtml(options),
+        '<fieldset class="flow-settings" data-flow="issuance">',
         parameterGroupsHtml(issuanceParameterGroups(issuanceParameters, fcafScenariosEnabled)),
         "</fieldset>",
         '<fieldset class="flow-settings" data-flow="presentation" hidden disabled>',
@@ -129,6 +132,37 @@ function sessionLauncherHtml({
       ].join(""),
     ),
     "</form>",
+  ].join("");
+}
+
+/**
+ * The selected credential's issuer, for both flows: its page and the documents it publishes. Each
+ * issuer has its own set of cards, and only the selected credential's issuer's is shown.
+ */
+function issuerLinksGroupHtml({
+  groups,
+  federationEntityConfigurationUrl,
+}: IndexPageOptions): string {
+  if (groups.length === 0) return "";
+  return [
+    '<div class="parameter-group issuer-links-group">',
+    '<p class="parameter-group-title">Issuer</p>',
+    groups
+      .map(({ issuer, attestbook }, index) =>
+        [
+          `<nav class="metadata-cards" data-issuer-links="${escapeHtml(issuer.id)}" aria-label="`,
+          escapeHtml(`${issuerLabel(issuer)} links`),
+          index === 0 ? '">' : '" hidden>',
+          issuerMetadataCardsHtml(issuer, {
+            issuerPage: true,
+            federationEntityConfigurationUrl: federationEntityConfigurationUrl?.(issuer),
+            attestbook: attestbook !== undefined,
+          }),
+          "</nav>",
+        ].join(""),
+      )
+      .join(""),
+    "</div>",
   ].join("");
 }
 
@@ -186,17 +220,37 @@ export function sectionIntroHtml(options: {
   ].join("");
 }
 
-/** A card that opens `href` when clicked; a target that is not a safe URL leaves it inert. */
-export function entityCardHtml(
-  href: string,
-  content: readonly string[],
-  options: { className?: string; newTab?: boolean } = {},
+/** The documents an issuer publishes as cards; with `issuerPage`, its operator page comes first. */
+export function issuerMetadataCardsHtml(
+  issuer: ResolvedIssuerConfiguration,
+  options: {
+    issuerPage?: boolean;
+    federationEntityConfigurationUrl?: string | undefined;
+    attestbook: boolean;
+  },
 ): string {
-  const className = options.className ? `issuer-card ${options.className}` : "issuer-card";
-  const body = content.join("");
+  return [
+    options.issuerPage ? metadataCardHtml("Issuer page", issuer.issuerIdentifier) : "",
+    metadataCardHtml("Authorization server metadata", issuer.authorizationServerMetadataUrl),
+    metadataCardHtml("OpenID4VCI credential issuer metadata", issuer.issuerMetadataUrl),
+    options.federationEntityConfigurationUrl
+      ? metadataCardHtml(
+          "OpenID Federation entity configuration",
+          options.federationEntityConfigurationUrl,
+        )
+      : "",
+    options.attestbook
+      ? metadataCardHtml("Attestbook status", "/integrations/attestbook/status")
+      : "",
+  ].join("");
+}
+
+/** A card that opens `href` in a new tab; a target that is not a safe URL leaves it inert. */
+function metadataCardHtml(label: string, href: string): string {
+  const body = `<h3>${escapeHtml(label)}</h3><p class="metadata-card-url">${escapeHtml(href)}</p>`;
   return isSafeHref(href)
-    ? `<a class="${className}" href="${escapeHtml(href)}"${options.newTab ? ' target="_blank" rel="noreferrer"' : ""}>${body}</a>`
-    : `<article class="${className}">${body}</article>`;
+    ? `<a class="issuer-card metadata-card" href="${escapeHtml(href)}" target="_blank" rel="noreferrer">${body}</a>`
+    : `<article class="issuer-card metadata-card">${body}</article>`;
 }
 
 /**

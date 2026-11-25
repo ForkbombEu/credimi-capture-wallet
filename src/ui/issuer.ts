@@ -4,10 +4,10 @@ import type { IssuerCredentialGroup } from "./launcher.js";
 import {
   attestbookSummaryText,
   credentialLabel,
-  entityCardHtml,
   heroSectionHtml,
   issuerDescriptionHtml,
   issuerLabel,
+  issuerMetadataCardsHtml,
   launcherActionsHtml,
   launcherTopbarHtml,
   sectionIntroHtml,
@@ -18,6 +18,7 @@ import {
   advancedSettingsHtml,
   issuanceParameterGroups,
   parameterGroupsHtml,
+  statusListOptionHtml,
 } from "./session-parameters.js";
 
 export interface IssuerPageOptions {
@@ -54,7 +55,7 @@ export function issuerPage(options: IssuerPageOptions): string {
         id: "issue-title",
         title: "Issue a credential",
         paragraphsHtml: [
-          "Choose one of this issuer’s credentials and create a session. Advanced settings expose every parameter of <code>POST /sessions</code>; a field left empty keeps the API default.",
+          "Choose one of this issuer’s credentials and create a session. Advanced exposes every parameter of <code>POST /sessions</code>; a field left empty keeps the API default.",
         ],
       }),
       issuanceFormHtml(options),
@@ -98,7 +99,8 @@ function issuanceFormHtml({ group, fcafScenariosEnabled, parameters }: IssuerPag
     "</label>",
     "</div>",
     advancedSettingsHtml(
-      parameterGroupsHtml(issuanceParameterGroups(parameters, fcafScenariosEnabled)),
+      statusListOptionHtml() +
+        parameterGroupsHtml(issuanceParameterGroups(parameters, fcafScenariosEnabled)),
     ),
     launcherActionsHtml("Create issuance session", credentials.length === 0),
     credentials.length === 0
@@ -126,24 +128,12 @@ function issuerMetadataHtml({
     '<nav class="metadata-cards" aria-label="',
     escapeHtml(`${issuer.display.name} metadata`),
     '">',
-    metadataCardHtml("Authorization server metadata", issuer.authorizationServerMetadataUrl),
-    metadataCardHtml("OpenID4VCI credential issuer metadata", issuer.issuerMetadataUrl),
-    federationEntityConfigurationUrl
-      ? metadataCardHtml("OpenID Federation entity configuration", federationEntityConfigurationUrl)
-      : "",
-    group.attestbook
-      ? metadataCardHtml("Attestbook status", "/integrations/attestbook/status")
-      : "",
+    issuerMetadataCardsHtml(issuer, {
+      federationEntityConfigurationUrl,
+      attestbook: group.attestbook !== undefined,
+    }),
     "</nav>",
     "</div>",
     "</section>",
   ].join("");
-}
-
-function metadataCardHtml(label: string, href: string): string {
-  return entityCardHtml(
-    href,
-    [`<h3>${escapeHtml(label)}</h3>`, `<p class="metadata-card-url">${escapeHtml(href)}</p>`],
-    { className: "metadata-card", newTab: true },
-  );
 }

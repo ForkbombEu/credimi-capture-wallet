@@ -4,6 +4,7 @@ import QRCode from "qrcode";
 import { attestbookIntegration } from "../../attestbook/integration.js";
 import { resolvedIssuerConfigurations } from "../../configurations/registry.js";
 import { PID_FIXTURE_IDS } from "../../configurations/shared/pid-fixtures.js";
+import type { ResolvedIssuerConfiguration } from "../../configurations/types.js";
 import { supportedCredentialConfigurationIds } from "../../credentials/catalogue.js";
 import { SD_JWT_DIGEST_ALGORITHMS } from "../../credentials/digest-algorithm.js";
 import {
@@ -68,6 +69,11 @@ export function registerUiRoutes(app: Express, ctx: ServerContext): void {
     requestDeliveries: VP_REQUEST_DELIVERIES,
     clientIdSchemes: VP_CLIENT_ID_SCHEMES,
   };
+  // An issuer's OpenID Federation Entity Configuration, published only when federation is enabled.
+  const federationEntityConfigurationUrl = config.federation.enabled
+    ? (issuer: ResolvedIssuerConfiguration) =>
+        `${issuer.issuerIdentifier}/.well-known/openid-federation`
+    : undefined;
 
   app.get("/", async (_req, res, next) => {
     try {
@@ -77,6 +83,7 @@ export function registerUiRoutes(app: Express, ctx: ServerContext): void {
           fcafScenariosEnabled: config.fcaf_scenarios_enabled,
           issuanceParameters,
           presentationParameters,
+          ...(federationEntityConfigurationUrl ? { federationEntityConfigurationUrl } : {}),
         }),
       );
     } catch (error) {
@@ -99,10 +106,8 @@ export function registerUiRoutes(app: Express, ctx: ServerContext): void {
       return res.type("html").send(
         issuerPage({
           group,
-          ...(config.federation.enabled
-            ? {
-                federationEntityConfigurationUrl: `${group.issuer.issuerIdentifier}/.well-known/openid-federation`,
-              }
+          ...(federationEntityConfigurationUrl
+            ? { federationEntityConfigurationUrl: federationEntityConfigurationUrl(group.issuer) }
             : {}),
           fcafScenariosEnabled: config.fcaf_scenarios_enabled,
           parameters: issuanceParameters,

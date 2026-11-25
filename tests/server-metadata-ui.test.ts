@@ -498,8 +498,12 @@ describe("capture issuer server", () => {
     expect(response.text).toContain(
       '<optgroup label="EUDI PID — JWT proof only — deliberately non-conforming">',
     );
-    // The issuer and verifier pages are no longer linked from the launcher.
-    expect(response.text).not.toContain('class="issuer-card');
+    // Each issuer's page is linked from the launcher's advanced panel, with its metadata.
+    for (const issuerId of [conformingIssuerId, jwtKeyAttestationIssuerId, jwtOnlyIssuerId]) {
+      expect(response.text).toContain(
+        `<a class="issuer-card metadata-card" href="${config.issuer_base_url}/issuers/${issuerId}" target="_blank" rel="noreferrer"><h3>Issuer page</h3>`,
+      );
+    }
     expect(response.text).not.toContain("Customize");
 
     // The bodies the launcher script builds from an option are sessions the API accepts.

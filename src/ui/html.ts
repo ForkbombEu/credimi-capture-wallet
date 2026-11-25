@@ -3,6 +3,7 @@ import { APP_CSS } from "./styles.js";
 export const REPOSITORY_URL = "https://github.com/ForkbombEu/credimi-capture-wallet";
 export const OPENAPI_URL = "/openapi.json";
 export const API_DOCS_URL = "/docs";
+export const TOKEN_STATUS_LIST_URL = "https://tsl.credimi.io/";
 
 export function htmlPage({ title, body }: { title: string; body: string }): string {
   return [

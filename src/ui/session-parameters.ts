@@ -1,4 +1,4 @@
-import { escapeHtml } from "./html.js";
+import { TOKEN_STATUS_LIST_URL, escapeHtml } from "./html.js";
 
 /** Allowed values of the `POST /sessions` parameters the operator UI offers as choices. */
 export interface IssuanceParameterValues {
@@ -70,13 +70,6 @@ export function issuanceParameterGroups(
     {
       legend: "Credential content",
       fields: [
-        {
-          name: "status_list_enabled",
-          label: "Include a Token Status List reference",
-          kind: "flag",
-          flagValue: "true",
-          requires: "static-credential",
-        },
         {
           name: "fixture_id",
           label: "PID fixture",
@@ -303,14 +296,33 @@ function additionalParametersField(placeholder: string): ParameterField {
   };
 }
 
-/** The collapsed panel holding the parameter groups, as rendered by `parameterGroupsHtml`. */
+/** The collapsed panel holding the settings, such as the parameter groups. */
 export function advancedSettingsHtml(contentHtml: string): string {
   return [
     '<details class="advanced-settings">',
-    "<summary>Advanced settings</summary>",
+    "<summary>Advanced</summary>",
     '<p class="field-hint">Every field left empty takes the API default.</p>',
     contentHtml,
     "</details>",
+  ].join("");
+}
+
+/**
+ * The Token Status List option, on by default and set apart above the issuance parameter groups.
+ * The API refuses it for an imported Attestbook credential, so it is disabled for one.
+ */
+export function statusListOptionHtml(): string {
+  return [
+    '<div class="featured-option">',
+    '<label class="featured-option-toggle">',
+    '<input type="checkbox" role="switch" value="true" data-param="status_list_enabled" data-type="flag" data-requires="static-credential" checked>',
+    '<span class="toggle-track" aria-hidden="true"></span>',
+    '<span class="featured-option-label">Include a Token Status List reference <code>status_list_enabled</code></span>',
+    "</label>",
+    '<p class="field-hint">Each issued credential gets an entry in a Token Status List, so its status can be checked. Imported Attestbook credentials do not support one. ',
+    `<a href="${escapeHtml(TOKEN_STATUS_LIST_URL)}" target="_blank" rel="noreferrer">Token Status List service ↗</a>`,
+    "</p>",
+    "</div>",
   ].join("");
 }
 

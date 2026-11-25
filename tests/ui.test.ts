@@ -6,7 +6,7 @@ import { defaultDcqlQuery } from "../src/openid4vp/authorization-request.js";
 import { issuerPage } from "../src/ui/issuer.js";
 import type { IssuerPageOptions } from "../src/ui/issuer.js";
 import { indexPage } from "../src/ui/launcher.js";
-import type { IssuerCredentialChoices } from "../src/ui/launcher.js";
+import type { IndexPageOptions, IssuerCredentialChoices } from "../src/ui/launcher.js";
 import type { IssuanceParameterValues } from "../src/ui/session-parameters.js";
 import { errorPage } from "../src/ui/session.js";
 import { verifierPage } from "../src/ui/verifier.js";
@@ -37,12 +37,16 @@ function issuerPageOptions(overrides: Partial<IssuerPageOptions> = {}): IssuerPa
   };
 }
 
-function launcherPage(groups: readonly IssuerCredentialChoices[]): string {
+function launcherPage(
+  groups: readonly IssuerCredentialChoices[],
+  overrides: Partial<IndexPageOptions> = {},
+): string {
   return indexPage({
     groups,
     fcafScenariosEnabled: false,
     issuanceParameters,
     presentationParameters: { responseModes: [], requestDeliveries: [], clientIdSchemes: [] },
+    ...overrides,
   });
 }
 
@@ -84,7 +88,6 @@ describe("launcher", () => {
     expect(page).toContain(' data-format="dc+sd-jwt">PID</option>');
     expect(page).not.toContain("data-imported");
     expect(page).toContain('type="submit" autocomplete="off">Start</button>');
-    expect(page).not.toContain('class="issuer-card');
   });
 
   it("starts on issuance and keeps the presentation settings out of the request", () => {
@@ -102,19 +105,44 @@ describe("launcher", () => {
     expect(page).toContain(
       '<fieldset class="flow-settings" data-flow="presentation" hidden disabled>',
     );
-    const issuance =
-      /<fieldset class="flow-settings" data-flow="issuance">(.*?)<\/fieldset><fieldset class="flow-settings" data-flow="presentation"/.exec(
-        page,
-      )?.[1];
+    const issuance = /<fieldset class="flow-settings" data-flow="issuance">(.*?)<\/fieldset>/.exec(
+      page,
+    )?.[1];
     expect(issuance).toContain(
       'data-param="issuer_configuration_id" data-type="string" data-option="issuer"',
     );
     expect(issuance).toContain(
       'data-param="credential_configuration_id" data-type="string" data-option="credential"',
     );
+    // The Token Status List reference is on unless the operator turns it off.
     expect(issuance).toContain(
-      '<input type="checkbox" value="true" data-param="status_list_enabled" data-type="flag" data-requires="static-credential">',
+      '<input type="checkbox" role="switch" value="true" data-param="status_list_enabled" data-type="flag" data-requires="static-credential" checked>',
     );
+    expect(issuance).toContain(
+      '<a href="https://tsl.credimi.io/" target="_blank" rel="noreferrer">Token Status List service ↗</a>',
+    );
+  });
+
+  it("links each issuer's page and metadata, and its federation configuration when enabled", () => {
+    const groups = [{ issuer: jwtOnlyIssuer, credentials: [{ credential, dcqlQuery }] }];
+    const page = launcherPage(groups, {
+      federationEntityConfigurationUrl: (issuer) => `${issuer.issuerIdentifier}/federation`,
+    });
+
+    expect(page).toContain(
+      `<nav class="metadata-cards" data-issuer-links="${jwtOnlyIssuer.id}" aria-label="${jwtOnlyIssuer.display.name} — deliberately non-conforming links">`,
+    );
+    for (const [label, href] of [
+      ["Issuer page", jwtOnlyIssuer.issuerIdentifier],
+      ["Authorization server metadata", jwtOnlyIssuer.authorizationServerMetadataUrl],
+      ["OpenID4VCI credential issuer metadata", jwtOnlyIssuer.issuerMetadataUrl],
+      ["OpenID Federation entity configuration", `${jwtOnlyIssuer.issuerIdentifier}/federation`],
+    ]) {
+      expect(page).toContain(
+        `<a class="issuer-card metadata-card" href="${href}" target="_blank" rel="noreferrer"><h3>${label}</h3>`,
+      );
+    }
+    expect(launcherPage(groups)).not.toContain("OpenID Federation entity configuration");
   });
 
   it("escapes configured issuer text", () => {

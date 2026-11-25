@@ -70,6 +70,9 @@ export function launcherScript(): string {
     for (const field of form.querySelectorAll("[data-option]")) {
       field.value = !option ? "" : field.dataset.option === "issuer" ? option.dataset.issuer : option.value;
     }
+    for (const links of form.querySelectorAll("[data-issuer-links]")) {
+      links.hidden = links.dataset.issuerLinks !== option?.dataset.issuer;
+    }
     for (const field of form.querySelectorAll("[data-requires]")) {
       const applies = field.dataset.requires === "static-credential" ? !imported : !mdoc;
       field.disabled = !applies;

@@ -154,8 +154,28 @@ export const APP_CSS = [
   ".advanced-settings > summary { display: flex; align-items: center; min-height: 44px; padding: 10px 14px; color: var(--fg); font-size: 14px; font-weight: 700; cursor: pointer; }",
   ".advanced-settings[open] > summary { border-bottom: 1px solid var(--border); }",
   ".advanced-settings > .field-hint { padding: 12px 14px 0; }",
+  // The Token Status List option leads the issuance settings on its own: a switch with a blue
+  // label on a white card edged in blue, set apart from the parameter groups below it.
+  ".featured-option { display: grid; gap: 6px; margin: 14px 14px 0; padding: 14px 16px; border: 1px solid var(--brand-primary); border-left-width: 4px; border-radius: var(--radius-md); background: var(--bg); }",
+  ".featured-option-toggle { position: relative; display: inline-flex; align-items: center; gap: 12px; width: fit-content; cursor: pointer; }",
+  ".featured-option-toggle.field-disabled { cursor: not-allowed; }",
+  // The native checkbox stays in the layout for form submission and keyboard focus; only the
+  // track is painted.
+  ".featured-option-toggle input { position: absolute; width: 1px; height: 1px; margin: 0; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }",
+  ".featured-option-label { color: var(--brand-primary); font-size: 15px; font-weight: 700; }",
+  ".featured-option-label code { color: var(--fg-muted); font-size: 11px; font-weight: 500; }",
+  ".featured-option > .field-hint { margin: 0; padding-left: 52px; }",
+  ".toggle-track { position: relative; flex: 0 0 auto; width: 40px; height: 22px; border: 1px solid var(--border-strong); border-radius: var(--radius-pill); background: var(--bg-muted); transition: background 150ms ease-out, border-color 150ms ease-out; }",
+  ".toggle-track::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--bg); box-shadow: var(--shadow-sm); transition: transform 150ms ease-out; }",
+  ".featured-option-toggle input:checked + .toggle-track { background: var(--brand-primary); border-color: var(--brand-primary); }",
+  ".featured-option-toggle input:checked + .toggle-track::after { transform: translateX(18px); }",
+  ".featured-option-toggle input:focus-visible + .toggle-track { outline: 2px solid color-mix(in oklch, var(--brand-primary) 36%, transparent); outline-offset: 2px; }",
+  // The launcher's links to the selected credential's issuer, between the flows' settings.
+  ".parameter-group-title { margin: 0 0 12px; color: var(--brand-primary); font-size: 12px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }",
+  ".metadata-cards[hidden] { display: none; }",
   ".parameter-group { min-width: 0; margin: 0; padding: 14px; border: 0; }",
   ".parameter-group + .parameter-group { border-top: 1px solid var(--border); }",
+  ".issuer-links-group, .issuer-links-group + .flow-settings > .parameter-group:first-of-type { border-top: 1px solid var(--border); }",
   // A floated legend is laid out inside the fieldset instead of on its border.
   ".parameter-group legend { float: left; width: 100%; margin-bottom: 12px; padding: 0; color: var(--brand-primary); font-size: 12px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }",
   ".parameter-fields { clear: both; display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }",
@@ -227,7 +247,7 @@ export const APP_CSS = [
   ".readme-card pre code { padding: 0; background: transparent; }",
   "@keyframes metadata-spin { to { transform: rotate(360deg); } }",
   "@keyframes metadata-flash { 0% { background: var(--warning-bg); box-shadow: 0 0 0 0 color-mix(in oklch, var(--warning) 32%, transparent); } 30% { background: var(--success-bg); box-shadow: 0 0 0 6px color-mix(in oklch, var(--success) 20%, transparent); } 100% { background: var(--bg); box-shadow: var(--shadow-sm); } }",
-  "@media (prefers-reduced-motion: reduce) { .metadata-state-waiting::before, .metadata-state-receiving::before, .metadata-flash { animation: none; } .segmented span, a.issuer-card { transition: none; } }",
+  "@media (prefers-reduced-motion: reduce) { .metadata-state-waiting::before, .metadata-state-receiving::before, .metadata-flash { animation: none; } .segmented span, .toggle-track, .toggle-track::after, a.issuer-card { transition: none; } }",
   "@media (max-width: 860px) { h1 { font-size: 38px; } h2 { font-size: 22px; } .topbar { position: static; } .page-section { padding: 64px 0; } .session-layout, .capture-more-groups, .metadata-cards { grid-template-columns: 1fr; } .session-header, .section-head, .footer-content { flex-direction: column; align-items: stretch; } .session-actions { align-items: stretch; flex-direction: column; } .session-actions .btn { width: 100%; } .footer-links { justify-content: flex-start; } .qr-box { width: 100%; max-width: 336px; } }",
   "@media (max-width: 560px) { .container, .topbar-inner, .hero-inner, .footer-inner { width: min(100% - 28px, var(--max-width)); } .page-content { padding: 28px 0 52px; } .card { padding: 18px; } .brand-name { display: none; } .topbar-actions .btn { display: none; } .launcher-row > .flow-switch, .launcher-row > .btn { flex: 1 1 100%; } }",
 ].join("\n");

@@ -46,7 +46,7 @@ export function verifierPage(options: VerifierPageOptions): string {
         id: "request-title",
         title: "Request a presentation",
         paragraphsHtml: [
-          "Choose a credential and create a session. Advanced settings expose every parameter of <code>POST /openid4vp/sessions</code>; the DCQL query follows the chosen credential until you edit it.",
+          "Choose a credential and create a session. Advanced exposes every parameter of <code>POST /openid4vp/sessions</code>; the DCQL query follows the chosen credential until you edit it.",
         ],
       }),
       presentationFormHtml(options),
