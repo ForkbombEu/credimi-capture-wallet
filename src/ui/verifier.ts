@@ -3,9 +3,11 @@ import {
   additionalParametersField,
   advancedSettingsHtml,
   credentialLabel,
+  heroSectionHtml,
   issuerLabel,
   launcherActionsHtml,
   launcherTopbarHtml,
+  sectionIntroHtml,
 } from "./launcher.js";
 import type { IssuerCredentialChoices, ParameterGroup } from "./launcher.js";
 import { launcherScript } from "./scripts.js";
@@ -31,16 +33,26 @@ export function verifierPage(options: VerifierPageOptions): string {
     title: "OpenID4VP verifier",
     body: [
       launcherTopbarHtml(),
-      '<main class="page-content session-page">',
-      '<section class="session-header launcher-header container">',
-      "<div>",
-      '<p class="eyebrow">OpenID4VP verifier</p>',
-      "<h1>Request a presentation</h1>",
-      '<p class="session-intro">Choose the credential to request, scan the presentation request with the wallet, and inspect the response, its decoded claims, and the verifier checks.</p>',
-      "</div>",
-      "</section>",
-      '<section class="launcher-layout launcher-layout-single container">',
+      "<main>",
+      heroSectionHtml({
+        id: "verifier-title",
+        title: "OpenID4VP verifier",
+        paragraphsHtml: [
+          "Choose the credential to request, scan the presentation request with the wallet, and inspect the response, its decoded claims, and the verifier checks.",
+        ],
+      }),
+      '<section class="page-section" aria-labelledby="request-title">',
+      '<div class="container">',
+      sectionIntroHtml({
+        tag: "h2",
+        id: "request-title",
+        title: "Request a presentation",
+        paragraphsHtml: [
+          "Choose a credential and create a session. Advanced settings expose every parameter of <code>POST /openid4vp/sessions</code>; the DCQL query follows the chosen credential until you edit it.",
+        ],
+      }),
       presentationFormHtml(options),
+      "</div>",
       "</section>",
       "</main>",
       "<script>",
@@ -219,12 +231,9 @@ function presentationFormHtml({
 
   return [
     '<form class="card launcher-card session-launcher" data-endpoint="/openid4vp/sessions" data-session-page="/ui/openid4vp/sessions/" novalidate>',
-    '<div class="section-head">',
-    "<h2>Request a credential</h2>",
-    "</div>",
     '<div class="credential-row">',
     '<label class="credential-picker">',
-    "<span>Credential</span>",
+    '<span class="subsection-heading">Credential</span>',
     "<select data-credential-picker>",
     groups.map(verifierCredentialGroupHtml).join(""),
     "</select>",

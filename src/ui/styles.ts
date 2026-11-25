@@ -50,9 +50,9 @@ export const APP_CSS = [
   ".credimi-extras-wordmark-link { text-decoration: none; }",
   ".credimi-extras-wordmark { display: inline-block; height: 16px; width: auto; vertical-align: -4px; }",
   ".credimi-extras-bar a:focus-visible, .credimi-extras-wordmark-link:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; border-radius: 2px; }",
-  // Every landing section has the same padding and opens with the same intro: a title over a rule,
-  // then a description.
-  ".landing-section { padding: 96px 0; }",
+  // Every section of the launcher, issuer, and verifier pages has the same padding and opens with
+  // the same intro: a title over a rule, then a description.
+  ".page-section { padding: 96px 0; }",
   ".section-intro { display: grid; gap: 16px; margin-bottom: 40px; }",
   ".section-intro:last-child { margin-bottom: 0; }",
   // --border-strong, because --border all but disappears on the lavender page background.
@@ -73,6 +73,8 @@ export const APP_CSS = [
   ".hero-band .section-intro-heading { padding-bottom: 0; border-bottom: 0; }",
   ".hero-band .section-intro-title { color: inherit; font-size: clamp(38px, 6vw, 64px); line-height: 1.05; letter-spacing: -0.035em; }",
   ".hero-band .section-intro-description p { color: rgb(255 255 255 / 85%); }",
+  // A link or code in a hero description (an issuer's regulation reference) stays white on blue.
+  ".hero-band a, .hero-band code { color: inherit; }",
   ".launcher-panel { display: grid; gap: 14px; justify-items: start; }",
   ".session-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }",
   ".credential-picker { display: grid; gap: 8px; width: min(100%, 520px); color: var(--fg); font-size: 13px; font-weight: 700; }",
@@ -107,7 +109,7 @@ export const APP_CSS = [
   ".issuer-card .issuer-description { font-size: 14px; line-height: 1.5; }",
   ".status-list-toggle.field-disabled { cursor: not-allowed; }",
   ".count-chip { display: inline-flex; align-items: center; justify-content: center; width: fit-content; min-width: 24px; height: 24px; padding: 0 8px; border-radius: var(--radius-pill); background: var(--brand-secondary-strong); color: var(--fg-muted); font-size: 13px; font-weight: 600; }",
-  ".captured-band { background: var(--bg); }",
+  ".page-section-white { background: var(--bg); }",
   ".capture-groups { display: grid; gap: 18px; }",
   ".capture-group { display: grid; gap: 10px; }",
   ".capture-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; margin: 0; }",
@@ -143,11 +145,8 @@ export const APP_CSS = [
   ".btn-outline:hover { border-color: var(--border-strong); background: var(--bg-muted); }",
   "dt { color: var(--fg); font-size: 13px; font-weight: 700; }",
   "dd { margin: 4px 0 0; color: var(--fg-muted); font-size: 13px; line-height: 1.5; }",
-  ".launcher-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 360px); gap: 24px; align-items: start; }",
-  ".launcher-layout-single { grid-template-columns: minmax(0, 1fr); }",
   ".launcher-card { display: grid; gap: 18px; align-content: start; }",
-  ".launcher-card .section-head { margin-bottom: 0; }",
-  ".entity-facts { margin: 0; }",
+  ".entity-facts { margin: 0 0 16px; }",
   ".entity-facts dd code { overflow-wrap: anywhere; color: var(--fg); font-size: 12px; }",
   ".advanced-settings { border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-muted); }",
   ".advanced-settings > summary { display: flex; align-items: center; min-height: 44px; padding: 10px 14px; color: var(--fg); font-size: 14px; font-weight: 700; cursor: pointer; }",
@@ -165,7 +164,6 @@ export const APP_CSS = [
   ".field select, .field input[type=text], .field textarea { width: 100%; min-height: 38px; padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--bg); color: var(--fg); font: inherit; font-size: 13px; }",
   ".field textarea { min-height: 96px; resize: vertical; font-family: JetBrains Mono, Fira Code, Cascadia Code, ui-monospace, monospace; font-size: 12px; }",
   ".field textarea[data-param='dcql_query'] { min-height: 260px; }",
-  ".launcher-header h1 { font-size: clamp(32px, 4.5vw, 48px); }",
   ".field select:focus, .field input:focus, .field textarea:focus { outline: 2px solid color-mix(in oklch, var(--brand-primary) 36%, transparent); outline-offset: 1px; }",
   ".field-flag { grid-template-columns: auto minmax(0, 1fr); align-items: center; column-gap: 8px; }",
   ".field-flag .field-hint { grid-column: 2; }",
@@ -228,6 +226,6 @@ export const APP_CSS = [
   "@keyframes metadata-spin { to { transform: rotate(360deg); } }",
   "@keyframes metadata-flash { 0% { background: var(--warning-bg); box-shadow: 0 0 0 0 color-mix(in oklch, var(--warning) 32%, transparent); } 30% { background: var(--success-bg); box-shadow: 0 0 0 6px color-mix(in oklch, var(--success) 20%, transparent); } 100% { background: var(--bg); box-shadow: var(--shadow-sm); } }",
   "@media (prefers-reduced-motion: reduce) { .metadata-state-waiting::before, .metadata-state-receiving::before, .metadata-flash { animation: none; } .toggle-track, .toggle-track::after, a.issuer-card { transition: none; } }",
-  "@media (max-width: 860px) { h1 { font-size: 38px; } h2 { font-size: 22px; } .topbar { position: static; } .landing-section { padding: 64px 0; } .session-layout, .launcher-layout, .capture-more-groups { grid-template-columns: 1fr; } .entity-catalogue { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto repeat(var(--issuer-rows-narrow), 1fr) auto 1fr; } .session-header, .section-head, .footer-content { flex-direction: column; align-items: stretch; } .session-actions { align-items: stretch; flex-direction: column; } .session-actions .btn { width: 100%; } .footer-links { justify-content: flex-start; } .qr-box { width: 100%; max-width: 336px; } }",
+  "@media (max-width: 860px) { h1 { font-size: 38px; } h2 { font-size: 22px; } .topbar { position: static; } .page-section { padding: 64px 0; } .session-layout, .capture-more-groups { grid-template-columns: 1fr; } .entity-catalogue { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto repeat(var(--issuer-rows-narrow), 1fr) auto 1fr; } .session-header, .section-head, .footer-content { flex-direction: column; align-items: stretch; } .session-actions { align-items: stretch; flex-direction: column; } .session-actions .btn { width: 100%; } .footer-links { justify-content: flex-start; } .qr-box { width: 100%; max-width: 336px; } }",
   "@media (max-width: 560px) { .container, .topbar-inner, .hero-inner, .footer-inner { width: min(100% - 28px, var(--max-width)); } .page-content { padding: 28px 0 52px; } .card { padding: 18px; } .brand-name { display: none; } .topbar-actions .btn { display: none; } .status-list-toggle { margin-left: 0; } }",
 ].join("\n");

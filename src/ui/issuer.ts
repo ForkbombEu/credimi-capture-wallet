@@ -4,13 +4,15 @@ import type { IssuanceParameterValues, IssuerCredentialGroup } from "./launcher.
 import {
   additionalParametersField,
   advancedSettingsHtml,
-  attestbookSummaryHtml,
+  attestbookSummaryText,
   credentialLabel,
+  heroSectionHtml,
   issuerDescriptionHtml,
   issuerLabel,
   launcherActionsHtml,
   launcherTopbarHtml,
   safeLinkHtml,
+  sectionIntroHtml,
 } from "./launcher.js";
 import type { ParameterGroup } from "./launcher.js";
 import { launcherScript } from "./scripts.js";
@@ -33,23 +35,29 @@ export function issuerPage(options: IssuerPageOptions): string {
     title: `${issuer.display.name} — OpenID4VCI issuer`,
     body: [
       launcherTopbarHtml(),
-      '<main class="page-content session-page">',
-      '<section class="session-header launcher-header container">',
-      "<div>",
-      '<p class="eyebrow">OpenID4VCI credential issuer</p>',
-      "<h1>",
-      escapeHtml(issuerLabel(issuer)),
-      "</h1>",
-      '<p class="session-intro">',
-      issuerDescriptionHtml(issuer),
-      "</p>",
-      group.attestbook ? attestbookSummaryHtml(group.attestbook) : "",
+      "<main>",
+      heroSectionHtml({
+        id: "issuer-title",
+        title: issuerLabel(issuer),
+        paragraphsHtml: [
+          issuerDescriptionHtml(issuer),
+          ...(group.attestbook ? [escapeHtml(attestbookSummaryText(group.attestbook))] : []),
+        ],
+      }),
+      '<section class="page-section" aria-labelledby="issue-title">',
+      '<div class="container">',
+      sectionIntroHtml({
+        tag: "h2",
+        id: "issue-title",
+        title: "Issue a credential",
+        paragraphsHtml: [
+          "Choose one of this issuer’s credentials and create a session. Advanced settings expose every parameter of <code>POST /sessions</code>; a field left empty keeps the API default.",
+        ],
+      }),
+      issuanceFormHtml(options),
       "</div>",
       "</section>",
-      '<section class="launcher-layout container">',
-      issuanceFormHtml(options),
       issuerMetadataHtml(options),
-      "</section>",
       "</main>",
       "<script>",
       launcherScript(),
@@ -162,15 +170,12 @@ function issuanceFormHtml({ group, fcafScenariosEnabled, parameters }: IssuerPag
 
   return [
     '<form class="card launcher-card session-launcher" data-endpoint="/sessions" data-session-page="/ui/sessions/" novalidate>',
-    '<div class="section-head">',
-    "<h2>Issue a credential</h2>",
-    "</div>",
     '<input type="hidden" data-param="issuer_configuration_id" data-type="string" value="',
     escapeHtml(issuer.id),
     '">',
     '<div class="credential-row">',
     '<label class="credential-picker">',
-    "<span>Credential</span>",
+    '<span class="subsection-heading">Credential</span>',
     '<select data-param="credential_configuration_id" data-type="string" data-credential-picker>',
     credentials.map(issuerCredentialOptionHtml).join(""),
     "</select>",
@@ -195,10 +200,16 @@ function issuerMetadataHtml({
 }: IssuerPageOptions): string {
   const { issuer } = group;
   return [
-    '<aside class="card launcher-card" aria-labelledby="issuer-metadata-title">',
-    '<div class="section-head">',
-    '<h2 id="issuer-metadata-title">Metadata</h2>',
-    "</div>",
+    '<section class="page-section page-section-white" aria-labelledby="issuer-metadata-title">',
+    '<div class="container">',
+    sectionIntroHtml({
+      tag: "h2",
+      id: "issuer-metadata-title",
+      title: "Metadata",
+      paragraphsHtml: [
+        "The Credential Issuer Identifier, and the metadata a wallet discovers from it.",
+      ],
+    }),
     '<dl class="entity-facts">',
     "<div><dt>Credential Issuer Identifier</dt><dd><code>",
     escapeHtml(issuer.issuerIdentifier),
@@ -216,7 +227,8 @@ function issuerMetadataHtml({
       ? metadataLinkHtml("Attestbook status", "/integrations/attestbook/status")
       : "",
     "</nav>",
-    "</aside>",
+    "</div>",
+    "</section>",
   ].join("");
 }
 

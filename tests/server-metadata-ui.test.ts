@@ -33,6 +33,14 @@ const {
   conformingUpstreamAuthorizationServerMetadataPath,
 } = serverTestSuite("fake-issuer-test-");
 
+/** Each page section's intro title, as `tag#id title`, in page order. */
+function sectionIntroTitles(html: string): string[] {
+  return Array.from(
+    html.matchAll(/<(h[12]) class="section-intro-title" id="([^"]+)">([^<]+)</g),
+    ([, tag, id, title]) => `${tag}#${id} ${title}`,
+  );
+}
+
 describe("capture issuer server", () => {
   it("serves a Stoplight API documentation page and its OpenAPI contract", async () => {
     const app = createApp(config);
@@ -443,16 +451,11 @@ describe("capture issuer server", () => {
 
     expect(response.status).toBe(200);
     expect(response.text).toContain(
-      '<main><section class="landing-section hero-band" aria-labelledby="hero-title">',
+      '<main><section class="page-section hero-band" aria-labelledby="hero-title">',
     );
     // Every section opens with the same intro: its title over a rule, then a description.
-    expect(response.text.match(/<section class="landing-section/g)).toHaveLength(3);
-    expect(
-      Array.from(
-        response.text.matchAll(/<(h[12]) class="section-intro-title" id="([^"]+)">([^<]+)</g),
-        ([, tag, id, title]) => `${tag}#${id} ${title}`,
-      ),
-    ).toEqual([
+    expect(response.text.match(/<section class="page-section/g)).toHaveLength(3);
+    expect(sectionIntroTitles(response.text)).toEqual([
       "h1#hero-title Wallet metadata capture",
       "h2#launcher-title Issue and verify",
       "h2#captured-values-title Captured values",
@@ -557,6 +560,11 @@ describe("capture issuer server", () => {
     expect(page.type).toBe("text/html");
     expect(page.headers.vary).toContain("Accept");
     expect(page.text).toContain('data-endpoint="/sessions" data-session-page="/ui/sessions/"');
+    expect(sectionIntroTitles(page.text)).toEqual([
+      "h1#issuer-title EUDI PID — device-bound conforming",
+      "h2#issue-title Issue a credential",
+      "h2#issuer-metadata-title Metadata",
+    ]);
     expect(page.text).toContain(
       `<input type="hidden" data-param="issuer_configuration_id" data-type="string" value="${conformingIssuerId}">`,
     );
@@ -605,6 +613,10 @@ describe("capture issuer server", () => {
     expect(page.text).toContain(
       'data-endpoint="/openid4vp/sessions" data-session-page="/ui/openid4vp/sessions/"',
     );
+    expect(sectionIntroTitles(page.text)).toEqual([
+      "h1#verifier-title OpenID4VP verifier",
+      "h2#request-title Request a presentation",
+    ]);
     expect(page.text).toContain('<optgroup label="EUDI PID — device-bound conforming">');
     expect(page.text).toContain('<optgroup label="EUDI PID — JWT key attestation">');
     expect(page.text).toContain(

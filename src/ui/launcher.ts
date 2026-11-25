@@ -50,26 +50,21 @@ export function indexPage(groups: readonly IssuerCredentialChoices[]): string {
     body: [
       launcherTopbarHtml(),
       "<main>",
-      '<section class="landing-section hero-band" aria-labelledby="hero-title">',
-      '<div class="hero-inner">',
-      sectionIntroHtml({
-        tag: "h1",
+      heroSectionHtml({
         id: "hero-title",
         title: "Wallet metadata capture",
-        paragraphs: [
+        paragraphsHtml: [
           "Step 1) Start a one-time issuance flow, scan the offer, and inspect the wallet identifiers, callbacks, and proof keys observed by the issuer.",
           "Step 2) After receiving the credential, start a Presentation session, and inspect the Wallet response as well as the DCQL",
         ],
       }),
-      "</div>",
-      "</section>",
-      '<section class="landing-section" aria-labelledby="launcher-title">',
+      '<section class="page-section" aria-labelledby="launcher-title">',
       '<div class="container">',
       sectionIntroHtml({
         tag: "h2",
         id: "launcher-title",
         title: "Issue and verify",
-        paragraphs: [
+        paragraphsHtml: [
           "Choose a credential and start a session with the default options, or open an issuer or the verifier to set any other option.",
         ],
       }),
@@ -108,16 +103,32 @@ export function indexPage(groups: readonly IssuerCredentialChoices[]): string {
   });
 }
 
-/** Every landing section opens the same way: its title over a rule, then its description. */
-function sectionIntroHtml(options: {
+/** The page's opening section: the brand-blue band with its title and description. */
+export function heroSectionHtml(options: {
+  id: string;
+  title: string;
+  paragraphsHtml: readonly string[];
+}): string {
+  return [
+    `<section class="page-section hero-band" aria-labelledby="${options.id}">`,
+    '<div class="hero-inner">',
+    sectionIntroHtml({ tag: "h1", ...options }),
+    "</div>",
+    "</section>",
+  ].join("");
+}
+
+/** Every page section opens the same way: its title over a rule, then its description. */
+export function sectionIntroHtml(options: {
   tag: "h1" | "h2";
   id: string;
   title: string;
   /** Shown at the end of the title row, such as a count. */
   aside?: string;
-  paragraphs: readonly string[];
+  /** Each paragraph's content as HTML, so it may carry links and code; escape any dynamic text. */
+  paragraphsHtml: readonly string[];
 }): string {
-  const { tag, id, title, aside, paragraphs } = options;
+  const { tag, id, title, aside, paragraphsHtml } = options;
   return [
     '<header class="section-intro">',
     '<div class="section-intro-heading">',
@@ -125,7 +136,7 @@ function sectionIntroHtml(options: {
     aside ?? "",
     "</div>",
     '<div class="section-intro-description">',
-    paragraphs.map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`).join(""),
+    paragraphsHtml.map((paragraph) => `<p>${paragraph}</p>`).join(""),
     "</div>",
     "</header>",
   ].join("");
@@ -183,14 +194,14 @@ function entityCardHtml(href: string, content: readonly string[]): string {
  */
 function capturedValuesHtml(): string {
   return [
-    '<section class="landing-section captured-band" aria-labelledby="captured-values-title">',
+    '<section class="page-section page-section-white" aria-labelledby="captured-values-title">',
     '<div class="container">',
     sectionIntroHtml({
       tag: "h2",
       id: "captured-values-title",
       title: "Captured values",
       aside: '<span class="count-chip">11</span>',
-      paragraphs: [
+      paragraphsHtml: [
         "The values each session page shows live beside its QR code, as the wallet sends them. They are a summary: every session records the whole flow, listed below.",
       ],
     }),
@@ -311,7 +322,8 @@ function credentialOptionHtml(
   ].join("");
 }
 
-export function attestbookSummaryHtml(summary: AttestbookIssuerSummary): string {
+/** The active rulebook version and the last synchronization's outcome, as one sentence. */
+export function attestbookSummaryText(summary: AttestbookIssuerSummary): string {
   const active =
     summary.activeVersion && summary.activeContentDigest
       ? `Attestbook rulebook version ${summary.activeVersion} (sha-256 ${summary.activeContentDigest.slice(0, 12)}…) is active`
@@ -319,7 +331,11 @@ export function attestbookSummaryHtml(summary: AttestbookIssuerSummary): string 
   const sync = summary.failureStage
     ? `last synchronization failed at the ${summary.failureStage} stage`
     : `synchronization ${summary.syncState}`;
-  return `<p class="issuer-description">${escapeHtml(`${active}; ${sync}.`)}</p>`;
+  return `${active}; ${sync}.`;
+}
+
+export function attestbookSummaryHtml(summary: AttestbookIssuerSummary): string {
+  return `<p class="issuer-description">${escapeHtml(attestbookSummaryText(summary))}</p>`;
 }
 
 export function issuerDescriptionHtml(
