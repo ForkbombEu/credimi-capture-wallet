@@ -79,8 +79,7 @@ export function indexPage(groups: readonly IssuerCredentialChoices[]): string {
       "</div>",
       '<pre class="launcher-error" role="alert" data-launcher-error hidden></pre>',
       "</div>",
-      issuerCatalogueHtml(groups),
-      verifierCatalogueHtml(),
+      entityCatalogueHtml(groups),
       "</div>",
       capturedValuesHtml(),
       "</div>",
@@ -93,13 +92,26 @@ export function indexPage(groups: readonly IssuerCredentialChoices[]): string {
   });
 }
 
-function issuerCatalogueHtml(groups: readonly IssuerCredentialChoices[]): string {
+/**
+ * The issuer cards and the verifier card share one grid, so every card is the same size. Card rows
+ * are `1fr`, which in a grid of unconstrained height makes each as tall as the tallest card, while
+ * the heading rows keep their own height; the row counts for the two-column and the one-column
+ * layout are passed to the stylesheet.
+ */
+function entityCatalogueHtml(groups: readonly IssuerCredentialChoices[]): string {
+  // An empty catalogue still holds one row: its "No issuers available" notice.
+  const issuerRows = Math.max(groups.length, 1);
   return [
-    '<section class="issuer-catalogue" aria-labelledby="issuer-catalogue-title">',
+    `<section class="entity-catalogue" aria-label="Issuers and verifier" style="--issuer-rows-wide: ${Math.ceil(issuerRows / 2)}; --issuer-rows-narrow: ${issuerRows}">`,
     '<h2 id="issuer-catalogue-title">Available issuers</h2>',
     groups.length > 0
-      ? `<div class="issuer-cards">${groups.map(issuerCardHtml).join("")}</div>`
+      ? groups.map(issuerCardHtml).join("")
       : '<p class="issuer-empty">No issuers available</p>',
+    '<h2 id="verifier-catalogue-title">Verifier</h2>',
+    entityCardHtml(VERIFIER_PAGE_PATH, [
+      "<h3>OpenID4VP verifier</h3>",
+      '<p class="issuer-description">Requests a presentation of any credential the issuers above serve, and verifies it.</p>',
+    ]),
     "</section>",
   ].join("");
 }
@@ -116,20 +128,6 @@ function issuerCardHtml(group: IssuerCredentialChoices): string {
     "</p>",
     group.attestbook ? attestbookSummaryHtml(group.attestbook) : "",
   ]);
-}
-
-function verifierCatalogueHtml(): string {
-  return [
-    '<section class="issuer-catalogue" aria-labelledby="verifier-catalogue-title">',
-    '<h2 id="verifier-catalogue-title">Verifier</h2>',
-    '<div class="issuer-cards">',
-    entityCardHtml(VERIFIER_PAGE_PATH, [
-      "<h3>OpenID4VP verifier</h3>",
-      '<p class="issuer-description">Requests a presentation of any credential the issuers above serve, and verifies it.</p>',
-    ]),
-    "</div>",
-    "</section>",
-  ].join("");
 }
 
 /** A card that opens `href` when clicked; a target that is not a safe URL leaves it inert. */
