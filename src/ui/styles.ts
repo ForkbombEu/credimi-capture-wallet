@@ -68,7 +68,8 @@ export const APP_CSS = [
   ".hero-band::before { clip-path: polygon(0 0, 100% 0, 100% 100%, 55% 52%); background: rgb(255 255 255 / 6%); }",
   ".hero-band::after { clip-path: polygon(55% 52%, 100% 100%, 15% 100%); background: rgb(255 255 255 / 4%); }",
   ".hero-inner { position: relative; z-index: 1; width: min(100% - 48px, var(--max-width)); margin-inline: auto; }",
-  // The hero title sits directly over its description, without the sections' rule.
+  // The hero title sits over its description without the sections' rule, and further from it.
+  ".hero-band .section-intro { gap: 28px; }",
   ".hero-band .section-intro-heading { padding-bottom: 0; border-bottom: 0; }",
   ".hero-band .section-intro-title { color: inherit; font-size: clamp(38px, 6vw, 64px); line-height: 1.05; letter-spacing: -0.035em; }",
   ".hero-band .section-intro-description p { color: rgb(255 255 255 / 85%); }",
@@ -115,6 +116,8 @@ export const APP_CSS = [
   ".capture-more-intro { max-width: 760px; color: var(--fg-muted); font-size: 15px; line-height: 1.55; }",
   ".capture-more-intro code, .capture-more-list code { color: var(--fg); font-size: 0.9em; }",
   ".capture-more-groups { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; align-items: start; }",
+  // Card-title size, so the protocol labels read as children of the "Also recorded" heading.
+  ".capture-more-groups .subsection-heading { font-size: 16px; line-height: 1.4; }",
   ".capture-more-list { display: grid; gap: 6px; margin: 0; padding-left: 18px; color: var(--fg-muted); font-size: 14px; line-height: 1.5; }",
   ".issuer-description, .issuer-empty { color: var(--fg-muted); font-size: 13px; line-height: 1.5; }",
   ".issuer-links { display: grid; gap: 6px; margin-top: auto; }",
