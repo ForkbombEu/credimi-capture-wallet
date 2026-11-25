@@ -230,7 +230,7 @@ function presentationFormHtml({
   const empty = groups.every((group) => group.credentials.length === 0);
 
   return [
-    '<form class="card launcher-card session-launcher" data-endpoint="/openid4vp/sessions" data-session-page="/ui/openid4vp/sessions/" novalidate>',
+    '<form class="launcher-form session-launcher" data-endpoint="/openid4vp/sessions" data-session-page="/ui/openid4vp/sessions/" novalidate>',
     '<div class="credential-row">',
     '<label class="credential-picker">',
     '<span class="subsection-heading">Credential</span>',

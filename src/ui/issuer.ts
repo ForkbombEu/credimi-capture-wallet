@@ -6,12 +6,12 @@ import {
   advancedSettingsHtml,
   attestbookSummaryText,
   credentialLabel,
+  entityCardHtml,
   heroSectionHtml,
   issuerDescriptionHtml,
   issuerLabel,
   launcherActionsHtml,
   launcherTopbarHtml,
-  safeLinkHtml,
   sectionIntroHtml,
 } from "./launcher.js";
 import type { ParameterGroup } from "./launcher.js";
@@ -169,7 +169,7 @@ function issuanceFormHtml({ group, fcafScenariosEnabled, parameters }: IssuerPag
   ];
 
   return [
-    '<form class="card launcher-card session-launcher" data-endpoint="/sessions" data-session-page="/ui/sessions/" novalidate>',
+    '<form class="launcher-form session-launcher" data-endpoint="/sessions" data-session-page="/ui/sessions/" novalidate>',
     '<input type="hidden" data-param="issuer_configuration_id" data-type="string" value="',
     escapeHtml(issuer.id),
     '">',
@@ -207,24 +207,19 @@ function issuerMetadataHtml({
       id: "issuer-metadata-title",
       title: "Metadata",
       paragraphsHtml: [
-        "The Credential Issuer Identifier, and the metadata a wallet discovers from it.",
+        "The metadata this issuer publishes. Each card opens the document in a new tab.",
       ],
     }),
-    '<dl class="entity-facts">',
-    "<div><dt>Credential Issuer Identifier</dt><dd><code>",
-    escapeHtml(issuer.issuerIdentifier),
-    "</code></dd></div>",
-    "</dl>",
-    '<nav class="issuer-links" aria-label="',
+    '<nav class="metadata-cards" aria-label="',
     escapeHtml(`${issuer.display.name} metadata`),
     '">',
-    metadataLinkHtml("Authorization server metadata", issuer.authorizationServerMetadataUrl),
-    metadataLinkHtml("OpenID4VCI credential issuer metadata", issuer.issuerMetadataUrl),
+    metadataCardHtml("Authorization server metadata", issuer.authorizationServerMetadataUrl),
+    metadataCardHtml("OpenID4VCI credential issuer metadata", issuer.issuerMetadataUrl),
     federationEntityConfigurationUrl
-      ? metadataLinkHtml("OpenID Federation entity configuration", federationEntityConfigurationUrl)
+      ? metadataCardHtml("OpenID Federation entity configuration", federationEntityConfigurationUrl)
       : "",
     group.attestbook
-      ? metadataLinkHtml("Attestbook status", "/integrations/attestbook/status")
+      ? metadataCardHtml("Attestbook status", "/integrations/attestbook/status")
       : "",
     "</nav>",
     "</div>",
@@ -232,6 +227,10 @@ function issuerMetadataHtml({
   ].join("");
 }
 
-function metadataLinkHtml(label: string, href: string): string {
-  return safeLinkHtml(label, href, "issuer-link", true);
+function metadataCardHtml(label: string, href: string): string {
+  return entityCardHtml(
+    href,
+    [`<h3>${escapeHtml(label)}</h3>`, `<p class="metadata-card-url">${escapeHtml(href)}</p>`],
+    { className: "metadata-card", newTab: true },
+  );
 }

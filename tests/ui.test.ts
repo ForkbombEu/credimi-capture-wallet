@@ -78,7 +78,7 @@ describe("launcher", () => {
       `<a class="issuer-card" href="${jwtOnlyIssuer.issuerIdentifier}"><h3>${jwtOnlyIssuer.display.name} — deliberately non-conforming</h3>`,
     );
     expect(page).not.toContain("Customize");
-    expect(page).not.toContain('class="issuer-link"');
+    expect(page).not.toContain('class="issuer-card metadata-card"');
   });
 
   it("keeps the device-bound regulation reference as text inside its card", () => {
@@ -136,13 +136,13 @@ describe("issuer page", () => {
     );
 
     expect(page).toContain(
-      `<a class="issuer-link" href="${jwtOnlyIssuer.authorizationServerMetadataUrl}" target="_blank" rel="noreferrer">Authorization server metadata</a>`,
+      `<a class="issuer-card metadata-card" href="${jwtOnlyIssuer.authorizationServerMetadataUrl}" target="_blank" rel="noreferrer"><h3>Authorization server metadata</h3>`,
     );
     expect(page).toContain(
-      `<a class="issuer-link" href="${jwtOnlyIssuer.issuerMetadataUrl}" target="_blank" rel="noreferrer">OpenID4VCI credential issuer metadata</a>`,
+      `<a class="issuer-card metadata-card" href="${jwtOnlyIssuer.issuerMetadataUrl}" target="_blank" rel="noreferrer"><h3>OpenID4VCI credential issuer metadata</h3>`,
     );
     expect(page).toContain(
-      '<a class="issuer-link" href="https://issuer.example.test/issuers/x/.well-known/openid-federation" target="_blank" rel="noreferrer">OpenID Federation entity configuration</a>',
+      '<a class="issuer-card metadata-card" href="https://issuer.example.test/issuers/x/.well-known/openid-federation" target="_blank" rel="noreferrer"><h3>OpenID Federation entity configuration</h3>',
     );
   });
 
@@ -165,7 +165,7 @@ describe("issuer page", () => {
 
     expect(page).not.toContain('href="data:');
     expect(page).toContain(
-      '<span class="issuer-link">OpenID4VCI credential issuer metadata: data:text/html,&lt;script&gt;alert(&quot;metadata&quot;)&lt;/script&gt;</span>',
+      '<article class="issuer-card metadata-card"><h3>OpenID4VCI credential issuer metadata</h3><p class="metadata-card-url">data:text/html,&lt;script&gt;alert(&quot;metadata&quot;)&lt;/script&gt;</p></article>',
     );
   });
 

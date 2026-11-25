@@ -181,11 +181,16 @@ function issuerCardHtml(group: IssuerCredentialChoices): string {
 }
 
 /** A card that opens `href` when clicked; a target that is not a safe URL leaves it inert. */
-function entityCardHtml(href: string, content: readonly string[]): string {
+export function entityCardHtml(
+  href: string,
+  content: readonly string[],
+  options: { className?: string; newTab?: boolean } = {},
+): string {
+  const className = options.className ? `issuer-card ${options.className}` : "issuer-card";
   const body = content.join("");
   return isSafeHref(href)
-    ? `<a class="issuer-card" href="${escapeHtml(href)}">${body}</a>`
-    : `<article class="issuer-card">${body}</article>`;
+    ? `<a class="${className}" href="${escapeHtml(href)}"${options.newTab ? ' target="_blank" rel="noreferrer"' : ""}>${body}</a>`
+    : `<article class="${className}">${body}</article>`;
 }
 
 /**
@@ -355,26 +360,6 @@ export function issuerDescriptionHtml(
     ", in particular <code>TR_KA-4</code>: both <code>jwt</code> and ",
     "<code>attestation</code> proof types are present and both include ",
     "<code>key_attestations_required</code>.",
-  ].join("");
-}
-
-/** Renders a link, or plain text when the target is not an HTTP(S) URL or a same-origin path. */
-export function safeLinkHtml(
-  label: string,
-  href: string,
-  className: string,
-  newTab = false,
-): string {
-  if (!isSafeHref(href)) {
-    return `<span class="${className}">${escapeHtml(label)}: ${escapeHtml(href)}</span>`;
-  }
-
-  return [
-    `<a class="${className}" href="`,
-    escapeHtml(href),
-    newTab ? '" target="_blank" rel="noreferrer">' : '">',
-    escapeHtml(label),
-    "</a>",
   ].join("");
 }
 

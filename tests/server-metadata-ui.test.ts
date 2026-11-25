@@ -576,10 +576,10 @@ describe("capture issuer server", () => {
     );
     expect(page.text).not.toContain("Credimi Demo PID (SD-JWT VC, JWT proof, no key attestation)");
     expect(page.text).toContain(
-      `href="${config.issuer_base_url}${conformingAuthorizationServerMetadataPath}" target="_blank" rel="noreferrer">Authorization server metadata</a>`,
+      `href="${config.issuer_base_url}${conformingAuthorizationServerMetadataPath}" target="_blank" rel="noreferrer"><h3>Authorization server metadata</h3>`,
     );
     expect(page.text).toContain(
-      `href="${config.issuer_base_url}${conformingMetadataPath}" target="_blank" rel="noreferrer">OpenID4VCI credential issuer metadata</a>`,
+      `href="${config.issuer_base_url}${conformingMetadataPath}" target="_blank" rel="noreferrer"><h3>OpenID4VCI credential issuer metadata</h3>`,
     );
     expect(page.text).not.toContain("OpenID Federation entity configuration");
     expect(page.text).not.toContain('data-param="offer_mutation"');
