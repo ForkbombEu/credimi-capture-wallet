@@ -156,7 +156,7 @@ export const APP_CSS = [
   ".advanced-settings > .field-hint { padding: 12px 14px 0; }",
   // The Token Status List option leads the issuance settings on its own: a switch with a blue
   // label on a white card edged in blue, set apart from the parameter groups below it.
-  ".featured-option { display: grid; gap: 6px; margin: 14px 14px 0; padding: 14px 16px; border: 1px solid var(--brand-primary); border-left-width: 4px; border-radius: var(--radius-md); background: var(--bg); }",
+  ".featured-option { display: grid; gap: 6px; margin: 14px; padding: 14px 16px; border: 1px solid var(--brand-primary); border-left-width: 4px; border-radius: var(--radius-md); background: var(--bg); }",
   ".featured-option-toggle { position: relative; display: inline-flex; align-items: center; gap: 12px; width: fit-content; cursor: pointer; }",
   ".featured-option-toggle.field-disabled { cursor: not-allowed; }",
   // The native checkbox stays in the layout for form submission and keyboard focus; only the
