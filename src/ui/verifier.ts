@@ -3,7 +3,7 @@ import {
   credentialLabel,
   heroSectionHtml,
   issuerLabel,
-  launcherActionsHtml,
+  launcherRowHtml,
   launcherTopbarHtml,
   sectionIntroHtml,
 } from "./launcher.js";
@@ -89,18 +89,21 @@ function presentationFormHtml({
 
   return [
     '<form class="launcher-form session-launcher" data-endpoint="/openid4vp/sessions" data-session-page="/ui/openid4vp/sessions/" novalidate>',
-    '<div class="credential-row">',
-    '<label class="credential-picker">',
-    '<span class="subsection-heading">Credential</span>',
-    "<select data-credential-picker>",
-    groups.map(verifierCredentialGroupHtml).join(""),
-    "</select>",
-    "</label>",
-    "</div>",
+    launcherRowHtml(
+      [
+        '<label class="credential-picker">',
+        '<span class="subsection-heading">Credential</span>',
+        "<select data-credential-picker>",
+        groups.map(verifierCredentialGroupHtml).join(""),
+        "</select>",
+        "</label>",
+      ].join(""),
+      "Verify",
+      empty,
+    ),
     advancedSettingsHtml(
       parameterGroupsHtml(presentationParameterGroups(parameters, fcafScenariosEnabled)),
     ),
-    launcherActionsHtml("Create presentation session", empty),
     "</form>",
   ].join("");
 }

@@ -129,13 +129,17 @@ describe("launcher", () => {
       federationEntityConfigurationUrl: (issuer) => `${issuer.issuerIdentifier}/federation`,
     });
 
-    // The links belong to the issuance settings, so the Present flow hides them.
+    // Each flow's settings end with its own party's links, so the other flow hides them.
     const [, issuance = "", presentation = ""] =
       /data-flow="issuance">(.*)data-flow="presentation"(.*)<\/details>/.exec(page) ?? [];
     expect(issuance).toContain(
       `<p class="parameter-group-title">Issuer information</p><nav class="metadata-cards" data-issuer-links="${jwtOnlyIssuer.id}" aria-label="${jwtOnlyIssuer.display.name} — deliberately non-conforming links">`,
     );
+    expect(issuance).not.toContain("Verifier information");
     expect(presentation).not.toContain("data-issuer-links");
+    expect(presentation).toContain(
+      '<p class="parameter-group-title">Verifier information</p><nav class="metadata-cards" aria-label="Verifier links"><a class="issuer-card metadata-card" href="/openid4vp" target="_blank" rel="noreferrer"><h3>Verifier page</h3>',
+    );
     for (const [label, href] of [
       ["Issuer page", jwtOnlyIssuer.issuerIdentifier],
       ["Authorization server metadata", jwtOnlyIssuer.authorizationServerMetadataUrl],

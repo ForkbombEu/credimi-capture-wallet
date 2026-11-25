@@ -93,26 +93,28 @@ function sessionLauncherHtml(options: IndexPageOptions): string {
   const empty = groups.every((group) => group.credentials.length === 0);
   return [
     '<form class="launcher-form session-launcher" novalidate>',
-    '<div class="launcher-row">',
-    '<div class="flow-switch">',
-    '<span class="subsection-heading" id="flow-label">Flow</span>',
-    '<div class="segmented" role="radiogroup" aria-labelledby="flow-label">',
-    flowChoiceHtml("issuance", "Issue", "/sessions", "/ui/sessions/", true),
-    flowChoiceHtml("presentation", "Present", "/openid4vp/sessions", "/ui/openid4vp/sessions/"),
-    "</div>",
-    "</div>",
-    '<label class="credential-picker">',
-    '<span class="subsection-heading">Credential</span>',
-    // The first credential is preselected, so Start always has a target.
-    '<select data-credential-picker autocomplete="off">',
-    empty
-      ? '<option value="">No credentials available</option>'
-      : groups.map(credentialGroupHtml).join(""),
-    "</select>",
-    "</label>",
-    `<button class="btn btn-primary btn-lg" type="submit" autocomplete="off"${empty ? " disabled" : ""}>Start</button>`,
-    "</div>",
-    '<pre class="launcher-error" role="alert" data-launcher-error hidden></pre>',
+    launcherRowHtml(
+      [
+        '<div class="flow-switch">',
+        '<span class="subsection-heading" id="flow-label">Flow</span>',
+        '<div class="segmented" role="radiogroup" aria-labelledby="flow-label">',
+        flowChoiceHtml("issuance", "Issue", "/sessions", "/ui/sessions/", true),
+        flowChoiceHtml("presentation", "Present", "/openid4vp/sessions", "/ui/openid4vp/sessions/"),
+        "</div>",
+        "</div>",
+        '<label class="credential-picker">',
+        '<span class="subsection-heading">Credential</span>',
+        // The first credential is preselected, so Start always has a target.
+        '<select data-credential-picker autocomplete="off">',
+        empty
+          ? '<option value="">No credentials available</option>'
+          : groups.map(credentialGroupHtml).join(""),
+        "</select>",
+        "</label>",
+      ].join(""),
+      "Start",
+      empty,
+    ),
     advancedSettingsHtml(
       [
         '<fieldset class="flow-settings" data-flow="issuance">',
@@ -126,6 +128,10 @@ function sessionLauncherHtml(options: IndexPageOptions): string {
         parameterGroupsHtml(
           presentationParameterGroups(presentationParameters, fcafScenariosEnabled),
         ),
+        '<div class="parameter-group">',
+        '<p class="parameter-group-title">Verifier information</p>',
+        `<nav class="metadata-cards" aria-label="Verifier links">${metadataCardHtml("Verifier page", VERIFIER_PAGE_PATH)}</nav>`,
+        "</div>",
         "</fieldset>",
       ].join(""),
     ),
@@ -426,12 +432,15 @@ function isSafeHref(value: string): boolean {
   }
 }
 
-export function launcherActionsHtml(label: string, disabled: boolean): string {
+/**
+ * A form's first row: its pickers, then the submit button on the right, then the box the API's
+ * refusal is shown in.
+ */
+export function launcherRowHtml(pickersHtml: string, label: string, disabled: boolean): string {
   return [
-    '<div class="session-actions">',
-    '<button class="btn btn-primary btn-lg" type="submit" autocomplete="off"',
-    disabled ? " disabled" : "",
-    ">",
+    '<div class="launcher-row">',
+    pickersHtml,
+    `<button class="btn btn-primary btn-lg" type="submit" autocomplete="off"${disabled ? " disabled" : ""}>`,
     escapeHtml(label),
     "</button>",
     "</div>",

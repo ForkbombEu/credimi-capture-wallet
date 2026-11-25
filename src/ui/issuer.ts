@@ -8,7 +8,7 @@ import {
   issuerDescriptionHtml,
   issuerLabel,
   issuerMetadataCardsHtml,
-  launcherActionsHtml,
+  launcherRowHtml,
   launcherTopbarHtml,
   sectionIntroHtml,
 } from "./launcher.js";
@@ -90,22 +90,25 @@ function issuanceFormHtml({ group, fcafScenariosEnabled, parameters }: IssuerPag
     '<input type="hidden" data-param="issuer_configuration_id" data-type="string" value="',
     escapeHtml(issuer.id),
     '">',
-    '<div class="credential-row">',
-    '<label class="credential-picker">',
-    '<span class="subsection-heading">Credential</span>',
-    '<select data-param="credential_configuration_id" data-type="string" data-credential-picker>',
-    credentials.map(issuerCredentialOptionHtml).join(""),
-    "</select>",
-    "</label>",
-    "</div>",
+    launcherRowHtml(
+      [
+        '<label class="credential-picker">',
+        '<span class="subsection-heading">Credential</span>',
+        '<select data-param="credential_configuration_id" data-type="string" data-credential-picker>',
+        credentials.map(issuerCredentialOptionHtml).join(""),
+        "</select>",
+        "</label>",
+      ].join(""),
+      "Issue",
+      credentials.length === 0,
+    ),
+    credentials.length === 0
+      ? '<p class="issuer-empty">This issuer serves no credential configuration.</p>'
+      : "",
     advancedSettingsHtml(
       statusListOptionHtml() +
         parameterGroupsHtml(issuanceParameterGroups(parameters, fcafScenariosEnabled)),
     ),
-    launcherActionsHtml("Create issuance session", credentials.length === 0),
-    credentials.length === 0
-      ? '<p class="issuer-empty">This issuer serves no credential configuration.</p>'
-      : "",
     "</form>",
   ].join("");
 }

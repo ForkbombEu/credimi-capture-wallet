@@ -75,15 +75,11 @@ export const APP_CSS = [
   ".hero-band .section-intro-description p { color: rgb(255 255 255 / 85%); }",
   // A link or code in a hero description (an issuer's regulation reference) stays white on blue.
   ".hero-band a, .hero-band code { color: inherit; }",
-  ".session-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }",
   ".credential-picker { display: grid; gap: 8px; width: min(100%, 520px); color: var(--fg); font-size: 13px; font-weight: 700; }",
   ".credential-picker select { width: 100%; min-height: 44px; padding: 0 42px 0 14px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--bg); color: var(--fg); font: inherit; font-size: 14px; font-weight: 600; }",
   ".credential-picker select:focus { outline: 2px solid color-mix(in oklch, var(--brand-primary) 36%, transparent); outline-offset: 2px; }",
-  // The credential select fills its row; on the issuer and verifier pages it is alone there.
-  ".credential-row { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; width: 100%; }",
-  ".credential-row .credential-picker { flex: 1 1 320px; }",
-  // The launcher's flow switch, credential select, and Start share one row, bottom-aligned
-  // because the switch and the select carry their labels above.
+  // A session form's pickers and its submit button share one row, bottom-aligned because the
+  // pickers carry their labels above; the launcher's row also holds the flow switch.
   ".launcher-row { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; width: 100%; }",
   ".launcher-row .credential-picker { flex: 1 1 420px; width: auto; }",
   ".launcher-row > .btn { min-width: 150px; }",
@@ -223,7 +219,7 @@ export const APP_CSS = [
   ".metadata-row summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 42px; padding: 10px 12px; color: var(--fg); font-size: 13px; font-weight: 700; cursor: pointer; list-style: none; }",
   // A collapsible row ends in a chevron that points down when closed and up when open.
   ".metadata-row summary::-webkit-details-marker, .advanced-settings > summary::-webkit-details-marker { display: none; }",
-  ".metadata-row summary::after, .advanced-settings > summary::after { content: '\\02C5'; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; flex: 0 0 auto; box-sizing: border-box; padding-top: 8px; color: var(--brand-primary); font-family: JetBrains Mono, Fira Code, Cascadia Code, ui-monospace, monospace; font-size: 18px; font-weight: 500; line-height: 20px; }",
+  ".metadata-row summary::after, .advanced-settings > summary::after { content: '\\02C5'; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; flex: 0 0 auto; box-sizing: border-box; padding-top: 8px; color: var(--fg); font-family: JetBrains Mono, Fira Code, Cascadia Code, ui-monospace, monospace; font-size: 18px; font-weight: 500; line-height: 20px; }",
   ".metadata-row[open] summary { border-bottom: 1px solid var(--border); }",
   ".metadata-row[open] summary::after, .advanced-settings[open] > summary::after { content: '\\02C4'; }",
   ".metadata-row code { display: block; padding: 12px; overflow-wrap: anywhere; color: var(--fg); font-size: 12px; white-space: pre-wrap; }",
@@ -248,6 +244,6 @@ export const APP_CSS = [
   "@keyframes metadata-spin { to { transform: rotate(360deg); } }",
   "@keyframes metadata-flash { 0% { background: var(--warning-bg); box-shadow: 0 0 0 0 color-mix(in oklch, var(--warning) 32%, transparent); } 30% { background: var(--success-bg); box-shadow: 0 0 0 6px color-mix(in oklch, var(--success) 20%, transparent); } 100% { background: var(--bg); box-shadow: var(--shadow-sm); } }",
   "@media (prefers-reduced-motion: reduce) { .metadata-state-waiting::before, .metadata-state-receiving::before, .metadata-flash { animation: none; } .segmented span, .toggle-track, .toggle-track::after, a.issuer-card { transition: none; } }",
-  "@media (max-width: 860px) { h1 { font-size: 38px; } h2 { font-size: 22px; } .topbar { position: static; } .page-section { padding: 64px 0; } .session-layout, .capture-more-groups, .metadata-cards { grid-template-columns: 1fr; } .session-header, .section-head, .footer-content { flex-direction: column; align-items: stretch; } .session-actions { align-items: stretch; flex-direction: column; } .session-actions .btn { width: 100%; } .footer-links { justify-content: flex-start; } .qr-box { width: 100%; max-width: 336px; } }",
+  "@media (max-width: 860px) { h1 { font-size: 38px; } h2 { font-size: 22px; } .topbar { position: static; } .page-section { padding: 64px 0; } .session-layout, .capture-more-groups, .metadata-cards { grid-template-columns: 1fr; } .session-header, .section-head, .footer-content { flex-direction: column; align-items: stretch; } .footer-links { justify-content: flex-start; } .qr-box { width: 100%; max-width: 336px; } }",
   "@media (max-width: 560px) { .container, .topbar-inner, .hero-inner, .footer-inner { width: min(100% - 28px, var(--max-width)); } .page-content { padding: 28px 0 52px; } .card { padding: 18px; } .brand-name { display: none; } .topbar-actions .btn { display: none; } .launcher-row > .flow-switch, .launcher-row > .btn { flex: 1 1 100%; } }",
 ].join("\n");
