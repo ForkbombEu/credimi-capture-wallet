@@ -151,7 +151,7 @@ export const APP_CSS = [
   "dd { margin: 4px 0 0; color: var(--fg-muted); font-size: 13px; line-height: 1.5; }",
   ".launcher-form { display: grid; gap: 14px; }",
   ".advanced-settings { border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--bg-muted); }",
-  ".advanced-settings > summary { display: flex; align-items: center; min-height: 44px; padding: 10px 14px; color: var(--fg); font-size: 14px; font-weight: 700; cursor: pointer; }",
+  ".advanced-settings > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; padding: 10px 14px; color: var(--fg); font-size: 14px; font-weight: 700; cursor: pointer; list-style: none; }",
   ".advanced-settings[open] > summary { border-bottom: 1px solid var(--border); }",
   ".advanced-settings > .field-hint { padding: 12px 14px 0; }",
   // The Token Status List option leads the issuance settings on its own: a switch with a blue
@@ -221,10 +221,11 @@ export const APP_CSS = [
   ".metadata-grid { display: grid; gap: 8px; margin-bottom: 16px; }",
   ".metadata-row { border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-muted); }",
   ".metadata-row summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 42px; padding: 10px 12px; color: var(--fg); font-size: 13px; font-weight: 700; cursor: pointer; list-style: none; }",
-  ".metadata-row summary::-webkit-details-marker { display: none; }",
-  ".metadata-row summary::after { content: '\\02C5'; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; flex: 0 0 auto; box-sizing: border-box; padding-top: 8px; color: var(--brand-primary); font-family: JetBrains Mono, Fira Code, Cascadia Code, ui-monospace, monospace; font-size: 18px; font-weight: 500; line-height: 20px; }",
+  // A collapsible row ends in a chevron that points down when closed and up when open.
+  ".metadata-row summary::-webkit-details-marker, .advanced-settings > summary::-webkit-details-marker { display: none; }",
+  ".metadata-row summary::after, .advanced-settings > summary::after { content: '\\02C5'; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; flex: 0 0 auto; box-sizing: border-box; padding-top: 8px; color: var(--brand-primary); font-family: JetBrains Mono, Fira Code, Cascadia Code, ui-monospace, monospace; font-size: 18px; font-weight: 500; line-height: 20px; }",
   ".metadata-row[open] summary { border-bottom: 1px solid var(--border); }",
-  ".metadata-row[open] summary::after { content: '\\02C4'; }",
+  ".metadata-row[open] summary::after, .advanced-settings[open] > summary::after { content: '\\02C4'; }",
   ".metadata-row code { display: block; padding: 12px; overflow-wrap: anywhere; color: var(--fg); font-size: 12px; white-space: pre-wrap; }",
   ".metadata-json { min-height: 280px; max-height: 50vh; overflow: auto; margin: 0; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-muted); color: var(--fg); white-space: pre-wrap; font-size: 13px; line-height: 1.5; }",
   ".danger-panel { display: grid; gap: 20px; border-left: 3px solid var(--destructive); }",
