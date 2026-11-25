@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, describe, expect, it } from "vitest";
 import { DEFAULT_CONFIG } from "../src/config/defaults.js";
 import { euPidDeviceBound } from "../src/configurations/eu-pid-device-bound/index.js";
 import { euPidJwtKeyAttestation } from "../src/configurations/eu-pid-jwt-key-attestation/index.js";
@@ -28,36 +31,48 @@ import { CREDIMI_LOGO_URL } from "../src/credentials/signing.js";
 import { credentialIssuerMetadata, jwtVcIssuerMetadata } from "../src/openid4vci/metadata.js";
 import type { JsonRecord } from "../src/types.js";
 
+// An empty data directory, so the metadata never depends on key material in the working tree: with
+// no issuer encryption key, it advertises no credential request or response encryption.
+const config = { ...DEFAULT_CONFIG, data_dir: mkdtempSync(join(tmpdir(), "metadata-test-")) };
+afterAll(() => rmSync(config.data_dir, { recursive: true, force: true }));
+
 describe("metadata", () => {
   it("uses the credential issuer identifier for authorization server discovery", () => {
-    const issuerMetadata = credentialIssuerMetadata(DEFAULT_CONFIG, euPidDeviceBound) as JsonRecord;
+    const issuerMetadata = credentialIssuerMetadata(config, euPidDeviceBound) as JsonRecord;
 
     expect(issuerMetadata.authorization_servers).toBeUndefined();
   });
 
+  it("advertises no encryption without an issuer encryption key", () => {
+    const issuerMetadata = credentialIssuerMetadata(config, euPidDeviceBound) as JsonRecord;
+
+    expect(issuerMetadata.credential_request_encryption).toBeUndefined();
+    expect(issuerMetadata.credential_response_encryption).toBeUndefined();
+  });
+
   it("advertises credential scope in issuer metadata", () => {
-    const conforming = credentialIssuerMetadata(DEFAULT_CONFIG, euPidDeviceBound) as JsonRecord;
-    const jwtOnly = credentialIssuerMetadata(DEFAULT_CONFIG, euPidJwtProofOnly) as JsonRecord;
+    const conforming = credentialIssuerMetadata(config, euPidDeviceBound) as JsonRecord;
+    const jwtOnly = credentialIssuerMetadata(config, euPidJwtProofOnly) as JsonRecord;
     const configurations = {
       ...(conforming.credential_configurations_supported as JsonRecord),
       ...(jwtOnly.credential_configurations_supported as JsonRecord),
     };
     const expectedScopes = {
-      [sdJwtCredentialConfigurationId(DEFAULT_CONFIG, "key-attestation-required")]:
-        `${DEFAULT_CONFIG.credential_scope}.sd-jwt.key-attestation-required`,
-      [sdJwtCredentialConfigurationId(DEFAULT_CONFIG, "jwt-proof")]:
-        `${DEFAULT_CONFIG.credential_scope}.sd-jwt.jwt-proof`,
-      [mdocCredentialConfigurationId(DEFAULT_CONFIG, "key-attestation-required")]:
-        `${DEFAULT_CONFIG.credential_scope}.mdoc.key-attestation-required`,
-      [mdocCredentialConfigurationId(DEFAULT_CONFIG, "jwt-proof")]:
-        `${DEFAULT_CONFIG.credential_scope}.mdoc.jwt-proof`,
-      [degreeSdJwtCredentialConfigurationId(DEFAULT_CONFIG, "key-attestation-required")]:
+      [sdJwtCredentialConfigurationId(config, "key-attestation-required")]:
+        `${config.credential_scope}.sd-jwt.key-attestation-required`,
+      [sdJwtCredentialConfigurationId(config, "jwt-proof")]:
+        `${config.credential_scope}.sd-jwt.jwt-proof`,
+      [mdocCredentialConfigurationId(config, "key-attestation-required")]:
+        `${config.credential_scope}.mdoc.key-attestation-required`,
+      [mdocCredentialConfigurationId(config, "jwt-proof")]:
+        `${config.credential_scope}.mdoc.jwt-proof`,
+      [degreeSdJwtCredentialConfigurationId(config, "key-attestation-required")]:
         "urn:credimi:degree:1.sd-jwt.key-attestation-required",
-      [degreeSdJwtCredentialConfigurationId(DEFAULT_CONFIG, "jwt-proof")]:
+      [degreeSdJwtCredentialConfigurationId(config, "jwt-proof")]:
         "urn:credimi:degree:1.sd-jwt.jwt-proof",
-      [numericSdJwtCredentialConfigurationId(DEFAULT_CONFIG, "key-attestation-required")]:
+      [numericSdJwtCredentialConfigurationId(config, "key-attestation-required")]:
         "urn:credimi:numeric-claims:1.sd-jwt.key-attestation-required",
-      [numericSdJwtCredentialConfigurationId(DEFAULT_CONFIG, "jwt-proof")]:
+      [numericSdJwtCredentialConfigurationId(config, "jwt-proof")]:
         "urn:credimi:numeric-claims:1.sd-jwt.jwt-proof",
       [domesticPidCredentialConfigurationId("dc+sd-jwt", "key-attestation-required")]:
         "urn:eudi:pid:xx:1.sd-jwt.key-attestation-required",
@@ -80,10 +95,10 @@ describe("metadata", () => {
   });
 
   it("advertises explicit display names in issuer metadata", () => {
-    const metadata = credentialIssuerMetadata(DEFAULT_CONFIG, euPidJwtProofOnly) as JsonRecord;
+    const metadata = credentialIssuerMetadata(config, euPidJwtProofOnly) as JsonRecord;
     const configurations = metadata.credential_configurations_supported as JsonRecord;
     const configuration = configurations[
-      sdJwtCredentialConfigurationId(DEFAULT_CONFIG, "jwt-proof")
+      sdJwtCredentialConfigurationId(config, "jwt-proof")
     ] as JsonRecord;
     const credentialMetadata = configuration.credential_metadata as JsonRecord;
 
@@ -107,10 +122,10 @@ describe("metadata", () => {
   });
 
   it("advertises only JWT proofs with key attestation for the dedicated PID issuer", () => {
-    const metadata = credentialIssuerMetadata(DEFAULT_CONFIG, euPidJwtKeyAttestation) as JsonRecord;
+    const metadata = credentialIssuerMetadata(config, euPidJwtKeyAttestation) as JsonRecord;
     const configurations = metadata.credential_configurations_supported as JsonRecord;
-    const sdJwtId = sdJwtCredentialConfigurationId(DEFAULT_CONFIG, "jwt-key-attestation-required");
-    const mdocId = mdocCredentialConfigurationId(DEFAULT_CONFIG, "jwt-key-attestation-required");
+    const sdJwtId = sdJwtCredentialConfigurationId(config, "jwt-key-attestation-required");
+    const mdocId = mdocCredentialConfigurationId(config, "jwt-key-attestation-required");
     const sdJwt = configurations[sdJwtId] as JsonRecord;
     const mdoc = configurations[mdocId] as JsonRecord;
     const proofTypes = {
@@ -121,10 +136,8 @@ describe("metadata", () => {
     };
 
     expect(Object.keys(configurations)).toEqual([sdJwtId, mdocId]);
-    expect(sdJwt.scope).toBe(
-      `${DEFAULT_CONFIG.credential_scope}.sd-jwt.jwt-key-attestation-required`,
-    );
-    expect(mdoc.scope).toBe(`${DEFAULT_CONFIG.credential_scope}.mdoc.jwt-key-attestation-required`);
+    expect(sdJwt.scope).toBe(`${config.credential_scope}.sd-jwt.jwt-key-attestation-required`);
+    expect(mdoc.scope).toBe(`${config.credential_scope}.mdoc.jwt-key-attestation-required`);
     expect(sdJwt.vct).toBe(PID_SD_JWT_VCT);
     expect(mdoc.doctype).toBe(PID_MDOC_DOCTYPE);
     expect(sdJwt.proof_types_supported).toEqual(proofTypes);
@@ -132,42 +145,42 @@ describe("metadata", () => {
   });
 
   it("advertises separate JWT-only and key-attestation-required configurations", () => {
-    const conforming = credentialIssuerMetadata(DEFAULT_CONFIG, euPidDeviceBound) as JsonRecord;
-    const jwtOnly = credentialIssuerMetadata(DEFAULT_CONFIG, euPidJwtProofOnly) as JsonRecord;
+    const conforming = credentialIssuerMetadata(config, euPidDeviceBound) as JsonRecord;
+    const jwtOnly = credentialIssuerMetadata(config, euPidJwtProofOnly) as JsonRecord;
     const conformingConfigurations = conforming.credential_configurations_supported as JsonRecord;
     const jwtOnlyConfigurations = jwtOnly.credential_configurations_supported as JsonRecord;
     const sdJwtAttested = conformingConfigurations[
-      sdJwtCredentialConfigurationId(DEFAULT_CONFIG, "key-attestation-required")
+      sdJwtCredentialConfigurationId(config, "key-attestation-required")
     ] as JsonRecord;
     const sdJwtProof = jwtOnlyConfigurations[
-      sdJwtCredentialConfigurationId(DEFAULT_CONFIG, "jwt-proof")
+      sdJwtCredentialConfigurationId(config, "jwt-proof")
     ] as JsonRecord;
     const mdocAttested = conformingConfigurations[
-      mdocCredentialConfigurationId(DEFAULT_CONFIG, "key-attestation-required")
+      mdocCredentialConfigurationId(config, "key-attestation-required")
     ] as JsonRecord;
     const mdocJwtProof = jwtOnlyConfigurations[
-      mdocCredentialConfigurationId(DEFAULT_CONFIG, "jwt-proof")
+      mdocCredentialConfigurationId(config, "jwt-proof")
     ] as JsonRecord;
     const degree = conformingConfigurations[
-      degreeSdJwtCredentialConfigurationId(DEFAULT_CONFIG, "key-attestation-required")
+      degreeSdJwtCredentialConfigurationId(config, "key-attestation-required")
     ] as JsonRecord;
     const numeric = conformingConfigurations[
-      numericSdJwtCredentialConfigurationId(DEFAULT_CONFIG, "key-attestation-required")
+      numericSdJwtCredentialConfigurationId(config, "key-attestation-required")
     ] as JsonRecord;
 
     expect(Object.keys(conformingConfigurations)).toEqual([
-      sdJwtCredentialConfigurationId(DEFAULT_CONFIG, "key-attestation-required"),
-      mdocCredentialConfigurationId(DEFAULT_CONFIG, "key-attestation-required"),
-      degreeSdJwtCredentialConfigurationId(DEFAULT_CONFIG, "key-attestation-required"),
-      numericSdJwtCredentialConfigurationId(DEFAULT_CONFIG, "key-attestation-required"),
+      sdJwtCredentialConfigurationId(config, "key-attestation-required"),
+      mdocCredentialConfigurationId(config, "key-attestation-required"),
+      degreeSdJwtCredentialConfigurationId(config, "key-attestation-required"),
+      numericSdJwtCredentialConfigurationId(config, "key-attestation-required"),
       domesticPidCredentialConfigurationId("dc+sd-jwt", "key-attestation-required"),
       domesticPidCredentialConfigurationId("mso_mdoc", "key-attestation-required"),
     ]);
     expect(Object.keys(jwtOnlyConfigurations)).toEqual([
-      sdJwtCredentialConfigurationId(DEFAULT_CONFIG, "jwt-proof"),
-      mdocCredentialConfigurationId(DEFAULT_CONFIG, "jwt-proof"),
-      degreeSdJwtCredentialConfigurationId(DEFAULT_CONFIG, "jwt-proof"),
-      numericSdJwtCredentialConfigurationId(DEFAULT_CONFIG, "jwt-proof"),
+      sdJwtCredentialConfigurationId(config, "jwt-proof"),
+      mdocCredentialConfigurationId(config, "jwt-proof"),
+      degreeSdJwtCredentialConfigurationId(config, "jwt-proof"),
+      numericSdJwtCredentialConfigurationId(config, "jwt-proof"),
       domesticPidCredentialConfigurationId("dc+sd-jwt", "jwt-proof"),
       domesticPidCredentialConfigurationId("mso_mdoc", "jwt-proof"),
     ]);
@@ -214,10 +227,10 @@ describe("metadata", () => {
   });
 
   it("advertises the MDOC PID credential configuration", () => {
-    const metadata = credentialIssuerMetadata(DEFAULT_CONFIG, euPidDeviceBound) as JsonRecord;
+    const metadata = credentialIssuerMetadata(config, euPidDeviceBound) as JsonRecord;
     const configurations = metadata.credential_configurations_supported as JsonRecord;
     const configuration = configurations[
-      mdocCredentialConfigurationId(DEFAULT_CONFIG, "key-attestation-required")
+      mdocCredentialConfigurationId(config, "key-attestation-required")
     ] as JsonRecord;
     const credentialMetadata = configuration.credential_metadata as JsonRecord;
     const claims = credentialMetadata.claims as JsonRecord[];
@@ -244,7 +257,7 @@ describe("metadata", () => {
   });
 
   it("advertises the domestic PID with its domestic type and namespace", () => {
-    const metadata = credentialIssuerMetadata(DEFAULT_CONFIG, euPidJwtProofOnly) as JsonRecord;
+    const metadata = credentialIssuerMetadata(config, euPidJwtProofOnly) as JsonRecord;
     const configurations = metadata.credential_configurations_supported as JsonRecord;
     const sdJwt = configurations[
       domesticPidCredentialConfigurationId("dc+sd-jwt", "jwt-proof")
@@ -272,11 +285,11 @@ describe("metadata", () => {
   });
 
   it("advertises JWT VC issuer metadata for the HTTPS issuer identifier", () => {
-    const metadata = jwtVcIssuerMetadata(DEFAULT_CONFIG) as JsonRecord;
+    const metadata = jwtVcIssuerMetadata(config) as JsonRecord;
 
     expect(metadata).toEqual({
-      issuer: DEFAULT_CONFIG.issuer_base_url,
-      jwks_uri: `${DEFAULT_CONFIG.issuer_base_url}/credential-jwks.json`,
+      issuer: config.issuer_base_url,
+      jwks_uri: `${config.issuer_base_url}/credential-jwks.json`,
     });
   });
 });

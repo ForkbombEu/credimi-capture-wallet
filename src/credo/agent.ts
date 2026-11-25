@@ -275,8 +275,10 @@ export class NodeKmsBackend implements Kms.KeyManagementService {
     return { data: plaintext };
   }
 
+  // A plain Uint8Array, as the contract states: Node's Buffer subclass makes slice() a view, which
+  // a consumer expecting a copy (such as @peculiar/x509's serial number generation) gets wrong.
   randomBytes(_agentContext: AgentContext, options: Kms.KmsRandomBytesOptions): Uint8Array {
-    return randomBytes(options.length);
+    return new Uint8Array(randomBytes(options.length));
   }
 
   private requiredKey(keyId: string): JWK {
