@@ -1,4 +1,11 @@
 export type JsonRecord = Record<string, unknown>;
+
+export type CredentialFormat = "dc+sd-jwt" | "mso_mdoc";
+export type CredentialProofPolicy =
+  | "jwt-proof"
+  | "jwt-key-attestation-required"
+  | "key-attestation-required";
+
 export type CredentialOfferMode = "credential_offer" | "credential_offer_uri";
 
 /** URL scheme of the Credential Offer deeplink. `openid-credential-offer://` is the default. */
@@ -22,7 +29,7 @@ export interface StatusListReference {
 }
 
 /** A reference the Status List service allocated for one issued credential. */
-export interface StatusListAllocation extends StatusListReference {
+interface StatusListAllocation extends StatusListReference {
   /** The idempotency key sent to `/token_status_list/take`, `<session_id>:<credential index>`. */
   allocation_id: string;
 }
@@ -138,7 +145,7 @@ export interface AppConfig {
   attestbook: AttestbookSettings;
 }
 
-export interface FederationSettings {
+interface FederationSettings {
   enabled: boolean;
   authority_hints: string[];
 }
@@ -157,7 +164,7 @@ export interface AttestbookSettings {
   allowed_schema_origins: string[];
 }
 
-export interface ObservedValue<T> {
+interface ObservedValue<T> {
   value: T | null;
   source: string | null;
   also_seen_in?: string[];
@@ -241,7 +248,7 @@ export interface RequestUriHttpCapture {
   body?: string;
 }
 
-export interface VerifierResponseHttpCapture {
+interface VerifierResponseHttpCapture {
   status: number;
   headers: JsonRecord;
   body: string;
@@ -299,7 +306,7 @@ export interface CredentialRequestProofsCapture {
   attestation: ProofJwtEvidence[];
 }
 
-export interface ClientAuthenticationCapture {
+interface ClientAuthenticationCapture {
   method: "none" | "private_key_jwt" | "wallet_attestation" | "multiple";
   private_key_jwt: JwtCapture & {
     assertion_type: string | null;
@@ -466,7 +473,7 @@ export interface IssuedCredentialNotification {
   credential_count: number;
 }
 
-export interface CredentialNotificationCapture {
+interface CredentialNotificationCapture {
   notification_id: string;
   issued_at: string;
   credential_configuration_id: string;
@@ -482,7 +489,7 @@ export interface CredentialNotificationCapture {
  * One Wallet-reported outcome. It is what the Wallet said, not proof that a Credential is or
  * remains stored.
  */
-export interface CredentialNotificationReceipt {
+interface CredentialNotificationReceipt {
   event: CredentialNotificationEvent;
   event_description?: string;
   first_received_at: string;
@@ -609,10 +616,7 @@ export interface IssuanceResponseScenario {
   credential?: IssuanceEndpointResponseScenario;
 }
 
-export type VpDcApiProtocol =
-  | "openid4vp-v1-signed"
-  | "openid4vp-v1-multisigned"
-  | "openid4vp-v1-unsigned";
+type VpDcApiProtocol = "openid4vp-v1-signed" | "openid4vp-v1-multisigned" | "openid4vp-v1-unsigned";
 
 /**
  * How the request reaches the Wallet. `multisigned` is a DC API JWS JSON Serialization request
@@ -662,7 +666,7 @@ export type RequestObjectEncryptionSource =
   | "default";
 
 /** How the Request Object served from a POST Request URI was encrypted, and why. */
-export interface VpRequestObjectEncryptionCapture {
+interface VpRequestObjectEncryptionCapture {
   alg: "ECDH-ES";
   enc: string;
   /** `kid` of the Wallet key the Request Object was encrypted to, when it had one. */
@@ -762,6 +766,7 @@ export interface CredoIssuanceOffer {
   credo_issuance_session_id: string;
 }
 
+/** @internal */
 export interface SessionCredentialDefinition {
   source: "attestbook";
   origin: string;
@@ -778,7 +783,7 @@ export interface SessionCredentialDefinition {
  * The synthetic claim values an imported credential is issued with. They are generated once, at
  * session creation, and are reproducible from the recorded generator, seed and reference date.
  */
-export interface SessionGeneratedClaims {
+interface SessionGeneratedClaims {
   generator: string;
   /** The seed string; the session id. */
   seed: string;

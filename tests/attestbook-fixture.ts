@@ -363,7 +363,7 @@ export interface FixtureEvent {
   publishedAt: string;
 }
 
-export function sri(bytes: Buffer): string {
+function sri(bytes: Buffer): string {
   return `sha256-${createHash("sha256").update(bytes).digest("base64")}`;
 }
 

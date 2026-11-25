@@ -72,18 +72,39 @@ If a required design decision, convention, or security policy is not evident fro
 
 ## Repository map
 
-- `src/server.ts`: Express routes and the OpenID4VCI issuer endpoints.
-- `src/openid4vp.ts`: OpenID4VP session creation and request construction.
-- `src/credo-openid4vp.ts`: Credo-TS-backed OpenID4VP verification integration.
-- `src/openid4vp-validation.ts`: validation helpers for OpenID4VP presentations.
-- `src/credential.ts`, `src/credential-definitions.ts`, `src/proofs.ts`: credential generation, supported credential definitions, and holder proof handling.
-- `src/metadata.ts`: issuer and authorization-server metadata.
-- `src/state.ts`: in-memory issuance and presentation session state plus captured evidence.
-- `src/config.ts`: service configuration and issuer/verifier key material.
-- `src/client-auth.ts`, `src/pkce.ts`: OAuth client authentication and PKCE support.
-- `src/ui.ts`: server-rendered operator UI.
-- `tests/`: Vitest coverage for protocol routes, Credo-TS integration, metadata, proofs, configuration, and validation.
-- `README.md`: public API and runtime documentation; update it when a public contract changes.
+- `src/cli.ts`, `src/cli/`: package `bin` entry point and command handling for service operation, federation exports, and Attestbook commands.
+- `src/config/`: service defaults, environment and URL parsing, config-file loading, path helpers, verifier identity, and issuer/verifier key material.
+- `src/configurations/`: issuer-configuration catalogue, URL resolution, registry, and validation.
+- `src/credentials/`: credential definitions, signing, digest algorithms, and the static and Attestbook credential registries.
+- `src/credo/`: shared Credo-TS agent runtime, in-memory storage, KMS, and encryption primitives.
+- `src/openid4vci/`: OpenID4VCI issuer integration, metadata, proofs, credential mapping and encryption, notifications, HTTP evidence, attestations, and the test OAuth server.
+- `src/openid4vp/`: OpenID4VP request construction, verifier integration, presentation decoding, request signing certificates, encryption negotiation, and verifier attestations.
+- `src/server/app.ts`: Express composition root with parser/capture middleware, fake OAuth server, ordered route registrations, unmatched 404, and error handling.
+- `src/server/context.ts`: per-request OpenID4VCI capture context and issuance response-scenario seam shared by route groups.
+- `src/server/`: issuance and presentation session creation and input parsing, credential supersession guard, credential endpoint, request URI, redirect, and presentation-submission helpers.
+- `src/server/routes/`: direct app registrations for public/UI, discovery and issuer metadata, issuance, OpenID4VP sessions/requests/responses, credential/notification, and protocol forwarding.
+- `src/openapi/`: OpenAPI document assembly, shared schemas/helpers, route path descriptions, and interactive documentation.
+- `src/ui/`: server-rendered operator UI pages, styles, scripts, and page-family helpers.
+- `src/attestbook/`: Attestbook rulebook integration, credential imports, persistence, synchronization, and webhooks.
+- `src/status-list/`: Token Status List allocation, revocation, and valid or malformed reference fixtures.
+- `src/fcaf/`: conformance fault-behaviour validation, JSON Pointer parsing/mutation, and response-scenario machinery.
+- `src/federation/`: OpenID Federation entity-configuration signing and registration data.
+- `src/shared/`: cross-domain errors and JSON guards (type-only dependency on `src/types.ts`).
+- `src/design/`: UI design source `style.css` and logo assets.
+- `src/state.ts`: in-memory issuance and presentation session state, captured evidence, and events.
+- `src/types.ts`: shared persisted capture, evidence, and application-configuration types.
+- `tests/`: Vitest suites for protocol routes, Credo-TS integration, metadata, credentials, configuration, and validation.
+- `tests/support/`: isolated test environments and reusable HTTP, key, issuance, presentation, and mdoc helpers.
+
+## Architecture boundaries
+
+The `server` layer composes HTTP routes and depends on domain modules; domain modules depend on
+`credo` and `shared` as appropriate. `shared` depends only on type declarations in `src/types.ts`
+and imports nothing else from the application. The dependency graph has no import cycles;
+`task analyze:check` enforces this (`task analyze:cycles` only reports).
+
+Static-analysis commands are `task analyze` for measurements and `task analyze:check` for the Q-01
+regression gate.
 
 ## Protocol and security rules
 
@@ -105,7 +126,7 @@ If a required design decision, convention, or security policy is not evident fro
 
 ## Design Source
 
-Use `./src/design/atlas-style.css` as the main source for UI work.
+Use `./src/design/style.css` as the main source for UI work.
 
 Use similar principles, colors, fonts, and branding.
 

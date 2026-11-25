@@ -1,4 +1,11 @@
-import type { CredentialProofPolicy } from "../metadata.js";
+import type { CredentialProofPolicy } from "../types.js";
+
+export interface AttestbookIssuerSummary {
+  readonly syncState: AttestbookSyncState;
+  readonly activeVersion: string | null;
+  readonly activeContentDigest: string | null;
+  readonly failureStage: AttestbookSyncFailureStage | null;
+}
 
 /** Kinds of schema documents a compiled definition can be built from. */
 export type AttestbookSchemaKind = "json_schema_2020_12" | "sd_jwt_vc_type_metadata";
@@ -134,7 +141,7 @@ export interface AttestbookClaimMetadata {
   readonly displayName: string | null;
 }
 
-export interface AttestbookValidatedSchemaReference {
+interface AttestbookValidatedSchemaReference {
   readonly uri: string;
   readonly kind: AttestbookSchemaKind;
   readonly contentDigest: string;
@@ -174,7 +181,7 @@ export interface AttestbookCredentialDefinition {
   readonly disclosurePolicy: "issuer-default-selective";
 }
 
-export type AttestbookDiagnosticSeverity = "error" | "info";
+type AttestbookDiagnosticSeverity = "error" | "info";
 
 /** A typed compilation or validation finding, naming the attestation and field it concerns. */
 export interface AttestbookDiagnostic {
@@ -183,4 +190,68 @@ export interface AttestbookDiagnostic {
   readonly attestation: string | null;
   readonly field: string | null;
   readonly message: string;
+}
+
+export type AttestbookSyncState = "idle" | "fetching" | "validating" | "activating" | "failed";
+
+export type AttestbookSyncTrigger = "startup" | "webhook" | "manual" | "retry";
+
+/** Where a synchronization stopped; each names a distinct operator diagnosis. */
+export type AttestbookSyncFailureStage =
+  | "fetch"
+  | "verify"
+  | "compile"
+  | "issuability"
+  | "activate"
+  | "persist";
+
+export interface AttestbookSyncFailure {
+  readonly stage: AttestbookSyncFailureStage;
+  readonly code: string;
+  readonly message: string;
+  readonly at: string;
+  readonly version: string | null;
+  readonly content_digest: string | null;
+}
+
+export interface AttestbookObservedEvent {
+  readonly event_id: string;
+  readonly version: string;
+  readonly content_digest: string;
+  readonly published_at: string;
+  readonly observed_at: string;
+  readonly source: "webhook" | "event_feed";
+}
+
+export interface AttestbookSyncStatus {
+  // Keep status assignable to JsonRecord for existing status-route consumers.
+  readonly [key: string]: unknown;
+  readonly enabled: true;
+  readonly issuer_configuration_id: string;
+  readonly origin: string;
+  readonly rulebook_id: string;
+  readonly subscription: {
+    readonly callback_url: string;
+    readonly webhook_secret_configured: boolean;
+    readonly manual_sync_enabled: boolean;
+    readonly last_verification_challenge_at: string | null;
+    readonly last_signed_notification_at: string | null;
+  };
+  readonly last_observed_event: AttestbookObservedEvent | null;
+  readonly pending_notifications: number;
+  readonly active: {
+    readonly version: string;
+    readonly content_digest: string;
+    readonly published_at: string | null;
+    readonly event_id: string | null;
+    readonly activated_at: string;
+    readonly credential_configuration_ids: readonly string[];
+  } | null;
+  readonly last_successful_sync_at: string | null;
+  readonly sync: {
+    readonly state: AttestbookSyncState;
+    readonly last_trigger: AttestbookSyncTrigger | null;
+    readonly failure: AttestbookSyncFailure | null;
+    readonly diagnostics: readonly AttestbookDiagnostic[];
+  };
 }

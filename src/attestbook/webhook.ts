@@ -3,10 +3,10 @@ import { sha256Hex } from "./digest.js";
 
 export const WEBHOOK_PATH = "/integrations/attestbook/webhook";
 export const WEBHOOK_MAX_BODY_BYTES = 16 * 1024;
-export const VERIFICATION_MESSAGE_TYPE = "attestbook.subscription.verification@1";
+const VERIFICATION_MESSAGE_TYPE = "attestbook.subscription.verification@1";
 export const PUBLICATION_EVENT_TYPE = "rulebook.published";
 /** Accepted distance between `X-AttestBook-Timestamp` and the receiver's clock. */
-export const WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS = 300;
+const WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS = 300;
 
 const SIGNING_CONTEXT = "attestbook.webhook-signing-input@1";
 const SIGNATURE = /^v1=([0-9a-f]{64})$/;
@@ -24,14 +24,17 @@ export interface SignedDelivery {
  * Attestbook's documented canonical signing input (API §3.15.2): four LF-separated lines, no
  * trailing newline, committing to the delivery timestamp, the event id and the exact body bytes.
  */
-export function webhookSigningInput(timestamp: string, eventId: string, body: Uint8Array): string {
+function webhookSigningInput(timestamp: string, eventId: string, body: Uint8Array): string {
   if (/[\r\n]/.test(timestamp) || /[\r\n]/.test(eventId)) {
     throw new Error("webhook timestamp and event id must be single-line values");
   }
   return [SIGNING_CONTEXT, timestamp, eventId, sha256Hex(body)].join("\n");
 }
 
-/** `v1=` followed by the lowercase hex HMAC-SHA-256 of the signing input. */
+/**
+ * `v1=` followed by the lowercase hex HMAC-SHA-256 of the signing input.
+ * @internal
+ */
 export function webhookSignature(
   secret: string,
   timestamp: string,

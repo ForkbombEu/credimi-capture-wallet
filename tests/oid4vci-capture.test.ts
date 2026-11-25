@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isOid4vciProtocolPath, redactOid4vciValue } from "../src/oid4vci-capture.js";
+import { isOid4vciProtocolPath, redactOid4vciValue } from "../src/openid4vci/http-capture.js";
 
 describe("OpenID4VCI HTTP capture redaction", () => {
   it("preserves protocol structure without retaining secret-bearing values", () => {

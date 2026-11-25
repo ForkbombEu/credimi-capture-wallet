@@ -1,14 +1,15 @@
 import { SdJwtVcService } from "@credo-ts/core";
 import { exportJWK, generateKeyPair } from "jose";
-import { createIssuerSigningContext } from "../config.js";
+import { createIssuerSigningContext } from "../config/key-material.js";
 import { resolvedIssuerConfigurations } from "../configurations/registry.js";
 import { issuerAppConfig } from "../configurations/resolve-urls.js";
 import type { ResolvedIssuerConfiguration } from "../configurations/types.js";
-import { type ImportedCatalogue, credentialRegistry } from "../credential-registry.js";
-import { importedSdJwtCredentialSignOptions } from "../credential.js";
+import { type ImportedCatalogue, credentialRegistry } from "../credentials/registry.js";
+import { importedSdJwtCredentialSignOptions } from "../credentials/signing.js";
+import { errorMessage } from "../shared/errors.js";
+import { isRecord } from "../shared/json.js";
 import type { CaptureStore } from "../state.js";
 import type { AppConfig, JsonRecord, SessionCapture } from "../types.js";
-import type { AttestbookIssuerSummary } from "../ui.js";
 import {
   AttestbookClient,
   AttestbookContractError,
@@ -27,13 +28,19 @@ import {
   AttestbookIntegrityError,
   type SnapshotTrust,
   type VerifiedRulebook,
-  isRecord,
   verifySnapshot,
 } from "./snapshot.js";
 import type {
   AttestbookCredentialDefinition,
   AttestbookDiagnostic,
+  AttestbookIssuerSummary,
+  AttestbookObservedEvent,
   AttestbookSnapshot,
+  AttestbookSyncFailure,
+  AttestbookSyncFailureStage,
+  AttestbookSyncState,
+  AttestbookSyncStatus,
+  AttestbookSyncTrigger,
 } from "./types.js";
 import {
   PUBLICATION_EVENT_TYPE,
@@ -43,38 +50,26 @@ import {
   webhookTimestampFresh,
 } from "./webhook.js";
 
-export type SyncState = "idle" | "fetching" | "validating" | "activating" | "failed";
-export type SyncTrigger = "startup" | "webhook" | "manual" | "retry";
-/** Where a synchronization stopped; each names a distinct operator diagnosis. */
-export type SyncFailureStage =
-  | "fetch"
-  | "verify"
-  | "compile"
-  | "issuability"
-  | "activate"
-  | "persist";
-
-export interface SyncFailure {
-  readonly stage: SyncFailureStage;
-  readonly code: string;
-  readonly message: string;
-  readonly at: string;
-  readonly version: string | null;
-  readonly content_digest: string | null;
-}
-
-export interface ObservedEvent {
-  readonly event_id: string;
-  readonly version: string;
-  readonly content_digest: string;
-  readonly published_at: string;
-  readonly observed_at: string;
-  readonly source: "webhook" | "event_feed";
-}
-
 export interface WebhookResult {
   readonly status: number;
   readonly body: JsonRecord;
+}
+type WebhookLog = { readonly event: string; readonly fields: JsonRecord } | null;
+type WebhookVerification =
+  | { readonly kind: "challenge"; readonly challenge: string }
+  | {
+      readonly kind: "reject";
+      readonly result: WebhookResult;
+      readonly log: WebhookLog;
+    }
+  | {
+      readonly kind: "publication";
+      readonly event: AttestbookPublicationEvent;
+      readonly timestamp: string;
+    };
+
+function rejectedWebhook(result: WebhookResult, log: WebhookLog = null): WebhookVerification {
+  return { kind: "reject", result, log };
 }
 
 /** Structured, secret-free log sink; one JSON object per integration event. */
@@ -92,7 +87,7 @@ const MAX_RETRIES = 8;
 
 class SyncStageError extends Error {
   constructor(
-    readonly stage: SyncFailureStage,
+    readonly stage: AttestbookSyncFailureStage,
     readonly code: string,
     message: string,
     readonly diagnostics: readonly AttestbookDiagnostic[] = [],
@@ -139,17 +134,17 @@ export class AttestbookIntegration {
   private retryAttempts = 0;
   private restored = false;
 
-  private state: SyncState = "idle";
-  private lastTrigger: SyncTrigger | null = null;
-  private failure: SyncFailure | null = null;
+  private state: AttestbookSyncState = "idle";
+  private lastTrigger: AttestbookSyncTrigger | null = null;
+  private failure: AttestbookSyncFailure | null = null;
   private diagnostics: readonly AttestbookDiagnostic[] = [];
-  private lastObservedEvent: ObservedEvent | null = null;
+  private lastObservedEvent: AttestbookObservedEvent | null = null;
   private lastSuccessfulSyncAt: string | null = null;
   private lastVerificationChallengeAt: string | null = null;
   private lastSignedNotificationAt: string | null = null;
   private pendingNotifications = 0;
   /** Content digests whose verification or compilation failed; not retried automatically. */
-  private readonly rejectedDigests = new Map<string, SyncFailure>();
+  private readonly rejectedDigests = new Map<string, AttestbookSyncFailure>();
 
   constructor(
     private readonly config: AppConfig,
@@ -182,7 +177,7 @@ export class AttestbookIntegration {
     return `${this.config.public_base_url}${WEBHOOK_PATH}`;
   }
 
-  get syncState(): SyncState {
+  get syncState(): AttestbookSyncState {
     return this.state;
   }
 
@@ -234,7 +229,7 @@ export class AttestbookIntegration {
   }
 
   /** Reconciles against the authoritative event feed; one reconciliation runs at a time. */
-  reconcile(trigger: SyncTrigger): Promise<void> {
+  reconcile(trigger: AttestbookSyncTrigger): Promise<void> {
     const run = this.queue.then(() => this.runReconcile(trigger));
     this.queue = run.catch(() => undefined);
     return run;
@@ -245,103 +240,28 @@ export class AttestbookIntegration {
     rawBody: Buffer,
     header: (name: string) => string | undefined,
   ): Promise<WebhookResult> {
-    let body: unknown;
-    try {
-      body = JSON.parse(rawBody.toString("utf8"));
-    } catch {
-      return reject(400, "invalid_request", "body is not JSON");
-    }
-    if (!isRecord(body)) return reject(400, "invalid_request", "body is not a JSON object");
-
-    if (
-      header("x-attestbook-event-type") === undefined &&
-      header("x-attestbook-signature") === undefined
-    ) {
-      const challenge = verificationChallengeOrNull(body, Date.now());
-      if (!challenge) return reject(400, "invalid_request", "not a valid verification challenge");
+    const delivery = this.verifyDelivery(rawBody, header);
+    if (delivery.kind === "challenge") {
       this.lastVerificationChallengeAt = new Date().toISOString();
       this.logger("subscription_verification_answered", {});
-      return { status: 200, body: { challenge } };
+      return { status: 200, body: { challenge: delivery.challenge } };
     }
-
-    if (header("x-attestbook-event-type") !== PUBLICATION_EVENT_TYPE) {
-      return reject(
-        400,
-        "unsupported_event_type",
-        "only rulebook.published notifications are accepted",
-      );
-    }
-    const secret = this.config.attestbook.webhook_secret;
-    if (!secret) {
-      this.logger("notification_refused", { reason: "webhook_secret_not_configured" });
-      return reject(
-        503,
-        "webhook_secret_not_configured",
-        "the subscription webhook secret is not configured",
-      );
-    }
-    const eventId = header("x-attestbook-event-id");
-    const timestamp = header("x-attestbook-timestamp");
-    const signature = header("x-attestbook-signature");
-    if (!eventId || !timestamp || !signature) {
-      return reject(400, "invalid_request", "signature headers are missing");
-    }
-    if (!webhookSignatureValid({ secret, timestamp, eventId, body: rawBody, signature })) {
-      this.logger("notification_rejected", { reason: "invalid_signature" });
-      return reject(401, "invalid_signature", "the notification signature is not valid");
-    }
-    if (!webhookTimestampFresh(timestamp, Date.now())) {
-      this.logger("notification_rejected", { reason: "stale_timestamp" });
-      return reject(
-        401,
-        "stale_timestamp",
-        "the delivery timestamp is outside the accepted window",
-      );
-    }
-    const event = publicationEventOrNull(body);
-    if (!event) return reject(400, "invalid_event", "the body is not a rulebook publication event");
-    if (event.id !== eventId) {
-      return reject(400, "event_id_mismatch", "the event id header and body disagree");
-    }
-    if (event.rulebookId !== this.trust.rulebookId) {
-      this.logger("notification_rejected", {
-        reason: "rulebook_not_subscribed",
-        event_id: event.id,
-      });
-      return reject(
-        403,
-        "rulebook_not_subscribed",
-        "the notification is for a rulebook that is not configured",
-      );
+    if (delivery.kind === "reject") {
+      if (delivery.log) this.logger(delivery.log.event, delivery.log.fields);
+      return delivery.result;
     }
 
     const receivedAt = new Date().toISOString();
-    let duplicate = false;
+    let duplicate: boolean;
     try {
-      await this.persistence.update((state) => {
-        duplicate = state.notifications.some((entry) => entry.event_id === event.id);
-        if (duplicate) return state;
-        return {
-          ...state,
-          notifications: [
-            ...state.notifications,
-            {
-              event_id: event.id,
-              version: event.version,
-              content_digest: event.contentDigest,
-              published_at: event.publishedAt,
-              received_at: receivedAt,
-              delivery_timestamp: timestamp,
-              raw_body_base64: rawBody.toString("base64"),
-              status: "pending",
-              processed_at: null,
-              outcome: null,
-            },
-          ],
-        };
-      });
+      ({ duplicate } = await this.recordNotification(
+        delivery.event,
+        rawBody,
+        delivery.timestamp,
+        receivedAt,
+      ));
     } catch {
-      this.logger("notification_not_recorded", { event_id: event.id });
+      this.logger("notification_not_recorded", { event_id: delivery.event.id });
       return reject(
         503,
         "notification_not_recorded",
@@ -350,18 +270,138 @@ export class AttestbookIntegration {
     }
     this.lastSignedNotificationAt = receivedAt;
     if (duplicate) {
-      this.logger("notification_duplicate", { event_id: event.id });
-      return { status: 200, body: { status: "duplicate", event_id: event.id } };
+      this.logger("notification_duplicate", { event_id: delivery.event.id });
+      return { status: 200, body: { status: "duplicate", event_id: delivery.event.id } };
     }
     this.pendingNotifications += 1;
-    this.observe(event, "webhook");
+    this.observe(delivery.event, "webhook");
     this.logger("notification_received", {
-      event_id: event.id,
-      version: event.version,
-      content_digest: event.contentDigest,
+      event_id: delivery.event.id,
+      version: delivery.event.version,
+      content_digest: delivery.event.contentDigest,
     });
     void this.reconcile("webhook").catch(() => undefined);
-    return { status: 202, body: { status: "accepted", event_id: event.id } };
+    return { status: 202, body: { status: "accepted", event_id: delivery.event.id } };
+  }
+
+  private verifyDelivery(
+    rawBody: Buffer,
+    header: (name: string) => string | undefined,
+  ): WebhookVerification {
+    let body: unknown;
+    try {
+      body = JSON.parse(rawBody.toString("utf8"));
+    } catch {
+      return rejectedWebhook(reject(400, "invalid_request", "body is not JSON"));
+    }
+    if (!isRecord(body)) {
+      return rejectedWebhook(reject(400, "invalid_request", "body is not a JSON object"));
+    }
+
+    if (
+      header("x-attestbook-event-type") === undefined &&
+      header("x-attestbook-signature") === undefined
+    ) {
+      const challenge = verificationChallengeOrNull(body, Date.now());
+      if (!challenge) {
+        return rejectedWebhook(
+          reject(400, "invalid_request", "not a valid verification challenge"),
+        );
+      }
+      return { kind: "challenge", challenge };
+    }
+
+    if (header("x-attestbook-event-type") !== PUBLICATION_EVENT_TYPE) {
+      return rejectedWebhook(
+        reject(400, "unsupported_event_type", "only rulebook.published notifications are accepted"),
+      );
+    }
+    const secret = this.config.attestbook.webhook_secret;
+    if (!secret) {
+      return rejectedWebhook(
+        reject(
+          503,
+          "webhook_secret_not_configured",
+          "the subscription webhook secret is not configured",
+        ),
+        { event: "notification_refused", fields: { reason: "webhook_secret_not_configured" } },
+      );
+    }
+    const eventId = header("x-attestbook-event-id");
+    const timestamp = header("x-attestbook-timestamp");
+    const signature = header("x-attestbook-signature");
+    if (!eventId || !timestamp || !signature) {
+      return rejectedWebhook(reject(400, "invalid_request", "signature headers are missing"));
+    }
+    if (!webhookSignatureValid({ secret, timestamp, eventId, body: rawBody, signature })) {
+      return rejectedWebhook(
+        reject(401, "invalid_signature", "the notification signature is not valid"),
+        { event: "notification_rejected", fields: { reason: "invalid_signature" } },
+      );
+    }
+    if (!webhookTimestampFresh(timestamp, Date.now())) {
+      return rejectedWebhook(
+        reject(401, "stale_timestamp", "the delivery timestamp is outside the accepted window"),
+        { event: "notification_rejected", fields: { reason: "stale_timestamp" } },
+      );
+    }
+    const event = publicationEventOrNull(body);
+    if (!event) {
+      return rejectedWebhook(
+        reject(400, "invalid_event", "the body is not a rulebook publication event"),
+      );
+    }
+    if (event.id !== eventId) {
+      return rejectedWebhook(
+        reject(400, "event_id_mismatch", "the event id header and body disagree"),
+      );
+    }
+    if (event.rulebookId !== this.trust.rulebookId) {
+      return rejectedWebhook(
+        reject(
+          403,
+          "rulebook_not_subscribed",
+          "the notification is for a rulebook that is not configured",
+        ),
+        {
+          event: "notification_rejected",
+          fields: { reason: "rulebook_not_subscribed", event_id: event.id },
+        },
+      );
+    }
+    return { kind: "publication", event, timestamp };
+  }
+
+  private async recordNotification(
+    event: AttestbookPublicationEvent,
+    rawBody: Buffer,
+    timestamp: string,
+    receivedAt: string,
+  ): Promise<{ duplicate: boolean }> {
+    let duplicate = false;
+    await this.persistence.update((state) => {
+      duplicate = state.notifications.some((entry) => entry.event_id === event.id);
+      if (duplicate) return state;
+      return {
+        ...state,
+        notifications: [
+          ...state.notifications,
+          {
+            event_id: event.id,
+            version: event.version,
+            content_digest: event.contentDigest,
+            published_at: event.publishedAt,
+            received_at: receivedAt,
+            delivery_timestamp: timestamp,
+            raw_body_base64: rawBody.toString("base64"),
+            status: "pending",
+            processed_at: null,
+            outcome: null,
+          },
+        ],
+      };
+    });
+    return { duplicate };
   }
 
   /**
@@ -407,7 +447,7 @@ export class AttestbookIntegration {
   }
 
   /** Non-sensitive integration status: no secret, token, key or claim value. */
-  status(): JsonRecord {
+  status(): AttestbookSyncStatus {
     const registry = credentialRegistry(this.config, this.store);
     const active = registry.activeCatalogue(this.issuer.id);
     return {
@@ -422,7 +462,7 @@ export class AttestbookIntegration {
         last_verification_challenge_at: this.lastVerificationChallengeAt,
         last_signed_notification_at: this.lastSignedNotificationAt,
       },
-      last_observed_event: this.lastObservedEvent as JsonRecord | null,
+      last_observed_event: this.lastObservedEvent,
       pending_notifications: this.pendingNotifications,
       active: active
         ? {
@@ -440,13 +480,13 @@ export class AttestbookIntegration {
       sync: {
         state: this.state,
         last_trigger: this.lastTrigger,
-        failure: this.failure as JsonRecord | null,
-        diagnostics: this.diagnostics as unknown as JsonRecord[],
+        failure: this.failure,
+        diagnostics: this.diagnostics,
       },
     };
   }
 
-  private async runReconcile(trigger: SyncTrigger): Promise<void> {
+  private async runReconcile(trigger: AttestbookSyncTrigger): Promise<void> {
     this.lastTrigger = trigger;
     this.state = "fetching";
     this.logger("sync_started", { trigger });
@@ -464,8 +504,7 @@ export class AttestbookIntegration {
         );
       }
       this.observe(latest, "event_feed");
-      const registry = credentialRegistry(this.config, this.store);
-      const active = registry.activeCatalogue(this.issuer.id);
+      const active = credentialRegistry(this.config, this.store).activeCatalogue(this.issuer.id);
       if (active?.contentDigest === latest.contentDigest && active.version === latest.version) {
         await this.completeSync("up_to_date", trigger);
         return;
@@ -489,20 +528,7 @@ export class AttestbookIntegration {
       this.state = "validating";
       const catalogue = await this.prepareCatalogue(snapshot, new Date().toISOString());
       this.state = "activating";
-      try {
-        await registry.activate(catalogue);
-      } catch (error) {
-        throw new SyncStageError("activate", "activation_failed", errorMessage(error));
-      }
-      this.logger("catalogue_activated", catalogueLogFields(catalogue));
-      try {
-        await this.persistence.update((state) => ({
-          ...state,
-          active: { snapshot, activated_at: catalogue.activatedAt },
-        }));
-      } catch (error) {
-        throw new SyncStageError("persist", "persist_failed", errorMessage(error));
-      }
+      await this.publishCatalogue(catalogue, snapshot);
       await this.completeSync("activated", trigger);
     } catch (error) {
       const failure = this.recordFailure(error, null, latest);
@@ -558,37 +584,7 @@ export class AttestbookIntegration {
       definitions: compiled.definitions.length,
       diagnostics: compiled.diagnostics.length,
     });
-    const issuability: AttestbookDiagnostic[] = [];
-    for (const definition of compiled.definitions) {
-      let claims: JsonRecord;
-      try {
-        // A seed fixed by the version, so a constraint no generated value can meet is found here.
-        claims = generateClaims(
-          definition,
-          `${definition.contentDigest}:${definition.credentialConfigurationId}`,
-        );
-      } catch (error) {
-        issuability.push({
-          severity: "error",
-          code: "claim_generation_failed",
-          attestation: definition.attestation.name,
-          field: "claims",
-          message: errorMessage(error),
-        });
-        continue;
-      }
-      try {
-        await this.dryRunSign(definition, claims);
-      } catch (error) {
-        issuability.push({
-          severity: "error",
-          code: "dry_run_signing_failed",
-          attestation: definition.attestation.name,
-          field: null,
-          message: errorMessage(error),
-        });
-      }
-    }
+    const issuability = await this.evaluateIssuability(compiled.definitions);
     if (issuability.length > 0) {
       this.diagnostics = [...compiled.diagnostics, ...issuability];
       throw new SyncStageError(
@@ -609,6 +605,64 @@ export class AttestbookIntegration {
       activatedAt,
       definitions: compiled.definitions,
     };
+  }
+
+  private async evaluateIssuability(
+    definitions: readonly AttestbookCredentialDefinition[],
+  ): Promise<readonly AttestbookDiagnostic[]> {
+    const diagnostics: AttestbookDiagnostic[] = [];
+    for (const definition of definitions) {
+      let claims: JsonRecord;
+      try {
+        // A seed fixed by the version, so a constraint no generated value can meet is found here.
+        claims = generateClaims(
+          definition,
+          `${definition.contentDigest}:${definition.credentialConfigurationId}`,
+        );
+      } catch (error) {
+        diagnostics.push({
+          severity: "error",
+          code: "claim_generation_failed",
+          attestation: definition.attestation.name,
+          field: "claims",
+          message: errorMessage(error),
+        });
+        continue;
+      }
+      try {
+        await this.dryRunSign(definition, claims);
+      } catch (error) {
+        diagnostics.push({
+          severity: "error",
+          code: "dry_run_signing_failed",
+          attestation: definition.attestation.name,
+          field: null,
+          message: errorMessage(error),
+        });
+      }
+    }
+    return diagnostics;
+  }
+
+  private async publishCatalogue(
+    catalogue: ImportedCatalogue,
+    snapshot: AttestbookSnapshot,
+  ): Promise<void> {
+    const registry = credentialRegistry(this.config, this.store);
+    try {
+      await registry.activate(catalogue);
+    } catch (error) {
+      throw new SyncStageError("activate", "activation_failed", errorMessage(error));
+    }
+    this.logger("catalogue_activated", catalogueLogFields(catalogue));
+    try {
+      await this.persistence.update((state) => ({
+        ...state,
+        active: { snapshot, activated_at: catalogue.activatedAt },
+      }));
+    } catch (error) {
+      throw new SyncStageError("persist", "persist_failed", errorMessage(error));
+    }
   }
 
   private async dryRunSign(
@@ -634,7 +688,7 @@ export class AttestbookIntegration {
 
   private async completeSync(
     outcome: "up_to_date" | "activated",
-    trigger: SyncTrigger,
+    trigger: AttestbookSyncTrigger,
   ): Promise<void> {
     const now = new Date().toISOString();
     this.state = "idle";
@@ -672,7 +726,10 @@ export class AttestbookIntegration {
     this.retryTimer.unref();
   }
 
-  private observe(event: AttestbookPublicationEvent, source: ObservedEvent["source"]): void {
+  private observe(
+    event: AttestbookPublicationEvent,
+    source: AttestbookObservedEvent["source"],
+  ): void {
     if (
       this.lastObservedEvent &&
       Date.parse(this.lastObservedEvent.published_at) > Date.parse(event.publishedAt)
@@ -693,7 +750,7 @@ export class AttestbookIntegration {
     error: unknown,
     snapshot: AttestbookSnapshot | null,
     event?: AttestbookPublicationEvent,
-  ): SyncFailure {
+  ): AttestbookSyncFailure {
     const stageError =
       error instanceof SyncStageError
         ? error
@@ -728,7 +785,7 @@ function reject(status: number, error: string, description: string): WebhookResu
   return { status, body: { error, error_description: description } };
 }
 
-function observedFromNotification(entry: PersistedNotification): ObservedEvent {
+function observedFromNotification(entry: PersistedNotification): AttestbookObservedEvent {
   return {
     event_id: entry.event_id,
     version: entry.version,
@@ -749,7 +806,7 @@ function catalogueLogFields(catalogue: ImportedCatalogue): JsonRecord {
   };
 }
 
-function failureLogFields(failure: SyncFailure): JsonRecord {
+function failureLogFields(failure: AttestbookSyncFailure): JsonRecord {
   return {
     stage: failure.stage,
     code: failure.code,
@@ -757,8 +814,4 @@ function failureLogFields(failure: SyncFailure): JsonRecord {
     version: failure.version,
     content_digest: failure.content_digest,
   };
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

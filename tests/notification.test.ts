@@ -1,12 +1,9 @@
-import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { createHash, randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
 import type { Express } from "express";
 import {
   CompactEncrypt,
   type JWK,
-  type KeyLike,
   SignJWT,
   compactDecrypt,
   decodeJwt,
@@ -16,12 +13,7 @@ import {
 } from "jose";
 import request from "supertest";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import {
-  DEFAULT_CONFIG,
-  initIssuer,
-  issuerCertificatePath,
-  privateJwkPath,
-} from "../src/config.js";
+import { issuerCertificatePath, privateJwkPath } from "../src/config/paths.js";
 import {
   resolvedIssuerConfigurationById,
   resolvedIssuerConfigurations,
@@ -29,82 +21,45 @@ import {
 import {
   mdocCredentialConfigurationId,
   numericSdJwtCredentialConfigurationId,
-} from "../src/metadata.js";
-import { createApp } from "../src/server.js";
+} from "../src/credentials/catalogue.js";
+import { createApp } from "../src/server/app.js";
 import type { AppConfig, JsonRecord, SessionCapture } from "../src/types.js";
+import { createIssuerTestEnvironmentFactory } from "./support/environment.js";
+import { type TestKey, dpopProof, generateEs256Key } from "./support/keys.js";
 
-const dataDir = mkdtempSync(join(tmpdir(), "notification-test-"));
+const environment = createIssuerTestEnvironmentFactory({
+  prefix: "notification-test-",
+  config: { oid4vci_notifications_enabled: true, fcaf_scenarios_enabled: true },
+});
+const config = environment.config;
 const baseConfig: AppConfig = {
-  ...DEFAULT_CONFIG,
-  issuer_base_url: "http://issuer.example.test",
-  data_dir: dataDir,
-};
-const config: AppConfig = {
-  ...baseConfig,
-  oid4vci_notifications_enabled: true,
-  fcaf_scenarios_enabled: true,
+  ...config,
+  oid4vci_notifications_enabled: false,
+  fcaf_scenarios_enabled: false,
 };
 const DEVICE_BOUND = "eu-pid-device-bound";
 const JWT_ONLY = "eu-pid-jwt-proof-only";
 
-interface Key {
-  publicJwk: JWK;
-  privateKey: KeyLike | Uint8Array;
-}
-
 interface Issued {
   session: JsonRecord & { session_id: string; issuer_configuration_id: string };
-  dpop: Key;
+  dpop: TestKey;
   accessToken: string;
   response: request.Response;
 }
 
-beforeAll(async () => {
-  await initIssuer({
-    issuer_base_url: baseConfig.issuer_base_url,
-    data_dir: dataDir,
-    credential_configuration_id: baseConfig.credential_configuration_id,
-    force: true,
-  });
-});
-
-afterAll(() => {
-  rmSync(dataDir, { recursive: true, force: true });
-});
+beforeAll(() => environment.initialize());
+afterAll(() => environment.cleanup());
 
 afterEach(() => {
   vi.useRealTimers();
 });
 
-async function key(): Promise<Key> {
-  const { publicKey, privateKey } = await generateKeyPair("ES256", { extractable: true });
-  return { publicJwk: await exportJWK(publicKey), privateKey };
-}
-
 function issuerIdentifier(issuerId: string): string {
   return `${config.issuer_base_url}/issuers/${issuerId}`;
 }
 
-async function dpopProof(
-  dpop: Key,
-  path: string,
-  accessToken?: string,
-  overrides: JsonRecord = {},
-): Promise<string> {
-  return new SignJWT({
-    htm: "POST",
-    htu: `${config.issuer_base_url}${path}`,
-    iat: Math.floor(Date.now() / 1000),
-    jti: randomUUID(),
-    ...(accessToken ? { ath: createHash("sha256").update(accessToken).digest("base64url") } : {}),
-    ...overrides,
-  })
-    .setProtectedHeader({ alg: "ES256", typ: "dpop+jwt", jwk: dpop.publicJwk })
-    .sign(dpop.privateKey);
-}
-
 /** A key attestation signed with the device-bound issuer's key, which the tests trust. */
-async function keyAttestation(attested: Key[], nonce: string): Promise<string> {
+async function keyAttestation(attested: TestKey[], nonce: string): Promise<string> {
   const materialDirectory = resolvedIssuerConfigurationById(
     config,
     DEVICE_BOUND,
@@ -134,7 +89,7 @@ async function credentialProofs(
   nonce: string,
   clientId?: string,
 ): Promise<JsonRecord> {
-  const holder = await key();
+  const holder = await generateEs256Key();
   const keyAttestationHeader =
     issuerId === DEVICE_BOUND ? { key_attestation: await keyAttestation([holder], nonce) } : {};
   const proof = await new SignJWT({
@@ -146,7 +101,7 @@ async function credentialProofs(
     .setProtectedHeader({
       alg: "ES256",
       typ: "openid4vci-proof+jwt",
-      jwk: holder.publicJwk,
+      jwk: holder.publicJwk as unknown as JWK,
       ...keyAttestationHeader,
     })
     .sign(holder.privateKey);
@@ -157,7 +112,7 @@ async function preAuthorizedSession(
   app: Express,
   issuerId: string,
   extra: JsonRecord = {},
-): Promise<{ session: Issued["session"]; dpop: Key; accessToken: string; cNonce: string }> {
+): Promise<{ session: Issued["session"]; dpop: TestKey; accessToken: string; cNonce: string }> {
   const created = await request(app)
     .post("/sessions")
     .send({
@@ -177,11 +132,14 @@ async function preAuthorizedSession(
   const preAuthorizedCode = String(
     grants["urn:ietf:params:oauth:grant-type:pre-authorized_code"]?.["pre-authorized_code"],
   );
-  const dpop = await key();
+  const dpop = await generateEs256Key();
   const tokenPath = `/issuers/${issuerId}/token`;
   const token = await request(app)
     .post(tokenPath)
-    .set("DPoP", await dpopProof(dpop, tokenPath))
+    .set(
+      "DPoP",
+      await dpopProof(dpop, { method: "POST", url: `${config.issuer_base_url}${tokenPath}` }),
+    )
     .type("form")
     .send({
       grant_type: "urn:ietf:params:oauth:grant-type:pre-authorized_code",
@@ -199,7 +157,7 @@ async function preAuthorizedSession(
 async function requestCredential(
   app: Express,
   issuerId: string,
-  dpop: Key,
+  dpop: TestKey,
   accessToken: string,
   body: JsonRecord,
 ): Promise<request.Response> {
@@ -207,7 +165,14 @@ async function requestCredential(
   return request(app)
     .post(credentialPath)
     .set("Authorization", `DPoP ${accessToken}`)
-    .set("DPoP", await dpopProof(dpop, credentialPath, accessToken))
+    .set(
+      "DPoP",
+      await dpopProof(dpop, {
+        method: "POST",
+        url: `${config.issuer_base_url}${credentialPath}`,
+        accessToken,
+      }),
+    )
     .send(body);
 }
 
@@ -230,7 +195,14 @@ async function notify(
   return request(app)
     .post(path)
     .set("Authorization", `DPoP ${issued.accessToken}`)
-    .set("DPoP", await dpopProof(issued.dpop, path, issued.accessToken))
+    .set(
+      "DPoP",
+      await dpopProof(issued.dpop, {
+        method: "POST",
+        url: `${config.issuer_base_url}${path}`,
+        accessToken: issued.accessToken,
+      }),
+    )
     .send(body as object);
 }
 
@@ -345,7 +317,11 @@ describe("notification_id in Credential Responses", () => {
     });
     const response = await requestCredential(app, DEVICE_BOUND, dpop, accessToken, {
       credential_configuration_id: session.credential_configuration_id,
-      proofs: { attestation: [await keyAttestation([await key(), await key()], cNonce)] },
+      proofs: {
+        attestation: [
+          await keyAttestation([await generateEs256Key(), await generateEs256Key()], cNonce),
+        ],
+      },
     });
 
     expect(response.status, response.text).toBe(200);
@@ -399,7 +375,14 @@ describe("notification_id in Credential Responses", () => {
     const response = await request(app)
       .post(credentialPath)
       .set("Authorization", `DPoP ${accessToken}`)
-      .set("DPoP", await dpopProof(dpop, credentialPath, accessToken))
+      .set(
+        "DPoP",
+        await dpopProof(dpop, {
+          method: "POST",
+          url: `${config.issuer_base_url}${credentialPath}`,
+          accessToken,
+        }),
+      )
       .type("application/jwt")
       .send(encryptedRequest);
 
@@ -464,7 +447,14 @@ describe("notification endpoint authentication", () => {
     const invalid = await request(app)
       .post(path)
       .set("Authorization", `DPoP ${forged}`)
-      .set("DPoP", await dpopProof(issued.dpop, path, forged))
+      .set(
+        "DPoP",
+        await dpopProof(issued.dpop, {
+          method: "POST",
+          url: `${config.issuer_base_url}${path}`,
+          accessToken: forged,
+        }),
+      )
       .send(body);
     expect(invalid.status).toBe(401);
     expect(invalid.headers["www-authenticate"]).toContain('error="invalid_token"');
@@ -504,14 +494,27 @@ describe("notification endpoint authentication", () => {
     const authorization = `DPoP ${issued.accessToken}`;
     const proofs: Record<string, string | undefined> = {
       missing: undefined,
-      "another key": await dpopProof(await key(), path, issued.accessToken),
-      "another target URI": await dpopProof(
-        issued.dpop,
-        `/issuers/${JWT_ONLY}/credential`,
-        issued.accessToken,
-      ),
-      "another method": await dpopProof(issued.dpop, path, issued.accessToken, { htm: "GET" }),
-      "another access token": await dpopProof(issued.dpop, path, other.accessToken),
+      "another key": await dpopProof(await generateEs256Key(), {
+        method: "POST",
+        url: `${config.issuer_base_url}${path}`,
+        accessToken: issued.accessToken,
+      }),
+      "another target URI": await dpopProof(issued.dpop, {
+        method: "POST",
+        url: `${config.issuer_base_url}/issuers/${JWT_ONLY}/credential`,
+        accessToken: issued.accessToken,
+      }),
+      "another method": await dpopProof(issued.dpop, {
+        method: "POST",
+        url: `${config.issuer_base_url}${path}`,
+        accessToken: issued.accessToken,
+        overrides: { htm: "GET" },
+      }),
+      "another access token": await dpopProof(issued.dpop, {
+        method: "POST",
+        url: `${config.issuer_base_url}${path}`,
+        accessToken: other.accessToken,
+      }),
     };
 
     for (const [label, proof] of Object.entries(proofs)) {
@@ -575,14 +578,17 @@ describe("notification endpoint authentication", () => {
     const session = created.body as Issued["session"];
     const offer = await request(app).get(new URL(String(session.offer_url)).pathname);
     const issuerState = String(offer.body.grants.authorization_code.issuer_state);
-    const dpop = await key();
+    const dpop = await generateEs256Key();
     const clientId = "https://wallet.example.test";
     const redirectUri = "https://wallet.example.test/callback";
     const codeVerifier = randomBytes(48).toString("base64url");
     const parPath = `/issuers/${JWT_ONLY}/par`;
     const par = await request(app)
       .post(parPath)
-      .set("DPoP", await dpopProof(dpop, parPath))
+      .set(
+        "DPoP",
+        await dpopProof(dpop, { method: "POST", url: `${config.issuer_base_url}${parPath}` }),
+      )
       .type("form")
       .send({
         response_type: "code",
@@ -613,7 +619,10 @@ describe("notification endpoint authentication", () => {
     const tokenPath = `/issuers/${JWT_ONLY}/token`;
     const token = await request(app)
       .post(tokenPath)
-      .set("DPoP", await dpopProof(dpop, tokenPath))
+      .set(
+        "DPoP",
+        await dpopProof(dpop, { method: "POST", url: `${config.issuer_base_url}${tokenPath}` }),
+      )
       .type("form")
       .send({
         grant_type: "authorization_code",
@@ -767,7 +776,11 @@ describe("notification request handling", () => {
     const path = `/issuers/${JWT_ONLY}/notification`;
     const authenticated = async () => ({
       Authorization: `DPoP ${issued.accessToken}`,
-      DPoP: await dpopProof(issued.dpop, path, issued.accessToken),
+      DPoP: await dpopProof(issued.dpop, {
+        method: "POST",
+        url: `${config.issuer_base_url}${path}`,
+        accessToken: issued.accessToken,
+      }),
     });
     const form = await request(app)
       .post(path)

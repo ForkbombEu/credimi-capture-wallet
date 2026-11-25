@@ -37,3 +37,38 @@ tasks:
   init:
     cmds:
       - pnpm capture-services init
+
+  analyze:dead-code:
+    cmds:
+      - mise exec -- knip --no-exit-code --no-config-hints
+      - mise exec -- knip --production --no-exit-code --no-config-hints
+
+  analyze:duplication:
+    cmds:
+      - mise exec -- jscpd --summary
+      - mise exec -- jscpd --health
+
+  analyze:cycles:
+    ignore_error: true
+    cmds:
+      - mise exec -- madge --circular --extensions ts --ts-config tsconfig.json src
+
+  analyze:check:
+    cmds:
+      - mise exec -- madge --circular --extensions ts --ts-config tsconfig.json src
+      - mise exec -- knip --no-config-hints
+      - mise exec -- knip --production --no-config-hints
+      - mise exec -- jscpd --threshold 4.0
+      - mise exec -- jscpd src --format typescript --threshold 0.5
+      - mise exec -- jscpd tests --format typescript --threshold 7.0
+
+  test:coverage:
+    cmds:
+      - pnpm exec vitest run --coverage --coverage.provider=v8 --coverage.reporter=text --coverage.reporter=json-summary --coverage.reportsDirectory=coverage
+
+  analyze:
+    cmds:
+      - task: analyze:dead-code
+      - task: analyze:duplication
+      - task: analyze:cycles
+      - task: test:coverage

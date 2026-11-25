@@ -1,5 +1,8 @@
 import { type JWK, SignJWT, importJWK } from "jose";
-import { loadIssuerFederationJwks, loadIssuerFederationPrivateJwk } from "../config.js";
+import {
+  loadIssuerFederationJwks,
+  loadIssuerFederationPrivateJwk,
+} from "../config/key-material.js";
 import type { ResolvedIssuerConfiguration } from "../configurations/types.js";
 import type { JsonRecord } from "../types.js";
 

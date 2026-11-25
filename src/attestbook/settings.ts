@@ -1,10 +1,16 @@
 import type { AttestbookSettings } from "../types.js";
 
+/** @internal */
 export const ATTESTBOOK_ENABLED_ENV_VAR = "ATTESTBOOK_ENABLED";
+/** @internal */
 export const ATTESTBOOK_BASE_URL_ENV_VAR = "ATTESTBOOK_BASE_URL";
+/** @internal */
 export const ATTESTBOOK_RULEBOOK_ID_ENV_VAR = "ATTESTBOOK_RULEBOOK_ID";
+/** @internal */
 export const ATTESTBOOK_WEBHOOK_SECRET_ENV_VAR = "ATTESTBOOK_WEBHOOK_SECRET";
+/** @internal */
 export const ATTESTBOOK_ADMIN_TOKEN_ENV_VAR = "ATTESTBOOK_ADMIN_TOKEN";
+/** @internal */
 export const ATTESTBOOK_ALLOWED_SCHEMA_ORIGINS_ENV_VAR = "ATTESTBOOK_ALLOWED_SCHEMA_ORIGINS";
 
 export const DISABLED_ATTESTBOOK_SETTINGS: AttestbookSettings = {
@@ -62,6 +68,7 @@ export function resolveAttestbookSettings(env: NodeJS.ProcessEnv): AttestbookSet
  * An explicitly configured origin: HTTPS, or plain HTTP on a literal loopback host for local
  * fixtures only. Credentials, a path, a query and a fragment are refused so that the value names
  * exactly one origin.
+ * @internal
  */
 export function trustedOrigin(value: string, variable: string): string {
   let url: URL;

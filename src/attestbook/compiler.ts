@@ -1,10 +1,10 @@
-import type { CredentialProofPolicy } from "../metadata.js";
+import { isRecord } from "../shared/json.js";
+import type { CredentialProofPolicy } from "../types.js";
 import { compileJsonSchema } from "./json-schema.js";
 import {
   SD_JWT_VC_FORMAT,
   type VerifiedRulebook,
   type VerifiedSchemaDocument,
-  isRecord,
 } from "./snapshot.js";
 import type {
   AttestbookClaimMetadata,
@@ -118,6 +118,7 @@ export function compileRulebook(
  * The credential type of an attestation, derived from its name alone: `urn:attestbook:<slug>`.
  * It stays the same across rulebook versions and changes when the attestation is renamed. The
  * rulebook is deliberately not part of it, so two rulebooks naming a type alike share its vct.
+ * @internal
  */
 export function vctForAttestationName(name: string): string | null {
   const slug = slugify(name).slice(0, MAX_VCT_SLUG_LENGTH).replace(/-+$/, "");

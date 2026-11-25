@@ -1,15 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_CONFIG } from "../src/config.js";
+import { DEFAULT_CONFIG } from "../src/config/defaults.js";
 import { resolvedIssuerConfigurationById } from "../src/configurations/registry.js";
-import type { SupportedCredential } from "../src/metadata.js";
-import { defaultDcqlQuery } from "../src/openid4vp.js";
-import {
-  type IssuanceParameterValues,
-  type IssuerPageOptions,
-  indexPage,
-  issuerPage,
-  verifierPage,
-} from "../src/ui.js";
+import type { SupportedCredential } from "../src/credentials/catalogue.js";
+import { defaultDcqlQuery } from "../src/openid4vp/authorization-request.js";
+import { issuerPage } from "../src/ui/issuer.js";
+import type { IssuerPageOptions } from "../src/ui/issuer.js";
+import { indexPage } from "../src/ui/launcher.js";
+import type { IssuanceParameterValues } from "../src/ui/launcher.js";
+import { errorPage } from "../src/ui/session.js";
+import { verifierPage } from "../src/ui/verifier.js";
 
 const jwtOnlyIssuerOrNull = resolvedIssuerConfigurationById(
   DEFAULT_CONFIG,
@@ -145,6 +144,53 @@ describe("issuer page", () => {
       expect(enabled).toContain(parameter);
     }
     expect(disabled).toContain('data-param="flow"');
+  });
+});
+
+describe("shared UI pages", () => {
+  it("escapes error-page messages", () => {
+    const page = errorPage(`wallet <script>alert("x")</script> & '`);
+    expect(page).toContain("wallet &lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt; &amp; &#39;");
+    expect(page).not.toContain("<script>alert");
+  });
+
+  it("renders both Attestbook summary states", () => {
+    const active = issuerPage(
+      issuerPageOptions({
+        group: {
+          issuer: jwtOnlyIssuer,
+          credentials: [],
+          attestbook: {
+            syncState: "idle",
+            activeVersion: "2026.1",
+            activeContentDigest: "abcdef1234567890",
+            failureStage: null,
+          },
+        },
+      }),
+    );
+    expect(active).toContain(
+      "Attestbook rulebook version 2026.1 (sha-256 abcdef123456…) is active",
+    );
+    expect(active).toContain("synchronization idle.");
+
+    const failed = issuerPage(
+      issuerPageOptions({
+        group: {
+          issuer: jwtOnlyIssuer,
+          credentials: [],
+          attestbook: {
+            syncState: "failed",
+            activeVersion: null,
+            activeContentDigest: null,
+            failureStage: "verify",
+          },
+        },
+      }),
+    );
+    expect(failed).toContain(
+      "No Attestbook rulebook version is active; last synchronization failed at the verify stage.",
+    );
   });
 });
 

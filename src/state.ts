@@ -1,13 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { recordClientAuthentication } from "./client-attestation.js";
-import {
-  DEFAULT_ISSUER_CONFIGURATION_ID,
-  resolvedIssuerConfigurationById,
-} from "./configurations/registry.js";
 import type { ResolvedIssuerConfiguration } from "./configurations/types.js";
-import { DEFAULT_SD_JWT_DIGEST_ALGORITHM } from "./digest-algorithm.js";
-import { supportedCredentialConfigurationIdsForIssuer } from "./metadata.js";
-import type { VpDeliveredRequestRecipe } from "./openid4vp.js";
+import { DEFAULT_SD_JWT_DIGEST_ALGORITHM } from "./credentials/digest-algorithm.js";
+import { recordClientAuthentication } from "./openid4vci/client-attestation.js";
+import type { VpDeliveredRequestRecipe } from "./openid4vp/authorization-request.js";
 import type {
   AppConfig,
   CaptureEvent,
@@ -27,6 +22,18 @@ import type {
   VpRequestDelivery,
   VpSessionCapture,
 } from "./types.js";
+
+export interface IssuanceSessionOptions {
+  credentialConfigurationId: string;
+  flow?: SessionCapture["flow"];
+  credentialOfferMode?: CredentialOfferMode;
+  statusListEnabled?: boolean;
+  fixtureId?: string;
+  documentNumber?: string;
+  statusReference?: StatusReferenceFixture;
+  digestAlgorithm?: SdJwtDigestAlgorithm;
+  evidenceMode?: EvidenceMode;
+}
 
 export class CaptureStore {
   readonly oid4vciRequests: Oid4vciHttpRequestCapture[] = [];
@@ -63,16 +70,18 @@ export class CaptureStore {
   constructor(private readonly config: AppConfig) {}
 
   createSession(
-    issuer: ResolvedIssuerConfiguration = defaultIssuerConfiguration(this.config),
-    credentialConfigurationId = defaultCredentialConfigurationId(this.config, issuer),
-    flow: SessionCapture["flow"] = "authorization_code",
-    credentialOfferMode: CredentialOfferMode = "credential_offer",
-    statusListEnabled = false,
-    fixtureId?: string,
-    documentNumber?: string,
-    statusReference?: StatusReferenceFixture,
-    digestAlgorithm?: SdJwtDigestAlgorithm,
-    evidenceMode: EvidenceMode = "redacted",
+    issuer: ResolvedIssuerConfiguration,
+    {
+      credentialConfigurationId,
+      flow = "authorization_code",
+      credentialOfferMode = "credential_offer",
+      statusListEnabled = false,
+      fixtureId,
+      documentNumber,
+      statusReference,
+      digestAlgorithm,
+      evidenceMode = "redacted",
+    }: IssuanceSessionOptions,
   ): SessionCapture {
     const sessionId = randomUUID();
     const session: SessionCapture = {
@@ -386,27 +395,6 @@ export class CaptureStore {
     session.events.push(event);
     return event;
   }
-}
-
-export function asStringOrNull(value: unknown): string | null {
-  return typeof value === "string" && value.length > 0 ? value : null;
-}
-
-function defaultIssuerConfiguration(config: AppConfig): ResolvedIssuerConfiguration {
-  const issuer = resolvedIssuerConfigurationById(config, DEFAULT_ISSUER_CONFIGURATION_ID);
-  if (!issuer) throw new Error("Default issuer configuration is unavailable");
-  return issuer;
-}
-
-function defaultCredentialConfigurationId(
-  config: AppConfig,
-  issuer: ResolvedIssuerConfiguration,
-): string {
-  const credentialConfigurationId = supportedCredentialConfigurationIdsForIssuer(config, issuer)[0];
-  if (!credentialConfigurationId) {
-    throw new Error(`Issuer '${issuer.id}' has no credential configurations`);
-  }
-  return credentialConfigurationId;
 }
 
 function emptyClientAuthenticationCapture(): SessionCapture["observed"]["client_authentication"] {

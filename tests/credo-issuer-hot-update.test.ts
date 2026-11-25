@@ -5,12 +5,12 @@ import { Agent, Kms } from "@credo-ts/core";
 import { OpenId4VcIssuerService, OpenId4VcModule } from "@credo-ts/openid4vc";
 import express from "express";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { DEFAULT_CONFIG } from "../src/config.js";
+import { DEFAULT_CONFIG } from "../src/config/defaults.js";
 import {
   InMemoryStorageModule,
   NodeKmsBackend,
   nodeAgentDependencies,
-} from "../src/credo-openid4vp.js";
+} from "../src/credo/agent.js";
 
 /**
  * Phase 0 feasibility: the pinned Credo-TS issuer serves credential configurations and the chained

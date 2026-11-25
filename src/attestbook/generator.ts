@@ -27,7 +27,10 @@ const DEFAULT_NUMBER_SPAN = 1000;
 
 export type GeneratedClaims = Record<string, unknown>;
 
-/** Synthetic claim values cannot satisfy the schema's constraints. */
+/**
+ * Synthetic claim values cannot satisfy the schema's constraints.
+ * @internal
+ */
 export class ClaimGenerationError extends Error {
   constructor(message: string) {
     super(message);

@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_CONFIG } from "../src/config.js";
+import { DEFAULT_CONFIG } from "../src/config/defaults.js";
 import {
   allocateStatusListReference,
   revokeStatusListReference,
   statusListCredentialType,
-} from "../src/status-list.js";
+} from "../src/status-list/allocation.js";
 
 const config = {
   ...DEFAULT_CONFIG,

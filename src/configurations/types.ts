@@ -1,4 +1,4 @@
-import type { CredentialProofPolicy } from "../metadata.js";
+import type { CredentialProofPolicy } from "../types.js";
 
 export type IssuerConfigurationId =
   | "eu-pid-device-bound"
@@ -6,21 +6,18 @@ export type IssuerConfigurationId =
   | "eu-pid-jwt-proof-only"
   | "attestbook-experimental";
 
-export type IssuerCompliance =
-  | "eudi-pid-device-bound"
-  | "deliberately-nonconforming"
-  | "experimental";
+type IssuerCompliance = "eudi-pid-device-bound" | "deliberately-nonconforming" | "experimental";
 
 /** Opt-in feature an issuer belongs to; the issuer is served only when the feature is enabled. */
-export type IssuerFeature = "attestbook";
+type IssuerFeature = "attestbook";
 
-export interface IssuerDisplayConfiguration {
+interface IssuerDisplayConfiguration {
   readonly name: string;
   readonly description: string;
   readonly warning?: string;
 }
 
-export interface IssuerAuthorizationServerConfiguration {
+interface IssuerAuthorizationServerConfiguration {
   readonly externalScope: string;
 }
 
@@ -42,7 +39,7 @@ export interface IssuerConfiguration {
   readonly importsAttestbookCredentials?: true;
 }
 
-export interface ResolvedIssuerEndpoints {
+interface ResolvedIssuerEndpoints {
   readonly authorization: string;
   readonly credential: string;
   readonly credentialJwks: string;

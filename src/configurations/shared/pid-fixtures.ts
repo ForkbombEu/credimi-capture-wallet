@@ -9,7 +9,7 @@ import { DEFAULT_PID_SUBJECT, type PidSubject } from "./pid-data.js";
  * caller-supplied claim override exists, so an issued credential always corresponds to a named
  * fixture that a test can reference.
  */
-export const PID_FIXTURES = {
+const PID_FIXTURES = {
   /** The baseline identity. Matches the value constraints the other fixtures deliberately fail. */
   pid_default: DEFAULT_PID_SUBJECT,
 

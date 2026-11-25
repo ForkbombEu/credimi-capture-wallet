@@ -542,7 +542,7 @@ Credential endpoint, and a DPoP proof for the Notification Endpoint:
 ```sh
 # ACCESS_TOKEN: the DPoP-bound token from /token. DPOP_PROOF: a DPoP proof signed by the same key,
 # with htm "POST", htu "$ISSUER/notification", and ath the base64url SHA-256 of ACCESS_TOKEN, as
-# dpopProof() in tests/notification.test.ts builds it.
+# dpopProof() in tests/support/keys.ts builds it.
 ISSUER=https://capture-wallet.credimi.io/issuers/eu-pid-device-bound
 curl -i -X POST "$ISSUER/notification" \
   -H "Authorization: DPoP $ACCESS_TOKEN" \

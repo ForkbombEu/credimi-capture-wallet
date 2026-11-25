@@ -3,9 +3,7 @@ import {
   captureProofHeaders,
   decodeJwtHeader,
   extractProofJwts,
-  firstWalletJwks,
-  jwkToJwks,
-} from "../src/proofs.js";
+} from "../src/openid4vci/proofs.js";
 import { unsignedJwt } from "./helpers.js";
 
 const walletJwk = {
@@ -26,24 +24,20 @@ describe("proof JWT capture", () => {
     });
   });
 
-  it("extracts jwk from proof JWT header and converts it to JWKS", () => {
+  it("captures jwk from proof JWT header", () => {
     const jwt = unsignedJwt({ alg: "ES256", jwk: walletJwk });
     const headers = captureProofHeaders({ proof: { proof_type: "jwt", jwt } });
-    const wallet = firstWalletJwks(headers);
 
-    expect(wallet.source).toBe("credential_request.proof.jwt.header.jwk");
-    expect(wallet.jwks).toEqual(jwkToJwks(walletJwk));
-    expect(wallet.jwks?.keys[0]).toMatchObject({ alg: "ES256", use: "sig" });
+    expect(headers[0]?.jwk).toEqual(walletJwk);
+    expect(headers[0]?.source).toBe("credential_request.proof.jwt.header.jwk");
   });
 
-  it("detects kid-only proof headers without treating a key as observable", () => {
+  it("captures kid-only proof headers", () => {
     const jwt = unsignedJwt({ alg: "ES256", kid: "did:key:z6Mk..." });
     const headers = captureProofHeaders({ proof: { jwt } });
-    const wallet = firstWalletJwks(headers);
 
     expect(headers[0]?.kid).toBe("did:key:z6Mk...");
-    expect(wallet.jwks).toBeNull();
-    expect(wallet.observedFields).toContain("kid");
+    expect(headers[0]?.jwk).toBeUndefined();
   });
 
   it("detects x5c proof headers", () => {

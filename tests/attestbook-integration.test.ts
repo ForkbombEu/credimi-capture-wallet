@@ -6,18 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SdJwtVcService } from "@credo-ts/core";
 import type { Express } from "express";
-import {
-  type JWK,
-  type KeyLike,
-  SignJWT,
-  compactVerify,
-  createLocalJWKSet,
-  decodeJwt,
-  exportJWK,
-  generateKeyPair,
-  importJWK,
-  importX509,
-} from "jose";
+import { type JWK, compactVerify, createLocalJWKSet, decodeJwt, importX509 } from "jose";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { attestbookIntegration } from "../src/attestbook/integration.js";
@@ -28,14 +17,11 @@ import {
   verifySubscription,
   webhookCallbackUrl,
 } from "../src/attestbook/subscription.js";
-import {
-  DEFAULT_CONFIG,
-  initIssuer,
-  issuerCertificatePath,
-  privateJwkPath,
-} from "../src/config.js";
-import { credoOpenId4VciIssuer } from "../src/credo-openid4vci.js";
-import { createApp } from "../src/server.js";
+import { DEFAULT_CONFIG } from "../src/config/defaults.js";
+import { initIssuer } from "../src/config/key-material.js";
+import { issuerAppConfig } from "../src/configurations/resolve-urls.js";
+import { credoOpenId4VciIssuer } from "../src/openid4vci/credo-issuer.js";
+import { createApp } from "../src/server/app.js";
 import { CaptureStore } from "../src/state.js";
 import type { AppConfig, JsonRecord } from "../src/types.js";
 import {
@@ -44,15 +30,21 @@ import {
   type FixtureEvent,
   signedDelivery,
 } from "./attestbook-fixture.js";
+import { createIssuerTestEnvironment, requireIssuer } from "./support/environment.js";
+import type { IssuerTestEnvironment } from "./support/environment.js";
+import { credentialProofJwt } from "./support/issuance.js";
+import { type TestKey, dpopProof, generateEs256Key } from "./support/keys.js";
 
 const issuerId = "attestbook-experimental";
 const issuerBaseUrl = "http://issuer.example.test";
 const issuerIdentifier = `${issuerBaseUrl}/issuers/${issuerId}`;
 const webhookSecret = "atw_test-subscription-secret-0000000000000000";
 const adminToken = "test-admin-token";
-const dataDir = mkdtempSync(join(tmpdir(), "attestbook-e2e-"));
+let dataDir: string;
 const fixture = new AttestbookFixture();
+let environment: IssuerTestEnvironment;
 let config: AppConfig;
+let deviceBoundConfig: AppConfig;
 
 const membershipVct = "urn:attestbook:membership-card";
 
@@ -159,70 +151,6 @@ async function advertisedIds(harness: Harness): Promise<string[]> {
   return Object.keys(metadata.body.credential_configurations_supported as JsonRecord);
 }
 
-interface Key {
-  publicJwk: JsonRecord;
-  privateKey: KeyLike;
-}
-
-async function key(): Promise<Key> {
-  const { publicKey, privateKey } = await generateKeyPair("ES256", { extractable: true });
-  return { publicJwk: (await exportJWK(publicKey)) as unknown as JsonRecord, privateKey };
-}
-
-async function dpopProof(
-  dpop: Key,
-  method: string,
-  path: string,
-  accessToken?: string,
-): Promise<string> {
-  return new SignJWT({
-    htm: method,
-    htu: `${issuerBaseUrl}${path}`,
-    iat: Math.floor(Date.now() / 1000),
-    jti: randomUUID(),
-    ...(accessToken ? { ath: createHash("sha256").update(accessToken).digest("base64url") } : {}),
-  })
-    .setProtectedHeader({ alg: "ES256", typ: "dpop+jwt", jwk: dpop.publicJwk as unknown as JWK })
-    .sign(dpop.privateKey);
-}
-
-/**
- * A key attestation for the holder key, signed by an issuer key and certificate already in the
- * data directory: the test issuer trusts the chain a key attestation presents.
- */
-async function keyAttestationJwt(holder: Key, nonce: string): Promise<string> {
-  const material = join(dataDir, "issuers", "eu-pid-device-bound");
-  const certificate = readFileSync(issuerCertificatePath(material), "utf8")
-    .replace(/-----(BEGIN|END) CERTIFICATE-----/g, "")
-    .replace(/\s+/g, "");
-  const now = Math.floor(Date.now() / 1000);
-  return new SignJWT({ iat: now, exp: now + 300, nonce, attested_keys: [holder.publicJwk] })
-    .setProtectedHeader({ alg: "ES256", typ: "key-attestation+jwt", x5c: [certificate] })
-    .sign(
-      await importJWK(JSON.parse(readFileSync(privateJwkPath(material), "utf8")) as JWK, "ES256"),
-    );
-}
-
-/**
- * A key-attested JWT proof, as the experimental issuer requires. OpenID4VCI 1.0 Appendix F.1:
- * `iss` is the client_id, omitted for anonymous pre-authorized access.
- */
-async function proofJwt(holder: Key, nonce: string, clientId?: string): Promise<string> {
-  return new SignJWT({
-    aud: issuerIdentifier,
-    nonce,
-    iat: Math.floor(Date.now() / 1000),
-    ...(clientId ? { iss: clientId } : {}),
-  })
-    .setProtectedHeader({
-      alg: "ES256",
-      typ: "openid4vci-proof+jwt",
-      jwk: holder.publicJwk as unknown as JWK,
-      key_attestation: await keyAttestationJwt(holder, nonce),
-    })
-    .sign(holder.privateKey);
-}
-
 interface SessionResponse {
   session_id: string;
   credential_configuration_id: string;
@@ -241,7 +169,7 @@ async function createSession(harness: Harness, body: JsonRecord): Promise<Sessio
   return response.body as SessionResponse;
 }
 
-async function preAuthorizedToken(harness: Harness, session: SessionResponse, dpop: Key) {
+async function preAuthorizedToken(harness: Harness, session: SessionResponse, dpop: TestKey) {
   const offer = (await request(harness.app).get(new URL(session.offer_url).pathname)).body as {
     grants: Record<string, JsonRecord>;
   };
@@ -249,7 +177,7 @@ async function preAuthorizedToken(harness: Harness, session: SessionResponse, dp
   const tokenPath = `/issuers/${issuerId}/token`;
   const token = await request(harness.app)
     .post(tokenPath)
-    .set("DPoP", await dpopProof(dpop, "POST", tokenPath))
+    .set("DPoP", await dpopProof(dpop, { method: "POST", url: `${issuerBaseUrl}${tokenPath}` }))
     .type("form")
     .send({
       grant_type: "urn:ietf:params:oauth:grant-type:pre-authorized_code",
@@ -262,9 +190,9 @@ async function preAuthorizedToken(harness: Harness, session: SessionResponse, dp
 async function requestCredential(
   harness: Harness,
   session: SessionResponse,
-  dpop: Key,
+  dpop: TestKey,
   accessToken: string,
-  holder: Key,
+  holder: TestKey,
   clientId?: string,
 ): Promise<string> {
   const noncePath = `/issuers/${issuerId}/nonce`;
@@ -273,10 +201,28 @@ async function requestCredential(
   const response = await request(harness.app)
     .post(credentialPath)
     .set("authorization", `DPoP ${accessToken}`)
-    .set("DPoP", await dpopProof(dpop, "POST", credentialPath, accessToken))
+    .set(
+      "DPoP",
+      await dpopProof(dpop, {
+        method: "POST",
+        url: `${issuerBaseUrl}${credentialPath}`,
+        accessToken,
+      }),
+    )
     .send({
       credential_configuration_id: session.credential_configuration_id,
-      proofs: { jwt: [await proofJwt(holder, nonce, clientId)] },
+      proofs: {
+        jwt: [
+          await credentialProofJwt(
+            holder,
+            nonce,
+            issuerIdentifier,
+            deviceBoundConfig,
+            holder,
+            clientId,
+          ),
+        ],
+      },
     });
   expect(response.status, response.text).toBe(200);
   return (
@@ -287,10 +233,10 @@ async function requestCredential(
 async function issuePreAuthorized(
   harness: Harness,
   body: JsonRecord,
-): Promise<{ compact: string; holder: Key; session: SessionResponse }> {
+): Promise<{ compact: string; holder: TestKey; session: SessionResponse }> {
   const session = await createSession(harness, { flow: "pre_authorized_code", ...body });
-  const dpop = await key();
-  const holder = await key();
+  const dpop = await generateEs256Key();
+  const holder = await generateEs256Key();
   const token = await preAuthorizedToken(harness, session, dpop);
   return {
     compact: await requestCredential(harness, session, dpop, token.access_token, holder),
@@ -314,26 +260,29 @@ async function verifyIssuerSignature(compact: string): Promise<void> {
 
 beforeAll(async () => {
   await fixture.start();
-  config = {
-    ...DEFAULT_CONFIG,
-    issuer_base_url: issuerBaseUrl,
-    public_base_url: issuerBaseUrl,
-    data_dir: dataDir,
-    attestbook: {
-      enabled: true,
-      base_url: fixture.origin,
-      rulebook_id: fixture.rulebookId,
-      webhook_secret: webhookSecret,
-      admin_token: adminToken,
-      allowed_schema_origins: [],
+  environment = await createIssuerTestEnvironment({
+    prefix: "attestbook-e2e-",
+    config: {
+      issuer_base_url: issuerBaseUrl,
+      public_base_url: issuerBaseUrl,
+      attestbook: {
+        enabled: true,
+        base_url: fixture.origin,
+        rulebook_id: fixture.rulebookId,
+        webhook_secret: webhookSecret,
+        admin_token: adminToken,
+        allowed_schema_origins: [],
+      },
     },
-  };
-  await initIssuer({ issuer_base_url: issuerBaseUrl, data_dir: dataDir, force: true });
+  });
+  dataDir = environment.dataDir;
+  config = environment.config;
+  deviceBoundConfig = issuerAppConfig(config, requireIssuer(config, "eu-pid-device-bound"));
 });
 
 afterAll(async () => {
   await fixture.stop();
-  rmSync(dataDir, { recursive: true, force: true });
+  environment?.cleanup();
 });
 
 describe("Attestbook-defined credentials, end to end", () => {
@@ -466,14 +415,14 @@ describe("Attestbook-defined credentials, end to end", () => {
     ) as {
       grants: { authorization_code: { issuer_state: string } };
     };
-    const dpop = await key();
+    const dpop = await generateEs256Key();
     const clientId = "https://wallet.example.test";
     const redirectUri = `${clientId}/callback`;
     const codeVerifier = randomBytes(48).toString("base64url");
     const parPath = `/issuers/${issuerId}/par`;
     const par = await request(issuer.app)
       .post(parPath)
-      .set("DPoP", await dpopProof(dpop, "POST", parPath))
+      .set("DPoP", await dpopProof(dpop, { method: "POST", url: `${issuerBaseUrl}${parPath}` }))
       .type("form")
       .send({
         response_type: "code",
@@ -502,7 +451,7 @@ describe("Attestbook-defined credentials, end to end", () => {
     const tokenPath = `/issuers/${issuerId}/token`;
     const token = await request(issuer.app)
       .post(tokenPath)
-      .set("DPoP", await dpopProof(dpop, "POST", tokenPath))
+      .set("DPoP", await dpopProof(dpop, { method: "POST", url: `${issuerBaseUrl}${tokenPath}` }))
       .type("form")
       .send({
         grant_type: "authorization_code",
@@ -517,7 +466,7 @@ describe("Attestbook-defined credentials, end to end", () => {
       codeSession,
       dpop,
       token.body.access_token,
-      await key(),
+      await generateEs256Key(),
       clientId,
     );
     expect(
@@ -527,10 +476,13 @@ describe("Attestbook-defined credentials, end to end", () => {
     // Wallet-initiated: a PAR naming the imported scope and no issuer_state gets its own session,
     // pinned to the active definition with generated values, as an offered session is.
     const walletVerifier = randomBytes(48).toString("base64url");
-    const walletDpop = await key();
+    const walletDpop = await generateEs256Key();
     const walletPar = await request(issuer.app)
       .post(parPath)
-      .set("DPoP", await dpopProof(walletDpop, "POST", parPath))
+      .set(
+        "DPoP",
+        await dpopProof(walletDpop, { method: "POST", url: `${issuerBaseUrl}${parPath}` }),
+      )
       .type("form")
       .send({
         response_type: "code",
@@ -563,7 +515,10 @@ describe("Attestbook-defined credentials, end to end", () => {
       .redirects(0);
     const walletToken = await request(issuer.app)
       .post(tokenPath)
-      .set("DPoP", await dpopProof(walletDpop, "POST", tokenPath))
+      .set(
+        "DPoP",
+        await dpopProof(walletDpop, { method: "POST", url: `${issuerBaseUrl}${tokenPath}` }),
+      )
       .type("form")
       .send({
         grant_type: "authorization_code",
@@ -580,7 +535,7 @@ describe("Attestbook-defined credentials, end to end", () => {
       codeSession,
       walletDpop,
       walletToken.body.access_token,
-      await key(),
+      await generateEs256Key(),
       clientId,
     );
     expect(
@@ -626,7 +581,7 @@ describe("Attestbook-defined credentials, end to end", () => {
       expect.arrayContaining([expect.objectContaining({ path: ["memberships", null, "club"] })]),
     );
 
-    const inFlightDpop = await key();
+    const inFlightDpop = await generateEs256Key();
     const inFlightToken = await preAuthorizedToken(issuer, inFlight, inFlightDpop);
     const noncePath = `/issuers/${issuerId}/nonce`;
     const inFlightNonce = (await request(issuer.app).post(noncePath)).body.c_nonce as string;
@@ -636,11 +591,24 @@ describe("Attestbook-defined credentials, end to end", () => {
       .set("authorization", `DPoP ${inFlightToken.access_token}`)
       .set(
         "DPoP",
-        await dpopProof(inFlightDpop, "POST", credentialPath, inFlightToken.access_token),
+        await dpopProof(inFlightDpop, {
+          method: "POST",
+          url: `${issuerBaseUrl}${credentialPath}`,
+          accessToken: inFlightToken.access_token,
+        }),
       )
       .send({
         credential_configuration_id: inFlight.credential_configuration_id,
-        proofs: { jwt: [await proofJwt(await key(), inFlightNonce)] },
+        proofs: {
+          jwt: [
+            await credentialProofJwt(
+              await generateEs256Key(),
+              inFlightNonce,
+              issuerIdentifier,
+              deviceBoundConfig,
+            ),
+          ],
+        },
       });
     expect(refused.status).toBe(400);
     expect(refused.body).toMatchObject({ error: "invalid_credential_request" });

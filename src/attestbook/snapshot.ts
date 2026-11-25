@@ -1,3 +1,4 @@
+import { isRecord } from "../shared/json.js";
 import { contentDigestSha256, sha256Hex, sriMatches } from "./digest.js";
 import { SAFE_ATTESTBOOK_IDENTIFIER } from "./settings.js";
 import type {
@@ -357,8 +358,4 @@ function verifyReportedReferences(
 
 function malformed(message: string): AttestbookIntegrityError {
   return new AttestbookIntegrityError("rulebook_malformed", message);
-}
-
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
