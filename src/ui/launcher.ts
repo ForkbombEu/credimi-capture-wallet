@@ -29,14 +29,6 @@ export interface IssuerCredentialChoices {
   readonly attestbook?: AttestbookIssuerSummary;
 }
 
-/**
- * The fragment the issuer and verifier pages read to preselect a credential and open their
- * advanced settings, so the launcher can hand a choice over without a server-side parameter.
- */
-export function credentialPreselectionFragment(credentialConfigurationId: string): string {
-  return `#credential_configuration_id=${encodeURIComponent(credentialConfigurationId)}`;
-}
-
 /** Allowed values of the `POST /sessions` parameters the issuer page offers as choices. */
 export interface IssuanceParameterValues {
   readonly flows: readonly string[];
@@ -48,9 +40,8 @@ export interface IssuanceParameterValues {
   readonly statusReferences: readonly string[];
 }
 /**
- * One credential picker over every issuer: Issue and Verify create a session with the API
- * defaults, and the Customize links open the issuer or verifier page, which carry every other
- * parameter, with the chosen credential preselected.
+ * One credential picker over every issuer: the session buttons create a session with the API
+ * defaults, and each card opens the issuer or verifier page, which carries every other parameter.
  */
 export function indexPage(groups: readonly IssuerCredentialChoices[]): string {
   const empty = groups.every((group) => group.credentials.length === 0);
@@ -83,13 +74,9 @@ export function indexPage(groups: readonly IssuerCredentialChoices[]): string {
       "</label>",
       "</div>",
       '<div class="session-actions">',
-      `<button class="btn btn-primary btn-lg" type="button" autocomplete="off" data-issue${empty ? " disabled" : ""}>New fake-issuance session</button>`,
+      `<button class="btn btn-primary btn-lg" type="button" autocomplete="off" data-issue${empty ? " disabled" : ""}>New issuance session</button>`,
       `<button class="btn btn-outline btn-lg" type="button" autocomplete="off" data-verify${empty ? " disabled" : ""}>New presentation session</button>`,
       "</div>",
-      '<nav class="launcher-links" aria-label="Customize">',
-      '<a class="issuer-link" href="/" data-customize-issuance>Customize issuance</a>',
-      `<a class="issuer-link" href="${VERIFIER_PAGE_PATH}" data-customize-presentation>Customize presentation</a>`,
-      "</nav>",
       '<pre class="launcher-error" role="alert" data-launcher-error hidden></pre>',
       "</div>",
       issuerCatalogueHtml(groups),
@@ -119,32 +106,16 @@ function issuerCatalogueHtml(groups: readonly IssuerCredentialChoices[]): string
 
 function issuerCardHtml(group: IssuerCredentialChoices): string {
   const { issuer } = group;
-  return [
-    '<article class="issuer-card">',
+  return entityCardHtml(issuer.issuerIdentifier, [
     "<h3>",
     escapeHtml(issuerLabel(issuer)),
     "</h3>",
     '<p class="issuer-description">',
-    issuerDescriptionHtml(issuer),
+    // The whole card is a link, which cannot contain another one.
+    issuerDescriptionHtml(issuer, false),
     "</p>",
     group.attestbook ? attestbookSummaryHtml(group.attestbook) : "",
-    '<nav class="issuer-links" aria-label="',
-    escapeHtml(`${issuer.display.name} links`),
-    '">',
-    safeLinkHtml("Issuer page", issuer.issuerIdentifier, "issuer-link"),
-    safeLinkHtml("Credential issuer well-known", issuer.issuerMetadataUrl, "issuer-link", true),
-    safeLinkHtml(
-      "Authorization server well-known",
-      issuer.authorizationServerMetadataUrl,
-      "issuer-link",
-      true,
-    ),
-    group.attestbook
-      ? safeLinkHtml("Attestbook status", "/integrations/attestbook/status", "issuer-link", true)
-      : "",
-    "</nav>",
-    "</article>",
-  ].join("");
+  ]);
 }
 
 function verifierCatalogueHtml(): string {
@@ -152,18 +123,21 @@ function verifierCatalogueHtml(): string {
     '<section class="issuer-catalogue" aria-labelledby="verifier-catalogue-title">',
     '<h2 id="verifier-catalogue-title">Verifier</h2>',
     '<div class="issuer-cards">',
-    '<article class="issuer-card">',
-    "<h3>OpenID4VP verifier</h3>",
-    '<p class="issuer-description">Requests a presentation of any credential the issuers above serve, and verifies it.</p>',
-    '<nav class="issuer-links" aria-label="Verifier links">',
-    safeLinkHtml("Verifier page", VERIFIER_PAGE_PATH, "issuer-link"),
-    safeLinkHtml("Client identifiers", "/openid4vp/client-identifiers", "issuer-link", true),
-    safeLinkHtml("DID document", "/openid4vp/did.json", "issuer-link", true),
-    "</nav>",
-    "</article>",
+    entityCardHtml(VERIFIER_PAGE_PATH, [
+      "<h3>OpenID4VP verifier</h3>",
+      '<p class="issuer-description">Requests a presentation of any credential the issuers above serve, and verifies it.</p>',
+    ]),
     "</div>",
     "</section>",
   ].join("");
+}
+
+/** A card that opens `href` when clicked; a target that is not a safe URL leaves it inert. */
+function entityCardHtml(href: string, content: readonly string[]): string {
+  const body = content.join("");
+  return isSafeHref(href)
+    ? `<a class="issuer-card" href="${escapeHtml(href)}">${body}</a>`
+    : `<article class="issuer-card">${body}</article>`;
 }
 
 /** What a session records about the Wallet, named as on the session pages. */
@@ -242,12 +216,11 @@ function credentialGroupHtml({ issuer, credentials }: IssuerCredentialChoices): 
   ].join("");
 }
 
-/** Everything Issue, Verify, and the Customize links need, carried by the option itself. */
+/** Everything the session buttons need, carried by the option itself. */
 function credentialOptionHtml(
   issuer: ResolvedIssuerConfiguration,
   { credential, dcqlQuery }: CredentialChoice,
 ): string {
-  const fragment = credentialPreselectionFragment(credential.id);
   return [
     '<option value="',
     escapeHtml(credential.id),
@@ -258,10 +231,6 @@ function credentialOptionHtml(
     '"',
     // The API refuses a Token Status List for an imported Attestbook credential.
     credential.attestbook ? ' data-imported="true"' : "",
-    isHttpUrl(issuer.issuerIdentifier)
-      ? ` data-issuance-href="${escapeHtml(`${issuer.issuerIdentifier}${fragment}`)}"`
-      : "",
-    ` data-presentation-href="${escapeHtml(`${VERIFIER_PAGE_PATH}${fragment}`)}"`,
     ">",
     escapeHtml(credentialLabel(credential)),
     "</option>",
@@ -279,18 +248,20 @@ export function attestbookSummaryHtml(summary: AttestbookIssuerSummary): string 
   return `<p class="issuer-description">${escapeHtml(`${active}; ${sync}.`)}</p>`;
 }
 
-export function issuerDescriptionHtml(issuer: ResolvedIssuerConfiguration): string {
+export function issuerDescriptionHtml(
+  issuer: ResolvedIssuerConfiguration,
+  linkRegulation = true,
+): string {
   if (issuer.compliance !== "eudi-pid-device-bound") {
     return escapeHtml(issuer.display.description);
   }
 
+  const regulation = "Commission Implementing Regulation (EU) 2026/1731";
   return [
     "Conformant to ",
-    '<a href="',
-    REGULATION_2026_1731_URL,
-    '" target="_blank" rel="noreferrer">',
-    "Commission Implementing Regulation (EU) 2026/1731",
-    "</a>",
+    linkRegulation
+      ? `<a href="${REGULATION_2026_1731_URL}" target="_blank" rel="noreferrer">${regulation}</a>`
+      : regulation,
     ", in particular <code>TR_KA-4</code>: both <code>jwt</code> and ",
     "<code>attestation</code> proof types are present and both include ",
     "<code>key_attestations_required</code>.",
@@ -304,7 +275,7 @@ export function safeLinkHtml(
   className: string,
   newTab = false,
 ): string {
-  if (!isHttpUrl(href) && !href.startsWith("/")) {
+  if (!isSafeHref(href)) {
     return `<span class="${className}">${escapeHtml(label)}: ${escapeHtml(href)}</span>`;
   }
 
@@ -317,7 +288,9 @@ export function safeLinkHtml(
   ].join("");
 }
 
-function isHttpUrl(value: string): boolean {
+/** Only HTTP(S) URLs and same-origin paths become link targets; `javascript:` and the like never. */
+function isSafeHref(value: string): boolean {
+  if (value.startsWith("/")) return true;
   try {
     const protocol = new URL(value).protocol;
     return protocol === "http:" || protocol === "https:";

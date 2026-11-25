@@ -473,20 +473,15 @@ describe("capture issuer server", () => {
       '<optgroup label="EUDI PID — JWT proof only — deliberately non-conforming">',
     );
     expect(response.text).toContain('<h2 id="issuer-catalogue-title">Available issuers</h2>');
-    expect(response.text.match(/<article class="issuer-card">/g)).toHaveLength(4);
+    expect(response.text.match(/<a class="issuer-card" href=/g)).toHaveLength(4);
     for (const issuerId of [conformingIssuerId, jwtKeyAttestationIssuerId, jwtOnlyIssuerId]) {
       expect(response.text).toContain(
-        `<a class="issuer-link" href="${config.issuer_base_url}/issuers/${issuerId}">Issuer page</a>`,
-      );
-      expect(response.text).toContain(
-        `<a class="issuer-link" href="${config.issuer_base_url}/.well-known/openid-credential-issuer/issuers/${issuerId}" target="_blank" rel="noreferrer">Credential issuer well-known</a>`,
-      );
-      expect(response.text).toContain(
-        `<a class="issuer-link" href="${config.issuer_base_url}/.well-known/oauth-authorization-server/issuers/${issuerId}" target="_blank" rel="noreferrer">Authorization server well-known</a>`,
+        `<a class="issuer-card" href="${config.issuer_base_url}/issuers/${issuerId}">`,
       );
     }
     expect(response.text).toContain('<h2 id="verifier-catalogue-title">Verifier</h2>');
-    expect(response.text).toContain('<a class="issuer-link" href="/openid4vp">Verifier page</a>');
+    expect(response.text).toContain('<a class="issuer-card" href="/openid4vp">');
+    expect(response.text).not.toContain("Customize");
 
     // The bodies the launcher script builds from an option are sessions the API accepts.
     const options = Array.from(

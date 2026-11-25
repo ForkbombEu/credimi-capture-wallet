@@ -48,13 +48,8 @@ export function launcherScript(): string {
     const statusListToggle = launcher.querySelector("[data-status-list-toggle]");
     const issue = launcher.querySelector("[data-issue]");
     const verify = launcher.querySelector("[data-verify]");
-    const customizeIssuance = launcher.querySelector("[data-customize-issuance]");
-    const customizePresentation = launcher.querySelector("[data-customize-presentation]");
     const launcherError = launcher.querySelector("[data-launcher-error]");
     const selected = () => (choice.value === "" ? undefined : choice.selectedOptions[0]);
-    // The links as rendered are their targets only when no credential is available.
-    const defaultIssuanceHref = customizeIssuance.getAttribute("href");
-    const defaultPresentationHref = customizePresentation.getAttribute("href");
 
     function sync() {
       const option = selected();
@@ -63,8 +58,6 @@ export function launcherScript(): string {
       // The API refuses a Token Status List for an imported Attestbook credential.
       statusListToggle.disabled = option?.dataset.imported === "true";
       statusListToggle.closest("label").classList.toggle("field-disabled", statusListToggle.disabled);
-      customizeIssuance.href = option?.dataset.issuanceHref ?? defaultIssuanceHref;
-      customizePresentation.href = option?.dataset.presentationHref ?? defaultPresentationHref;
     }
 
     issue.addEventListener("click", () => {
@@ -155,12 +148,6 @@ export function launcherScript(): string {
     launch(form.dataset.endpoint, form.dataset.sessionPage, body, errorBox, submit);
   });
 
-  // A launcher "Customize" link names the credential in the fragment.
-  const preselected = new URLSearchParams(window.location.hash.slice(1)).get("credential_configuration_id");
-  if (picker && preselected && Array.from(picker.options).some((option) => option.value === preselected)) {
-    picker.value = preselected;
-    form.querySelector("details.advanced-settings")?.setAttribute("open", "");
-  }
   picker?.addEventListener("change", applyCredential);
   applyCredential();
 })();`;
