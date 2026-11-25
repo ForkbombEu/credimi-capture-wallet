@@ -72,8 +72,10 @@ export const APP_CSS = [
   ".status-list-toggle input:checked + .toggle-track { background: var(--brand-primary); border-color: var(--brand-primary); }",
   ".status-list-toggle input:checked + .toggle-track::after { transform: translateX(18px); }",
   ".status-list-toggle input:focus-visible + .toggle-track { outline: 2px solid color-mix(in oklch, var(--brand-primary) 36%, transparent); outline-offset: 2px; }",
-  "a.issuer-card { color: var(--fg); text-decoration: none; transition: border-color 150ms ease-out, box-shadow 150ms ease-out; }",
-  "a.issuer-card:hover { border-color: var(--border-strong); box-shadow: 0 4px 14px rgb(49 32 96 / 12%); }",
+  // A clickable card has a thin border in the primary button's blue. Hovering lifts it and
+  // thickens the border with an inset ring, so the card's content does not shift.
+  "a.issuer-card { color: var(--fg); text-decoration: none; border-color: var(--brand-primary); transition: transform 150ms ease-out, box-shadow 150ms ease-out; }",
+  "a.issuer-card:hover { transform: translateY(-4px); box-shadow: inset 0 0 0 1px var(--brand-primary), 0 8px 18px rgb(49 32 96 / 16%); }",
   "a.issuer-card:focus-visible { outline: 2px solid color-mix(in oklch, var(--brand-primary) 36%, transparent); outline-offset: 2px; }",
   ".entity-catalogue { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: auto repeat(var(--issuer-rows-wide), 1fr) auto 1fr; gap: 12px; width: 100%; margin-top: 8px; }",
   ".entity-catalogue h2, .entity-catalogue > .issuer-empty { grid-column: 1 / -1; }",
@@ -81,6 +83,8 @@ export const APP_CSS = [
   ".entity-catalogue h2:not(:first-child) { margin-top: 20px; }",
   ".issuer-card { min-width: 0; display: grid; align-content: start; gap: 12px; padding: 18px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg); box-shadow: var(--shadow-sm); }",
   ".issuer-card h3 { min-width: 0; font-size: 16px; line-height: 1.4; }",
+  // Beats the hero's paragraph size, which would otherwise apply inside the cards.
+  ".issuer-card p.issuer-description { font-size: 14px; line-height: 1.5; }",
   ".status-list-toggle.field-disabled { cursor: not-allowed; }",
   ".count-chip { display: inline-flex; align-items: center; justify-content: center; min-width: 24px; height: 24px; padding: 0 8px; border-radius: var(--radius-pill); background: var(--brand-secondary-strong); color: var(--fg-muted); font-size: 13px; font-weight: 600; }",
   ".capture-groups { display: grid; gap: 18px; }",
@@ -195,7 +199,7 @@ export const APP_CSS = [
   ".readme-card pre code { padding: 0; background: transparent; }",
   "@keyframes metadata-spin { to { transform: rotate(360deg); } }",
   "@keyframes metadata-flash { 0% { background: var(--warning-bg); box-shadow: 0 0 0 0 color-mix(in oklch, var(--warning) 32%, transparent); } 30% { background: var(--success-bg); box-shadow: 0 0 0 6px color-mix(in oklch, var(--success) 20%, transparent); } 100% { background: var(--bg); box-shadow: var(--shadow-sm); } }",
-  "@media (prefers-reduced-motion: reduce) { .metadata-state-waiting::before, .metadata-state-receiving::before, .metadata-flash { animation: none; } .toggle-track, .toggle-track::after { transition: none; } }",
+  "@media (prefers-reduced-motion: reduce) { .metadata-state-waiting::before, .metadata-state-receiving::before, .metadata-flash { animation: none; } .toggle-track, .toggle-track::after, a.issuer-card { transition: none; } }",
   "@media (max-width: 860px) { h1 { font-size: 38px; } h2 { font-size: 22px; } .hero-band { padding: 52px 0; } .hero-inner, .session-layout, .launcher-layout { grid-template-columns: 1fr; } .entity-catalogue { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto repeat(var(--issuer-rows-narrow), 1fr) auto 1fr; } .session-header, .section-head, .footer-content { flex-direction: column; align-items: stretch; } .session-actions { align-items: stretch; flex-direction: column; } .session-actions .btn { width: 100%; } .footer-links { justify-content: flex-start; } .qr-box { width: 100%; max-width: 336px; } }",
   "@media (max-width: 560px) { .container, .topbar-inner, .hero-inner, .footer-inner { width: min(100% - 28px, var(--max-width)); } .page-content { padding: 28px 0 52px; } .card { padding: 18px; } .brand-name { display: none; } .topbar-actions .btn { display: none; } .status-list-toggle { margin-left: 0; } }",
 ].join("\n");
