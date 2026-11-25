@@ -187,16 +187,19 @@ export const APP_CSS = [
   ".btn[disabled] { opacity: .55; cursor: not-allowed; }",
   ".session-layout { display: grid; grid-template-columns: minmax(300px, 420px) minmax(0, 1fr); gap: 24px; }",
   ".qr-panel { display: grid; gap: 16px; align-content: start; }",
-  // The QR code and its deeplink share one width, and the code brings its own white quiet zone.
-  ".qr-box { width: min(100%, 288px); aspect-ratio: 1; display: grid; place-items: center; }",
+  // The QR code sits in a small white box, and its deeplink is exactly as wide as that box.
+  ".qr-box { width: min(100%, 312px); aspect-ratio: 1; display: grid; place-items: center; padding: 12px; border-radius: var(--radius-md); background: var(--bg); }",
   ".qr-code svg { display: block; width: 100%; height: auto; }",
   ".qr-empty { width: 100%; height: 100%; border: 1px dashed var(--border-strong); border-radius: var(--radius-md); background: var(--brand-secondary-strong); }",
   ".qr-guidance { color: var(--fg-muted); font-size: 14px; line-height: 1.6; }",
-  ".deeplink-panel { display: grid; gap: 10px; justify-items: start; width: min(100%, 288px); }",
-  ".deeplink { overflow-wrap: anywhere; color: var(--brand-primary); font-family: JetBrains Mono, Fira Code, Cascadia Code, ui-monospace, monospace; font-size: 12px; line-height: 1.5; }",
-  // A secondary action: light grey, never the brand's primary blue.
-  ".btn-copy { background: var(--border); color: var(--fg); }",
-  ".btn-copy:hover { background: color-mix(in oklch, var(--border) 60%, var(--border-strong)); }",
+  ".deeplink-panel { display: grid; gap: 10px; justify-items: start; width: min(100%, 312px); }",
+  // The link breaks between any two characters, punctuation such as `%` included, so every line
+  // but the last fills the width.
+  ".deeplink { word-break: break-all; line-break: anywhere; color: var(--brand-primary); text-decoration: none; font-family: JetBrains Mono, Fira Code, Cascadia Code, ui-monospace, monospace; font-size: 12px; line-height: 1.5; }",
+  ".deeplink:hover { text-decoration: underline; }",
+  // A quiet secondary action: transparent until hovered, never the brand's primary blue.
+  ".btn-copy { background: transparent; color: var(--fg-muted); }",
+  ".btn-copy:hover { background: var(--border); color: var(--fg); }",
   ".metadata-panel { transition: background 220ms ease-out, border-color 220ms ease-out, box-shadow 220ms ease-out; }",
   ".metadata-pending { background: color-mix(in oklch, var(--bg) 74%, var(--bg-muted)); }",
   ".metadata-pending .metadata-row, .metadata-pending .metadata-json { opacity: .56; filter: grayscale(1); }",
