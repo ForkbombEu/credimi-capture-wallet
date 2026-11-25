@@ -741,12 +741,15 @@ These routes support the server-rendered operator UI. They are not a stable prog
 | `GET` | `/ui/openid4vp/sessions/{sessionId}/dc_api_presentation` |
 | `GET` | `/favicon.svg` |
 | `GET` | `/assets/style.css` |
+| `GET` | `/assets/fonts/{file}` |
 | `GET` | `/assets/credimi_logo.svg` |
 | `GET` | `/assets/credimi_logo_negative.svg` |
 | `GET` | `/assets/credimi_logo-transp.svg` |
 | `GET` | `/assets/credimi_logo-transp_white.svg` |
 
 GUI routes can be disabled with the service configuration; disabling them does not disable API or protocol routes.
+
+`/assets/style.css` and the Inter and Source Code Pro fonts it loads from `/assets/fonts/` are unmodified copies of the Credimi Extras template's `brand/` assets, as are the four logos; a test pins each copy to the template's SHA-256.
 
 `GET /issuers/{issuerConfigurationId}` is the Credential Issuer Identifier. It returns the issuer's operator page only to a request whose `Accept` header prefers `text/html` over `application/json`. Every other request, such as a Wallet probing the identifier with no `Accept` header, `*/*`, or `application/json`, still gets the 404 and is recorded as `unmatched` evidence, as before. The response varies on `Accept`.
 

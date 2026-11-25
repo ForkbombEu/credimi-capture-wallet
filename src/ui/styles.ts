@@ -2,14 +2,14 @@ export const APP_CSS = [
   ":root { --brand-primary: oklch(0.2955 0.1659 277.31); --brand-primary-700: oklch(0.36 0.18 277.31); --brand-secondary: oklch(0.9464 0.0284 294.59); --brand-secondary-strong: oklch(0.8794 0.0567 294.59); --bg: oklch(1 0 0); --bg-muted: oklch(0.9811 0.0064 308.39); --fg: oklch(0.129 0.042 264.695); --fg-muted: oklch(0.7248 0.0094 286.16); --border: oklch(0.929 0.013 255.508); --border-strong: oklch(0.82 0.015 255.508); --warning: oklch(0.65 0.18 85); --warning-bg: oklch(0.96 0.06 85); --success: oklch(0.55 0.18 150); --success-bg: oklch(0.95 0.04 150); --info: oklch(0.4 0.15 260); --info-bg: oklch(0.94 0.04 260); --destructive: oklch(0.50 0.22 25); --wallet: oklch(0.45 0.18 300); --wallet-bg: oklch(0.95 0.04 300); --radius-md: 6px; --radius-lg: 10px; --radius-pill: 999px; --shadow-sm: 0 1px 2px rgba(0,0,0,.04); --max-width: 1280px; --topbar-height: 56px; }",
   "*, *::before, *::after { box-sizing: border-box; }",
   "html { background: var(--brand-primary); }",
-  "body { margin: 0; min-height: 100vh; display: flex; flex-direction: column; background: var(--brand-secondary); color: var(--fg); font-family: Manrope, system-ui, -apple-system, Segoe UI, sans-serif; font-size: 14px; line-height: 1.571; -webkit-font-smoothing: antialiased; }",
+  "body { margin: 0; min-height: 100vh; display: flex; flex-direction: column; background: var(--brand-secondary); color: var(--fg); font-family: var(--font-sans); font-size: 14px; line-height: 1.571; -webkit-font-smoothing: antialiased; }",
   "main { flex: 1; }",
   "h1, h2, h3, p { margin: 0; }",
   "h1 { max-width: 820px; font-size: clamp(38px, 6vw, 64px); line-height: 1.05; font-weight: 800; letter-spacing: -0.035em; }",
   "h2 { font-size: 26px; line-height: 1.2; font-weight: 800; letter-spacing: -0.015em; }",
   "h3 { font-size: 22px; line-height: 1.25; }",
   "a { color: var(--brand-primary); }",
-  "code, pre, .brand-mark { font-family: JetBrains Mono, Fira Code, Cascadia Code, ui-monospace, monospace; }",
+  "code, pre, .brand-mark { font-family: var(--font-mono); }",
   ".container { width: min(100% - 48px, var(--max-width)); margin-inline: auto; }",
   // The bar grows rather than overflowing: a minimum height instead of the design source's fixed
   // one, and its items wrap when the brand, the status chips, and the links do not fit on one row.
@@ -106,7 +106,7 @@ export const APP_CSS = [
   ".metadata-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }",
   ".metadata-card { position: relative; gap: 8px; }",
   ".metadata-card h3 { padding-right: 28px; }",
-  ".metadata-card-url { overflow-wrap: anywhere; color: var(--fg-muted); font-family: JetBrains Mono, Fira Code, Cascadia Code, ui-monospace, monospace; font-size: 12px; line-height: 1.5; }",
+  ".metadata-card-url { overflow-wrap: anywhere; color: var(--fg-muted); font-family: var(--font-mono); font-size: 12px; line-height: 1.5; }",
   // The external-link arrow marks a card that opens its document in a new tab; an inert card has none.
   'a.metadata-card::after { content: ""; position: absolute; top: 20px; right: 18px; width: 18px; height: 18px; background: var(--brand-primary); mask: url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27black%27 stroke-width=%272.2%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27%3E%3Cpath d=%27M7 17 17 7M8 7h9v9%27/%3E%3C/svg%3E") center / contain no-repeat; }',
   ".count-chip { display: inline-flex; align-items: center; justify-content: center; width: fit-content; min-width: 24px; height: 24px; padding: 0 8px; border-radius: var(--radius-pill); background: var(--brand-secondary-strong); color: var(--fg-muted); font-size: 13px; font-weight: 600; }",
@@ -176,7 +176,7 @@ export const APP_CSS = [
   ".field-label { color: var(--fg); font-size: 13px; font-weight: 700; }",
   ".field-label code { color: var(--fg-muted); font-size: 11px; font-weight: 500; }",
   ".field select, .field input[type=text], .field textarea { width: 100%; min-height: 38px; padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--bg); color: var(--fg); font: inherit; font-size: 13px; }",
-  ".field textarea { min-height: 96px; resize: vertical; font-family: JetBrains Mono, Fira Code, Cascadia Code, ui-monospace, monospace; font-size: 12px; }",
+  ".field textarea { min-height: 96px; resize: vertical; font-family: var(--font-mono); font-size: 12px; }",
   ".field textarea[data-param='dcql_query'] { min-height: 260px; }",
   ".field select:focus, .field input:focus, .field textarea:focus { outline: 2px solid color-mix(in oklch, var(--brand-primary) 36%, transparent); outline-offset: 1px; }",
   ".field-flag { grid-template-columns: auto minmax(0, 1fr); align-items: center; column-gap: 8px; }",
@@ -198,7 +198,7 @@ export const APP_CSS = [
   ".deeplink-panel { display: grid; gap: 10px; justify-items: start; width: min(100%, 312px); }",
   // The link breaks between any two characters, punctuation such as `%` included, so every line
   // but the last fills the width.
-  ".deeplink { word-break: break-all; line-break: anywhere; color: var(--brand-primary); text-decoration: none; font-family: JetBrains Mono, Fira Code, Cascadia Code, ui-monospace, monospace; font-size: 12px; line-height: 1.5; }",
+  ".deeplink { word-break: break-all; line-break: anywhere; color: var(--brand-primary); text-decoration: none; font-family: var(--font-mono); font-size: 12px; line-height: 1.5; }",
   ".deeplink:hover { text-decoration: underline; }",
   // A quiet secondary action: transparent until hovered, never the brand's primary blue.
   ".btn-copy { background: transparent; color: var(--fg-muted); }",
@@ -220,7 +220,7 @@ export const APP_CSS = [
   ".metadata-row summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 42px; padding: 10px 12px; color: var(--fg); font-size: 13px; font-weight: 700; cursor: pointer; list-style: none; }",
   // A collapsible row ends in a chevron that points down when closed and up when open.
   ".metadata-row summary::-webkit-details-marker, .advanced-settings > summary::-webkit-details-marker { display: none; }",
-  ".metadata-row summary::after, .advanced-settings > summary::after { content: '\\02C5'; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; flex: 0 0 auto; box-sizing: border-box; padding-top: 8px; color: var(--fg); font-family: JetBrains Mono, Fira Code, Cascadia Code, ui-monospace, monospace; font-size: 18px; font-weight: 500; line-height: 20px; }",
+  ".metadata-row summary::after, .advanced-settings > summary::after { content: '\\02C5'; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; flex: 0 0 auto; box-sizing: border-box; padding-top: 8px; color: var(--fg); font-family: var(--font-mono); font-size: 18px; font-weight: 500; line-height: 20px; }",
   ".metadata-row[open] summary { border-bottom: 1px solid var(--border); }",
   ".metadata-row[open] summary::after, .advanced-settings[open] > summary::after { content: '\\02C4'; }",
   ".metadata-row code { display: block; padding: 12px; overflow-wrap: anywhere; color: var(--fg); font-size: 12px; white-space: pre-wrap; }",

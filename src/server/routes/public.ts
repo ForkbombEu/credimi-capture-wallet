@@ -8,6 +8,13 @@ import { apiDocsPage } from "../../openapi/docs-page.js";
 import { openApiDocument } from "../../openapi/document.js";
 import { verifierClientIdentifiers } from "../../openid4vp/authorization-request.js";
 import type { ServerContext } from "../context.js";
+
+/** The brand font files `src/design/style.css` declares; nothing else is served from there. */
+const BRAND_FONTS: Record<string, true> = {
+  "InterVariable.ttf": true,
+  "SourceCodeProVariable.ttf": true,
+};
+
 export function registerPublicStaticRoutes(app: Express, ctx: ServerContext): void {
   const { config } = ctx;
 
@@ -25,6 +32,13 @@ export function registerPublicStaticRoutes(app: Express, ctx: ServerContext): vo
 
   app.get("/assets/style.css", (_req, res) => {
     res.type("text/css").send(readFileSync("src/design/style.css", "utf8"));
+  });
+
+  // The stylesheet's @font-face rules load these relative to /assets/style.css.
+  app.get("/assets/fonts/:file", (req, res, next) => {
+    const file = req.params.file;
+    if (!Object.hasOwn(BRAND_FONTS, file)) return next();
+    return res.type("font/ttf").send(readFileSync(`src/design/fonts/${file}`));
   });
 }
 
