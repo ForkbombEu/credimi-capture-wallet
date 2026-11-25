@@ -463,9 +463,12 @@ describe("capture issuer server", () => {
     );
     expect(response.text).not.toContain("<form");
     expect(response.text).toContain(
-      'id="captured-values-title">Captured values</h2><span class="count-chip">10</span>',
+      'id="captured-values-title">Captured values</h2><span class="count-chip">11</span>',
     );
-    expect(response.text).toContain('<span class="count-chip">10</span>');
+    expect(response.text).toContain("<dt>wallet_notification</dt>");
+    expect(response.text).toContain(
+      '<h3 class="subsection-heading" id="capture-more-title">Also recorded</h3>',
+    );
     expect(response.text).toContain("<h3>OpenID4VCI</h3>");
     expect(response.text).toContain("<h3>OpenID4VP</h3>");
     for (const value of [
@@ -490,7 +493,7 @@ describe("capture issuer server", () => {
       '<optgroup label="EUDI PID — JWT proof only — deliberately non-conforming">',
     );
     expect(response.text).toContain(
-      '<h3 class="catalogue-heading" id="issuer-catalogue-title">Issuers</h3>',
+      '<h3 class="subsection-heading" id="issuer-catalogue-title">Issuers</h3>',
     );
     expect(response.text.match(/<a class="issuer-card" href=/g)).toHaveLength(4);
     for (const issuerId of [conformingIssuerId, jwtKeyAttestationIssuerId, jwtOnlyIssuerId]) {
@@ -499,7 +502,7 @@ describe("capture issuer server", () => {
       );
     }
     expect(response.text).toContain(
-      '<h3 class="catalogue-heading" id="verifier-catalogue-title">Verifier</h3>',
+      '<h3 class="subsection-heading" id="verifier-catalogue-title">Verifier</h3>',
     );
     expect(response.text).toContain('<a class="issuer-card" href="/openid4vp">');
     expect(response.text).not.toContain("Customize");

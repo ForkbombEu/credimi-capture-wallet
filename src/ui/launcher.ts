@@ -142,11 +142,11 @@ function entityCatalogueHtml(groups: readonly IssuerCredentialChoices[]): string
   const issuerRows = Math.max(groups.length, 1);
   return [
     `<section class="entity-catalogue" aria-label="Issuers and verifier" style="--issuer-rows-wide: ${Math.ceil(issuerRows / 3)}; --issuer-rows-narrow: ${issuerRows}">`,
-    '<h3 class="catalogue-heading" id="issuer-catalogue-title">Issuers</h3>',
+    '<h3 class="subsection-heading" id="issuer-catalogue-title">Issuers</h3>',
     groups.length > 0
       ? groups.map(issuerCardHtml).join("")
       : '<p class="issuer-empty">No issuers available</p>',
-    '<h3 class="catalogue-heading" id="verifier-catalogue-title">Verifier</h3>',
+    '<h3 class="subsection-heading" id="verifier-catalogue-title">Verifier</h3>',
     entityCardHtml(VERIFIER_PAGE_PATH, [
       "<h3>OpenID4VP verifier</h3>",
       '<p class="issuer-description">Requests a presentation of any credential the issuers above serve, and verifies it.</p>',
@@ -177,7 +177,10 @@ function entityCardHtml(href: string, content: readonly string[]): string {
     : `<article class="issuer-card">${body}</article>`;
 }
 
-/** What a session records about the Wallet, named as on the session pages; the last section. */
+/**
+ * The values each session page shows beside its QR code, then what a session records beyond them;
+ * the last section. The fields named here are the session pages' and the session records'.
+ */
 function capturedValuesHtml(): string {
   return [
     '<section class="landing-section captured-band" aria-labelledby="captured-values-title">',
@@ -186,9 +189,9 @@ function capturedValuesHtml(): string {
       tag: "h2",
       id: "captured-values-title",
       title: "Captured values",
-      aside: '<span class="count-chip">10</span>',
+      aside: '<span class="count-chip">11</span>',
       paragraphs: [
-        "What each session records from the wallet, shown on its session page as it arrives.",
+        "The values each session page shows live beside its QR code, as the wallet sends them. They are a summary: every session records the whole flow, listed below.",
       ],
     }),
     '<div class="capture-groups">',
@@ -199,6 +202,7 @@ function capturedValuesHtml(): string {
     "<div><dt>redirect_uri</dt><dd>Wallet authorization callback</dd></div>",
     "<div><dt>wallet_jwks</dt><dd>Holder-binding public key from proof headers</dd></div>",
     "<div><dt>dpop_jwk</dt><dd>DPoP public key when present</dd></div>",
+    "<div><dt>wallet_notification</dt><dd>Issuance outcome the wallet reports, when it sends one</dd></div>",
     "</dl>",
     "</section>",
     '<section class="capture-group" aria-label="OpenID4VP captured values">',
@@ -213,6 +217,32 @@ function capturedValuesHtml(): string {
     "</dl>",
     "</section>",
     "</div>",
+    '<section class="capture-more" aria-labelledby="capture-more-title">',
+    '<h3 class="subsection-heading" id="capture-more-title">Also recorded</h3>',
+    '<p class="capture-more-intro">Read a session’s full record from <code>GET /sessions/{sessionId}</code> or <code>GET /openid4vp/sessions/{sessionId}</code>, and every request an issuer received from <code>GET /sessions/{sessionId}/requests</code>. Secrets such as tokens and codes stay redacted.</p>',
+    '<div class="capture-more-groups">',
+    '<section class="capture-group" aria-label="Also recorded for OpenID4VCI">',
+    "<h3>OpenID4VCI</h3>",
+    '<ul class="capture-more-list">',
+    "<li>Every HTTP request the wallet sends to the issuer: PAR, authorization, token, nonce, credential, and notification, with headers and body</li>",
+    "<li>Client authentication: the Wallet Attestation and its proof of possession, or <code>private_key_jwt</code></li>",
+    "<li>Credential Request proofs and key attestations, with checks for PKCE, state, nonce, and key attestation</li>",
+    "<li>The Token Status List reference of each issued credential, and every later status change</li>",
+    "<li>A timeline of the session’s events</li>",
+    "</ul>",
+    "</section>",
+    '<section class="capture-group" aria-label="Also recorded for OpenID4VP">',
+    "<h3>OpenID4VP</h3>",
+    '<ul class="capture-more-list">',
+    "<li>The request object as signed, and encrypted when asked, and the deeplink parameters delivered</li>",
+    "<li>Request URI retrieval, including the <code>wallet_metadata</code> and <code>wallet_nonce</code> of a POST</li>",
+    "<li>The raw and decrypted Authorization Response, and the HTTP reply the wallet received</li>",
+    "<li>Verification checks: nonce, holder binding, DCQL match, and transaction data</li>",
+    "<li>Redirect URI visits, Digital Credentials API invocations, and a timeline of the session’s events</li>",
+    "</ul>",
+    "</section>",
+    "</div>",
+    "</section>",
     "</div>",
     "</section>",
   ].join("");
