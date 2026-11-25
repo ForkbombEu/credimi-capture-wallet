@@ -442,7 +442,7 @@ describe("capture issuer server", () => {
     const response = await request(app).get("/");
 
     expect(response.status).toBe(200);
-    expect(response.text).toContain('<main><section class="hero-band">');
+    expect(response.text).toContain('<main class="page-content session-page">');
     expect(response.text).not.toContain("<form");
     expect(response.text).toContain('<option value="" selected>Choose a credential…</option>');
     expect(response.text).toContain("data-status-list-toggle");
