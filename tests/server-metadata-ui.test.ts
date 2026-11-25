@@ -451,10 +451,10 @@ describe("capture issuer server", () => {
 
     expect(response.status).toBe(200);
     expect(response.text).toContain(
-      '<main><section class="page-section hero-band" aria-labelledby="hero-title">',
+      '<main><section class="hero-band" aria-labelledby="hero-title">',
     );
     // Every section opens with the same intro: its title over a rule, then a description.
-    expect(response.text.match(/<section class="page-section/g)).toHaveLength(3);
+    expect(response.text.match(/<section class="page-section/g)).toHaveLength(2);
     expect(sectionIntroTitles(response.text)).toEqual([
       "h1#hero-title Wallet metadata capture",
       "h2#launcher-title Issue and verify",
@@ -501,7 +501,7 @@ describe("capture issuer server", () => {
     // Each issuer's page is linked from the launcher's advanced panel, with its metadata.
     for (const issuerId of [conformingIssuerId, jwtKeyAttestationIssuerId, jwtOnlyIssuerId]) {
       expect(response.text).toContain(
-        `<a class="issuer-card metadata-card" href="${config.issuer_base_url}/issuers/${issuerId}" target="_blank" rel="noreferrer"><h3>Issuer page</h3>`,
+        `<a class="link-card" href="${config.issuer_base_url}/issuers/${issuerId}" target="_blank" rel="noreferrer"><h3>Issuer page</h3>`,
       );
     }
     expect(response.text).not.toContain("Customize");

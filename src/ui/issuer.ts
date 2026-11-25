@@ -92,7 +92,7 @@ function issuanceFormHtml({ group, fcafScenariosEnabled, parameters }: IssuerPag
     '">',
     launcherRowHtml(
       [
-        '<label class="credential-picker">',
+        '<label class="form-field form-field-grow">',
         '<span class="subsection-heading">Credential</span>',
         '<select data-param="credential_configuration_id" data-type="string" data-credential-picker>',
         credentials.map(issuerCredentialOptionHtml).join(""),
@@ -128,7 +128,7 @@ function issuerMetadataHtml({
         "The metadata this issuer publishes. Each card opens the document in a new tab.",
       ],
     }),
-    '<nav class="metadata-cards" aria-label="',
+    '<nav class="link-cards" aria-label="',
     escapeHtml(`${issuer.display.name} metadata`),
     '">',
     issuerMetadataCardsHtml(issuer, {

@@ -91,7 +91,7 @@ function presentationFormHtml({
     '<form class="launcher-form session-launcher" data-endpoint="/openid4vp/sessions" data-session-page="/ui/openid4vp/sessions/" novalidate>',
     launcherRowHtml(
       [
-        '<label class="credential-picker">',
+        '<label class="form-field form-field-grow">',
         '<span class="subsection-heading">Credential</span>',
         "<select data-credential-picker>",
         groups.map(verifierCredentialGroupHtml).join(""),

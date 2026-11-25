@@ -133,12 +133,12 @@ describe("launcher", () => {
     const [, issuance = "", presentation = ""] =
       /data-flow="issuance">(.*)data-flow="presentation"(.*)<\/details>/.exec(page) ?? [];
     expect(issuance).toContain(
-      `<p class="parameter-group-title">Issuer information</p><nav class="metadata-cards" data-issuer-links="${jwtOnlyIssuer.id}" aria-label="${jwtOnlyIssuer.display.name} — deliberately non-conforming links">`,
+      `<p class="parameter-group-title">Issuer information</p><nav class="link-cards" data-issuer-links="${jwtOnlyIssuer.id}" aria-label="${jwtOnlyIssuer.display.name} — deliberately non-conforming links">`,
     );
     expect(issuance).not.toContain("Verifier information");
     expect(presentation).not.toContain("data-issuer-links");
     expect(presentation).toContain(
-      '<p class="parameter-group-title">Verifier information</p><nav class="metadata-cards" aria-label="Verifier links"><a class="issuer-card metadata-card" href="/openid4vp" target="_blank" rel="noreferrer"><h3>Verifier page</h3>',
+      '<p class="parameter-group-title">Verifier information</p><nav class="link-cards" aria-label="Verifier links"><a class="link-card" href="/openid4vp" target="_blank" rel="noreferrer"><h3>Verifier page</h3>',
     );
     for (const [label, href] of [
       ["Issuer page", jwtOnlyIssuer.issuerIdentifier],
@@ -147,7 +147,7 @@ describe("launcher", () => {
       ["OpenID Federation entity configuration", `${jwtOnlyIssuer.issuerIdentifier}/federation`],
     ]) {
       expect(page).toContain(
-        `<a class="issuer-card metadata-card" href="${href}" target="_blank" rel="noreferrer"><h3>${label}</h3>`,
+        `<a class="link-card" href="${href}" target="_blank" rel="noreferrer"><h3>${label}</h3>`,
       );
     }
     expect(launcherPage(groups)).not.toContain("OpenID Federation entity configuration");
@@ -179,13 +179,13 @@ describe("issuer page", () => {
     );
 
     expect(page).toContain(
-      `<a class="issuer-card metadata-card" href="${jwtOnlyIssuer.authorizationServerMetadataUrl}" target="_blank" rel="noreferrer"><h3>Authorization server metadata</h3>`,
+      `<a class="link-card" href="${jwtOnlyIssuer.authorizationServerMetadataUrl}" target="_blank" rel="noreferrer"><h3>Authorization server metadata</h3>`,
     );
     expect(page).toContain(
-      `<a class="issuer-card metadata-card" href="${jwtOnlyIssuer.issuerMetadataUrl}" target="_blank" rel="noreferrer"><h3>OpenID4VCI credential issuer metadata</h3>`,
+      `<a class="link-card" href="${jwtOnlyIssuer.issuerMetadataUrl}" target="_blank" rel="noreferrer"><h3>OpenID4VCI credential issuer metadata</h3>`,
     );
     expect(page).toContain(
-      '<a class="issuer-card metadata-card" href="https://issuer.example.test/issuers/x/.well-known/openid-federation" target="_blank" rel="noreferrer"><h3>OpenID Federation entity configuration</h3>',
+      '<a class="link-card" href="https://issuer.example.test/issuers/x/.well-known/openid-federation" target="_blank" rel="noreferrer"><h3>OpenID Federation entity configuration</h3>',
     );
   });
 
@@ -208,7 +208,7 @@ describe("issuer page", () => {
 
     expect(page).not.toContain('href="data:');
     expect(page).toContain(
-      '<article class="issuer-card metadata-card"><h3>OpenID4VCI credential issuer metadata</h3><p class="metadata-card-url">data:text/html,&lt;script&gt;alert(&quot;metadata&quot;)&lt;/script&gt;</p></article>',
+      '<article class="link-card"><h3>OpenID4VCI credential issuer metadata</h3><p class="link-card-url">data:text/html,&lt;script&gt;alert(&quot;metadata&quot;)&lt;/script&gt;</p></article>',
     );
   });
 

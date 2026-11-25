@@ -95,14 +95,14 @@ function sessionLauncherHtml(options: IndexPageOptions): string {
     '<form class="launcher-form session-launcher" novalidate>',
     launcherRowHtml(
       [
-        '<div class="flow-switch">',
+        '<div class="form-field">',
         '<span class="subsection-heading" id="flow-label">Flow</span>',
         '<div class="segmented" role="radiogroup" aria-labelledby="flow-label">',
         flowChoiceHtml("issuance", "Issue", "/sessions", "/ui/sessions/", true),
         flowChoiceHtml("presentation", "Present", "/openid4vp/sessions", "/ui/openid4vp/sessions/"),
         "</div>",
         "</div>",
-        '<label class="credential-picker">',
+        '<label class="form-field form-field-grow">',
         '<span class="subsection-heading">Credential</span>',
         // The first credential is preselected, so Start always has a target.
         '<select data-credential-picker autocomplete="off">',
@@ -130,7 +130,7 @@ function sessionLauncherHtml(options: IndexPageOptions): string {
         ),
         '<div class="parameter-group">',
         '<p class="parameter-group-title">Verifier information</p>',
-        `<nav class="metadata-cards" aria-label="Verifier links">${metadataCardHtml("Verifier page", VERIFIER_PAGE_PATH)}</nav>`,
+        `<nav class="link-cards" aria-label="Verifier links">${linkCardHtml("Verifier page", VERIFIER_PAGE_PATH)}</nav>`,
         "</div>",
         "</fieldset>",
       ].join(""),
@@ -155,7 +155,7 @@ function issuerLinksGroupHtml({
     groups
       .map(({ issuer, attestbook }, index) =>
         [
-          `<nav class="metadata-cards" data-issuer-links="${escapeHtml(issuer.id)}" aria-label="`,
+          `<nav class="link-cards" data-issuer-links="${escapeHtml(issuer.id)}" aria-label="`,
           escapeHtml(`${issuerLabel(issuer)} links`),
           index === 0 ? '">' : '" hidden>',
           issuerMetadataCardsHtml(issuer, {
@@ -193,7 +193,7 @@ export function heroSectionHtml(options: {
   paragraphsHtml: readonly string[];
 }): string {
   return [
-    `<section class="page-section hero-band" aria-labelledby="${options.id}">`,
+    `<section class="hero-band" aria-labelledby="${options.id}">`,
     '<div class="hero-inner">',
     sectionIntroHtml({ tag: "h1", ...options }),
     "</div>",
@@ -235,27 +235,25 @@ export function issuerMetadataCardsHtml(
   },
 ): string {
   return [
-    options.issuerPage ? metadataCardHtml("Issuer page", issuer.issuerIdentifier) : "",
-    metadataCardHtml("Authorization server metadata", issuer.authorizationServerMetadataUrl),
-    metadataCardHtml("OpenID4VCI credential issuer metadata", issuer.issuerMetadataUrl),
+    options.issuerPage ? linkCardHtml("Issuer page", issuer.issuerIdentifier) : "",
+    linkCardHtml("Authorization server metadata", issuer.authorizationServerMetadataUrl),
+    linkCardHtml("OpenID4VCI credential issuer metadata", issuer.issuerMetadataUrl),
     options.federationEntityConfigurationUrl
-      ? metadataCardHtml(
+      ? linkCardHtml(
           "OpenID Federation entity configuration",
           options.federationEntityConfigurationUrl,
         )
       : "",
-    options.attestbook
-      ? metadataCardHtml("Attestbook status", "/integrations/attestbook/status")
-      : "",
+    options.attestbook ? linkCardHtml("Attestbook status", "/integrations/attestbook/status") : "",
   ].join("");
 }
 
 /** A card that opens `href` in a new tab; a target that is not a safe URL leaves it inert. */
-function metadataCardHtml(label: string, href: string): string {
-  const body = `<h3>${escapeHtml(label)}</h3><p class="metadata-card-url">${escapeHtml(href)}</p>`;
+function linkCardHtml(label: string, href: string): string {
+  const body = `<h3>${escapeHtml(label)}</h3><p class="link-card-url">${escapeHtml(href)}</p>`;
   return isSafeHref(href)
-    ? `<a class="issuer-card metadata-card" href="${escapeHtml(href)}" target="_blank" rel="noreferrer">${body}</a>`
-    : `<article class="issuer-card metadata-card">${body}</article>`;
+    ? `<a class="link-card" href="${escapeHtml(href)}" target="_blank" rel="noreferrer">${body}</a>`
+    : `<article class="link-card">${body}</article>`;
 }
 
 /**
@@ -438,7 +436,7 @@ function isSafeHref(value: string): boolean {
  */
 export function launcherRowHtml(pickersHtml: string, label: string, disabled: boolean): string {
   return [
-    '<div class="launcher-row">',
+    '<div class="form-row">',
     pickersHtml,
     `<button class="btn btn-primary btn-lg" type="submit" autocomplete="off"${disabled ? " disabled" : ""}>`,
     escapeHtml(label),

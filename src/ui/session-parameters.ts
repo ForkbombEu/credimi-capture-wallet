@@ -299,7 +299,7 @@ function additionalParametersField(placeholder: string): ParameterField {
 /** The collapsed panel holding the settings, such as the parameter groups. */
 export function advancedSettingsHtml(contentHtml: string): string {
   return [
-    '<details class="advanced-settings">',
+    '<details class="disclosure">',
     "<summary>Advanced</summary>",
     '<p class="field-hint">Every field left empty takes the API default.</p>',
     contentHtml,
@@ -314,12 +314,12 @@ export function advancedSettingsHtml(contentHtml: string): string {
 export function statusListOptionHtml(): string {
   return [
     '<div class="featured-option">',
-    '<label class="featured-option-toggle">',
+    '<label class="switch">',
     '<input type="checkbox" role="switch" value="true" data-param="status_list_enabled" data-type="flag" data-requires="static-credential" checked>',
-    '<span class="toggle-track" aria-hidden="true"></span>',
+    '<span class="switch-track" aria-hidden="true"></span>',
     '<span class="featured-option-label">Include a Token Status List reference <code>status_list_enabled</code></span>',
     "</label>",
-    '<p class="field-hint">Each issued credential gets an entry in a Token Status List, so its status can be checked. Imported Attestbook credentials do not support one. ',
+    '<p class="featured-option-hint">Each issued credential gets an entry in a Token Status List, so its status can be checked. Imported Attestbook credentials do not support one. ',
     `<a href="${escapeHtml(TOKEN_STATUS_LIST_URL)}" target="_blank" rel="noreferrer">Token Status List service ↗</a>`,
     "</p>",
     "</div>",

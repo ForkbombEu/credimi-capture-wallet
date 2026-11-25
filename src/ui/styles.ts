@@ -1,13 +1,7 @@
 export const APP_CSS = [
-  ":root { --brand-primary: oklch(0.2955 0.1659 277.31); --brand-primary-700: oklch(0.36 0.18 277.31); --brand-secondary: oklch(0.9464 0.0284 294.59); --brand-secondary-strong: oklch(0.8794 0.0567 294.59); --bg: oklch(1 0 0); --bg-muted: oklch(0.9811 0.0064 308.39); --fg: oklch(0.129 0.042 264.695); --fg-muted: oklch(0.7248 0.0094 286.16); --border: oklch(0.929 0.013 255.508); --border-strong: oklch(0.82 0.015 255.508); --warning: oklch(0.65 0.18 85); --warning-bg: oklch(0.96 0.06 85); --success: oklch(0.55 0.18 150); --success-bg: oklch(0.95 0.04 150); --info: oklch(0.4 0.15 260); --info-bg: oklch(0.94 0.04 260); --destructive: oklch(0.50 0.22 25); --wallet: oklch(0.45 0.18 300); --wallet-bg: oklch(0.95 0.04 300); --radius-md: 6px; --radius-lg: 10px; --radius-pill: 999px; --shadow-sm: 0 1px 2px rgba(0,0,0,.04); --max-width: 1280px; --topbar-height: 56px; }",
-  "*, *::before, *::after { box-sizing: border-box; }",
   "html { background: var(--brand-primary); }",
   "body { margin: 0; min-height: 100vh; display: flex; flex-direction: column; background: var(--brand-secondary); color: var(--fg); font-family: var(--font-sans); font-size: 14px; line-height: 1.571; -webkit-font-smoothing: antialiased; }",
   "main { flex: 1; }",
-  "h1, h2, h3, p { margin: 0; }",
-  "h1 { max-width: 820px; font-size: clamp(38px, 6vw, 64px); line-height: 1.05; font-weight: 800; letter-spacing: -0.035em; }",
-  "h2 { font-size: 26px; line-height: 1.2; font-weight: 800; letter-spacing: -0.015em; }",
-  "h3 { font-size: 22px; line-height: 1.25; }",
   "a { color: var(--brand-primary); }",
   "code, pre, .brand-mark { font-family: var(--font-mono); }",
   ".container { width: min(100% - 48px, var(--max-width)); margin-inline: auto; }",
@@ -18,7 +12,7 @@ export const APP_CSS = [
   ".topbar-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 10px; }",
   ".brand-lockup { display: inline-flex; align-items: center; gap: 10px; color: var(--fg); font-weight: 800; text-decoration: none; }",
   ".brand-logo { box-sizing: border-box; width: 42px; height: 42px; padding: 4px; object-fit: contain; flex: 0 0 auto; }",
-  ".brand-mark { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: var(--radius-md); background: var(--brand-primary); color: white; font-size: 12px; font-weight: 800; }",
+  ".brand-mark { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: var(--radius); background: var(--brand-primary); color: white; font-size: 12px; font-weight: 800; }",
   ".brand-name { font-size: 14px; font-weight: 700; }",
   ".footer { background: var(--brand-primary); color: white; padding: 32px 0; }",
   ".footer-inner { width: min(100% - 48px, var(--max-width)); margin-inline: auto; }",
@@ -28,7 +22,7 @@ export const APP_CSS = [
   ".footer-brand p { max-width: 420px; color: rgba(255,255,255,.76); font-size: 13px; line-height: 1.5; }",
   ".footer-mark { background: white; color: var(--brand-primary); flex: 0 0 auto; }",
   ".footer-links { display: inline-flex; align-items: center; justify-content: flex-end; gap: 12px; flex-wrap: wrap; }",
-  ".footer-link { display: inline-flex; align-items: center; min-height: 36px; padding: 0 14px; border-radius: var(--radius-md); color: white; font-size: 13px; font-weight: 700; text-decoration: none; white-space: nowrap; }",
+  ".footer-link { display: inline-flex; align-items: center; min-height: 36px; padding: 0 14px; border-radius: var(--radius); color: white; font-size: 13px; font-weight: 700; text-decoration: none; white-space: nowrap; }",
   ".fork-link { background: white; color: var(--brand-primary); }",
   // Credimi Extras cross-promotional bars: one above the topbar, one closing
   // the footer. Both logos are inline images inside the sentence rather than
@@ -49,72 +43,17 @@ export const APP_CSS = [
   ".credimi-extras-wordmark-link { text-decoration: none; }",
   ".credimi-extras-wordmark { display: inline-block; height: 16px; width: auto; vertical-align: -4px; }",
   ".credimi-extras-bar a:focus-visible, .credimi-extras-wordmark-link:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; border-radius: 2px; }",
-  // Every section of the launcher, issuer, and verifier pages has the same padding and opens with
-  // the same intro: a title over a rule, then a description.
-  ".page-section { padding: 96px 0; }",
-  ".section-intro { display: grid; gap: 16px; margin-bottom: 40px; }",
-  ".section-intro:last-child { margin-bottom: 0; }",
-  // --border-strong, because --border all but disappears on the lavender page background.
-  ".section-intro-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--border-strong); }",
-  // Set on the class so the design source's h1 and h2 sizes and colour do not apply.
-  ".section-intro-title { max-width: none; font-size: 34px; line-height: 1.2; font-weight: 800; letter-spacing: -0.02em; color: var(--brand-primary); }",
-  ".section-intro-description { display: grid; gap: 8px; max-width: 720px; }",
-  ".section-intro-description p { color: var(--fg-muted); font-size: 17px; line-height: 1.571; }",
-  // The credimi.io hero: a brand-blue band with white text, folded by two translucent white
-  // triangles over its right part (credimi.io's `fold-motif`). Its title keeps the hero size.
-  ".hero-band { position: relative; overflow: hidden; padding-bottom: 64px; background: var(--brand-primary); color: white; }",
-  ".hero-band::before, .hero-band::after { content: ''; position: absolute; inset: 0 0 0 45%; pointer-events: none; }",
-  ".hero-band::before { clip-path: polygon(0 0, 100% 0, 100% 100%, 55% 52%); background: rgb(255 255 255 / 6%); }",
-  ".hero-band::after { clip-path: polygon(55% 52%, 100% 100%, 15% 100%); background: rgb(255 255 255 / 4%); }",
-  ".hero-inner { position: relative; z-index: 1; width: min(100% - 48px, var(--max-width)); margin-inline: auto; }",
-  // The hero title sits over its description without the sections' rule, and further from it.
-  ".hero-band .section-intro { gap: 28px; }",
-  ".hero-band .section-intro-heading { padding-bottom: 0; border-bottom: 0; }",
-  ".hero-band .section-intro-title { color: inherit; font-size: clamp(38px, 6vw, 64px); line-height: 1.05; letter-spacing: -0.035em; }",
-  ".hero-band .section-intro-description p { color: rgb(255 255 255 / 85%); }",
-  // A link or code in a hero description (an issuer's regulation reference) stays white on blue.
-  ".hero-band a, .hero-band code { color: inherit; }",
-  ".credential-picker { display: grid; gap: 8px; width: min(100%, 520px); color: var(--fg); font-size: 13px; font-weight: 700; }",
-  ".credential-picker select { width: 100%; min-height: 44px; padding: 0 42px 0 14px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--bg); color: var(--fg); font: inherit; font-size: 14px; font-weight: 600; }",
-  ".credential-picker select:focus { outline: 2px solid color-mix(in oklch, var(--brand-primary) 36%, transparent); outline-offset: 2px; }",
-  // A session form's pickers and its submit button share one row, bottom-aligned because the
-  // pickers carry their labels above; the launcher's row also holds the flow switch.
-  ".launcher-row { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; width: 100%; }",
-  ".launcher-row .credential-picker { flex: 1 1 420px; width: auto; }",
-  ".launcher-row > .btn { min-width: 150px; }",
-  ".flow-switch { display: grid; gap: 8px; }",
-  ".segmented { display: flex; gap: 4px; height: 44px; padding: 4px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--bg); }",
-  ".segmented label { position: relative; display: flex; flex: 1 1 0; }",
-  // The native radios stay in the layout for keyboard use; only their labels are painted.
-  ".segmented input { position: absolute; width: 1px; height: 1px; margin: 0; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }",
-  ".segmented span { display: flex; flex: 1; align-items: center; justify-content: center; padding: 0 18px; border-radius: calc(var(--radius-md) - 2px); color: var(--fg-muted); font-size: 14px; font-weight: 700; cursor: pointer; transition: background 150ms ease-out, color 150ms ease-out; }",
-  ".segmented input:checked + span { background: var(--brand-primary); color: white; }",
-  ".segmented input:focus-visible + span { outline: 2px solid color-mix(in oklch, var(--brand-primary) 36%, transparent); outline-offset: 2px; }",
   // Each flow's settings, of which only the chosen one is shown and sent.
   ".flow-settings { min-width: 0; margin: 0; padding: 0; border: 0; }",
-  // A clickable card has a thin border in the primary button's blue. Hovering lifts it and
-  // thickens the border with an inset ring, so the card's content does not shift.
-  "a.issuer-card { color: var(--fg); text-decoration: none; border-color: var(--brand-primary); transition: transform 150ms ease-out, box-shadow 150ms ease-out; }",
-  "a.issuer-card:hover { transform: translateY(-4px); box-shadow: inset 0 0 0 1px var(--brand-primary), 0 8px 18px rgb(49 32 96 / 16%); }",
-  "a.issuer-card:focus-visible { outline: 2px solid color-mix(in oklch, var(--brand-primary) 36%, transparent); outline-offset: 2px; }",
   ".subsection-heading { grid-column: 1 / -1; }",
-  // Set in full so a label <span> reads exactly like the <h3> sub-headings.
-  ".subsection-heading { font-size: 20px; line-height: 1.3; font-weight: 700; letter-spacing: -0.01em; color: var(--fg); }",
   ".subsection-heading:not(:first-child) { margin-top: 20px; }",
-  ".issuer-card { min-width: 0; display: grid; align-content: start; gap: 12px; padding: 18px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg); box-shadow: var(--shadow-sm); }",
-  ".issuer-card h3 { min-width: 0; font-size: 16px; line-height: 1.4; }",
-  ".metadata-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }",
-  ".metadata-card { position: relative; gap: 8px; }",
-  ".metadata-card h3 { padding-right: 28px; }",
-  ".metadata-card-url { overflow-wrap: anywhere; color: var(--fg-muted); font-family: var(--font-mono); font-size: 12px; line-height: 1.5; }",
-  // The external-link arrow marks a card that opens its document in a new tab; an inert card has none.
-  'a.metadata-card::after { content: ""; position: absolute; top: 20px; right: 18px; width: 18px; height: 18px; background: var(--brand-primary); mask: url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27black%27 stroke-width=%272.2%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27%3E%3Cpath d=%27M7 17 17 7M8 7h9v9%27/%3E%3C/svg%3E") center / contain no-repeat; }',
-  ".count-chip { display: inline-flex; align-items: center; justify-content: center; width: fit-content; min-width: 24px; height: 24px; padding: 0 8px; border-radius: var(--radius-pill); background: var(--brand-secondary-strong); color: var(--fg-muted); font-size: 13px; font-weight: 600; }",
-  ".page-section-white { background: var(--bg); }",
+  // The status list option sits in the Advanced panel's padding, like its parameter groups.
+  ".disclosure .featured-option { margin: 14px; }",
+  ".featured-option-label code { color: var(--fg-muted); font-size: 11px; font-weight: 500; }",
   ".capture-groups { display: grid; gap: 18px; }",
   ".capture-group { display: grid; gap: 10px; }",
   ".capture-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; margin: 0; }",
-  ".capture-list div { padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-muted); }",
+  ".capture-list div { padding: 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-muted); }",
   ".capture-more { display: grid; gap: 14px; margin-top: 48px; }",
   ".capture-more-intro { max-width: 760px; color: var(--fg-muted); font-size: 15px; line-height: 1.55; }",
   ".capture-more-intro code, .capture-more-list code { color: var(--fg); font-size: 0.9em; }",
@@ -124,8 +63,6 @@ export const APP_CSS = [
   ".capture-more-list { display: grid; gap: 6px; margin: 0; padding-left: 18px; color: var(--fg-muted); font-size: 14px; line-height: 1.5; }",
   ".issuer-description, .issuer-empty { color: var(--fg-muted); font-size: 13px; line-height: 1.5; }",
   ".card { min-width: 0; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 24px; box-shadow: var(--shadow-sm); }",
-  // A panel's title row: its sub-heading, a status chip at the end, then a rule.
-  ".section-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--border); margin-bottom: 20px; }",
   ".status-chip { display: inline-flex; align-items: center; gap: 6px; min-height: 24px; padding: 0 11px; border-radius: var(--radius-pill); font-size: 11px; font-weight: 700; text-transform: uppercase; white-space: nowrap; }",
   ".status-chip::before { content: ''; width: 8px; height: 8px; border-radius: 50%; }",
   ".status-issuer { background: var(--warning-bg); color: var(--warning); }",
@@ -143,29 +80,9 @@ export const APP_CSS = [
   "dt { color: var(--fg); font-size: 13px; font-weight: 700; }",
   "dd { margin: 4px 0 0; color: var(--fg-muted); font-size: 13px; line-height: 1.5; }",
   ".launcher-form { display: grid; gap: 14px; }",
-  ".advanced-settings { border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--bg-muted); }",
-  ".advanced-settings > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; padding: 10px 14px; color: var(--fg); font-size: 14px; font-weight: 700; cursor: pointer; list-style: none; }",
-  ".advanced-settings[open] > summary { border-bottom: 1px solid var(--border); }",
-  ".advanced-settings > .field-hint { padding: 12px 14px 0; }",
-  // The Token Status List option leads the issuance settings on its own: a switch with a blue
-  // label on a white card edged in blue, set apart from the parameter groups below it.
-  ".featured-option { display: grid; gap: 6px; margin: 14px; padding: 14px 16px; border: 1px solid var(--brand-primary); border-left-width: 4px; border-radius: var(--radius-md); background: var(--bg); }",
-  ".featured-option-toggle { position: relative; display: inline-flex; align-items: center; gap: 12px; width: fit-content; cursor: pointer; }",
-  ".featured-option-toggle.field-disabled { cursor: not-allowed; }",
-  // The native checkbox stays in the layout for form submission and keyboard focus; only the
-  // track is painted.
-  ".featured-option-toggle input { position: absolute; width: 1px; height: 1px; margin: 0; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }",
-  ".featured-option-label { color: var(--brand-primary); font-size: 15px; font-weight: 700; }",
-  ".featured-option-label code { color: var(--fg-muted); font-size: 11px; font-weight: 500; }",
-  ".featured-option > .field-hint { margin: 0; padding-left: 52px; }",
-  ".toggle-track { position: relative; flex: 0 0 auto; width: 40px; height: 22px; border: 1px solid var(--border-strong); border-radius: var(--radius-pill); background: var(--bg-muted); transition: background 150ms ease-out, border-color 150ms ease-out; }",
-  ".toggle-track::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--bg); box-shadow: var(--shadow-sm); transition: transform 150ms ease-out; }",
-  ".featured-option-toggle input:checked + .toggle-track { background: var(--brand-primary); border-color: var(--brand-primary); }",
-  ".featured-option-toggle input:checked + .toggle-track::after { transform: translateX(18px); }",
-  ".featured-option-toggle input:focus-visible + .toggle-track { outline: 2px solid color-mix(in oklch, var(--brand-primary) 36%, transparent); outline-offset: 2px; }",
+  ".disclosure > .field-hint { padding: 12px 14px 0; }",
   // The launcher's links to the selected credential's issuer, last in the issuance settings.
   ".parameter-group-title { margin: 0 0 12px; color: var(--brand-primary); font-size: 12px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }",
-  ".metadata-cards[hidden] { display: none; }",
   ".parameter-group { min-width: 0; margin: 0; padding: 14px; border: 0; }",
   ".parameter-group + .parameter-group, .featured-option + .parameter-group { border-top: 1px solid var(--border); }",
   // A floated legend is laid out inside the fieldset instead of on its border.
@@ -175,7 +92,7 @@ export const APP_CSS = [
   ".field-wide { grid-column: 1 / -1; }",
   ".field-label { color: var(--fg); font-size: 13px; font-weight: 700; }",
   ".field-label code { color: var(--fg-muted); font-size: 11px; font-weight: 500; }",
-  ".field select, .field input[type=text], .field textarea { width: 100%; min-height: 38px; padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--bg); color: var(--fg); font: inherit; font-size: 13px; }",
+  ".field select, .field input[type=text], .field textarea { width: 100%; min-height: 38px; padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--bg); color: var(--fg); font: inherit; font-size: 13px; }",
   ".field textarea { min-height: 96px; resize: vertical; font-family: var(--font-mono); font-size: 12px; }",
   ".field textarea[data-param='dcql_query'] { min-height: 260px; }",
   ".field select:focus, .field input:focus, .field textarea:focus { outline: 2px solid color-mix(in oklch, var(--brand-primary) 36%, transparent); outline-offset: 1px; }",
@@ -183,26 +100,15 @@ export const APP_CSS = [
   ".field-flag .field-hint { grid-column: 2; }",
   ".field-hint { color: var(--fg-muted); font-size: 12px; font-weight: 500; line-height: 1.45; }",
   ".field-disabled { opacity: .45; }",
-  ".launcher-error { margin: 0; padding: 12px 14px; border: 1px solid var(--border); border-left: 3px solid var(--destructive); border-radius: var(--radius-md); background: var(--bg); color: var(--destructive); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }",
+  ".launcher-error { margin: 0; padding: 12px 14px; border: 1px solid var(--border); border-left: 3px solid var(--destructive); border-radius: var(--radius); background: var(--bg); color: var(--destructive); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }",
   ".btn[disabled] { opacity: .55; cursor: not-allowed; }",
   ".session-layout { display: grid; grid-template-columns: minmax(300px, 420px) minmax(0, 1fr); gap: 24px; }",
   // Beside a QR code the first column is exactly as wide as the code's box, so the captured values
   // take every other pixel.
   ".qr-layout { grid-template-columns: minmax(0, 312px) minmax(0, 1fr); }",
   ".qr-panel { display: grid; gap: 16px; align-content: start; }",
-  // The QR code sits in a small white box, and its deeplink is exactly as wide as that box.
-  ".qr-box { width: min(100%, 312px); aspect-ratio: 1; display: grid; place-items: center; padding: 12px; border-radius: var(--radius-md); background: var(--bg); }",
-  ".qr-code svg { display: block; width: 100%; height: auto; }",
-  ".qr-empty { width: 100%; height: 100%; border: 1px dashed var(--border-strong); border-radius: var(--radius-md); background: var(--brand-secondary-strong); }",
+  ".qr-empty { width: 100%; height: 100%; border: 1px dashed var(--border-strong); border-radius: var(--radius); background: var(--brand-secondary-strong); }",
   ".qr-guidance { color: var(--fg-muted); font-size: 14px; line-height: 1.6; }",
-  ".deeplink-panel { display: grid; gap: 10px; justify-items: start; width: min(100%, 312px); }",
-  // The link breaks between any two characters, punctuation such as `%` included, so every line
-  // but the last fills the width.
-  ".deeplink { word-break: break-all; line-break: anywhere; color: var(--brand-primary); text-decoration: none; font-family: var(--font-mono); font-size: 12px; line-height: 1.5; }",
-  ".deeplink:hover { text-decoration: underline; }",
-  // A quiet secondary action: transparent until hovered, never the brand's primary blue.
-  ".btn-copy { background: transparent; color: var(--fg-muted); }",
-  ".btn-copy:hover { background: var(--border); color: var(--fg); }",
   ".metadata-panel { transition: background 220ms ease-out, border-color 220ms ease-out, box-shadow 220ms ease-out; }",
   ".metadata-pending { background: color-mix(in oklch, var(--bg) 74%, var(--bg-muted)); }",
   ".metadata-pending .metadata-row, .metadata-pending .metadata-json { opacity: .56; filter: grayscale(1); }",
@@ -216,17 +122,17 @@ export const APP_CSS = [
   ".metadata-state-done { background: var(--success-bg); color: var(--success); }",
   ".metadata-state-done::before { background: var(--success); }",
   ".metadata-grid { display: grid; gap: 8px; margin-bottom: 16px; }",
-  ".metadata-row { border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-muted); }",
+  ".metadata-row { border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-muted); }",
   ".metadata-row summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 42px; padding: 10px 12px; color: var(--fg); font-size: 13px; font-weight: 700; cursor: pointer; list-style: none; }",
   // A collapsible row ends in a chevron that points down when closed and up when open.
-  ".metadata-row summary::-webkit-details-marker, .advanced-settings > summary::-webkit-details-marker { display: none; }",
-  ".metadata-row summary::after, .advanced-settings > summary::after { content: '\\02C5'; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; flex: 0 0 auto; box-sizing: border-box; padding-top: 8px; color: var(--fg); font-family: var(--font-mono); font-size: 18px; font-weight: 500; line-height: 20px; }",
+  ".metadata-row summary::-webkit-details-marker { display: none; }",
+  ".metadata-row summary::after { content: '\\02C5'; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; flex: 0 0 auto; box-sizing: border-box; padding-top: 8px; color: var(--fg); font-family: var(--font-mono); font-size: 18px; font-weight: 500; line-height: 20px; }",
   ".metadata-row[open] summary { border-bottom: 1px solid var(--border); }",
-  ".metadata-row[open] summary::after, .advanced-settings[open] > summary::after { content: '\\02C4'; }",
+  ".metadata-row[open] summary::after { content: '\\02C4'; }",
   ".metadata-row code { display: block; padding: 12px; overflow-wrap: anywhere; color: var(--fg); font-size: 12px; white-space: pre-wrap; }",
-  ".metadata-json { min-height: 280px; max-height: 50vh; overflow: auto; margin: 0; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-muted); color: var(--fg); white-space: pre-wrap; font-size: 13px; line-height: 1.5; }",
+  ".metadata-json { min-height: 280px; max-height: 50vh; overflow: auto; margin: 0; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-muted); color: var(--fg); white-space: pre-wrap; font-size: 13px; line-height: 1.5; }",
   ".redirect-result { display: grid; gap: 20px; justify-items: start; }",
-  ".redirect-response-code { width: min(100%, 680px); margin: 0; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-muted); }",
+  ".redirect-response-code { width: min(100%, 680px); margin: 0; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-muted); }",
   ".redirect-response-code dd { margin-top: 8px; overflow-wrap: anywhere; }",
   ".redirect-response-code code { color: var(--fg); font-size: 13px; }",
   ".readme-card { max-width: 900px; }",
@@ -236,11 +142,11 @@ export const APP_CSS = [
   ".readme-card p, .readme-card ul, .readme-card pre { margin-top: 12px; }",
   ".readme-card ul { padding-left: 22px; color: var(--fg-muted); }",
   ".readme-card li { margin-top: 6px; }",
-  ".readme-card code { padding: 1px 4px; border-radius: var(--radius-md); background: var(--bg-muted); }",
+  ".readme-card code { padding: 1px 4px; border-radius: var(--radius); background: var(--bg-muted); }",
   ".readme-card pre code { padding: 0; background: transparent; }",
   "@keyframes metadata-spin { to { transform: rotate(360deg); } }",
   "@keyframes metadata-flash { 0% { background: var(--warning-bg); box-shadow: 0 0 0 0 color-mix(in oklch, var(--warning) 32%, transparent); } 30% { background: var(--success-bg); box-shadow: 0 0 0 6px color-mix(in oklch, var(--success) 20%, transparent); } 100% { background: var(--bg); box-shadow: var(--shadow-sm); } }",
-  "@media (prefers-reduced-motion: reduce) { .metadata-state-waiting::before, .metadata-state-receiving::before, .metadata-flash { animation: none; } .segmented span, .toggle-track, .toggle-track::after, a.issuer-card { transition: none; } }",
-  "@media (max-width: 860px) { h1 { font-size: 38px; } h2 { font-size: 22px; } .topbar { position: static; } .page-section { padding: 64px 0; } .session-layout, .capture-more-groups, .metadata-cards { grid-template-columns: 1fr; } .section-head, .footer-content { flex-direction: column; align-items: stretch; } .footer-links { justify-content: flex-start; } }",
-  "@media (max-width: 560px) { .container, .topbar-inner, .hero-inner, .footer-inner { width: min(100% - 28px, var(--max-width)); } .card { padding: 18px; } .brand-name { display: none; } .topbar-actions .btn { display: none; } .launcher-row > .flow-switch, .launcher-row > .btn { flex: 1 1 100%; } }",
+  "@media (prefers-reduced-motion: reduce) { .metadata-state-waiting::before, .metadata-state-receiving::before, .metadata-flash { animation: none; } }",
+  "@media (max-width: 860px) { .topbar { position: static; } .session-layout, .capture-more-groups { grid-template-columns: 1fr; } .footer-content { flex-direction: column; align-items: stretch; } .footer-links { justify-content: flex-start; } }",
+  "@media (max-width: 560px) { .container, .topbar-inner, .footer-inner { width: min(100% - 28px, var(--max-width)); } .card { padding: 18px; } .brand-name { display: none; } .topbar-actions .btn { display: none; } }",
 ].join("\n");
