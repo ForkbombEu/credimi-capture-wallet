@@ -437,60 +437,56 @@ describe("capture issuer server", () => {
     }
   });
 
-  it("serves a launcher that issues and verifies every credential in one click", async () => {
+  it("serves a launcher whose credential choices create sessions the API accepts", async () => {
     const app = createApp(config);
     const response = await request(app).get("/");
 
     expect(response.status).toBe(200);
     expect(response.text).toContain('<main><section class="hero-band">');
     expect(response.text).not.toContain("<form");
-    expect(response.text).toContain('<h2 id="credential-catalogue-title">Credentials</h2>');
+    expect(response.text).toContain('<option value="" selected>Choose a credential…</option>');
     expect(response.text).toContain("data-status-list-toggle");
-    expect(response.text.match(/<article class="issuer-group">/g)).toHaveLength(3);
-    expect(response.text).toContain("EUDI PID — device-bound conforming");
-    expect(response.text).toContain("EUDI PID — JWT proof only — deliberately non-conforming");
+    expect(response.text).toContain('<optgroup label="EUDI PID — device-bound conforming">');
+    expect(response.text).toContain('<optgroup label="EUDI PID — JWT key attestation">');
     expect(response.text).toContain(
-      "PID interoperability test issuer advertising JWT proof without key attestation.",
+      '<optgroup label="EUDI PID — JWT proof only — deliberately non-conforming">',
     );
-    expect(response.text).toContain(
-      '<a href="https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ%3AL_202601731" target="_blank" rel="noreferrer">Commission Implementing Regulation (EU) 2026/1731</a>',
-    );
+    // The issuer pages are reachable from Customize issuance, the verifier page from Customize
+    // presentation.
     for (const issuerId of [conformingIssuerId, jwtKeyAttestationIssuerId, jwtOnlyIssuerId]) {
       expect(response.text).toContain(
-        `<a class="btn btn-outline btn-md" href="${config.issuer_base_url}/issuers/${issuerId}">Issuer page</a>`,
+        `<a class="issuer-link" href="${config.issuer_base_url}/issuers/${issuerId}">`,
       );
     }
     expect(response.text).toContain(
-      '<a class="btn btn-outline btn-md" href="/openid4vp">Verifier page</a>',
+      '<a class="issuer-link" href="/openid4vp" data-customize-presentation>Customize presentation</a>',
     );
 
-    // What a row's buttons post is a session the API accepts.
-    const bodies = (label: string) =>
-      Array.from(
-        response.text.matchAll(new RegExp(`data-body="([^"]+)"[^>]*>${label}<`, "g")),
-        (match) => JSON.parse((match[1] ?? "").replaceAll("&quot;", '"')) as JsonRecord,
-      );
-    const issueBodies = bodies("Issue");
-    const verifyBodies = bodies("Verify");
-    expect(issueBodies).toHaveLength(verifyBodies.length);
-    expect(issueBodies).toContainEqual({
+    // The bodies the launcher script builds from an option are sessions the API accepts.
+    const options = Array.from(
+      response.text.matchAll(/<option value="([^"]+)" data-issuer="([^"]+)" data-dcql="([^"]+)"/g),
+      ([, credentialId, issuerId, dcql]) => ({
+        issue: { issuer_configuration_id: issuerId, credential_configuration_id: credentialId },
+        verify: { dcql_query: JSON.parse((dcql ?? "").replaceAll("&quot;", '"')) as JsonRecord },
+      }),
+    );
+    expect(options.map((option) => option.issue)).toContainEqual({
       issuer_configuration_id: jwtOnlyIssuerId,
       credential_configuration_id: mdocCredentialConfigurationId(config, "jwt-proof"),
     });
-    const [issueBody] = issueBodies;
-    const [verifyBody] = verifyBodies;
-    if (!issueBody || !verifyBody) throw new Error("launcher offers no credential");
+    const [first] = options;
+    if (!first) throw new Error("launcher offers no credential");
     const issued = await request(app)
       .post("/sessions")
-      .send({ ...issueBody, status_list_enabled: true });
+      .send({ ...first.issue, status_list_enabled: true });
     expect(issued.status).toBe(201);
-    expect(issued.body).toMatchObject({ ...issueBody, status_list_enabled: true });
+    expect(issued.body).toMatchObject({ ...first.issue, status_list_enabled: true });
     const presentation = await postJson<{ authorization_request: JsonRecord }>(
       app,
       "/openid4vp/sessions",
-      verifyBody,
+      first.verify,
     );
-    expect(presentation.authorization_request.dcql_query).toEqual(verifyBody.dcql_query);
+    expect(presentation.authorization_request.dcql_query).toEqual(first.verify.dcql_query);
     expect(response.text).toContain(
       '<img class="brand-logo" src="/assets/credimi_logo.svg" alt="Credimi"><span>Wallet metadata capture</span>',
     );

@@ -25,7 +25,6 @@ export interface CredentialChoice {
 export interface IssuerCredentialChoices {
   readonly issuer: ResolvedIssuerConfiguration;
   readonly credentials: readonly CredentialChoice[];
-  readonly attestbook?: AttestbookIssuerSummary;
 }
 
 /**
@@ -47,11 +46,12 @@ export interface IssuanceParameterValues {
   readonly statusReferences: readonly string[];
 }
 /**
- * Every credential of every issuer, each one issued or requested in one click with the API
- * defaults. The issuer and verifier pages stay the place for every other parameter; the launcher
- * links to them with the credential preselected.
+ * One credential picker over every issuer: Issue and Verify create a session with the API
+ * defaults, and the Customize links open the issuer or verifier page, which carry every other
+ * parameter, with the chosen credential preselected.
  */
 export function indexPage(groups: readonly IssuerCredentialChoices[]): string {
+  const empty = groups.every((group) => group.credentials.length === 0);
   return htmlPage({
     title: "Wallet Metadata Capture",
     body: [
@@ -61,13 +61,36 @@ export function indexPage(groups: readonly IssuerCredentialChoices[]): string {
       '<div class="hero-inner">',
       '<div class="hero-copy">',
       "<h1>Wallet metadata capture</h1>",
-      "<p>Issue a credential to a wallet, or request its presentation, in one click. Every session captures the protocol evidence the wallet leaves behind.</p>",
-      "<p>Issue and Verify use the defaults. Customize opens the issuer or verifier page with that credential selected and every option of the API available.</p>",
-      '<nav class="session-actions" aria-label="Verifier">',
-      safeLinkHtml("Verifier page", VERIFIER_PAGE_PATH, "btn btn-outline btn-md"),
-      "</nav>",
+      "<p>Choose a credential, then issue it to a wallet or request its presentation. Every session captures the protocol evidence the wallet leaves behind.</p>",
+      '<div class="card launcher-panel" data-launcher>',
+      '<div class="credential-row">',
+      '<label class="credential-picker">',
+      "<span>Credential</span>",
+      '<select data-credential-choice autocomplete="off">',
+      '<option value="" selected>',
+      empty ? "No credentials available" : "Choose a credential…",
+      "</option>",
+      groups.map(credentialGroupHtml).join(""),
+      "</select>",
+      "</label>",
+      '<label class="status-list-toggle">',
+      '<input type="checkbox" role="switch" data-status-list-toggle>',
+      '<span class="toggle-track" aria-hidden="true"></span>',
+      "<span>Include a Token Status List reference</span>",
+      "</label>",
       "</div>",
-      credentialCatalogueHtml(groups),
+      '<div class="session-actions">',
+      '<button class="btn btn-primary btn-lg" type="button" autocomplete="off" data-issue disabled>Issue</button>',
+      '<button class="btn btn-outline btn-lg" type="button" autocomplete="off" data-verify disabled>Verify</button>',
+      "</div>",
+      '<nav class="launcher-links" aria-label="Customize">',
+      '<a class="issuer-link" href="#issuer-chooser" data-customize-issuance>Customize issuance</a>',
+      `<a class="issuer-link" href="${VERIFIER_PAGE_PATH}" data-customize-presentation>Customize presentation</a>`,
+      "</nav>",
+      issuerChooserHtml(groups),
+      '<pre class="launcher-error" role="alert" data-launcher-error hidden></pre>',
+      "</div>",
+      "</div>",
       "</div>",
       "</section>",
       "</main>",
@@ -110,106 +133,56 @@ export function issuerLabel(issuer: ResolvedIssuerConfiguration): string {
       : issuer.display.name;
 }
 
-function credentialCatalogueHtml(groups: readonly IssuerCredentialChoices[]): string {
+function credentialGroupHtml({ issuer, credentials }: IssuerCredentialChoices): string {
   return [
-    '<section class="credential-catalogue" aria-labelledby="credential-catalogue-title">',
-    '<div class="catalogue-head">',
-    '<h2 id="credential-catalogue-title">Credentials</h2>',
-    '<label class="status-list-toggle">',
-    '<input type="checkbox" role="switch" data-status-list-toggle>',
-    '<span class="toggle-track" aria-hidden="true"></span>',
-    "<span>Include a Token Status List reference in issued PID credentials</span>",
-    "</label>",
-    "</div>",
-    groups.length > 0
-      ? groups.map(issuerGroupHtml).join("")
-      : '<p class="issuer-empty">No issuers available</p>',
-    "</section>",
-  ].join("");
-}
-
-function issuerGroupHtml(group: IssuerCredentialChoices): string {
-  const { issuer } = group;
-  return [
-    '<article class="issuer-group">',
-    '<header class="issuer-group-head">',
-    "<div>",
-    "<h3>",
+    '<optgroup label="',
     escapeHtml(issuerLabel(issuer)),
-    "</h3>",
-    '<p class="issuer-description">',
-    issuerDescriptionHtml(issuer),
-    "</p>",
-    group.attestbook ? attestbookSummaryHtml(group.attestbook) : "",
-    "</div>",
-    safeLinkHtml("Issuer page", issuer.issuerIdentifier, "btn btn-outline btn-md"),
-    "</header>",
-    group.credentials.length > 0
-      ? `<ul class="credential-list">${group.credentials.map((choice) => credentialItemHtml(issuer, choice)).join("")}</ul>`
-      : '<p class="issuer-empty">This issuer serves no credential configuration.</p>',
-    "</article>",
+    '">',
+    credentials.map((choice) => credentialOptionHtml(issuer, choice)).join(""),
+    "</optgroup>",
   ].join("");
 }
 
-function credentialItemHtml(
+/** Everything Issue, Verify, and the Customize links need, carried by the option itself. */
+function credentialOptionHtml(
   issuer: ResolvedIssuerConfiguration,
   { credential, dcqlQuery }: CredentialChoice,
 ): string {
   const fragment = credentialPreselectionFragment(credential.id);
-  const issueBody = {
-    issuer_configuration_id: issuer.id,
-    credential_configuration_id: credential.id,
-  };
   return [
-    '<li class="credential-item">',
-    '<div class="credential-item-name">',
-    "<span>",
+    '<option value="',
+    escapeHtml(credential.id),
+    '" data-issuer="',
+    escapeHtml(issuer.id),
+    '" data-dcql="',
+    escapeHtml(JSON.stringify(dcqlQuery)),
+    '"',
+    // The API refuses a Token Status List for an imported Attestbook credential.
+    credential.attestbook ? ' data-imported="true"' : "",
+    isHttpUrl(issuer.issuerIdentifier)
+      ? ` data-issuance-href="${escapeHtml(`${issuer.issuerIdentifier}${fragment}`)}"`
+      : "",
+    ` data-presentation-href="${escapeHtml(`${VERIFIER_PAGE_PATH}${fragment}`)}"`,
+    ">",
     escapeHtml(credentialLabel(credential)),
-    "</span>",
-    '<span class="credential-item-links">',
-    safeLinkHtml("Customize issuance", `${issuer.issuerIdentifier}${fragment}`, "issuer-link"),
-    safeLinkHtml("Customize presentation", `${VERIFIER_PAGE_PATH}${fragment}`, "issuer-link"),
-    "</span>",
-    "</div>",
-    '<div class="credential-item-actions">',
-    launchButtonHtml("Issue", "btn-primary", "/sessions", "/ui/sessions/", issueBody, {
-      // The API refuses a Token Status List for an imported Attestbook credential.
-      statusList: !credential.attestbook,
-    }),
-    launchButtonHtml(
-      "Verify",
-      "btn-outline",
-      "/openid4vp/sessions",
-      "/ui/openid4vp/sessions/",
-      { dcql_query: dcqlQuery },
-      { statusList: false },
-    ),
-    "</div>",
-    '<pre class="launcher-error" role="alert" data-launcher-error hidden></pre>',
-    "</li>",
+    "</option>",
   ].join("");
 }
 
-function launchButtonHtml(
-  label: string,
-  variant: string,
-  endpoint: string,
-  sessionPage: string,
-  body: JsonRecord,
-  { statusList }: { statusList: boolean },
-): string {
+/** Shown by Customize issuance while no credential is chosen; also the way to every issuer page. */
+function issuerChooserHtml(groups: readonly IssuerCredentialChoices[]): string {
   return [
-    `<button class="btn ${variant} btn-md" type="button" autocomplete="off" data-launch="`,
-    escapeHtml(endpoint),
-    '" data-session-page="',
-    escapeHtml(sessionPage),
-    '" data-body="',
-    escapeHtml(JSON.stringify(body)),
-    '"',
-    statusList ? ' data-status-list="true"' : "",
-    ">",
-    escapeHtml(label),
-    "</button>",
+    '<div class="issuer-chooser" id="issuer-chooser" data-issuer-chooser hidden>',
+    "<p>Choose the issuer to customize:</p>",
+    groups.length > 0
+      ? `<ul>${groups
+          .map(
+            ({ issuer }) =>
+              `<li>${safeLinkHtml(issuerLabel(issuer), issuer.issuerIdentifier, "issuer-link")}</li>`,
+          )
+          .join("")}</ul>`
+      : '<p class="issuer-empty">No issuers available</p>',
+    "</div>",
   ].join("");
 }
 

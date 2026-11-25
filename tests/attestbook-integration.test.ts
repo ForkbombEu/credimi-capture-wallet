@@ -794,13 +794,14 @@ describe("Attestbook-defined credentials, end to end", () => {
       credentials: [{ format: "dc+sd-jwt", meta: { vct_values: [membershipVct] } }],
     });
 
-    // The launcher's Issue button never adds a Token Status List, which the API refuses here.
+    // The launcher marks it imported, so its Token Status List switch is disabled: the API
+    // refuses a status list for it.
     const launcher = await request(issuer.app).get("/");
-    const issueButton = new RegExp(
-      `data-body="[^"]*${membershipVct}[^"]*"( data-status-list="true")?>Issue<`,
-    ).exec(launcher.text);
-    if (!issueButton) throw new Error("launcher does not offer the imported credential");
-    expect(issueButton[1]).toBeUndefined();
+    expect(launcher.text).toMatch(
+      new RegExp(
+        `<option value="${membershipVct}" data-issuer="${issuerId}" data-dcql="[^"]+" data-imported="true"`,
+      ),
+    );
   });
 
   it("advertises no credential configuration before a rulebook version is active", async () => {

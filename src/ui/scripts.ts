@@ -42,16 +42,56 @@ export function launcherScript(): string {
     errorBox.hidden = false;
   }
 
-  const statusListToggle = document.querySelector("[data-status-list-toggle]");
-  for (const button of document.querySelectorAll("button[data-launch]")) {
-    button.addEventListener("click", () => {
-      const body = JSON.parse(button.dataset.body);
-      if (statusListToggle?.checked && button.dataset.statusList === "true") {
-        body.status_list_enabled = true;
-      }
-      const errorBox = button.closest("li").querySelector("[data-launcher-error]");
-      launch(button.dataset.launch, button.dataset.sessionPage, body, errorBox, button);
+  const launcher = document.querySelector("[data-launcher]");
+  if (launcher) {
+    const choice = launcher.querySelector("[data-credential-choice]");
+    const statusListToggle = launcher.querySelector("[data-status-list-toggle]");
+    const issue = launcher.querySelector("[data-issue]");
+    const verify = launcher.querySelector("[data-verify]");
+    const customizeIssuance = launcher.querySelector("[data-customize-issuance]");
+    const customizePresentation = launcher.querySelector("[data-customize-presentation]");
+    const issuerChooser = launcher.querySelector("[data-issuer-chooser]");
+    const launcherError = launcher.querySelector("[data-launcher-error]");
+    const selected = () => (choice.value === "" ? undefined : choice.selectedOptions[0]);
+    // The links as rendered are their targets while no credential is chosen.
+    const defaultIssuanceHref = customizeIssuance.getAttribute("href");
+    const defaultPresentationHref = customizePresentation.getAttribute("href");
+
+    function sync() {
+      const option = selected();
+      issue.disabled = !option;
+      verify.disabled = !option;
+      // The API refuses a Token Status List for an imported Attestbook credential.
+      statusListToggle.disabled = option?.dataset.imported === "true";
+      statusListToggle.closest("label").classList.toggle("field-disabled", statusListToggle.disabled);
+      customizeIssuance.href = option?.dataset.issuanceHref ?? defaultIssuanceHref;
+      customizePresentation.href = option?.dataset.presentationHref ?? defaultPresentationHref;
+      if (option?.dataset.issuanceHref) issuerChooser.hidden = true;
+    }
+
+    issue.addEventListener("click", () => {
+      const option = selected();
+      if (!option) return;
+      const body = { issuer_configuration_id: option.dataset.issuer, credential_configuration_id: option.value };
+      if (statusListToggle.checked && !statusListToggle.disabled) body.status_list_enabled = true;
+      launch("/sessions", "/ui/sessions/", body, launcherError, issue);
     });
+    verify.addEventListener("click", () => {
+      const option = selected();
+      if (!option) return;
+      const body = { dcql_query: JSON.parse(option.dataset.dcql) };
+      launch("/openid4vp/sessions", "/ui/openid4vp/sessions/", body, launcherError, verify);
+    });
+    // Without a chosen credential there is no issuer to open, so the operator picks one first.
+    customizeIssuance.addEventListener("click", (event) => {
+      if (selected()?.dataset.issuanceHref) return;
+      event.preventDefault();
+      issuerChooser.hidden = false;
+      issuerChooser.querySelector("a")?.focus();
+    });
+    choice.addEventListener("change", sync);
+    window.addEventListener("pageshow", sync);
+    sync();
   }
 
   const form = document.querySelector("form.session-launcher");
