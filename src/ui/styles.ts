@@ -50,22 +50,27 @@ export const APP_CSS = [
   ".credimi-extras-wordmark-link { text-decoration: none; }",
   ".credimi-extras-wordmark { display: inline-block; height: 16px; width: auto; vertical-align: -4px; }",
   ".credimi-extras-bar a:focus-visible, .credimi-extras-wordmark-link:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; border-radius: 2px; }",
+  // Every landing section has the same padding and opens with the same intro: a title over a rule,
+  // then a description.
+  ".landing-section { padding: 96px 0; }",
+  ".section-intro { display: grid; gap: 16px; margin-bottom: 40px; }",
+  ".section-intro:last-child { margin-bottom: 0; }",
+  // --border-strong, because --border all but disappears on the lavender page background.
+  ".section-intro-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--border-strong); }",
+  // Set on the class so the design source's h1 and h2 sizes and colour do not apply.
+  ".section-intro-title { max-width: none; font-size: 34px; line-height: 1.2; font-weight: 800; letter-spacing: -0.02em; color: var(--brand-primary); }",
+  ".section-intro-description { display: grid; gap: 8px; max-width: 720px; }",
+  ".section-intro-description p { color: var(--fg-muted); font-size: 17px; line-height: 1.571; }",
   // The credimi.io hero: a brand-blue band with white text, folded by two translucent white
-  // triangles over its right part (credimi.io's `fold-motif`).
-  ".hero-band { position: relative; overflow: hidden; padding: 76px 0 64px; background: var(--brand-primary); color: white; }",
+  // triangles over its right part (credimi.io's `fold-motif`). Its title keeps the hero size.
+  ".hero-band { position: relative; overflow: hidden; background: var(--brand-primary); color: white; }",
   ".hero-band::before, .hero-band::after { content: ''; position: absolute; inset: 0 0 0 45%; pointer-events: none; }",
   ".hero-band::before { clip-path: polygon(0 0, 100% 0, 100% 100%, 55% 52%); background: rgb(255 255 255 / 6%); }",
   ".hero-band::after { clip-path: polygon(55% 52%, 100% 100%, 15% 100%); background: rgb(255 255 255 / 4%); }",
   ".hero-inner { position: relative; z-index: 1; width: min(100% - 48px, var(--max-width)); margin-inline: auto; }",
-  // The title and the description are spaced apart; the steps inside the description sit closer.
-  ".hero-copy { display: grid; gap: 20px; max-width: 740px; }",
-  ".hero-description { display: grid; gap: 8px; }",
-  // The design source colours every heading with --fg; the hero title stays white on blue.
-  ".hero-title { color: inherit; }",
-  // Below the hero: the launcher and the issuer and verifier cards, then the captured values band.
-  ".landing-body { padding-top: 40px; padding-bottom: 56px; }",
-  ".landing-main { display: grid; gap: 20px; }",
-  ".hero-description p { max-width: 720px; color: rgb(255 255 255 / 85%); font-size: 17px; line-height: 1.571; }",
+  ".hero-band .section-intro-heading { border-bottom-color: rgb(255 255 255 / 25%); }",
+  ".hero-band .section-intro-title { color: inherit; font-size: clamp(38px, 6vw, 64px); line-height: 1.05; letter-spacing: -0.035em; }",
+  ".hero-band .section-intro-description p { color: rgb(255 255 255 / 85%); }",
   ".launcher-panel { display: grid; gap: 14px; justify-items: start; }",
   ".session-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }",
   ".credential-picker { display: grid; gap: 8px; width: min(100%, 520px); color: var(--fg); font-size: 13px; font-weight: 700; }",
@@ -90,16 +95,16 @@ export const APP_CSS = [
   "a.issuer-card { color: var(--fg); text-decoration: none; border-color: var(--brand-primary); transition: transform 150ms ease-out, box-shadow 150ms ease-out; }",
   "a.issuer-card:hover { transform: translateY(-4px); box-shadow: inset 0 0 0 1px var(--brand-primary), 0 8px 18px rgb(49 32 96 / 16%); }",
   "a.issuer-card:focus-visible { outline: 2px solid color-mix(in oklch, var(--brand-primary) 36%, transparent); outline-offset: 2px; }",
-  ".entity-catalogue { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: auto repeat(var(--issuer-rows-wide), 1fr) auto 1fr; gap: 12px; width: 100%; margin-top: 8px; }",
-  ".entity-catalogue h2, .entity-catalogue > .issuer-empty { grid-column: 1 / -1; }",
-  ".entity-catalogue h2 { font-size: 20px; }",
-  ".entity-catalogue h2:not(:first-child) { margin-top: 20px; }",
+  ".entity-catalogue { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: auto repeat(var(--issuer-rows-wide), 1fr) auto 1fr; gap: 12px; width: 100%; margin-top: 32px; }",
+  ".catalogue-heading, .entity-catalogue > .issuer-empty { grid-column: 1 / -1; }",
+  ".catalogue-heading { font-size: 20px; line-height: 1.3; }",
+  ".catalogue-heading:not(:first-child) { margin-top: 20px; }",
   ".issuer-card { min-width: 0; display: grid; align-content: start; gap: 12px; padding: 18px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg); box-shadow: var(--shadow-sm); }",
   ".issuer-card h3 { min-width: 0; font-size: 16px; line-height: 1.4; }",
   ".issuer-card .issuer-description { font-size: 14px; line-height: 1.5; }",
   ".status-list-toggle.field-disabled { cursor: not-allowed; }",
   ".count-chip { display: inline-flex; align-items: center; justify-content: center; width: fit-content; min-width: 24px; height: 24px; padding: 0 8px; border-radius: var(--radius-pill); background: var(--brand-secondary-strong); color: var(--fg-muted); font-size: 13px; font-weight: 600; }",
-  ".captured-band { padding: 48px 0 64px; background: var(--bg); border-top: 1px solid var(--border); }",
+  ".captured-band { background: var(--bg); }",
   ".capture-groups { display: grid; gap: 18px; }",
   ".capture-group { display: grid; gap: 10px; }",
   ".capture-group h3 { margin: 0; color: var(--brand-primary); font-size: 13px; line-height: 1.4; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }",
@@ -213,6 +218,6 @@ export const APP_CSS = [
   "@keyframes metadata-spin { to { transform: rotate(360deg); } }",
   "@keyframes metadata-flash { 0% { background: var(--warning-bg); box-shadow: 0 0 0 0 color-mix(in oklch, var(--warning) 32%, transparent); } 30% { background: var(--success-bg); box-shadow: 0 0 0 6px color-mix(in oklch, var(--success) 20%, transparent); } 100% { background: var(--bg); box-shadow: var(--shadow-sm); } }",
   "@media (prefers-reduced-motion: reduce) { .metadata-state-waiting::before, .metadata-state-receiving::before, .metadata-flash { animation: none; } .toggle-track, .toggle-track::after, a.issuer-card { transition: none; } }",
-  "@media (max-width: 860px) { h1 { font-size: 38px; } h2 { font-size: 22px; } .topbar { position: static; } .hero-band { padding: 52px 0 44px; } .session-layout, .launcher-layout { grid-template-columns: 1fr; } .entity-catalogue { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto repeat(var(--issuer-rows-narrow), 1fr) auto 1fr; } .session-header, .section-head, .footer-content { flex-direction: column; align-items: stretch; } .session-actions { align-items: stretch; flex-direction: column; } .session-actions .btn { width: 100%; } .footer-links { justify-content: flex-start; } .qr-box { width: 100%; max-width: 336px; } }",
+  "@media (max-width: 860px) { h1 { font-size: 38px; } h2 { font-size: 22px; } .topbar { position: static; } .landing-section { padding: 64px 0; } .session-layout, .launcher-layout { grid-template-columns: 1fr; } .entity-catalogue { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto repeat(var(--issuer-rows-narrow), 1fr) auto 1fr; } .session-header, .section-head, .footer-content { flex-direction: column; align-items: stretch; } .session-actions { align-items: stretch; flex-direction: column; } .session-actions .btn { width: 100%; } .footer-links { justify-content: flex-start; } .qr-box { width: 100%; max-width: 336px; } }",
   "@media (max-width: 560px) { .container, .topbar-inner, .hero-inner, .footer-inner { width: min(100% - 28px, var(--max-width)); } .page-content { padding: 28px 0 52px; } .card { padding: 18px; } .brand-name { display: none; } .topbar-actions .btn { display: none; } .status-list-toggle { margin-left: 0; } }",
 ].join("\n");

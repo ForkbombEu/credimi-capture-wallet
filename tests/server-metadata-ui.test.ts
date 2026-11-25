@@ -442,12 +442,29 @@ describe("capture issuer server", () => {
     const response = await request(app).get("/");
 
     expect(response.status).toBe(200);
-    expect(response.text).toContain('<main><section class="hero-band">');
+    expect(response.text).toContain(
+      '<main><section class="landing-section hero-band" aria-labelledby="hero-title">',
+    );
+    // Every section opens with the same intro: its title over a rule, then a description.
+    expect(response.text.match(/<section class="landing-section/g)).toHaveLength(3);
+    expect(
+      Array.from(
+        response.text.matchAll(/<(h[12]) class="section-intro-title" id="([^"]+)">([^<]+)</g),
+        ([, tag, id, title]) => `${tag}#${id} ${title}`,
+      ),
+    ).toEqual([
+      "h1#hero-title Wallet metadata capture",
+      "h2#launcher-title Issue and verify",
+      "h2#captured-values-title Captured values",
+    ]);
+    expect(response.text.match(/<div class="section-intro-description"><p>/g)).toHaveLength(3);
     expect(response.text).toContain(
       "Step 1) Start a one-time issuance flow, scan the offer, and inspect the wallet identifiers, callbacks, and proof keys observed by the issuer.",
     );
     expect(response.text).not.toContain("<form");
-    expect(response.text).toContain('<h2 id="captured-values-title">Captured values</h2>');
+    expect(response.text).toContain(
+      'id="captured-values-title">Captured values</h2><span class="count-chip">10</span>',
+    );
     expect(response.text).toContain('<span class="count-chip">10</span>');
     expect(response.text).toContain("<h3>OpenID4VCI</h3>");
     expect(response.text).toContain("<h3>OpenID4VP</h3>");
@@ -472,14 +489,18 @@ describe("capture issuer server", () => {
     expect(response.text).toContain(
       '<optgroup label="EUDI PID — JWT proof only — deliberately non-conforming">',
     );
-    expect(response.text).toContain('<h2 id="issuer-catalogue-title">Issuers</h2>');
+    expect(response.text).toContain(
+      '<h3 class="catalogue-heading" id="issuer-catalogue-title">Issuers</h3>',
+    );
     expect(response.text.match(/<a class="issuer-card" href=/g)).toHaveLength(4);
     for (const issuerId of [conformingIssuerId, jwtKeyAttestationIssuerId, jwtOnlyIssuerId]) {
       expect(response.text).toContain(
         `<a class="issuer-card" href="${config.issuer_base_url}/issuers/${issuerId}">`,
       );
     }
-    expect(response.text).toContain('<h2 id="verifier-catalogue-title">Verifier</h2>');
+    expect(response.text).toContain(
+      '<h3 class="catalogue-heading" id="verifier-catalogue-title">Verifier</h3>',
+    );
     expect(response.text).toContain('<a class="issuer-card" href="/openid4vp">');
     expect(response.text).not.toContain("Customize");
 

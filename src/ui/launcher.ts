@@ -50,19 +50,29 @@ export function indexPage(groups: readonly IssuerCredentialChoices[]): string {
     body: [
       launcherTopbarHtml(),
       "<main>",
-      '<section class="hero-band">',
+      '<section class="landing-section hero-band" aria-labelledby="hero-title">',
       '<div class="hero-inner">',
-      '<div class="hero-copy">',
-      '<h1 class="hero-title">Wallet metadata capture</h1>',
-      '<div class="hero-description">',
-      "<p>Step 1) Start a one-time issuance flow, scan the offer, and inspect the wallet identifiers, callbacks, and proof keys observed by the issuer.</p>",
-      "<p>Step 2) After receiving the credential, start a Presentation session, and inspect the Wallet response as well as the DCQL</p>",
-      "</div>",
-      "</div>",
+      sectionIntroHtml({
+        tag: "h1",
+        id: "hero-title",
+        title: "Wallet metadata capture",
+        paragraphs: [
+          "Step 1) Start a one-time issuance flow, scan the offer, and inspect the wallet identifiers, callbacks, and proof keys observed by the issuer.",
+          "Step 2) After receiving the credential, start a Presentation session, and inspect the Wallet response as well as the DCQL",
+        ],
+      }),
       "</div>",
       "</section>",
-      '<div class="landing-body container">',
-      '<div class="landing-main">',
+      '<section class="landing-section" aria-labelledby="launcher-title">',
+      '<div class="container">',
+      sectionIntroHtml({
+        tag: "h2",
+        id: "launcher-title",
+        title: "Issue and verify",
+        paragraphs: [
+          "Choose a credential and start a session with the default options, or open an issuer or the verifier to set any other option.",
+        ],
+      }),
       '<div class="launcher-panel" data-launcher>',
       '<div class="credential-row">',
       '<label class="credential-picker">',
@@ -88,7 +98,7 @@ export function indexPage(groups: readonly IssuerCredentialChoices[]): string {
       "</div>",
       entityCatalogueHtml(groups),
       "</div>",
-      "</div>",
+      "</section>",
       capturedValuesHtml(),
       "</main>",
       "<script>",
@@ -96,6 +106,29 @@ export function indexPage(groups: readonly IssuerCredentialChoices[]): string {
       "</script>",
     ].join(""),
   });
+}
+
+/** Every landing section opens the same way: its title over a rule, then its description. */
+function sectionIntroHtml(options: {
+  tag: "h1" | "h2";
+  id: string;
+  title: string;
+  /** Shown at the end of the title row, such as a count. */
+  aside?: string;
+  paragraphs: readonly string[];
+}): string {
+  const { tag, id, title, aside, paragraphs } = options;
+  return [
+    '<header class="section-intro">',
+    '<div class="section-intro-heading">',
+    `<${tag} class="section-intro-title" id="${id}">${escapeHtml(title)}</${tag}>`,
+    aside ?? "",
+    "</div>",
+    '<div class="section-intro-description">',
+    paragraphs.map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`).join(""),
+    "</div>",
+    "</header>",
+  ].join("");
 }
 
 /**
@@ -109,11 +142,11 @@ function entityCatalogueHtml(groups: readonly IssuerCredentialChoices[]): string
   const issuerRows = Math.max(groups.length, 1);
   return [
     `<section class="entity-catalogue" aria-label="Issuers and verifier" style="--issuer-rows-wide: ${Math.ceil(issuerRows / 3)}; --issuer-rows-narrow: ${issuerRows}">`,
-    '<h2 id="issuer-catalogue-title">Issuers</h2>',
+    '<h3 class="catalogue-heading" id="issuer-catalogue-title">Issuers</h3>',
     groups.length > 0
       ? groups.map(issuerCardHtml).join("")
       : '<p class="issuer-empty">No issuers available</p>',
-    '<h2 id="verifier-catalogue-title">Verifier</h2>',
+    '<h3 class="catalogue-heading" id="verifier-catalogue-title">Verifier</h3>',
     entityCardHtml(VERIFIER_PAGE_PATH, [
       "<h3>OpenID4VP verifier</h3>",
       '<p class="issuer-description">Requests a presentation of any credential the issuers above serve, and verifies it.</p>',
@@ -144,15 +177,20 @@ function entityCardHtml(href: string, content: readonly string[]): string {
     : `<article class="issuer-card">${body}</article>`;
 }
 
-/** What a session records about the Wallet, named as on the session pages; a band below the rest. */
+/** What a session records about the Wallet, named as on the session pages; the last section. */
 function capturedValuesHtml(): string {
   return [
-    '<section class="captured-band" aria-labelledby="captured-values-title">',
+    '<section class="landing-section captured-band" aria-labelledby="captured-values-title">',
     '<div class="container">',
-    '<div class="section-head">',
-    '<h2 id="captured-values-title">Captured values</h2>',
-    '<span class="count-chip">10</span>',
-    "</div>",
+    sectionIntroHtml({
+      tag: "h2",
+      id: "captured-values-title",
+      title: "Captured values",
+      aside: '<span class="count-chip">10</span>',
+      paragraphs: [
+        "What each session records from the wallet, shown on its session page as it arrives.",
+      ],
+    }),
     '<div class="capture-groups">',
     '<section class="capture-group" aria-label="OpenID4VCI captured values">',
     "<h3>OpenID4VCI</h3>",
