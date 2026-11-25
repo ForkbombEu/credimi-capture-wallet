@@ -437,16 +437,16 @@ describe("capture issuer server", () => {
     }
   });
 
-  it("serves a launcher that lists only the issuers and the verifier", async () => {
+  it("serves a launcher that issues and verifies every credential in one click", async () => {
     const app = createApp(config);
     const response = await request(app).get("/");
 
     expect(response.status).toBe(200);
     expect(response.text).toContain('<main><section class="hero-band">');
     expect(response.text).not.toContain("<form");
-    expect(response.text).not.toContain("<h2>Captured values</h2>");
-    expect(response.text).toContain('<h2 id="issuer-catalogue-title">Issuers</h2>');
-    expect(response.text.match(/<article class="issuer-card">/g)).toHaveLength(3);
+    expect(response.text).toContain('<h2 id="credential-catalogue-title">Credentials</h2>');
+    expect(response.text).toContain("data-status-list-toggle");
+    expect(response.text.match(/<article class="issuer-group">/g)).toHaveLength(3);
     expect(response.text).toContain("EUDI PID — device-bound conforming");
     expect(response.text).toContain("EUDI PID — JWT proof only — deliberately non-conforming");
     expect(response.text).toContain(
@@ -457,12 +457,40 @@ describe("capture issuer server", () => {
     );
     for (const issuerId of [conformingIssuerId, jwtKeyAttestationIssuerId, jwtOnlyIssuerId]) {
       expect(response.text).toContain(
-        `<a class="btn btn-primary btn-md" href="${config.issuer_base_url}/issuers/${issuerId}">Open issuer</a>`,
+        `<a class="btn btn-outline btn-md" href="${config.issuer_base_url}/issuers/${issuerId}">Issuer page</a>`,
       );
     }
     expect(response.text).toContain(
-      '<a class="btn btn-primary btn-md" href="/openid4vp">Open verifier</a>',
+      '<a class="btn btn-outline btn-md" href="/openid4vp">Verifier page</a>',
     );
+
+    // What a row's buttons post is a session the API accepts.
+    const bodies = (label: string) =>
+      Array.from(
+        response.text.matchAll(new RegExp(`data-body="([^"]+)"[^>]*>${label}<`, "g")),
+        (match) => JSON.parse((match[1] ?? "").replaceAll("&quot;", '"')) as JsonRecord,
+      );
+    const issueBodies = bodies("Issue");
+    const verifyBodies = bodies("Verify");
+    expect(issueBodies).toHaveLength(verifyBodies.length);
+    expect(issueBodies).toContainEqual({
+      issuer_configuration_id: jwtOnlyIssuerId,
+      credential_configuration_id: mdocCredentialConfigurationId(config, "jwt-proof"),
+    });
+    const [issueBody] = issueBodies;
+    const [verifyBody] = verifyBodies;
+    if (!issueBody || !verifyBody) throw new Error("launcher offers no credential");
+    const issued = await request(app)
+      .post("/sessions")
+      .send({ ...issueBody, status_list_enabled: true });
+    expect(issued.status).toBe(201);
+    expect(issued.body).toMatchObject({ ...issueBody, status_list_enabled: true });
+    const presentation = await postJson<{ authorization_request: JsonRecord }>(
+      app,
+      "/openid4vp/sessions",
+      verifyBody,
+    );
+    expect(presentation.authorization_request.dcql_query).toEqual(verifyBody.dcql_query);
     expect(response.text).toContain(
       '<img class="brand-logo" src="/assets/credimi_logo.svg" alt="Credimi"><span>Wallet metadata capture</span>',
     );

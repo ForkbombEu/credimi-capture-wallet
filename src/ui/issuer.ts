@@ -13,7 +13,7 @@ import {
   safeLinkHtml,
 } from "./launcher.js";
 import type { ParameterGroup } from "./launcher.js";
-import { sessionLauncherScript } from "./scripts.js";
+import { launcherScript } from "./scripts.js";
 
 export interface IssuerPageOptions {
   readonly group: IssuerCredentialGroup;
@@ -41,7 +41,7 @@ export function issuerPage(options: IssuerPageOptions): string {
       escapeHtml(issuerLabel(issuer)),
       "</h1>",
       '<p class="session-intro">',
-      issuerDescriptionHtml(group),
+      issuerDescriptionHtml(issuer),
       "</p>",
       group.attestbook ? attestbookSummaryHtml(group.attestbook) : "",
       "</div>",
@@ -52,7 +52,7 @@ export function issuerPage(options: IssuerPageOptions): string {
       "</section>",
       "</main>",
       "<script>",
-      sessionLauncherScript(),
+      launcherScript(),
       "</script>",
     ].join(""),
   });

@@ -16,7 +16,12 @@ import type { CaptureStore } from "../../state.js";
 import { STATUS_REFERENCE_FIXTURES } from "../../status-list/reference-fixtures.js";
 import type { AppConfig } from "../../types.js";
 import { issuerPage } from "../../ui/issuer.js";
-import { type IssuerCredentialGroup, VERIFIER_PAGE_PATH, indexPage } from "../../ui/launcher.js";
+import {
+  type IssuerCredentialChoices,
+  type IssuerCredentialGroup,
+  VERIFIER_PAGE_PATH,
+  indexPage,
+} from "../../ui/launcher.js";
 import {
   credentialOfferEngagementPage,
   dcApiPresentationPage,
@@ -47,7 +52,7 @@ export function registerUiRoutes(app: Express, ctx: ServerContext): void {
 
   app.get("/", async (_req, res, next) => {
     try {
-      res.type("html").send(indexPage(await issuerCredentialGroups(config, store)));
+      res.type("html").send(indexPage(await issuerCredentialChoices(config, store)));
     } catch (error) {
       next(error);
     }
@@ -92,18 +97,9 @@ export function registerUiRoutes(app: Express, ctx: ServerContext): void {
 
   app.get(VERIFIER_PAGE_PATH, async (_req, res, next) => {
     try {
-      const groups = (await issuerCredentialGroups(config, store)).map(
-        ({ issuer, credentials }) => ({
-          issuer,
-          credentials: credentials.map((credential) => ({
-            credential,
-            dcqlQuery: defaultDcqlQuery([credential]),
-          })),
-        }),
-      );
       res.type("html").send(
         verifierPage({
-          groups,
+          groups: await issuerCredentialChoices(config, store),
           fcafScenariosEnabled: config.fcaf_scenarios_enabled,
           parameters: {
             responseModes: OPENID4VP_RESPONSE_MODE_VALUES,
@@ -330,5 +326,19 @@ async function issuerCredentialGroups(
     ...(issuer.importsAttestbookCredentials
       ? { attestbook: attestbookIntegration(config, store).summary() }
       : {}),
+  }));
+}
+
+/** The same issuers, each credential paired with the DCQL query that requests it. */
+async function issuerCredentialChoices(
+  config: AppConfig,
+  store: CaptureStore,
+): Promise<IssuerCredentialChoices[]> {
+  return (await issuerCredentialGroups(config, store)).map((group) => ({
+    ...group,
+    credentials: group.credentials.map((credential) => ({
+      credential,
+      dcqlQuery: defaultDcqlQuery([credential]),
+    })),
   }));
 }

@@ -1,10 +1,48 @@
 /**
- * Creates a session through the public JSON API from the issuer or verifier page. Only fields the
- * operator filled are sent, so every other parameter keeps the API default, and a refusal is shown
- * as the API's own error body.
+ * Creates a session through the public JSON API, from the launcher's one-click buttons or from the
+ * issuer or verifier page form. A form sends only the fields the operator filled, so every other
+ * parameter keeps the API default, and a refusal is shown as the API's own error body.
  */
-export function sessionLauncherScript(): string {
+export function launcherScript(): string {
   return `(function () {
+  async function launch(endpoint, sessionPage, body, errorBox, button) {
+    errorBox.hidden = true;
+    button.disabled = true;
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify(body),
+      });
+      const payload = await response.json().catch(() => null);
+      if (response.status === 201 && payload && typeof payload.session_id === "string") {
+        window.location.assign(sessionPage + encodeURIComponent(payload.session_id));
+        return;
+      }
+      showError(errorBox, "The API refused the session (HTTP " + response.status + ")\\n" + JSON.stringify(payload, null, 2));
+    } catch (error) {
+      showError(errorBox, "The session request failed: " + error.message);
+    }
+    button.disabled = false;
+  }
+
+  function showError(errorBox, message) {
+    errorBox.textContent = message;
+    errorBox.hidden = false;
+  }
+
+  const statusListToggle = document.querySelector("[data-status-list-toggle]");
+  for (const button of document.querySelectorAll("button[data-launch]")) {
+    button.addEventListener("click", () => {
+      const body = JSON.parse(button.dataset.body);
+      if (statusListToggle?.checked && button.dataset.statusList === "true") {
+        body.status_list_enabled = true;
+      }
+      const errorBox = button.closest("li").querySelector("[data-launcher-error]");
+      launch(button.dataset.launch, button.dataset.sessionPage, body, errorBox, button);
+    });
+  }
+
   const form = document.querySelector("form.session-launcher");
   if (!form) return;
   const picker = form.querySelector("[data-credential-picker]");
@@ -63,40 +101,24 @@ export function sessionLauncherScript(): string {
     return merged ? Object.assign(body, merged) : body;
   }
 
-  function showError(message) {
-    errorBox.textContent = message;
-    errorBox.hidden = false;
-  }
-
-  form.addEventListener("submit", async (event) => {
+  form.addEventListener("submit", (event) => {
     event.preventDefault();
-    errorBox.hidden = true;
     let body;
     try {
       body = requestBody();
     } catch (error) {
-      showError(error.message);
+      showError(errorBox, error.message);
       return;
     }
-    submit.disabled = true;
-    try {
-      const response = await fetch(form.dataset.endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify(body),
-      });
-      const payload = await response.json().catch(() => null);
-      if (response.status === 201 && payload && typeof payload.session_id === "string") {
-        window.location.assign(form.dataset.sessionPage + encodeURIComponent(payload.session_id));
-        return;
-      }
-      showError("The API refused the session (HTTP " + response.status + ")\\n" + JSON.stringify(payload, null, 2));
-    } catch (error) {
-      showError("The session request failed: " + error.message);
-    }
-    submit.disabled = false;
+    launch(form.dataset.endpoint, form.dataset.sessionPage, body, errorBox, submit);
   });
 
+  // A launcher "Customize" link names the credential in the fragment.
+  const preselected = new URLSearchParams(window.location.hash.slice(1)).get("credential_configuration_id");
+  if (picker && preselected && Array.from(picker.options).some((option) => option.value === preselected)) {
+    picker.value = preselected;
+    form.querySelector("details.advanced-settings")?.setAttribute("open", "");
+  }
   picker?.addEventListener("change", applyCredential);
   applyCredential();
 })();`;

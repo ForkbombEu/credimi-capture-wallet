@@ -1,6 +1,3 @@
-import type { ResolvedIssuerConfiguration } from "../configurations/types.js";
-import type { SupportedCredential } from "../credentials/catalogue.js";
-import type { JsonRecord } from "../types.js";
 import { escapeHtml, htmlPage } from "./html.js";
 import {
   additionalParametersField,
@@ -10,8 +7,8 @@ import {
   launcherActionsHtml,
   launcherTopbarHtml,
 } from "./launcher.js";
-import type { ParameterGroup } from "./launcher.js";
-import { sessionLauncherScript } from "./scripts.js";
+import type { IssuerCredentialChoices, ParameterGroup } from "./launcher.js";
+import { launcherScript } from "./scripts.js";
 /** Allowed values of the `POST /openid4vp/sessions` parameters the verifier page offers. */
 interface PresentationParameterValues {
   readonly responseModes: readonly string[];
@@ -19,17 +16,8 @@ interface PresentationParameterValues {
   readonly clientIdSchemes: readonly string[];
 }
 
-interface VerifierCredentialGroup {
-  readonly issuer: ResolvedIssuerConfiguration;
-  readonly credentials: readonly {
-    readonly credential: SupportedCredential;
-    /** The query the verifier sends when the operator does not edit it. */
-    readonly dcqlQuery: JsonRecord;
-  }[];
-}
-
 export interface VerifierPageOptions {
-  readonly groups: readonly VerifierCredentialGroup[];
+  readonly groups: readonly IssuerCredentialChoices[];
   readonly fcafScenariosEnabled: boolean;
   readonly parameters: PresentationParameterValues;
 }
@@ -56,12 +44,12 @@ export function verifierPage(options: VerifierPageOptions): string {
       "</section>",
       "</main>",
       "<script>",
-      sessionLauncherScript(),
+      launcherScript(),
       "</script>",
     ].join(""),
   });
 }
-function verifierCredentialGroupHtml(group: VerifierCredentialGroup): string {
+function verifierCredentialGroupHtml(group: IssuerCredentialChoices): string {
   return [
     '<optgroup label="',
     escapeHtml(issuerLabel(group.issuer)),

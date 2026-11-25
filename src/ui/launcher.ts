@@ -1,7 +1,9 @@
 import type { AttestbookIssuerSummary } from "../attestbook/types.js";
 import type { ResolvedIssuerConfiguration } from "../configurations/types.js";
 import type { SupportedCredential } from "../credentials/catalogue.js";
+import type { JsonRecord } from "../types.js";
 import { API_DOCS_URL, OPENAPI_URL, REPOSITORY_URL, escapeHtml, htmlPage } from "./html.js";
+import { launcherScript } from "./scripts.js";
 
 const REGULATION_2026_1731_URL =
   "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ%3AL_202601731";
@@ -14,6 +16,26 @@ export interface IssuerCredentialGroup {
   attestbook?: AttestbookIssuerSummary;
 }
 
+/** A credential an issuer serves, with the DCQL query the verifier requests it with. */
+export interface CredentialChoice {
+  readonly credential: SupportedCredential;
+  readonly dcqlQuery: JsonRecord;
+}
+
+export interface IssuerCredentialChoices {
+  readonly issuer: ResolvedIssuerConfiguration;
+  readonly credentials: readonly CredentialChoice[];
+  readonly attestbook?: AttestbookIssuerSummary;
+}
+
+/**
+ * The fragment the issuer and verifier pages read to preselect a credential and open their
+ * advanced settings, so the launcher can hand a choice over without a server-side parameter.
+ */
+export function credentialPreselectionFragment(credentialConfigurationId: string): string {
+  return `#credential_configuration_id=${encodeURIComponent(credentialConfigurationId)}`;
+}
+
 /** Allowed values of the `POST /sessions` parameters the issuer page offers as choices. */
 export interface IssuanceParameterValues {
   readonly flows: readonly string[];
@@ -24,7 +46,12 @@ export interface IssuanceParameterValues {
   readonly evidenceModes: readonly string[];
   readonly statusReferences: readonly string[];
 }
-export function indexPage(groups: readonly IssuerCredentialGroup[]): string {
+/**
+ * Every credential of every issuer, each one issued or requested in one click with the API
+ * defaults. The issuer and verifier pages stay the place for every other parameter; the launcher
+ * links to them with the credential preselected.
+ */
+export function indexPage(groups: readonly IssuerCredentialChoices[]): string {
   return htmlPage({
     title: "Wallet Metadata Capture",
     body: [
@@ -34,13 +61,19 @@ export function indexPage(groups: readonly IssuerCredentialGroup[]): string {
       '<div class="hero-inner">',
       '<div class="hero-copy">',
       "<h1>Wallet metadata capture</h1>",
-      "<p>Open an issuer to issue one of its credentials to a wallet, or open the verifier to request a presentation. Every session captures the protocol evidence the wallet leaves behind.</p>",
+      "<p>Issue a credential to a wallet, or request its presentation, in one click. Every session captures the protocol evidence the wallet leaves behind.</p>",
+      "<p>Issue and Verify use the defaults. Customize opens the issuer or verifier page with that credential selected and every option of the API available.</p>",
+      '<nav class="session-actions" aria-label="Verifier">',
+      safeLinkHtml("Verifier page", VERIFIER_PAGE_PATH, "btn btn-outline btn-md"),
+      "</nav>",
       "</div>",
-      issuerCatalogueHtml(groups),
-      verifierCatalogueHtml(),
+      credentialCatalogueHtml(groups),
       "</div>",
       "</section>",
       "</main>",
+      "<script>",
+      launcherScript(),
+      "</script>",
     ].join(""),
   });
 }
@@ -77,56 +110,106 @@ export function issuerLabel(issuer: ResolvedIssuerConfiguration): string {
       : issuer.display.name;
 }
 
-function issuerCatalogueHtml(groups: readonly IssuerCredentialGroup[]): string {
+function credentialCatalogueHtml(groups: readonly IssuerCredentialChoices[]): string {
   return [
-    '<section class="issuer-catalogue" aria-labelledby="issuer-catalogue-title">',
-    '<h2 id="issuer-catalogue-title">Issuers</h2>',
+    '<section class="credential-catalogue" aria-labelledby="credential-catalogue-title">',
+    '<div class="catalogue-head">',
+    '<h2 id="credential-catalogue-title">Credentials</h2>',
+    '<label class="status-list-toggle">',
+    '<input type="checkbox" role="switch" data-status-list-toggle>',
+    '<span class="toggle-track" aria-hidden="true"></span>',
+    "<span>Include a Token Status List reference in issued PID credentials</span>",
+    "</label>",
+    "</div>",
     groups.length > 0
-      ? `<div class="issuer-cards">${groups.map(issuerCardHtml).join("")}</div>`
+      ? groups.map(issuerGroupHtml).join("")
       : '<p class="issuer-empty">No issuers available</p>',
     "</section>",
   ].join("");
 }
 
-function issuerCardHtml(group: IssuerCredentialGroup): string {
+function issuerGroupHtml(group: IssuerCredentialChoices): string {
   const { issuer } = group;
-  const count = group.credentials.length;
-
   return [
-    '<article class="issuer-card">',
+    '<article class="issuer-group">',
+    '<header class="issuer-group-head">',
+    "<div>",
     "<h3>",
     escapeHtml(issuerLabel(issuer)),
     "</h3>",
     '<p class="issuer-description">',
-    issuerDescriptionHtml(group),
+    issuerDescriptionHtml(issuer),
     "</p>",
     group.attestbook ? attestbookSummaryHtml(group.attestbook) : "",
-    '<p class="issuer-credential-count">',
-    `${count} credential configuration${count === 1 ? "" : "s"}`,
-    "</p>",
-    '<nav class="issuer-links" aria-label="',
-    escapeHtml(issuer.display.name),
-    '">',
-    safeLinkHtml("Open issuer", issuer.issuerIdentifier, "btn btn-primary btn-md"),
-    "</nav>",
+    "</div>",
+    safeLinkHtml("Issuer page", issuer.issuerIdentifier, "btn btn-outline btn-md"),
+    "</header>",
+    group.credentials.length > 0
+      ? `<ul class="credential-list">${group.credentials.map((choice) => credentialItemHtml(issuer, choice)).join("")}</ul>`
+      : '<p class="issuer-empty">This issuer serves no credential configuration.</p>',
     "</article>",
   ].join("");
 }
 
-function verifierCatalogueHtml(): string {
+function credentialItemHtml(
+  issuer: ResolvedIssuerConfiguration,
+  { credential, dcqlQuery }: CredentialChoice,
+): string {
+  const fragment = credentialPreselectionFragment(credential.id);
+  const issueBody = {
+    issuer_configuration_id: issuer.id,
+    credential_configuration_id: credential.id,
+  };
   return [
-    '<section class="issuer-catalogue" aria-labelledby="verifier-catalogue-title">',
-    '<h2 id="verifier-catalogue-title">Verifier</h2>',
-    '<div class="issuer-cards">',
-    '<article class="issuer-card verifier-card">',
-    "<h3>OpenID4VP verifier</h3>",
-    '<p class="issuer-description">Request a presentation of any credential the issuers above serve, then inspect the wallet response, its decoded claims, and the verifier checks.</p>',
-    '<nav class="issuer-links" aria-label="Verifier">',
-    safeLinkHtml("Open verifier", VERIFIER_PAGE_PATH, "btn btn-primary btn-md"),
-    "</nav>",
-    "</article>",
+    '<li class="credential-item">',
+    '<div class="credential-item-name">',
+    "<span>",
+    escapeHtml(credentialLabel(credential)),
+    "</span>",
+    '<span class="credential-item-links">',
+    safeLinkHtml("Customize issuance", `${issuer.issuerIdentifier}${fragment}`, "issuer-link"),
+    safeLinkHtml("Customize presentation", `${VERIFIER_PAGE_PATH}${fragment}`, "issuer-link"),
+    "</span>",
     "</div>",
-    "</section>",
+    '<div class="credential-item-actions">',
+    launchButtonHtml("Issue", "btn-primary", "/sessions", "/ui/sessions/", issueBody, {
+      // The API refuses a Token Status List for an imported Attestbook credential.
+      statusList: !credential.attestbook,
+    }),
+    launchButtonHtml(
+      "Verify",
+      "btn-outline",
+      "/openid4vp/sessions",
+      "/ui/openid4vp/sessions/",
+      { dcql_query: dcqlQuery },
+      { statusList: false },
+    ),
+    "</div>",
+    '<pre class="launcher-error" role="alert" data-launcher-error hidden></pre>',
+    "</li>",
+  ].join("");
+}
+
+function launchButtonHtml(
+  label: string,
+  variant: string,
+  endpoint: string,
+  sessionPage: string,
+  body: JsonRecord,
+  { statusList }: { statusList: boolean },
+): string {
+  return [
+    `<button class="btn ${variant} btn-md" type="button" data-launch="`,
+    escapeHtml(endpoint),
+    '" data-session-page="',
+    escapeHtml(sessionPage),
+    '" data-body="',
+    escapeHtml(JSON.stringify(body)),
+    '"',
+    statusList ? ' data-status-list="true"' : "",
+    ">",
+    escapeHtml(label),
+    "</button>",
   ].join("");
 }
 
@@ -141,9 +224,9 @@ export function attestbookSummaryHtml(summary: AttestbookIssuerSummary): string 
   return `<p class="issuer-description">${escapeHtml(`${active}; ${sync}.`)}</p>`;
 }
 
-export function issuerDescriptionHtml(group: IssuerCredentialGroup): string {
-  if (group.issuer.compliance !== "eudi-pid-device-bound") {
-    return escapeHtml(group.issuer.display.description);
+export function issuerDescriptionHtml(issuer: ResolvedIssuerConfiguration): string {
+  if (issuer.compliance !== "eudi-pid-device-bound") {
+    return escapeHtml(issuer.display.description);
   }
 
   return [

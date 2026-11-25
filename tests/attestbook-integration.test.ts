@@ -773,7 +773,7 @@ describe("Attestbook-defined credentials, end to end", () => {
     expect(await issuerCredentialIds(issuer)).toEqual([membershipVct]);
   });
 
-  it("offers the imported credential on the issuer page and the verifier page", async () => {
+  it("offers the imported credential on the launcher, the issuer page, and the verifier page", async () => {
     fixture.publish("6.0", [membership(6)]);
     const issuer = await startIssuer();
     const issuerPage = await request(issuer.app)
@@ -793,6 +793,14 @@ describe("Attestbook-defined credentials, end to end", () => {
     expect(JSON.parse(dcql.replaceAll("&quot;", '"'))).toMatchObject({
       credentials: [{ format: "dc+sd-jwt", meta: { vct_values: [membershipVct] } }],
     });
+
+    // The launcher's Issue button never adds a Token Status List, which the API refuses here.
+    const launcher = await request(issuer.app).get("/");
+    const issueButton = new RegExp(
+      `data-body="[^"]*${membershipVct}[^"]*"( data-status-list="true")?>Issue<`,
+    ).exec(launcher.text);
+    if (!issueButton) throw new Error("launcher does not offer the imported credential");
+    expect(issueButton[1]).toBeUndefined();
   });
 
   it("advertises no credential configuration before a rulebook version is active", async () => {
