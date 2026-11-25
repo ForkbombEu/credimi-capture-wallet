@@ -170,12 +170,12 @@ export const APP_CSS = [
   ".featured-option-toggle input:checked + .toggle-track { background: var(--brand-primary); border-color: var(--brand-primary); }",
   ".featured-option-toggle input:checked + .toggle-track::after { transform: translateX(18px); }",
   ".featured-option-toggle input:focus-visible + .toggle-track { outline: 2px solid color-mix(in oklch, var(--brand-primary) 36%, transparent); outline-offset: 2px; }",
-  // The launcher's links to the selected credential's issuer, between the flows' settings.
+  // The launcher's links to the selected credential's issuer, after the flows' settings.
   ".parameter-group-title { margin: 0 0 12px; color: var(--brand-primary); font-size: 12px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }",
   ".metadata-cards[hidden] { display: none; }",
   ".parameter-group { min-width: 0; margin: 0; padding: 14px; border: 0; }",
   ".parameter-group + .parameter-group { border-top: 1px solid var(--border); }",
-  ".issuer-links-group, .issuer-links-group + .flow-settings > .parameter-group:first-of-type { border-top: 1px solid var(--border); }",
+  ".issuer-links-group { border-top: 1px solid var(--border); }",
   // A floated legend is laid out inside the fieldset instead of on its border.
   ".parameter-group legend { float: left; width: 100%; margin-bottom: 12px; padding: 0; color: var(--brand-primary); font-size: 12px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }",
   ".parameter-fields { clear: both; display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }",
