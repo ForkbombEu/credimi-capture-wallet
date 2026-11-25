@@ -96,6 +96,7 @@ export function indexPage(groups: readonly IssuerCredentialChoices[]): string {
       issuerChooserHtml(groups),
       '<pre class="launcher-error" role="alert" data-launcher-error hidden></pre>',
       "</div>",
+      capturedValuesHtml(),
       "</section>",
       "</main>",
       "<script>",
@@ -103,6 +104,40 @@ export function indexPage(groups: readonly IssuerCredentialChoices[]): string {
       "</script>",
     ].join(""),
   });
+}
+
+/** What a session records about the Wallet, named as on the session pages. */
+function capturedValuesHtml(): string {
+  return [
+    '<aside class="card launcher-card" aria-labelledby="captured-values-title">',
+    '<div class="section-head">',
+    '<h2 id="captured-values-title">Captured values</h2>',
+    '<span class="count-chip">10</span>',
+    "</div>",
+    '<div class="capture-groups">',
+    '<section class="capture-group" aria-label="OpenID4VCI captured values">',
+    "<h3>OpenID4VCI</h3>",
+    '<dl class="capture-list">',
+    "<div><dt>client_id</dt><dd>Wallet OAuth client identifier</dd></div>",
+    "<div><dt>redirect_uri</dt><dd>Wallet authorization callback</dd></div>",
+    "<div><dt>wallet_jwks</dt><dd>Holder-binding public key from proof headers</dd></div>",
+    "<div><dt>dpop_jwk</dt><dd>DPoP public key when present</dd></div>",
+    "</dl>",
+    "</section>",
+    '<section class="capture-group" aria-label="OpenID4VP captured values">',
+    "<h3>OpenID4VP</h3>",
+    '<dl class="capture-list">',
+    "<div><dt>authorization_request</dt><dd>Verifier request object sent to the wallet</dd></div>",
+    "<div><dt>request_uri_payload</dt><dd>Wallet payload when request_uri_method is post</dd></div>",
+    "<div><dt>wallet_response</dt><dd>Wallet presentation response including vp_token</dd></div>",
+    "<div><dt>presentation_response_decrypted</dt><dd>Decrypted wallet presentation response</dd></div>",
+    "<div><dt>decoded_presentations</dt><dd>Credo-decoded claims from verified presentations</dd></div>",
+    "<div><dt>presentation_validation</dt><dd>Verifier checks for nonce, holder binding, and DCQL matching</dd></div>",
+    "</dl>",
+    "</section>",
+    "</div>",
+    "</aside>",
+  ].join("");
 }
 export function launcherTopbarHtml(): string {
   return [

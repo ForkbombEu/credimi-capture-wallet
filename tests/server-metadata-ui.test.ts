@@ -444,6 +444,24 @@ describe("capture issuer server", () => {
     expect(response.status).toBe(200);
     expect(response.text).toContain('<main class="page-content session-page">');
     expect(response.text).not.toContain("<form");
+    expect(response.text).toContain('<h2 id="captured-values-title">Captured values</h2>');
+    expect(response.text).toContain('<span class="count-chip">10</span>');
+    expect(response.text).toContain("<h3>OpenID4VCI</h3>");
+    expect(response.text).toContain("<h3>OpenID4VP</h3>");
+    for (const value of [
+      "client_id",
+      "redirect_uri",
+      "wallet_jwks",
+      "dpop_jwk",
+      "authorization_request",
+      "request_uri_payload",
+      "wallet_response",
+      "presentation_response_decrypted",
+      "decoded_presentations",
+      "presentation_validation",
+    ]) {
+      expect(response.text).toContain(`<dt>${value}</dt>`);
+    }
     expect(response.text).toContain('<option value="" selected>Choose a credential…</option>');
     expect(response.text).toContain("data-status-list-toggle");
     expect(response.text).toContain('<optgroup label="EUDI PID — device-bound conforming">');
