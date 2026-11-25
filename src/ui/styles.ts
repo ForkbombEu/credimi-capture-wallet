@@ -11,9 +11,11 @@ export const APP_CSS = [
   "a { color: var(--brand-primary); }",
   "code, pre, .brand-mark { font-family: JetBrains Mono, Fira Code, Cascadia Code, ui-monospace, monospace; }",
   ".container { width: min(100% - 48px, var(--max-width)); margin-inline: auto; }",
-  ".topbar { position: sticky; top: 0; z-index: 100; height: 58px; background: var(--bg); border-bottom: 1px solid var(--border); }",
-  ".topbar-inner { width: min(100% - 48px, var(--max-width)); height: 100%; margin-inline: auto; display: flex; align-items: center; justify-content: space-between; gap: 24px; }",
-  ".topbar-actions { display: inline-flex; align-items: center; gap: 10px; flex-shrink: 0; }",
+  // The bar grows rather than overflowing: a minimum height instead of the design source's fixed
+  // one, and its items wrap when the brand, the status chips, and the links do not fit on one row.
+  ".topbar { position: sticky; top: 0; z-index: 100; height: auto; min-height: 58px; background: var(--bg); border-bottom: 1px solid var(--border); }",
+  ".topbar-inner { width: min(100% - 48px, var(--max-width)); height: auto; min-height: 58px; padding-block: 8px; margin-inline: auto; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 24px; }",
+  ".topbar-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 10px; }",
   ".brand-lockup { display: inline-flex; align-items: center; gap: 10px; color: var(--fg); font-weight: 800; text-decoration: none; }",
   ".brand-logo { box-sizing: border-box; width: 42px; height: 42px; padding: 4px; object-fit: contain; flex: 0 0 auto; }",
   ".brand-mark { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: var(--radius-md); background: var(--brand-primary); color: white; font-size: 12px; font-weight: 800; }",
@@ -210,6 +212,6 @@ export const APP_CSS = [
   "@keyframes metadata-spin { to { transform: rotate(360deg); } }",
   "@keyframes metadata-flash { 0% { background: var(--warning-bg); box-shadow: 0 0 0 0 color-mix(in oklch, var(--warning) 32%, transparent); } 30% { background: var(--success-bg); box-shadow: 0 0 0 6px color-mix(in oklch, var(--success) 20%, transparent); } 100% { background: var(--bg); box-shadow: var(--shadow-sm); } }",
   "@media (prefers-reduced-motion: reduce) { .metadata-state-waiting::before, .metadata-state-receiving::before, .metadata-flash { animation: none; } .toggle-track, .toggle-track::after, a.issuer-card { transition: none; } }",
-  "@media (max-width: 860px) { h1 { font-size: 38px; } h2 { font-size: 22px; } .hero-band { padding: 52px 0 44px; } .landing-body, .session-layout, .launcher-layout { grid-template-columns: 1fr; } .entity-catalogue { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto repeat(var(--issuer-rows-narrow), 1fr) auto 1fr; } .session-header, .section-head, .footer-content { flex-direction: column; align-items: stretch; } .session-actions { align-items: stretch; flex-direction: column; } .session-actions .btn { width: 100%; } .footer-links { justify-content: flex-start; } .qr-box { width: 100%; max-width: 336px; } }",
+  "@media (max-width: 860px) { h1 { font-size: 38px; } h2 { font-size: 22px; } .topbar { position: static; } .hero-band { padding: 52px 0 44px; } .landing-body, .session-layout, .launcher-layout { grid-template-columns: 1fr; } .entity-catalogue { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto repeat(var(--issuer-rows-narrow), 1fr) auto 1fr; } .session-header, .section-head, .footer-content { flex-direction: column; align-items: stretch; } .session-actions { align-items: stretch; flex-direction: column; } .session-actions .btn { width: 100%; } .footer-links { justify-content: flex-start; } .qr-box { width: 100%; max-width: 336px; } }",
   "@media (max-width: 560px) { .container, .topbar-inner, .hero-inner, .footer-inner { width: min(100% - 28px, var(--max-width)); } .page-content { padding: 28px 0 52px; } .card { padding: 18px; } .brand-name { display: none; } .topbar-actions .btn { display: none; } .status-list-toggle { margin-left: 0; } }",
 ].join("\n");

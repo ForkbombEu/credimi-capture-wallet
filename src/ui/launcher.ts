@@ -183,7 +183,7 @@ export function launcherTopbarHtml(): string {
     '<div class="topbar-inner">',
     '<a class="brand-lockup" href="/">',
     '<img class="brand-logo" src="/assets/credimi_logo.svg" alt="Credimi">',
-    "<span>Wallet metadata capture</span>",
+    '<span class="brand-name">Wallet metadata capture</span>',
     "</a>",
     '<div class="topbar-actions">',
     '<span class="status-chip status-issuer">ISSUER READY</span>',
