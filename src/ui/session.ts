@@ -2,14 +2,18 @@ import type { VpDcApiRequest } from "../types.js";
 import { API_DOCS_URL, OPENAPI_URL, REPOSITORY_URL, escapeHtml, htmlPage } from "./html.js";
 import { heroSectionHtml, sectionIntroHtml } from "./launcher.js";
 import { renderMarkdown } from "./markdown.js";
-import { clientScript, dcApiPresentationScript, vpClientScript } from "./scripts.js";
+import {
+  clientScript,
+  copyButtonScript,
+  dcApiPresentationScript,
+  vpClientScript,
+} from "./scripts.js";
 export function vpSessionPage(
   sessionId: string,
   deeplink: string,
   qrSvg: string,
   dcApi = false,
 ): string {
-  const escapedDeeplink = escapeHtml(deeplink);
   return htmlPage({
     title: "OpenID4VP Session",
     body: [
@@ -65,16 +69,10 @@ export function vpSessionPage(
       "</div>",
       '<div class="qr-empty" id="qr-empty" hidden></div>',
       "</div>",
-      dcApi
-        ? '<div class="deeplink-panel" aria-label="DC API presentation page URL">'
-        : '<div class="deeplink-panel" aria-label="Presentation request deeplink">',
-      '<p class="deeplink-label">Same content as the QR code</p>',
-      '<a class="deeplink" href="',
-      escapedDeeplink,
-      '">',
-      escapedDeeplink,
-      "</a>",
-      "</div>",
+      deeplinkHtml(
+        deeplink,
+        dcApi ? "DC API presentation page URL" : "Presentation request deeplink",
+      ),
       "</div>",
       '<div class="card metadata-panel metadata-pending" id="metadata-panel">',
       '<div class="section-head">',
@@ -102,6 +100,9 @@ export function vpSessionPage(
       ";</script>",
       "<script>",
       vpClientScript(),
+      "</script>",
+      "<script>",
+      copyButtonScript(),
       "</script>",
     ].join(""),
   });
@@ -188,7 +189,6 @@ export function dcApiPresentationPage(options: DcApiPresentationPageOptions): st
   });
 }
 export function sessionPage(sessionId: string, deeplink: string, qrSvg: string): string {
-  const escapedDeeplink = escapeHtml(deeplink);
   return htmlPage({
     title: "OpenID4VCI Session",
     body: [
@@ -238,14 +238,7 @@ export function sessionPage(sessionId: string, deeplink: string, qrSvg: string):
       "</div>",
       '<div class="qr-empty" id="qr-empty" hidden></div>',
       "</div>",
-      '<div class="deeplink-panel" aria-label="Credential offer deeplink">',
-      '<p class="deeplink-label">Same content as the QR code</p>',
-      '<a class="deeplink" href="',
-      escapedDeeplink,
-      '">',
-      escapedDeeplink,
-      "</a>",
-      "</div>",
+      deeplinkHtml(deeplink, "Credential offer deeplink"),
       "</div>",
       '<div class="card metadata-panel metadata-pending" id="metadata-panel">',
       '<div class="section-head">',
@@ -270,6 +263,9 @@ export function sessionPage(sessionId: string, deeplink: string, qrSvg: string):
       ";</script>",
       "<script>",
       clientScript(),
+      "</script>",
+      "<script>",
+      copyButtonScript(),
       "</script>",
     ].join(""),
   });
@@ -310,6 +306,20 @@ export function credentialOfferEngagementPage(deeplink: string, qrSvg: string): 
       "</main>",
     ].join(""),
   });
+}
+
+/** The deeplink the QR code carries, as wide as the code, with a button that copies it. */
+function deeplinkHtml(deeplink: string, label: string): string {
+  const escaped = escapeHtml(deeplink);
+  return [
+    `<div class="deeplink-panel" aria-label="${escapeHtml(label)}">`,
+    `<a class="deeplink" id="deeplink" href="${escaped}">${escaped}</a>`,
+    '<button class="btn btn-sm btn-copy" type="button" data-copy="deeplink">',
+    '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
+    "<span>Copy</span>",
+    "</button>",
+    "</div>",
+  ].join("");
 }
 
 /** The top bar of a page with no session controls: the brand, and optionally a status chip. */

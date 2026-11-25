@@ -187,13 +187,16 @@ export const APP_CSS = [
   ".btn[disabled] { opacity: .55; cursor: not-allowed; }",
   ".session-layout { display: grid; grid-template-columns: minmax(300px, 420px) minmax(0, 1fr); gap: 24px; }",
   ".qr-panel { display: grid; gap: 16px; align-content: start; }",
-  ".qr-box { width: min(100%, 336px); aspect-ratio: 1; display: grid; place-items: center; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-muted); padding: 20px; }",
+  // The QR code and its deeplink share one width, and the code brings its own white quiet zone.
+  ".qr-box { width: min(100%, 288px); aspect-ratio: 1; display: grid; place-items: center; }",
   ".qr-code svg { display: block; width: 100%; height: auto; }",
   ".qr-empty { width: 100%; height: 100%; border: 1px dashed var(--border-strong); border-radius: var(--radius-md); background: var(--brand-secondary-strong); }",
   ".qr-guidance { color: var(--fg-muted); font-size: 14px; line-height: 1.6; }",
-  ".deeplink-panel { display: grid; gap: 8px; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-muted); }",
-  ".deeplink-label { color: var(--fg-muted); font-size: 12px; font-weight: 700; text-transform: uppercase; }",
+  ".deeplink-panel { display: grid; gap: 10px; justify-items: start; width: min(100%, 288px); }",
   ".deeplink { overflow-wrap: anywhere; color: var(--brand-primary); font-family: JetBrains Mono, Fira Code, Cascadia Code, ui-monospace, monospace; font-size: 12px; line-height: 1.5; }",
+  // A secondary action: light grey, never the brand's primary blue.
+  ".btn-copy { background: var(--border); color: var(--fg); }",
+  ".btn-copy:hover { background: color-mix(in oklch, var(--border) 60%, var(--border-strong)); }",
   ".metadata-panel { transition: background 220ms ease-out, border-color 220ms ease-out, box-shadow 220ms ease-out; }",
   ".metadata-pending { background: color-mix(in oklch, var(--bg) 74%, var(--bg-muted)); }",
   ".metadata-pending .metadata-row, .metadata-pending .metadata-json { opacity: .56; filter: grayscale(1); }",
@@ -232,6 +235,6 @@ export const APP_CSS = [
   "@keyframes metadata-spin { to { transform: rotate(360deg); } }",
   "@keyframes metadata-flash { 0% { background: var(--warning-bg); box-shadow: 0 0 0 0 color-mix(in oklch, var(--warning) 32%, transparent); } 30% { background: var(--success-bg); box-shadow: 0 0 0 6px color-mix(in oklch, var(--success) 20%, transparent); } 100% { background: var(--bg); box-shadow: var(--shadow-sm); } }",
   "@media (prefers-reduced-motion: reduce) { .metadata-state-waiting::before, .metadata-state-receiving::before, .metadata-flash { animation: none; } .segmented span, .toggle-track, .toggle-track::after, a.issuer-card { transition: none; } }",
-  "@media (max-width: 860px) { h1 { font-size: 38px; } h2 { font-size: 22px; } .topbar { position: static; } .page-section { padding: 64px 0; } .session-layout, .capture-more-groups, .metadata-cards { grid-template-columns: 1fr; } .section-head, .footer-content { flex-direction: column; align-items: stretch; } .footer-links { justify-content: flex-start; } .qr-box { width: 100%; max-width: 336px; } }",
+  "@media (max-width: 860px) { h1 { font-size: 38px; } h2 { font-size: 22px; } .topbar { position: static; } .page-section { padding: 64px 0; } .session-layout, .capture-more-groups, .metadata-cards { grid-template-columns: 1fr; } .section-head, .footer-content { flex-direction: column; align-items: stretch; } .footer-links { justify-content: flex-start; } }",
   "@media (max-width: 560px) { .container, .topbar-inner, .hero-inner, .footer-inner { width: min(100% - 28px, var(--max-width)); } .card { padding: 18px; } .brand-name { display: none; } .topbar-actions .btn { display: none; } .launcher-row > .flow-switch, .launcher-row > .btn { flex: 1 1 100%; } }",
 ].join("\n");

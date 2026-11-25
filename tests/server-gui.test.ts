@@ -43,7 +43,6 @@ describe("capture issuer server", () => {
     expect(page.text).toContain(
       '<a class="btn btn-outline btn-md" href="/openapi.json" download="openapi.json">OpenAPI</a>',
     );
-    expect(page.text).toContain("Same content as the QR code");
     expect(page.text).toContain("metadata-pending");
     expect(page.text).toContain("metadata-state-waiting");
     expect(page.text).toContain("metadata-state-receiving");
