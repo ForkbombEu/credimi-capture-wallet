@@ -444,7 +444,7 @@ describe("capture issuer server", () => {
     expect(response.status).toBe(200);
     expect(response.text).toContain('<main><section class="hero-band">');
     expect(response.text).toContain(
-      "Step 1) Start a one-time fake issuance flow, scan the offer, and inspect the wallet identifiers, callbacks, and proof keys observed by the issuer.",
+      "Step 1) Start a one-time issuance flow, scan the offer, and inspect the wallet identifiers, callbacks, and proof keys observed by the issuer.",
     );
     expect(response.text).not.toContain("<form");
     expect(response.text).toContain('<h2 id="captured-values-title">Captured values</h2>');
@@ -472,7 +472,7 @@ describe("capture issuer server", () => {
     expect(response.text).toContain(
       '<optgroup label="EUDI PID — JWT proof only — deliberately non-conforming">',
     );
-    expect(response.text).toContain('<h2 id="issuer-catalogue-title">Available issuers</h2>');
+    expect(response.text).toContain('<h2 id="issuer-catalogue-title">Issuers</h2>');
     expect(response.text.match(/<a class="issuer-card" href=/g)).toHaveLength(4);
     for (const issuerId of [conformingIssuerId, jwtKeyAttestationIssuerId, jwtOnlyIssuerId]) {
       expect(response.text).toContain(

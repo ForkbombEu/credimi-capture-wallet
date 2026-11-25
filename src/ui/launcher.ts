@@ -54,7 +54,7 @@ export function indexPage(groups: readonly IssuerCredentialChoices[]): string {
       '<div class="hero-inner">',
       '<div class="hero-copy">',
       "<h1>Wallet metadata capture</h1>",
-      "<p>Step 1) Start a one-time fake issuance flow, scan the offer, and inspect the wallet identifiers, callbacks, and proof keys observed by the issuer.</p>",
+      "<p>Step 1) Start a one-time issuance flow, scan the offer, and inspect the wallet identifiers, callbacks, and proof keys observed by the issuer.</p>",
       "<p>Step 2) After receiving the credential, start a Presentation session, and inspect the Wallet response as well as the DCQL</p>",
       '<div class="launcher-panel" data-launcher>',
       '<div class="credential-row">',
@@ -103,7 +103,7 @@ function entityCatalogueHtml(groups: readonly IssuerCredentialChoices[]): string
   const issuerRows = Math.max(groups.length, 1);
   return [
     `<section class="entity-catalogue" aria-label="Issuers and verifier" style="--issuer-rows-wide: ${Math.ceil(issuerRows / 2)}; --issuer-rows-narrow: ${issuerRows}">`,
-    '<h2 id="issuer-catalogue-title">Available issuers</h2>',
+    '<h2 id="issuer-catalogue-title">Issuers</h2>',
     groups.length > 0
       ? groups.map(issuerCardHtml).join("")
       : '<p class="issuer-empty">No issuers available</p>',
