@@ -190,7 +190,6 @@ export const APP_CSS = [
   ".qr-box { width: min(100%, 336px); aspect-ratio: 1; display: grid; place-items: center; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-muted); padding: 20px; }",
   ".qr-code svg { display: block; width: 100%; height: auto; }",
   ".qr-empty { width: 100%; height: 100%; border: 1px dashed var(--border-strong); border-radius: var(--radius-md); background: var(--brand-secondary-strong); }",
-  ".scan-text { color: var(--fg); font-size: 22px; font-weight: 700; line-height: 1.364; }",
   ".qr-guidance { color: var(--fg-muted); font-size: 14px; line-height: 1.6; }",
   ".deeplink-panel { display: grid; gap: 8px; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-muted); }",
   ".deeplink-label { color: var(--fg-muted); font-size: 12px; font-weight: 700; text-transform: uppercase; }",

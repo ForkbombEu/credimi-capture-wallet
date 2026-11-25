@@ -1,6 +1,6 @@
 import type { VpDcApiRequest } from "../types.js";
 import { API_DOCS_URL, OPENAPI_URL, REPOSITORY_URL, escapeHtml, htmlPage } from "./html.js";
-import { heroSectionHtml } from "./launcher.js";
+import { heroSectionHtml, sectionIntroHtml } from "./launcher.js";
 import { renderMarkdown } from "./markdown.js";
 import { clientScript, dcApiPresentationScript, vpClientScript } from "./scripts.js";
 export function vpSessionPage(
@@ -43,21 +43,28 @@ export function vpSessionPage(
             : "Scan the request, select a matching credential in the wallet, and inspect the submitted presentation response.",
         ],
       }),
-      '<section class="page-section">',
-      '<div class="container session-layout">',
-      '<div class="card qr-panel">',
+      '<section class="page-section" aria-labelledby="scan-text">',
+      '<div class="container">',
+      sectionIntroHtml({
+        tag: "h2",
+        id: "scan-text",
+        title: dcApi
+          ? "Scan the code to open the presentation page"
+          : "Scan the presentation request with the wallet",
+        paragraphsHtml: [
+          dcApi
+            ? '<span id="qr-guidance">The code is an HTTPS page URL, not a wallet deeplink. Scanning it opens the page in a browser; the wallet is invoked only when the End-User presses “Present credential” there.</span>'
+            : '<span id="qr-guidance">The QR points to a request_uri hosted by this service. The wallet response is captured when it posts the presentation.</span>',
+        ],
+      }),
+      '<div class="session-layout">',
+      '<div class="qr-panel">',
       '<div class="qr-box" id="qr-box" aria-live="polite">',
       '<div class="qr-code" id="qr-code">',
       qrSvg,
       "</div>",
       '<div class="qr-empty" id="qr-empty" hidden></div>',
       "</div>",
-      dcApi
-        ? '<p class="scan-text" id="scan-text">Scan the code to open the presentation page</p>'
-        : '<p class="scan-text" id="scan-text">Scan the presentation request with the wallet</p>',
-      dcApi
-        ? '<p class="qr-guidance" id="qr-guidance">The code is an HTTPS page URL, not a wallet deeplink. Scanning it opens the page in a browser; the wallet is invoked only when the End-User presses "Present credential" there.</p>'
-        : '<p class="qr-guidance" id="qr-guidance">The QR points to a request_uri hosted by this service. The wallet response is captured when it posts the presentation.</p>',
       dcApi
         ? '<div class="deeplink-panel" aria-label="DC API presentation page URL">'
         : '<div class="deeplink-panel" aria-label="Presentation request deeplink">',
@@ -85,6 +92,7 @@ export function vpSessionPage(
       '<details class="metadata-row"><summary>presentation_validation</summary><code>pending</code></details>',
       "</div>",
       '<pre class="metadata-json" id="metadata-json">{}</pre>',
+      "</div>",
       "</div>",
       "</div>",
       "</section>",
@@ -212,17 +220,24 @@ export function sessionPage(sessionId: string, deeplink: string, qrSvg: string):
           "Scan the offer, accept the issuance in the wallet, then complete the final wallet interaction.",
         ],
       }),
-      '<section class="page-section">',
-      '<div class="container session-layout">',
-      '<div class="card qr-panel">',
+      '<section class="page-section" aria-labelledby="scan-text">',
+      '<div class="container">',
+      sectionIntroHtml({
+        tag: "h2",
+        id: "scan-text",
+        title: "Scan the offer and accept it in the wallet",
+        paragraphsHtml: [
+          '<span id="qr-guidance">After scanning, keep going in the wallet issuance flow. Most wallets ask you to accept the issuance before metadata appears here.</span>',
+        ],
+      }),
+      '<div class="session-layout">',
+      '<div class="qr-panel">',
       '<div class="qr-box" id="qr-box" aria-live="polite">',
       '<div class="qr-code" id="qr-code">',
       qrSvg,
       "</div>",
       '<div class="qr-empty" id="qr-empty" hidden></div>',
       "</div>",
-      '<p class="scan-text" id="scan-text">Scan the offer and accept it in the wallet</p>',
-      '<p class="qr-guidance" id="qr-guidance">After scanning, keep going in the wallet issuance flow. Most wallets ask you to accept the issuance before metadata appears here.</p>',
       '<div class="deeplink-panel" aria-label="Credential offer deeplink">',
       '<p class="deeplink-label">Same content as the QR code</p>',
       '<a class="deeplink" href="',
@@ -245,6 +260,7 @@ export function sessionPage(sessionId: string, deeplink: string, qrSvg: string):
       '<details class="metadata-row"><summary>wallet_notification</summary><code>pending</code></details>',
       "</div>",
       '<pre class="metadata-json" id="metadata-json">{}</pre>',
+      "</div>",
       "</div>",
       "</div>",
       "</section>",
@@ -281,7 +297,7 @@ export function credentialOfferEngagementPage(deeplink: string, qrSvg: string): 
       }),
       '<section class="page-section">',
       '<div class="container session-layout">',
-      '<div class="card qr-panel">',
+      '<div class="qr-panel">',
       '<a class="btn btn-primary btn-lg" id="engage-offer" href="',
       escapedDeeplink,
       '">Open in wallet</a>',
