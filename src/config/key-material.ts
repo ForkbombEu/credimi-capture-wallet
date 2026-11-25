@@ -517,7 +517,10 @@ export function createJwkSigningContext(privateJwk: JsonRecord, keyId: string): 
 function createSigningContext(privateJwk: JsonRecord, keyId: string): object {
   const publicJwk = toPublicJwk(privateJwk);
   const kms = {
-    randomBytes: ({ length }: { length: number }) => randomBytes(length),
+    // A plain Uint8Array, as the KMS contract states, not Node's Buffer subclass: @peculiar/x509
+    // strips a random serial number's leading zero bytes with slice(), which on a Buffer is a view,
+    // so about one certificate in 512 kept a non-minimal DER INTEGER that Node refuses to parse.
+    randomBytes: ({ length }: { length: number }) => new Uint8Array(randomBytes(length)),
     getPublicKey: async ({ keyId: requestedKeyId }: { keyId: string }) => {
       if (requestedKeyId !== keyId) throw new Error(`Unknown key id '${requestedKeyId}'`);
       return publicJwk;
