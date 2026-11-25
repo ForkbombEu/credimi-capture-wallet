@@ -75,45 +75,45 @@ export const APP_CSS = [
   ".hero-band .section-intro-description p { color: rgb(255 255 255 / 85%); }",
   // A link or code in a hero description (an issuer's regulation reference) stays white on blue.
   ".hero-band a, .hero-band code { color: inherit; }",
-  ".launcher-panel { display: grid; gap: 14px; justify-items: start; }",
   ".session-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }",
   ".credential-picker { display: grid; gap: 8px; width: min(100%, 520px); color: var(--fg); font-size: 13px; font-weight: 700; }",
   ".credential-picker select { width: 100%; min-height: 44px; padding: 0 42px 0 14px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--bg); color: var(--fg); font: inherit; font-size: 14px; font-weight: 600; }",
   ".credential-picker select:focus { outline: 2px solid color-mix(in oklch, var(--brand-primary) 36%, transparent); outline-offset: 2px; }",
-  // The credential select and the status-list switch share one row: the
-  // switch is pushed to the trailing edge and baseline-matched to the select
-  // (the picker carries its own label above, hence flex-end).
+  // The credential select fills its row; on the issuer and verifier pages it is alone there.
   ".credential-row { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; width: 100%; }",
   ".credential-row .credential-picker { flex: 1 1 320px; }",
-  ".status-list-toggle { position: relative; display: inline-flex; align-items: center; gap: 10px; min-height: 44px; margin-left: auto; color: var(--fg); font-size: 13px; font-weight: 700; cursor: pointer; }",
-  // The native checkbox stays in the layout for form submission and keyboard
-  // focus; only the track is painted.
-  ".status-list-toggle input { position: absolute; width: 1px; height: 1px; margin: 0; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }",
-  ".toggle-track { position: relative; flex: 0 0 auto; width: 40px; height: 22px; border: 1px solid var(--border-strong); border-radius: var(--radius-pill); background: var(--bg-muted); transition: background 150ms ease-out, border-color 150ms ease-out; }",
-  ".toggle-track::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--bg); box-shadow: var(--shadow-sm); transition: transform 150ms ease-out; }",
-  ".status-list-toggle input:checked + .toggle-track { background: var(--brand-primary); border-color: var(--brand-primary); }",
-  ".status-list-toggle input:checked + .toggle-track::after { transform: translateX(18px); }",
-  ".status-list-toggle input:focus-visible + .toggle-track { outline: 2px solid color-mix(in oklch, var(--brand-primary) 36%, transparent); outline-offset: 2px; }",
+  // The launcher's flow switch, credential select, and Start share one row, bottom-aligned
+  // because the switch and the select carry their labels above.
+  ".launcher-row { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; width: 100%; }",
+  ".launcher-row .credential-picker { flex: 1 1 420px; width: auto; }",
+  ".launcher-row > .btn { min-width: 150px; }",
+  ".flow-switch { display: grid; gap: 8px; }",
+  ".segmented { display: flex; gap: 4px; height: 44px; padding: 4px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--bg); }",
+  ".segmented label { position: relative; display: flex; flex: 1 1 0; }",
+  // The native radios stay in the layout for keyboard use; only their labels are painted.
+  ".segmented input { position: absolute; width: 1px; height: 1px; margin: 0; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }",
+  ".segmented span { display: flex; flex: 1; align-items: center; justify-content: center; padding: 0 18px; border-radius: calc(var(--radius-md) - 2px); color: var(--fg-muted); font-size: 14px; font-weight: 700; cursor: pointer; transition: background 150ms ease-out, color 150ms ease-out; }",
+  ".segmented input:checked + span { background: var(--brand-primary); color: white; }",
+  ".segmented input:focus-visible + span { outline: 2px solid color-mix(in oklch, var(--brand-primary) 36%, transparent); outline-offset: 2px; }",
+  // Each flow's settings, of which only the chosen one is shown and sent.
+  ".flow-settings { min-width: 0; margin: 0; padding: 0; border: 0; }",
   // A clickable card has a thin border in the primary button's blue. Hovering lifts it and
   // thickens the border with an inset ring, so the card's content does not shift.
   "a.issuer-card { color: var(--fg); text-decoration: none; border-color: var(--brand-primary); transition: transform 150ms ease-out, box-shadow 150ms ease-out; }",
   "a.issuer-card:hover { transform: translateY(-4px); box-shadow: inset 0 0 0 1px var(--brand-primary), 0 8px 18px rgb(49 32 96 / 16%); }",
   "a.issuer-card:focus-visible { outline: 2px solid color-mix(in oklch, var(--brand-primary) 36%, transparent); outline-offset: 2px; }",
-  ".entity-catalogue { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: auto repeat(var(--issuer-rows-wide), 1fr) auto 1fr; gap: 12px; width: 100%; margin-top: 32px; }",
-  ".subsection-heading, .entity-catalogue > .issuer-empty { grid-column: 1 / -1; }",
+  ".subsection-heading { grid-column: 1 / -1; }",
   // Set in full so a label <span> reads exactly like the <h3> sub-headings.
   ".subsection-heading { font-size: 20px; line-height: 1.3; font-weight: 700; letter-spacing: -0.01em; color: var(--fg); }",
   ".subsection-heading:not(:first-child) { margin-top: 20px; }",
   ".issuer-card { min-width: 0; display: grid; align-content: start; gap: 12px; padding: 18px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg); box-shadow: var(--shadow-sm); }",
   ".issuer-card h3 { min-width: 0; font-size: 16px; line-height: 1.4; }",
-  ".issuer-card .issuer-description { font-size: 14px; line-height: 1.5; }",
   ".metadata-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }",
   ".metadata-card { position: relative; gap: 8px; }",
   ".metadata-card h3 { padding-right: 28px; }",
   ".metadata-card-url { overflow-wrap: anywhere; color: var(--fg-muted); font-family: JetBrains Mono, Fira Code, Cascadia Code, ui-monospace, monospace; font-size: 12px; line-height: 1.5; }",
   // The external-link arrow marks a card that opens its document in a new tab; an inert card has none.
   'a.metadata-card::after { content: ""; position: absolute; top: 20px; right: 18px; width: 18px; height: 18px; background: var(--brand-primary); mask: url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27black%27 stroke-width=%272.2%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27%3E%3Cpath d=%27M7 17 17 7M8 7h9v9%27/%3E%3C/svg%3E") center / contain no-repeat; }',
-  ".status-list-toggle.field-disabled { cursor: not-allowed; }",
   ".count-chip { display: inline-flex; align-items: center; justify-content: center; width: fit-content; min-width: 24px; height: 24px; padding: 0 8px; border-radius: var(--radius-pill); background: var(--brand-secondary-strong); color: var(--fg-muted); font-size: 13px; font-weight: 600; }",
   ".page-section-white { background: var(--bg); }",
   ".capture-groups { display: grid; gap: 18px; }",
@@ -227,7 +227,7 @@ export const APP_CSS = [
   ".readme-card pre code { padding: 0; background: transparent; }",
   "@keyframes metadata-spin { to { transform: rotate(360deg); } }",
   "@keyframes metadata-flash { 0% { background: var(--warning-bg); box-shadow: 0 0 0 0 color-mix(in oklch, var(--warning) 32%, transparent); } 30% { background: var(--success-bg); box-shadow: 0 0 0 6px color-mix(in oklch, var(--success) 20%, transparent); } 100% { background: var(--bg); box-shadow: var(--shadow-sm); } }",
-  "@media (prefers-reduced-motion: reduce) { .metadata-state-waiting::before, .metadata-state-receiving::before, .metadata-flash { animation: none; } .toggle-track, .toggle-track::after, a.issuer-card { transition: none; } }",
-  "@media (max-width: 860px) { h1 { font-size: 38px; } h2 { font-size: 22px; } .topbar { position: static; } .page-section { padding: 64px 0; } .session-layout, .capture-more-groups, .metadata-cards { grid-template-columns: 1fr; } .entity-catalogue { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto repeat(var(--issuer-rows-narrow), 1fr) auto 1fr; } .session-header, .section-head, .footer-content { flex-direction: column; align-items: stretch; } .session-actions { align-items: stretch; flex-direction: column; } .session-actions .btn { width: 100%; } .footer-links { justify-content: flex-start; } .qr-box { width: 100%; max-width: 336px; } }",
-  "@media (max-width: 560px) { .container, .topbar-inner, .hero-inner, .footer-inner { width: min(100% - 28px, var(--max-width)); } .page-content { padding: 28px 0 52px; } .card { padding: 18px; } .brand-name { display: none; } .topbar-actions .btn { display: none; } .status-list-toggle { margin-left: 0; } }",
+  "@media (prefers-reduced-motion: reduce) { .metadata-state-waiting::before, .metadata-state-receiving::before, .metadata-flash { animation: none; } .segmented span, a.issuer-card { transition: none; } }",
+  "@media (max-width: 860px) { h1 { font-size: 38px; } h2 { font-size: 22px; } .topbar { position: static; } .page-section { padding: 64px 0; } .session-layout, .capture-more-groups, .metadata-cards { grid-template-columns: 1fr; } .session-header, .section-head, .footer-content { flex-direction: column; align-items: stretch; } .session-actions { align-items: stretch; flex-direction: column; } .session-actions .btn { width: 100%; } .footer-links { justify-content: flex-start; } .qr-box { width: 100%; max-width: 336px; } }",
+  "@media (max-width: 560px) { .container, .topbar-inner, .hero-inner, .footer-inner { width: min(100% - 28px, var(--max-width)); } .page-content { padding: 28px 0 52px; } .card { padding: 18px; } .brand-name { display: none; } .topbar-actions .btn { display: none; } .launcher-row > .flow-switch, .launcher-row > .btn { flex: 1 1 100%; } }",
 ].join("\n");

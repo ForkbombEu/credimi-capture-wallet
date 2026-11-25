@@ -6,7 +6,8 @@ import { defaultDcqlQuery } from "../src/openid4vp/authorization-request.js";
 import { issuerPage } from "../src/ui/issuer.js";
 import type { IssuerPageOptions } from "../src/ui/issuer.js";
 import { indexPage } from "../src/ui/launcher.js";
-import type { IssuanceParameterValues } from "../src/ui/launcher.js";
+import type { IssuerCredentialChoices } from "../src/ui/launcher.js";
+import type { IssuanceParameterValues } from "../src/ui/session-parameters.js";
 import { errorPage } from "../src/ui/session.js";
 import { verifierPage } from "../src/ui/verifier.js";
 
@@ -36,6 +37,15 @@ function issuerPageOptions(overrides: Partial<IssuerPageOptions> = {}): IssuerPa
   };
 }
 
+function launcherPage(groups: readonly IssuerCredentialChoices[]): string {
+  return indexPage({
+    groups,
+    fcafScenariosEnabled: false,
+    issuanceParameters,
+    presentationParameters: { responseModes: [], requestDeliveries: [], clientIdSchemes: [] },
+  });
+}
+
 function attributeJson(page: string, pattern: RegExp): unknown {
   const value = pattern.exec(page)?.[1];
   if (value === undefined) throw new Error(`no match for ${pattern}`);
@@ -54,75 +64,72 @@ describe("launcher", () => {
   };
   const dcqlQuery = defaultDcqlQuery([credential]);
 
-  it("disables both session buttons when no credential exists, and still offers the verifier", () => {
-    const page = indexPage([]);
+  it("disables Start when no credential exists", () => {
+    const page = launcherPage([]);
 
     expect(page).toContain('<option value="">No credentials available</option>');
-    expect(page).toContain("data-issue disabled>New issuance session</button>");
-    expect(page).toContain("data-verify disabled>New presentation session</button>");
-    expect(page).toContain('<p class="issuer-empty">No issuers available</p>');
-    expect(page).toContain('<a class="issuer-card" href="/openid4vp"><h3>OpenID4VP verifier</h3>');
+    expect(page).toContain('type="submit" autocomplete="off" disabled>Start</button>');
   });
 
-  it("preselects the first credential and makes each card a link with no link inside", () => {
-    const page = indexPage([{ issuer: jwtOnlyIssuer, credentials: [{ credential, dcqlQuery }] }]);
+  it("preselects the first credential and carries what each flow sends in its option", () => {
+    const page = launcherPage([
+      { issuer: jwtOnlyIssuer, credentials: [{ credential, dcqlQuery }] },
+    ]);
 
     // No placeholder: the first option is the selection.
     expect(page).toContain(
-      `<select data-credential-choice autocomplete="off"><optgroup label="${jwtOnlyIssuer.display.name} — deliberately non-conforming"><option value="${credential.id}" data-issuer="${jwtOnlyIssuer.id}" data-dcql="`,
+      `<select data-credential-picker autocomplete="off"><optgroup label="${jwtOnlyIssuer.display.name} — deliberately non-conforming"><option value="${credential.id}" data-issuer="${jwtOnlyIssuer.id}" data-dcql="`,
     );
     expect(attributeJson(page, /data-dcql="([^"]+)"/)).toEqual(dcqlQuery);
+    expect(page).toContain(' data-format="dc+sd-jwt">PID</option>');
     expect(page).not.toContain("data-imported");
-    expect(page).toContain("data-issue>New issuance session</button>");
+    expect(page).toContain('type="submit" autocomplete="off">Start</button>');
+    expect(page).not.toContain('class="issuer-card');
+  });
+
+  it("starts on issuance and keeps the presentation settings out of the request", () => {
+    const page = launcherPage([
+      { issuer: jwtOnlyIssuer, credentials: [{ credential, dcqlQuery }] },
+    ]);
+
     expect(page).toContain(
-      `<a class="issuer-card" href="${jwtOnlyIssuer.issuerIdentifier}"><h3>${jwtOnlyIssuer.display.name} — deliberately non-conforming</h3>`,
+      '<input type="radio" name="session-flow" value="issuance" data-flow-choice data-endpoint="/sessions" data-session-page="/ui/sessions/" autocomplete="off" checked>',
     );
-    expect(page).not.toContain("Customize");
-    expect(page).not.toContain('class="issuer-card metadata-card"');
+    expect(page).toContain(
+      '<input type="radio" name="session-flow" value="presentation" data-flow-choice data-endpoint="/openid4vp/sessions" data-session-page="/ui/openid4vp/sessions/" autocomplete="off">',
+    );
+    // A disabled fieldset's fields are skipped when the request body is built.
+    expect(page).toContain(
+      '<fieldset class="flow-settings" data-flow="presentation" hidden disabled>',
+    );
+    const issuance =
+      /<fieldset class="flow-settings" data-flow="issuance">(.*?)<\/fieldset><fieldset class="flow-settings" data-flow="presentation"/.exec(
+        page,
+      )?.[1];
+    expect(issuance).toContain(
+      'data-param="issuer_configuration_id" data-type="string" data-option="issuer"',
+    );
+    expect(issuance).toContain(
+      'data-param="credential_configuration_id" data-type="string" data-option="credential"',
+    );
+    expect(issuance).toContain(
+      '<input type="checkbox" value="true" data-param="status_list_enabled" data-type="flag" data-requires="static-credential">',
+    );
   });
 
-  it("keeps the device-bound regulation reference as text inside its card", () => {
-    const deviceBound = resolvedIssuerConfigurationById(DEFAULT_CONFIG, "eu-pid-device-bound");
-    if (!deviceBound) throw new Error("device-bound issuer configuration unavailable");
-    const page = indexPage([{ issuer: deviceBound, credentials: [] }]);
-    const card = /<a class="issuer-card"[^>]*>(.*?)<\/a>/.exec(page)?.[1] ?? "";
-
-    expect(card).toContain("Commission Implementing Regulation (EU) 2026/1731");
-    expect(card).not.toContain("<a ");
-  });
-
-  it("escapes configured issuer text and the issuer page URL", () => {
-    const page = indexPage([
+  it("escapes configured issuer text", () => {
+    const page = launcherPage([
       {
         issuer: {
           ...jwtOnlyIssuer,
           display: { name: 'Issuer <script>alert("name")</script> &', description: "" },
-          issuerIdentifier:
-            "https://issuer.example.test/?next=\"><script>alert('url')</script>&mode=test",
         },
         credentials: [{ credential, dcqlQuery }],
       },
     ]);
 
     expect(page).toContain("Issuer &lt;script&gt;alert(&quot;name&quot;)&lt;/script&gt; &amp;");
-    expect(page).toContain(
-      "https://issuer.example.test/?next=&quot;&gt;&lt;script&gt;alert(&#39;url&#39;)&lt;/script&gt;&amp;mode=test",
-    );
     expect(page).not.toContain("<script>alert");
-  });
-
-  it("renders a card with an unsafe issuer page URL as inert, never as a link target", () => {
-    const page = indexPage([
-      {
-        issuer: { ...jwtOnlyIssuer, issuerIdentifier: 'javascript:alert("issuer")' },
-        credentials: [{ credential, dcqlQuery }],
-      },
-    ]);
-
-    expect(page).not.toContain('href="javascript:');
-    expect(page).toContain(
-      `<article class="issuer-card"><h3>${jwtOnlyIssuer.display.name} — deliberately non-conforming</h3>`,
-    );
   });
 });
 

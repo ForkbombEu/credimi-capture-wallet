@@ -1,7 +1,8 @@
 /**
- * Creates a session through the public JSON API, from the launcher's one-click buttons or from the
- * issuer or verifier page form. A form sends only the fields the operator filled, so every other
- * parameter keeps the API default, and a refusal is shown as the API's own error body.
+ * Creates a session through the public JSON API from the launcher, issuer, or verifier page form.
+ * A form sends only the fields the operator filled, so every other parameter keeps the API
+ * default, and a refusal is shown as the API's own error body. The launcher's flow switch picks
+ * the endpoint and enables only that flow's settings.
  */
 export function launcherScript(): string {
   return `(function () {
@@ -42,42 +43,6 @@ export function launcherScript(): string {
     errorBox.hidden = false;
   }
 
-  const launcher = document.querySelector("[data-launcher]");
-  if (launcher) {
-    const choice = launcher.querySelector("[data-credential-choice]");
-    const statusListToggle = launcher.querySelector("[data-status-list-toggle]");
-    const issue = launcher.querySelector("[data-issue]");
-    const verify = launcher.querySelector("[data-verify]");
-    const launcherError = launcher.querySelector("[data-launcher-error]");
-    const selected = () => (choice.value === "" ? undefined : choice.selectedOptions[0]);
-
-    function sync() {
-      const option = selected();
-      issue.disabled = !option;
-      verify.disabled = !option;
-      // The API refuses a Token Status List for an imported Attestbook credential.
-      statusListToggle.disabled = option?.dataset.imported === "true";
-      statusListToggle.closest("label").classList.toggle("field-disabled", statusListToggle.disabled);
-    }
-
-    issue.addEventListener("click", () => {
-      const option = selected();
-      if (!option) return;
-      const body = { issuer_configuration_id: option.dataset.issuer, credential_configuration_id: option.value };
-      if (statusListToggle.checked && !statusListToggle.disabled) body.status_list_enabled = true;
-      launch("/sessions", "/ui/sessions/", body, launcherError, issue);
-    });
-    verify.addEventListener("click", () => {
-      const option = selected();
-      if (!option) return;
-      const body = { dcql_query: JSON.parse(option.dataset.dcql) };
-      launch("/openid4vp/sessions", "/ui/openid4vp/sessions/", body, launcherError, verify);
-    });
-    choice.addEventListener("change", sync);
-    window.addEventListener("pageshow", sync);
-    sync();
-  }
-
   const form = document.querySelector("form.session-launcher");
   if (!form) return;
   const picker = form.querySelector("[data-credential-picker]");
@@ -86,10 +51,25 @@ export function launcherScript(): string {
   const submit = form.querySelector('button[type="submit"]');
   let generatedDcql = "";
 
+  // The chosen flow's radio carries its endpoint; a single-flow page's form carries its own.
+  const target = () => form.querySelector("[data-flow-choice]:checked")?.dataset ?? form.dataset;
+
+  function applyFlow() {
+    const flow = form.querySelector("[data-flow-choice]:checked")?.value;
+    for (const settings of form.querySelectorAll("fieldset[data-flow]")) {
+      const active = settings.dataset.flow === flow;
+      settings.hidden = !active;
+      settings.disabled = !active;
+    }
+  }
+
   function applyCredential() {
-    const option = picker ? picker.selectedOptions[0] : undefined;
+    const option = picker && picker.value !== "" ? picker.selectedOptions[0] : undefined;
     const imported = option?.dataset.imported === "true";
     const mdoc = option?.dataset.format === "mso_mdoc";
+    for (const field of form.querySelectorAll("[data-option]")) {
+      field.value = !option ? "" : field.dataset.option === "issuer" ? option.dataset.issuer : option.value;
+    }
     for (const field of form.querySelectorAll("[data-requires]")) {
       const applies = field.dataset.requires === "static-credential" ? !imported : !mdoc;
       field.disabled = !applies;
@@ -106,7 +86,8 @@ export function launcherScript(): string {
     const body = {};
     let merged;
     for (const field of form.querySelectorAll("[data-param]")) {
-      if (field.disabled) continue;
+      // A field the credential rules out, or one in the other flow's disabled fieldset.
+      if (field.matches(":disabled")) continue;
       const name = field.dataset.param;
       const type = field.dataset.type;
       if (type === "flag") {
@@ -145,10 +126,20 @@ export function launcherScript(): string {
       showError(errorBox, error.message);
       return;
     }
-    launch(form.dataset.endpoint, form.dataset.sessionPage, body, errorBox, submit);
+    const { endpoint, sessionPage } = target();
+    launch(endpoint, sessionPage, body, errorBox, submit);
   });
 
+  for (const choice of form.querySelectorAll("[data-flow-choice]")) {
+    choice.addEventListener("change", applyFlow);
+  }
   picker?.addEventListener("change", applyCredential);
+  // A restored page may come back with another flow or credential selected.
+  window.addEventListener("pageshow", () => {
+    applyFlow();
+    applyCredential();
+  });
+  applyFlow();
   applyCredential();
 })();`;
 }

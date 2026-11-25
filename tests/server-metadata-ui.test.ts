@@ -464,7 +464,7 @@ describe("capture issuer server", () => {
     expect(response.text).toContain(
       "Step 1) Start a one-time issuance flow, scan the offer, and inspect the wallet identifiers, callbacks, and proof keys observed by the issuer.",
     );
-    expect(response.text).not.toContain("<form");
+    expect(response.text).toContain('<form class="launcher-form session-launcher" novalidate>');
     expect(response.text).toContain(
       'id="captured-values-title">Captured values</h2><span class="count-chip">11</span>',
     );
@@ -490,26 +490,16 @@ describe("capture issuer server", () => {
     ]) {
       expect(response.text).toContain(`<dt>${value}</dt>`);
     }
-    expect(response.text).not.toContain('<option value=""');
-    expect(response.text).toContain("data-status-list-toggle");
+    // No placeholder: the credential select opens on the first issuer's first credential.
+    expect(response.text).toContain('<select data-credential-picker autocomplete="off"><optgroup');
+    expect(response.text).toContain('data-param="status_list_enabled"');
     expect(response.text).toContain('<optgroup label="EUDI PID — device-bound conforming">');
     expect(response.text).toContain('<optgroup label="EUDI PID — JWT key attestation">');
     expect(response.text).toContain(
       '<optgroup label="EUDI PID — JWT proof only — deliberately non-conforming">',
     );
-    expect(response.text).toContain(
-      '<h3 class="subsection-heading" id="issuer-catalogue-title">Issuers</h3>',
-    );
-    expect(response.text.match(/<a class="issuer-card" href=/g)).toHaveLength(4);
-    for (const issuerId of [conformingIssuerId, jwtKeyAttestationIssuerId, jwtOnlyIssuerId]) {
-      expect(response.text).toContain(
-        `<a class="issuer-card" href="${config.issuer_base_url}/issuers/${issuerId}">`,
-      );
-    }
-    expect(response.text).toContain(
-      '<h3 class="subsection-heading" id="verifier-catalogue-title">Verifier</h3>',
-    );
-    expect(response.text).toContain('<a class="issuer-card" href="/openid4vp">');
+    // The issuer and verifier pages are no longer linked from the launcher.
+    expect(response.text).not.toContain('class="issuer-card');
     expect(response.text).not.toContain("Customize");
 
     // The bodies the launcher script builds from an option are sessions the API accepts.

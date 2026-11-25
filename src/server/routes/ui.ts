@@ -22,6 +22,10 @@ import {
   VERIFIER_PAGE_PATH,
   indexPage,
 } from "../../ui/launcher.js";
+import type {
+  IssuanceParameterValues,
+  PresentationParameterValues,
+} from "../../ui/session-parameters.js";
 import {
   credentialOfferEngagementPage,
   dcApiPresentationPage,
@@ -50,9 +54,31 @@ export function registerUiRoutes(app: Express, ctx: ServerContext): void {
   const { config, store } = ctx;
   if (!config.gui_enabled) return;
 
+  const issuanceParameters: IssuanceParameterValues = {
+    flows: ISSUANCE_FLOWS,
+    credentialOfferModes: CREDENTIAL_OFFER_MODES,
+    offerSchemes: OFFER_SCHEMES,
+    fixtureIds: PID_FIXTURE_IDS,
+    digestAlgorithms: SD_JWT_DIGEST_ALGORITHMS,
+    evidenceModes: EVIDENCE_MODES,
+    statusReferences: STATUS_REFERENCE_FIXTURES,
+  };
+  const presentationParameters: PresentationParameterValues = {
+    responseModes: OPENID4VP_RESPONSE_MODE_VALUES,
+    requestDeliveries: VP_REQUEST_DELIVERIES,
+    clientIdSchemes: VP_CLIENT_ID_SCHEMES,
+  };
+
   app.get("/", async (_req, res, next) => {
     try {
-      res.type("html").send(indexPage(await issuerCredentialChoices(config, store)));
+      res.type("html").send(
+        indexPage({
+          groups: await issuerCredentialChoices(config, store),
+          fcafScenariosEnabled: config.fcaf_scenarios_enabled,
+          issuanceParameters,
+          presentationParameters,
+        }),
+      );
     } catch (error) {
       next(error);
     }
@@ -79,15 +105,7 @@ export function registerUiRoutes(app: Express, ctx: ServerContext): void {
               }
             : {}),
           fcafScenariosEnabled: config.fcaf_scenarios_enabled,
-          parameters: {
-            flows: ISSUANCE_FLOWS,
-            credentialOfferModes: CREDENTIAL_OFFER_MODES,
-            offerSchemes: OFFER_SCHEMES,
-            fixtureIds: PID_FIXTURE_IDS,
-            digestAlgorithms: SD_JWT_DIGEST_ALGORITHMS,
-            evidenceModes: EVIDENCE_MODES,
-            statusReferences: STATUS_REFERENCE_FIXTURES,
-          },
+          parameters: issuanceParameters,
         }),
       );
     } catch (error) {
@@ -101,11 +119,7 @@ export function registerUiRoutes(app: Express, ctx: ServerContext): void {
         verifierPage({
           groups: await issuerCredentialChoices(config, store),
           fcafScenariosEnabled: config.fcaf_scenarios_enabled,
-          parameters: {
-            responseModes: OPENID4VP_RESPONSE_MODE_VALUES,
-            requestDeliveries: VP_REQUEST_DELIVERIES,
-            clientIdSchemes: VP_CLIENT_ID_SCHEMES,
-          },
+          parameters: presentationParameters,
         }),
       );
     } catch (error) {

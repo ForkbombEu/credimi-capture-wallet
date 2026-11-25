@@ -1,9 +1,7 @@
 import type { SupportedCredential } from "../credentials/catalogue.js";
 import { escapeHtml, htmlPage } from "./html.js";
-import type { IssuanceParameterValues, IssuerCredentialGroup } from "./launcher.js";
+import type { IssuerCredentialGroup } from "./launcher.js";
 import {
-  additionalParametersField,
-  advancedSettingsHtml,
   attestbookSummaryText,
   credentialLabel,
   entityCardHtml,
@@ -14,8 +12,13 @@ import {
   launcherTopbarHtml,
   sectionIntroHtml,
 } from "./launcher.js";
-import type { ParameterGroup } from "./launcher.js";
 import { launcherScript } from "./scripts.js";
+import {
+  type IssuanceParameterValues,
+  advancedSettingsHtml,
+  issuanceParameterGroups,
+  parameterGroupsHtml,
+} from "./session-parameters.js";
 
 export interface IssuerPageOptions {
   readonly group: IssuerCredentialGroup;
@@ -80,93 +83,6 @@ function issuerCredentialOptionHtml(credential: SupportedCredential): string {
 }
 function issuanceFormHtml({ group, fcafScenariosEnabled, parameters }: IssuerPageOptions): string {
   const { issuer, credentials } = group;
-  const groups: ParameterGroup[] = [
-    {
-      legend: "Credential offer",
-      fields: [
-        { name: "flow", label: "Grant", kind: "select", values: parameters.flows },
-        {
-          name: "credential_offer_mode",
-          label: "Offer delivery",
-          kind: "select",
-          values: parameters.credentialOfferModes,
-          hint: "credential_offer embeds the offer in the deeplink; credential_offer_uri passes it by reference.",
-        },
-        {
-          name: "offer_scheme",
-          label: "Offer deeplink scheme",
-          kind: "select",
-          values: parameters.offerSchemes,
-        },
-      ],
-    },
-    {
-      legend: "Credential content",
-      fields: [
-        {
-          name: "fixture_id",
-          label: "PID fixture",
-          kind: "select",
-          values: parameters.fixtureIds,
-          requires: "static-credential",
-        },
-        {
-          name: "document_number",
-          label: "Document number",
-          kind: "text",
-          hint: "Overrides the fixture's document number only.",
-          requires: "static-credential",
-        },
-        {
-          name: "digest_algorithm",
-          label: "SD-JWT disclosure digest",
-          kind: "select",
-          values: parameters.digestAlgorithms,
-          requires: "sd-jwt",
-        },
-      ],
-    },
-    ...(fcafScenariosEnabled
-      ? [
-          {
-            legend: "Test scenarios (FCAF)",
-            fields: [
-              {
-                name: "evidence_mode",
-                label: "Evidence mode",
-                kind: "select",
-                values: parameters.evidenceModes,
-              },
-              {
-                name: "status_reference",
-                label: "Status reference",
-                kind: "select",
-                values: parameters.statusReferences,
-                hint: "Anything but valid needs the Token Status List switch.",
-                requires: "static-credential",
-              },
-              {
-                name: "issuance_response_scenario",
-                label: "Issuance response scenario",
-                kind: "json",
-                placeholder: '{"par": {"omit_parameters": ["/request_uri"]}}',
-              },
-              {
-                name: "offer_mutation",
-                label: "Offer mutation",
-                kind: "json",
-                placeholder: '{"unset": ["/credential_issuer"]}',
-                hint: "Applies to a by-value offer only.",
-              },
-            ],
-          } satisfies ParameterGroup,
-        ]
-      : []),
-    {
-      legend: "Raw request",
-      fields: [additionalParametersField('{"fixture_id": "pid_default"}')],
-    },
-  ];
 
   return [
     '<form class="launcher-form session-launcher" data-endpoint="/sessions" data-session-page="/ui/sessions/" novalidate>',
@@ -180,13 +96,10 @@ function issuanceFormHtml({ group, fcafScenariosEnabled, parameters }: IssuerPag
     credentials.map(issuerCredentialOptionHtml).join(""),
     "</select>",
     "</label>",
-    '<label class="status-list-toggle">',
-    '<input type="checkbox" role="switch" data-param="status_list_enabled" data-type="flag" value="true" data-requires="static-credential">',
-    '<span class="toggle-track" aria-hidden="true"></span>',
-    "<span>Include a Token Status List reference</span>",
-    "</label>",
     "</div>",
-    advancedSettingsHtml(groups),
+    advancedSettingsHtml(
+      parameterGroupsHtml(issuanceParameterGroups(parameters, fcafScenariosEnabled)),
+    ),
     launcherActionsHtml("Create issuance session", credentials.length === 0),
     credentials.length === 0
       ? '<p class="issuer-empty">This issuer serves no credential configuration.</p>'
