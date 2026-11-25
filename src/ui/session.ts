@@ -270,14 +270,7 @@ export function credentialOfferEngagementPage(deeplink: string, qrSvg: string): 
   return htmlPage({
     title: "Add a credential",
     body: [
-      '<header class="topbar">',
-      '<div class="topbar-inner">',
-      '<a class="brand-lockup" href="/">',
-      '<img class="brand-logo" src="/assets/credimi_logo.svg" alt="" aria-hidden="true">',
-      '<span class="brand-name">Wallet metadata capture</span>',
-      "</a>",
-      "</div>",
-      "</header>",
+      brandTopbarHtml(),
       "<main>",
       heroSectionHtml({
         id: "session-title",
@@ -303,17 +296,36 @@ export function credentialOfferEngagementPage(deeplink: string, qrSvg: string): 
   });
 }
 
+/** The top bar of a page with no session controls: the brand, and optionally a status chip. */
+function brandTopbarHtml(chipHtml = ""): string {
+  return [
+    '<header class="topbar">',
+    '<div class="topbar-inner">',
+    '<a class="brand-lockup" href="/">',
+    '<img class="brand-logo" src="/assets/credimi_logo.svg" alt="" aria-hidden="true">',
+    '<span class="brand-name">Wallet metadata capture</span>',
+    "</a>",
+    chipHtml,
+    "</div>",
+    "</header>",
+  ].join("");
+}
+
 export function errorPage(message: string): string {
   return htmlPage({
     title: "Wallet Metadata Capture Error",
     body: [
-      '<main class="page-content">',
-      '<section class="card danger-panel container">',
-      '<p class="eyebrow">Error</p>',
-      "<h1>",
-      escapeHtml(message),
-      "</h1>",
-      '<a class="btn btn-primary btn-md" href="/">Back to launcher</a>',
+      brandTopbarHtml(),
+      "<main>",
+      heroSectionHtml({
+        id: "error-title",
+        title: "Something went wrong",
+        paragraphsHtml: [escapeHtml(message)],
+      }),
+      '<section class="page-section">',
+      '<div class="container">',
+      '<a class="btn btn-primary btn-lg" href="/">Back to launcher</a>',
+      "</div>",
       "</section>",
       "</main>",
     ].join(""),
@@ -322,7 +334,6 @@ export function errorPage(message: string): string {
 
 export function vpRedirectPage(responseCode: string, found: boolean): string {
   const title = found ? "Presentation complete" : "Redirect page not found";
-  const eyebrow = found ? "Presentation complete" : "Redirect error";
   const description = found
     ? "You can return to the application."
     : "The response code could not be matched to a presentation session.";
@@ -330,34 +341,19 @@ export function vpRedirectPage(responseCode: string, found: boolean): string {
   return htmlPage({
     title,
     body: [
-      '<header class="topbar">',
-      '<div class="topbar-inner">',
-      '<a class="brand-lockup" href="/">',
-      '<img class="brand-logo" src="/assets/credimi_logo.svg" alt="" aria-hidden="true">',
-      '<span class="brand-name">Wallet metadata capture</span>',
-      "</a>",
-      "</div>",
-      "</header>",
-      '<main class="page-content">',
-      '<section class="card redirect-result-panel container',
-      found ? "" : " danger-panel",
-      '">',
-      '<p class="eyebrow">',
-      eyebrow,
-      "</p>",
-      "<h1>",
-      title,
-      "</h1>",
-      "<p>",
-      description,
-      "</p>",
+      brandTopbarHtml(),
+      "<main>",
+      heroSectionHtml({ id: "redirect-title", title, paragraphsHtml: [description] }),
+      '<section class="page-section">',
+      '<div class="container redirect-result">',
       '<dl class="redirect-response-code">',
       "<dt>response_code</dt>",
       "<dd><code>",
       escapeHtml(responseCode),
       "</code></dd>",
       "</dl>",
-      '<a class="btn btn-primary btn-md" href="/">Back to launcher</a>',
+      '<a class="btn btn-primary btn-lg" href="/">Back to launcher</a>',
+      "</div>",
       "</section>",
       "</main>",
     ].join(""),
@@ -368,19 +364,22 @@ export function helpPage(readmeMarkdown: string): string {
   return htmlPage({
     title: "Wallet Metadata Capture Help",
     body: [
-      '<header class="topbar">',
-      '<div class="topbar-inner">',
-      '<a class="brand-lockup" href="/">',
-      '<img class="brand-logo" src="/assets/credimi_logo.svg" alt="" aria-hidden="true">',
-      '<span class="brand-name">Wallet metadata capture</span>',
-      "</a>",
-      '<span class="status-chip status-wallet">help</span>',
-      "</div>",
-      "</header>",
-      '<main class="page-content">',
-      '<article class="card readme-card container">',
+      brandTopbarHtml('<span class="status-chip status-wallet">help</span>'),
+      "<main>",
+      heroSectionHtml({
+        id: "help-title",
+        title: "Help",
+        paragraphsHtml: [
+          "How to issue and verify credentials with this service, and every option it offers, from its README.",
+        ],
+      }),
+      '<section class="page-section page-section-white">',
+      '<div class="container">',
+      '<article class="readme-card">',
       renderMarkdown(readmeMarkdown),
       "</article>",
+      "</div>",
+      "</section>",
       "</main>",
     ].join(""),
   });
