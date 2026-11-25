@@ -120,13 +120,13 @@ function sessionLauncherHtml(options: IndexPageOptions): string {
         '<input type="hidden" data-param="credential_configuration_id" data-type="string" data-option="credential">',
         statusListOptionHtml(),
         parameterGroupsHtml(issuanceParameterGroups(issuanceParameters, fcafScenariosEnabled)),
+        issuerLinksGroupHtml(options),
         "</fieldset>",
         '<fieldset class="flow-settings" data-flow="presentation" hidden disabled>',
         parameterGroupsHtml(
           presentationParameterGroups(presentationParameters, fcafScenariosEnabled),
         ),
         "</fieldset>",
-        issuerLinksGroupHtml(options),
       ].join(""),
     ),
     "</form>",
@@ -134,8 +134,9 @@ function sessionLauncherHtml(options: IndexPageOptions): string {
 }
 
 /**
- * The selected credential's issuer, for both flows: its page and the documents it publishes. Each
- * issuer has its own set of cards, and only the selected credential's issuer's is shown.
+ * The selected credential's issuer, last in the issuance settings: its page and the documents it
+ * publishes. Each issuer has its own set of cards, and only the selected credential's issuer's is
+ * shown.
  */
 function issuerLinksGroupHtml({
   groups,
@@ -143,8 +144,8 @@ function issuerLinksGroupHtml({
 }: IndexPageOptions): string {
   if (groups.length === 0) return "";
   return [
-    '<div class="parameter-group issuer-links-group">',
-    '<p class="parameter-group-title">Issuer</p>',
+    '<div class="parameter-group">',
+    '<p class="parameter-group-title">Issuer information</p>',
     groups
       .map(({ issuer, attestbook }, index) =>
         [

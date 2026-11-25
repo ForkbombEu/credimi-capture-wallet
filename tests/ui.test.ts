@@ -129,9 +129,13 @@ describe("launcher", () => {
       federationEntityConfigurationUrl: (issuer) => `${issuer.issuerIdentifier}/federation`,
     });
 
-    expect(page).toContain(
-      `<nav class="metadata-cards" data-issuer-links="${jwtOnlyIssuer.id}" aria-label="${jwtOnlyIssuer.display.name} — deliberately non-conforming links">`,
+    // The links belong to the issuance settings, so the Present flow hides them.
+    const [, issuance = "", presentation = ""] =
+      /data-flow="issuance">(.*)data-flow="presentation"(.*)<\/details>/.exec(page) ?? [];
+    expect(issuance).toContain(
+      `<p class="parameter-group-title">Issuer information</p><nav class="metadata-cards" data-issuer-links="${jwtOnlyIssuer.id}" aria-label="${jwtOnlyIssuer.display.name} — deliberately non-conforming links">`,
     );
+    expect(presentation).not.toContain("data-issuer-links");
     for (const [label, href] of [
       ["Issuer page", jwtOnlyIssuer.issuerIdentifier],
       ["Authorization server metadata", jwtOnlyIssuer.authorizationServerMetadataUrl],
