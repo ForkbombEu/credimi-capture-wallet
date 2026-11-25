@@ -186,6 +186,9 @@ export const APP_CSS = [
   ".launcher-error { margin: 0; padding: 12px 14px; border: 1px solid var(--border); border-left: 3px solid var(--destructive); border-radius: var(--radius-md); background: var(--bg); color: var(--destructive); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }",
   ".btn[disabled] { opacity: .55; cursor: not-allowed; }",
   ".session-layout { display: grid; grid-template-columns: minmax(300px, 420px) minmax(0, 1fr); gap: 24px; }",
+  // Beside a QR code the first column is exactly as wide as the code's box, so the captured values
+  // take every other pixel.
+  ".qr-layout { grid-template-columns: minmax(0, 312px) minmax(0, 1fr); }",
   ".qr-panel { display: grid; gap: 16px; align-content: start; }",
   // The QR code sits in a small white box, and its deeplink is exactly as wide as that box.
   ".qr-box { width: min(100%, 312px); aspect-ratio: 1; display: grid; place-items: center; padding: 12px; border-radius: var(--radius-md); background: var(--bg); }",

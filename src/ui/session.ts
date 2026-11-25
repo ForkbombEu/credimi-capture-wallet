@@ -40,7 +40,7 @@ export function vpSessionPage(
       "<main>",
       heroSectionHtml({
         id: "session-title",
-        title: dcApi ? "Open the presentation page" : "Scan the presentation request",
+        title: "OpenID4VP session",
         paragraphsHtml: [
           dcApi
             ? "Scan the code with the device that holds the wallet. It opens this verifier’s presentation page in the browser, where the presentation is started through the Digital Credentials API."
@@ -61,7 +61,7 @@ export function vpSessionPage(
             : '<span id="qr-guidance">The QR points to a request_uri hosted by this service. The wallet response is captured when it posts the presentation.</span>',
         ],
       }),
-      '<div class="session-layout">',
+      '<div class="session-layout qr-layout">',
       '<div class="qr-panel">',
       '<div class="qr-box" id="qr-box" aria-live="polite">',
       '<div class="qr-code" id="qr-code">',
@@ -215,7 +215,7 @@ export function sessionPage(sessionId: string, deeplink: string, qrSvg: string):
       "<main>",
       heroSectionHtml({
         id: "session-title",
-        title: "Scan the credential offer",
+        title: "OpenID4VCI session",
         paragraphsHtml: [
           "Scan the offer, accept the issuance in the wallet, then complete the final wallet interaction.",
         ],
@@ -230,7 +230,7 @@ export function sessionPage(sessionId: string, deeplink: string, qrSvg: string):
           '<span id="qr-guidance">After scanning, keep going in the wallet issuance flow. Most wallets ask you to accept the issuance before metadata appears here.</span>',
         ],
       }),
-      '<div class="session-layout">',
+      '<div class="session-layout qr-layout">',
       '<div class="qr-panel">',
       '<div class="qr-box" id="qr-box" aria-live="polite">',
       '<div class="qr-code" id="qr-code">',
