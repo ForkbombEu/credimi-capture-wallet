@@ -52,6 +52,7 @@ export const APP_CSS = [
   ".hero-band::after { content: ''; position: absolute; inset: 0 0 auto auto; width: 360px; height: 360px; background: linear-gradient(135deg, transparent 49.5%, rgb(49 32 96 / 8%) 49.5%, rgb(49 32 96 / 8%) 50.5%, transparent 50.5%), linear-gradient(45deg, transparent 49.5%, rgb(49 32 96 / 8%) 49.5%, rgb(49 32 96 / 8%) 50.5%, transparent 50.5%); pointer-events: none; }",
   ".hero-inner { position: relative; z-index: 1; width: min(100% - 48px, var(--max-width)); margin-inline: auto; display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 430px); gap: 32px; align-items: start; }",
   ".hero-copy { display: grid; gap: 20px; max-width: 740px; }",
+  ".hero-intro { grid-column: 1 / -1; }",
   ".hero-copy p:not(.eyebrow) { max-width: 720px; color: var(--fg-muted); font-size: 17px; line-height: 1.571; }",
   ".launcher-panel { display: grid; gap: 14px; justify-items: start; }",
   ".session-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }",
