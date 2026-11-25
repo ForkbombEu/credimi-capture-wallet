@@ -58,13 +58,13 @@ During the credential verification the service captures:
 
 Visit https://capture-wallet.credimi.io/ and start issuing and verifying PID in dc+sd-jwt and mdoc format.
 
-On the home page, choose a credential from the dropdown, where credentials are grouped by issuer:
-* Click `Issue` to open an OpenID4VCI QR session for that credential with the default options. Scan the QR with an EUDI Wallet. The session page updates as Wallet metadata, proof keys, DPoP keys, checks, and flow events are observed. The switch next to the dropdown adds a Token Status List reference. It is disabled for imported Attestbook credentials, which do not support one.
-* Click `Verify` to open an OpenID4VP QR session that requests that credential, including imported Attestbook credentials. The page updates when the Wallet retrieves the request and posts the presentation response.
+On the home page, choose a credential from the dropdown. Credentials are grouped by issuer, and the first one is selected by default:
+* Click `New fake-issuance session` to open an OpenID4VCI QR session for that credential with the default options. Scan the QR with an EUDI Wallet. The session page updates as Wallet metadata, proof keys, DPoP keys, checks, and flow events are observed. The switch next to the dropdown adds a Token Status List reference. It is disabled for imported Attestbook credentials, which do not support one.
+* Click `New presentation session` to open an OpenID4VP QR session that requests that credential, including imported Attestbook credentials. The page updates when the Wallet retrieves the request and posts the presentation response.
 
-Below the buttons, `Customize issuance` and `Customize presentation` open the issuer page or the verifier page with the chosen credential selected and the `Advanced settings` panel open. That panel exposes every parameter of `POST /sessions` or `POST /openid4vp/sessions`. The page sends only the fields you fill in, so every other parameter keeps its API default, and it shows the API's error body when a combination is refused. The test-only parameters appear only when `FCAF_SCENARIOS_ENABLED` is set. When no credential is chosen, `Customize issuance` lists the issuers so you can pick one, and `Customize presentation` opens the verifier page.
+Below the buttons, `Customize issuance` and `Customize presentation` open the issuer page or the verifier page with the chosen credential selected and the `Advanced settings` panel open. That panel exposes every parameter of `POST /sessions` or `POST /openid4vp/sessions`. The page sends only the fields you fill in, so every other parameter keeps its API default, and it shows the API's error body when a combination is refused. The test-only parameters appear only when `FCAF_SCENARIOS_ENABLED` is set.
 
-Each issuer page can be shared. It is served at the issuer's Credential Issuer Identifier (`/issuers/{issuerConfigurationId}`) when a browser asks for HTML. It links the issuer's authorization server metadata, its OpenID4VCI credential issuer metadata and, when federation is enabled, its OpenID Federation entity configuration. The verifier page is `/openid4vp`.
+Below that, a card for each issuer links its issuer page and its metadata, and a verifier card links the verifier page (`/openid4vp`) and its public endpoints. Each issuer page can be shared. It is served at the issuer's Credential Issuer Identifier (`/issuers/{issuerConfigurationId}`) when a browser asks for HTML. It links the issuer's authorization server metadata, its OpenID4VCI credential issuer metadata and, when federation is enabled, its OpenID Federation entity configuration.
 
 
 **[🔝 back to top](#toc)**

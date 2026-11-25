@@ -50,10 +50,9 @@ export function launcherScript(): string {
     const verify = launcher.querySelector("[data-verify]");
     const customizeIssuance = launcher.querySelector("[data-customize-issuance]");
     const customizePresentation = launcher.querySelector("[data-customize-presentation]");
-    const issuerChooser = launcher.querySelector("[data-issuer-chooser]");
     const launcherError = launcher.querySelector("[data-launcher-error]");
     const selected = () => (choice.value === "" ? undefined : choice.selectedOptions[0]);
-    // The links as rendered are their targets while no credential is chosen.
+    // The links as rendered are their targets only when no credential is available.
     const defaultIssuanceHref = customizeIssuance.getAttribute("href");
     const defaultPresentationHref = customizePresentation.getAttribute("href");
 
@@ -66,7 +65,6 @@ export function launcherScript(): string {
       statusListToggle.closest("label").classList.toggle("field-disabled", statusListToggle.disabled);
       customizeIssuance.href = option?.dataset.issuanceHref ?? defaultIssuanceHref;
       customizePresentation.href = option?.dataset.presentationHref ?? defaultPresentationHref;
-      if (option?.dataset.issuanceHref) issuerChooser.hidden = true;
     }
 
     issue.addEventListener("click", () => {
@@ -81,13 +79,6 @@ export function launcherScript(): string {
       if (!option) return;
       const body = { dcql_query: JSON.parse(option.dataset.dcql) };
       launch("/openid4vp/sessions", "/ui/openid4vp/sessions/", body, launcherError, verify);
-    });
-    // Without a chosen credential there is no issuer to open, so the operator picks one first.
-    customizeIssuance.addEventListener("click", (event) => {
-      if (selected()?.dataset.issuanceHref) return;
-      event.preventDefault();
-      issuerChooser.hidden = false;
-      issuerChooser.querySelector("a")?.focus();
     });
     choice.addEventListener("change", sync);
     window.addEventListener("pageshow", sync);

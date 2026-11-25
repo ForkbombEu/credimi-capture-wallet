@@ -25,6 +25,8 @@ export interface CredentialChoice {
 export interface IssuerCredentialChoices {
   readonly issuer: ResolvedIssuerConfiguration;
   readonly credentials: readonly CredentialChoice[];
+  /** Present for an issuer that imports Attestbook credentials. */
+  readonly attestbook?: AttestbookIssuerSummary;
 }
 
 /**
@@ -56,27 +58,22 @@ export function indexPage(groups: readonly IssuerCredentialChoices[]): string {
     title: "Wallet Metadata Capture",
     body: [
       launcherTopbarHtml(),
-      '<main class="page-content session-page">',
-      '<section class="session-header launcher-header container">',
-      "<div>",
-      '<p class="eyebrow">OpenID4VCI issuers and OpenID4VP verifier</p>',
+      "<main>",
+      '<section class="hero-band">',
+      '<div class="hero-inner">',
+      '<div class="hero-copy">',
       "<h1>Wallet metadata capture</h1>",
-      '<p class="session-intro">Choose a credential, then issue it to a wallet or request its presentation. Every session captures the protocol evidence the wallet leaves behind.</p>',
-      "</div>",
-      "</section>",
-      '<section class="launcher-layout container">',
-      '<div class="card launcher-card" data-launcher>',
-      '<div class="section-head">',
-      "<h2>Issue or verify a credential</h2>",
-      "</div>",
+      "<p>Step 1) Start a one-time fake issuance flow, scan the offer, and inspect the wallet identifiers, callbacks, and proof keys observed by the issuer.</p>",
+      "<p>Step 2) After receiving the credential, start a Presentation session, and inspect the Wallet response as well as the DCQL</p>",
+      '<div class="launcher-panel" data-launcher>',
       '<div class="credential-row">',
       '<label class="credential-picker">',
       "<span>Credential</span>",
+      // The first credential is preselected, so every action always has a target.
       '<select data-credential-choice autocomplete="off">',
-      '<option value="" selected>',
-      empty ? "No credentials available" : "Choose a credential…",
-      "</option>",
-      groups.map(credentialGroupHtml).join(""),
+      empty
+        ? '<option value="">No credentials available</option>'
+        : groups.map(credentialGroupHtml).join(""),
       "</select>",
       "</label>",
       '<label class="status-list-toggle">',
@@ -86,17 +83,20 @@ export function indexPage(groups: readonly IssuerCredentialChoices[]): string {
       "</label>",
       "</div>",
       '<div class="session-actions">',
-      '<button class="btn btn-primary btn-lg" type="button" autocomplete="off" data-issue disabled>Issue</button>',
-      '<button class="btn btn-outline btn-lg" type="button" autocomplete="off" data-verify disabled>Verify</button>',
+      `<button class="btn btn-primary btn-lg" type="button" autocomplete="off" data-issue${empty ? " disabled" : ""}>New fake-issuance session</button>`,
+      `<button class="btn btn-outline btn-lg" type="button" autocomplete="off" data-verify${empty ? " disabled" : ""}>New presentation session</button>`,
       "</div>",
       '<nav class="launcher-links" aria-label="Customize">',
-      '<a class="issuer-link" href="#issuer-chooser" data-customize-issuance>Customize issuance</a>',
+      '<a class="issuer-link" href="/" data-customize-issuance>Customize issuance</a>',
       `<a class="issuer-link" href="${VERIFIER_PAGE_PATH}" data-customize-presentation>Customize presentation</a>`,
       "</nav>",
-      issuerChooserHtml(groups),
       '<pre class="launcher-error" role="alert" data-launcher-error hidden></pre>',
       "</div>",
+      issuerCatalogueHtml(groups),
+      verifierCatalogueHtml(),
+      "</div>",
       capturedValuesHtml(),
+      "</div>",
       "</section>",
       "</main>",
       "<script>",
@@ -104,6 +104,66 @@ export function indexPage(groups: readonly IssuerCredentialChoices[]): string {
       "</script>",
     ].join(""),
   });
+}
+
+function issuerCatalogueHtml(groups: readonly IssuerCredentialChoices[]): string {
+  return [
+    '<section class="issuer-catalogue" aria-labelledby="issuer-catalogue-title">',
+    '<h2 id="issuer-catalogue-title">Available issuers</h2>',
+    groups.length > 0
+      ? `<div class="issuer-cards">${groups.map(issuerCardHtml).join("")}</div>`
+      : '<p class="issuer-empty">No issuers available</p>',
+    "</section>",
+  ].join("");
+}
+
+function issuerCardHtml(group: IssuerCredentialChoices): string {
+  const { issuer } = group;
+  return [
+    '<article class="issuer-card">',
+    "<h3>",
+    escapeHtml(issuerLabel(issuer)),
+    "</h3>",
+    '<p class="issuer-description">',
+    issuerDescriptionHtml(issuer),
+    "</p>",
+    group.attestbook ? attestbookSummaryHtml(group.attestbook) : "",
+    '<nav class="issuer-links" aria-label="',
+    escapeHtml(`${issuer.display.name} links`),
+    '">',
+    safeLinkHtml("Issuer page", issuer.issuerIdentifier, "issuer-link"),
+    safeLinkHtml("Credential issuer well-known", issuer.issuerMetadataUrl, "issuer-link", true),
+    safeLinkHtml(
+      "Authorization server well-known",
+      issuer.authorizationServerMetadataUrl,
+      "issuer-link",
+      true,
+    ),
+    group.attestbook
+      ? safeLinkHtml("Attestbook status", "/integrations/attestbook/status", "issuer-link", true)
+      : "",
+    "</nav>",
+    "</article>",
+  ].join("");
+}
+
+function verifierCatalogueHtml(): string {
+  return [
+    '<section class="issuer-catalogue" aria-labelledby="verifier-catalogue-title">',
+    '<h2 id="verifier-catalogue-title">Verifier</h2>',
+    '<div class="issuer-cards">',
+    '<article class="issuer-card">',
+    "<h3>OpenID4VP verifier</h3>",
+    '<p class="issuer-description">Requests a presentation of any credential the issuers above serve, and verifies it.</p>',
+    '<nav class="issuer-links" aria-label="Verifier links">',
+    safeLinkHtml("Verifier page", VERIFIER_PAGE_PATH, "issuer-link"),
+    safeLinkHtml("Client identifiers", "/openid4vp/client-identifiers", "issuer-link", true),
+    safeLinkHtml("DID document", "/openid4vp/did.json", "issuer-link", true),
+    "</nav>",
+    "</article>",
+    "</div>",
+    "</section>",
+  ].join("");
 }
 
 /** What a session records about the Wallet, named as on the session pages. */
@@ -205,23 +265,6 @@ function credentialOptionHtml(
     ">",
     escapeHtml(credentialLabel(credential)),
     "</option>",
-  ].join("");
-}
-
-/** Shown by Customize issuance while no credential is chosen; also the way to every issuer page. */
-function issuerChooserHtml(groups: readonly IssuerCredentialChoices[]): string {
-  return [
-    '<div class="issuer-chooser" id="issuer-chooser" data-issuer-chooser hidden>',
-    "<p>Choose the issuer to customize:</p>",
-    groups.length > 0
-      ? `<ul>${groups
-          .map(
-            ({ issuer }) =>
-              `<li>${safeLinkHtml(issuerLabel(issuer), issuer.issuerIdentifier, "issuer-link")}</li>`,
-          )
-          .join("")}</ul>`
-      : '<p class="issuer-empty">No issuers available</p>',
-    "</div>",
   ].join("");
 }
 

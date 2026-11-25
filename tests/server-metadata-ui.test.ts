@@ -442,7 +442,10 @@ describe("capture issuer server", () => {
     const response = await request(app).get("/");
 
     expect(response.status).toBe(200);
-    expect(response.text).toContain('<main class="page-content session-page">');
+    expect(response.text).toContain('<main><section class="hero-band">');
+    expect(response.text).toContain(
+      "Step 1) Start a one-time fake issuance flow, scan the offer, and inspect the wallet identifiers, callbacks, and proof keys observed by the issuer.",
+    );
     expect(response.text).not.toContain("<form");
     expect(response.text).toContain('<h2 id="captured-values-title">Captured values</h2>');
     expect(response.text).toContain('<span class="count-chip">10</span>');
@@ -462,23 +465,28 @@ describe("capture issuer server", () => {
     ]) {
       expect(response.text).toContain(`<dt>${value}</dt>`);
     }
-    expect(response.text).toContain('<option value="" selected>Choose a credential…</option>');
+    expect(response.text).not.toContain('<option value=""');
     expect(response.text).toContain("data-status-list-toggle");
     expect(response.text).toContain('<optgroup label="EUDI PID — device-bound conforming">');
     expect(response.text).toContain('<optgroup label="EUDI PID — JWT key attestation">');
     expect(response.text).toContain(
       '<optgroup label="EUDI PID — JWT proof only — deliberately non-conforming">',
     );
-    // The issuer pages are reachable from Customize issuance, the verifier page from Customize
-    // presentation.
+    expect(response.text).toContain('<h2 id="issuer-catalogue-title">Available issuers</h2>');
+    expect(response.text.match(/<article class="issuer-card">/g)).toHaveLength(4);
     for (const issuerId of [conformingIssuerId, jwtKeyAttestationIssuerId, jwtOnlyIssuerId]) {
       expect(response.text).toContain(
-        `<a class="issuer-link" href="${config.issuer_base_url}/issuers/${issuerId}">`,
+        `<a class="issuer-link" href="${config.issuer_base_url}/issuers/${issuerId}">Issuer page</a>`,
+      );
+      expect(response.text).toContain(
+        `<a class="issuer-link" href="${config.issuer_base_url}/.well-known/openid-credential-issuer/issuers/${issuerId}" target="_blank" rel="noreferrer">Credential issuer well-known</a>`,
+      );
+      expect(response.text).toContain(
+        `<a class="issuer-link" href="${config.issuer_base_url}/.well-known/oauth-authorization-server/issuers/${issuerId}" target="_blank" rel="noreferrer">Authorization server well-known</a>`,
       );
     }
-    expect(response.text).toContain(
-      '<a class="issuer-link" href="/openid4vp" data-customize-presentation>Customize presentation</a>',
-    );
+    expect(response.text).toContain('<h2 id="verifier-catalogue-title">Verifier</h2>');
+    expect(response.text).toContain('<a class="issuer-link" href="/openid4vp">Verifier page</a>');
 
     // The bodies the launcher script builds from an option are sessions the API accepts.
     const options = Array.from(

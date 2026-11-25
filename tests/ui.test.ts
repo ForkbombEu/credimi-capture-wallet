@@ -54,35 +54,33 @@ describe("launcher", () => {
   };
   const dcqlQuery = defaultDcqlQuery([credential]);
 
-  it("starts with no credential chosen and Issue and Verify disabled", () => {
+  it("disables both session buttons when no credential exists, and still offers the verifier", () => {
     const page = indexPage([]);
 
-    expect(page).toContain('<option value="" selected>No credentials available</option>');
-    expect(page).toContain("data-issue disabled>Issue</button>");
-    expect(page).toContain("data-verify disabled>Verify</button>");
-    expect(page).toContain(
-      '<a class="issuer-link" href="/openid4vp" data-customize-presentation>Customize presentation</a>',
-    );
+    expect(page).toContain('<option value="">No credentials available</option>');
+    expect(page).toContain("data-issue disabled>New fake-issuance session</button>");
+    expect(page).toContain("data-verify disabled>New presentation session</button>");
     expect(page).toContain('<p class="issuer-empty">No issuers available</p>');
+    expect(page).toContain('<a class="issuer-link" href="/openid4vp">Verifier page</a>');
   });
 
-  it("carries what Issue, Verify, and the Customize links need on each option", () => {
+  it("preselects the first credential and carries what each action needs on its option", () => {
     const page = indexPage([{ issuer: jwtOnlyIssuer, credentials: [{ credential, dcqlQuery }] }]);
     const fragment = credentialPreselectionFragment(credential.id);
 
     expect(fragment).toBe("#credential_configuration_id=urn%3Aeudi%3Apid%3A1.sd-jwt");
-    expect(page).toContain('<option value="" selected>Choose a credential…</option>');
+    // No placeholder: the first option is the selection, so Customize always has a target.
     expect(page).toContain(
-      `<optgroup label="${jwtOnlyIssuer.display.name} — deliberately non-conforming"><option value="${credential.id}" data-issuer="${jwtOnlyIssuer.id}" data-dcql="`,
+      `<select data-credential-choice autocomplete="off"><optgroup label="${jwtOnlyIssuer.display.name} — deliberately non-conforming"><option value="${credential.id}" data-issuer="${jwtOnlyIssuer.id}" data-dcql="`,
     );
     expect(attributeJson(page, /data-dcql="([^"]+)"/)).toEqual(dcqlQuery);
     expect(page).toContain(
       `data-issuance-href="${jwtOnlyIssuer.issuerIdentifier}${fragment}" data-presentation-href="/openid4vp${fragment}">PID</option>`,
     );
     expect(page).not.toContain("data-imported");
-    // Without a chosen credential, Customize issuance leads to every issuer page.
+    expect(page).toContain("data-issue>New fake-issuance session</button>");
     expect(page).toContain(
-      `<li><a class="issuer-link" href="${jwtOnlyIssuer.issuerIdentifier}">${jwtOnlyIssuer.display.name} — deliberately non-conforming</a></li>`,
+      `<a class="issuer-link" href="${jwtOnlyIssuer.issuerIdentifier}">Issuer page</a>`,
     );
   });
 
@@ -116,8 +114,9 @@ describe("launcher", () => {
 
     expect(page).not.toContain('href="javascript:');
     expect(page).not.toContain("data-issuance-href=");
-    expect(page).toContain('<span class="issuer-link">');
-    expect(page).toContain(": javascript:alert(&quot;issuer&quot;)</span>");
+    expect(page).toContain(
+      '<span class="issuer-link">Issuer page: javascript:alert(&quot;issuer&quot;)</span>',
+    );
   });
 });
 
