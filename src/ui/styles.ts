@@ -48,16 +48,22 @@ export const APP_CSS = [
   ".credimi-extras-wordmark-link { text-decoration: none; }",
   ".credimi-extras-wordmark { display: inline-block; height: 16px; width: auto; vertical-align: -4px; }",
   ".credimi-extras-bar a:focus-visible, .credimi-extras-wordmark-link:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; border-radius: 2px; }",
-  ".hero-band { position: relative; overflow: hidden; padding: 76px 0 32px; }",
-  ".hero-band::after { content: ''; position: absolute; inset: 0 0 auto auto; width: 360px; height: 360px; background: linear-gradient(135deg, transparent 49.5%, rgb(49 32 96 / 8%) 49.5%, rgb(49 32 96 / 8%) 50.5%, transparent 50.5%), linear-gradient(45deg, transparent 49.5%, rgb(49 32 96 / 8%) 49.5%, rgb(49 32 96 / 8%) 50.5%, transparent 50.5%); pointer-events: none; }",
+  // The credimi.io hero: a brand-blue band with white text, folded by two translucent white
+  // triangles over its right part (credimi.io's `fold-motif`).
+  ".hero-band { position: relative; overflow: hidden; padding: 76px 0 64px; background: var(--brand-primary); color: white; }",
+  ".hero-band::before, .hero-band::after { content: ''; position: absolute; inset: 0 0 0 45%; pointer-events: none; }",
+  ".hero-band::before { clip-path: polygon(0 0, 100% 0, 100% 100%, 55% 52%); background: rgb(255 255 255 / 6%); }",
+  ".hero-band::after { clip-path: polygon(55% 52%, 100% 100%, 15% 100%); background: rgb(255 255 255 / 4%); }",
   ".hero-inner { position: relative; z-index: 1; width: min(100% - 48px, var(--max-width)); margin-inline: auto; }",
   // The title and the description are spaced apart; the steps inside the description sit closer.
   ".hero-copy { display: grid; gap: 20px; max-width: 740px; }",
   ".hero-description { display: grid; gap: 8px; }",
+  // The design source colours every heading with --fg; the hero title stays white on blue.
+  ".hero-title { color: inherit; }",
   // Below the hero: the launcher and the issuer and verifier cards beside the captured values.
-  ".landing-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 430px); gap: 32px; align-items: start; padding-bottom: 68px; }",
+  ".landing-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 430px); gap: 32px; align-items: start; padding-top: 40px; padding-bottom: 68px; }",
   ".landing-main { display: grid; gap: 20px; max-width: 740px; }",
-  ".hero-description p { max-width: 720px; color: var(--fg-muted); font-size: 17px; line-height: 1.571; }",
+  ".hero-description p { max-width: 720px; color: rgb(255 255 255 / 85%); font-size: 17px; line-height: 1.571; }",
   ".launcher-panel { display: grid; gap: 14px; justify-items: start; }",
   ".session-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }",
   ".credential-picker { display: grid; gap: 8px; width: min(100%, 520px); color: var(--fg); font-size: 13px; font-weight: 700; }",
@@ -204,6 +210,6 @@ export const APP_CSS = [
   "@keyframes metadata-spin { to { transform: rotate(360deg); } }",
   "@keyframes metadata-flash { 0% { background: var(--warning-bg); box-shadow: 0 0 0 0 color-mix(in oklch, var(--warning) 32%, transparent); } 30% { background: var(--success-bg); box-shadow: 0 0 0 6px color-mix(in oklch, var(--success) 20%, transparent); } 100% { background: var(--bg); box-shadow: var(--shadow-sm); } }",
   "@media (prefers-reduced-motion: reduce) { .metadata-state-waiting::before, .metadata-state-receiving::before, .metadata-flash { animation: none; } .toggle-track, .toggle-track::after, a.issuer-card { transition: none; } }",
-  "@media (max-width: 860px) { h1 { font-size: 38px; } h2 { font-size: 22px; } .hero-band { padding: 52px 0 28px; } .landing-body, .session-layout, .launcher-layout { grid-template-columns: 1fr; } .entity-catalogue { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto repeat(var(--issuer-rows-narrow), 1fr) auto 1fr; } .session-header, .section-head, .footer-content { flex-direction: column; align-items: stretch; } .session-actions { align-items: stretch; flex-direction: column; } .session-actions .btn { width: 100%; } .footer-links { justify-content: flex-start; } .qr-box { width: 100%; max-width: 336px; } }",
+  "@media (max-width: 860px) { h1 { font-size: 38px; } h2 { font-size: 22px; } .hero-band { padding: 52px 0 44px; } .landing-body, .session-layout, .launcher-layout { grid-template-columns: 1fr; } .entity-catalogue { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto repeat(var(--issuer-rows-narrow), 1fr) auto 1fr; } .session-header, .section-head, .footer-content { flex-direction: column; align-items: stretch; } .session-actions { align-items: stretch; flex-direction: column; } .session-actions .btn { width: 100%; } .footer-links { justify-content: flex-start; } .qr-box { width: 100%; max-width: 336px; } }",
   "@media (max-width: 560px) { .container, .topbar-inner, .hero-inner, .footer-inner { width: min(100% - 28px, var(--max-width)); } .page-content { padding: 28px 0 52px; } .card { padding: 18px; } .brand-name { display: none; } .topbar-actions .btn { display: none; } .status-list-toggle { margin-left: 0; } }",
 ].join("\n");
