@@ -68,7 +68,8 @@ export const APP_CSS = [
   ".hero-band::before { clip-path: polygon(0 0, 100% 0, 100% 100%, 55% 52%); background: rgb(255 255 255 / 6%); }",
   ".hero-band::after { clip-path: polygon(55% 52%, 100% 100%, 15% 100%); background: rgb(255 255 255 / 4%); }",
   ".hero-inner { position: relative; z-index: 1; width: min(100% - 48px, var(--max-width)); margin-inline: auto; }",
-  ".hero-band .section-intro-heading { border-bottom-color: rgb(255 255 255 / 25%); }",
+  // The hero title sits directly over its description, without the sections' rule.
+  ".hero-band .section-intro-heading { padding-bottom: 0; border-bottom: 0; }",
   ".hero-band .section-intro-title { color: inherit; font-size: clamp(38px, 6vw, 64px); line-height: 1.05; letter-spacing: -0.035em; }",
   ".hero-band .section-intro-description p { color: rgb(255 255 255 / 85%); }",
   ".launcher-panel { display: grid; gap: 14px; justify-items: start; }",
@@ -97,7 +98,8 @@ export const APP_CSS = [
   "a.issuer-card:focus-visible { outline: 2px solid color-mix(in oklch, var(--brand-primary) 36%, transparent); outline-offset: 2px; }",
   ".entity-catalogue { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: auto repeat(var(--issuer-rows-wide), 1fr) auto 1fr; gap: 12px; width: 100%; margin-top: 32px; }",
   ".subsection-heading, .entity-catalogue > .issuer-empty { grid-column: 1 / -1; }",
-  ".subsection-heading { font-size: 20px; line-height: 1.3; }",
+  // Set in full so a label <span> reads exactly like the <h3> sub-headings.
+  ".subsection-heading { font-size: 20px; line-height: 1.3; font-weight: 700; letter-spacing: -0.01em; color: var(--fg); }",
   ".subsection-heading:not(:first-child) { margin-top: 20px; }",
   ".issuer-card { min-width: 0; display: grid; align-content: start; gap: 12px; padding: 18px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg); box-shadow: var(--shadow-sm); }",
   ".issuer-card h3 { min-width: 0; font-size: 16px; line-height: 1.4; }",
@@ -107,7 +109,6 @@ export const APP_CSS = [
   ".captured-band { background: var(--bg); }",
   ".capture-groups { display: grid; gap: 18px; }",
   ".capture-group { display: grid; gap: 10px; }",
-  ".capture-group h3 { margin: 0; color: var(--brand-primary); font-size: 13px; line-height: 1.4; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }",
   ".capture-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; margin: 0; }",
   ".capture-list div { padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-muted); }",
   ".capture-more { display: grid; gap: 14px; margin-top: 48px; }",

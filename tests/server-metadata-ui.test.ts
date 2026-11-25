@@ -469,8 +469,10 @@ describe("capture issuer server", () => {
     expect(response.text).toContain(
       '<h3 class="subsection-heading" id="capture-more-title">Also recorded</h3>',
     );
-    expect(response.text).toContain("<h3>OpenID4VCI</h3>");
-    expect(response.text).toContain("<h3>OpenID4VP</h3>");
+    // The protocol groups are sub-headings like "Issuers", in their own casing.
+    expect(response.text.match(/<h3 class="subsection-heading">OpenID4VCI<\/h3>/g)).toHaveLength(2);
+    expect(response.text.match(/<h3 class="subsection-heading">OpenID4VP<\/h3>/g)).toHaveLength(2);
+    expect(response.text).toContain('<span class="subsection-heading">Credential</span>');
     for (const value of [
       "client_id",
       "redirect_uri",
