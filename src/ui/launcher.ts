@@ -88,8 +88,8 @@ export function indexPage(groups: readonly IssuerCredentialChoices[]): string {
       "</div>",
       entityCatalogueHtml(groups),
       "</div>",
-      capturedValuesHtml(),
       "</div>",
+      capturedValuesHtml(),
       "</main>",
       "<script>",
       launcherScript(),
@@ -101,14 +101,14 @@ export function indexPage(groups: readonly IssuerCredentialChoices[]): string {
 /**
  * The issuer cards and the verifier card share one grid, so every card is the same size. Card rows
  * are `1fr`, which in a grid of unconstrained height makes each as tall as the tallest card, while
- * the heading rows keep their own height; the row counts for the two-column and the one-column
+ * the heading rows keep their own height; the row counts for the three-column and the one-column
  * layout are passed to the stylesheet.
  */
 function entityCatalogueHtml(groups: readonly IssuerCredentialChoices[]): string {
   // An empty catalogue still holds one row: its "No issuers available" notice.
   const issuerRows = Math.max(groups.length, 1);
   return [
-    `<section class="entity-catalogue" aria-label="Issuers and verifier" style="--issuer-rows-wide: ${Math.ceil(issuerRows / 2)}; --issuer-rows-narrow: ${issuerRows}">`,
+    `<section class="entity-catalogue" aria-label="Issuers and verifier" style="--issuer-rows-wide: ${Math.ceil(issuerRows / 3)}; --issuer-rows-narrow: ${issuerRows}">`,
     '<h2 id="issuer-catalogue-title">Issuers</h2>',
     groups.length > 0
       ? groups.map(issuerCardHtml).join("")
@@ -144,10 +144,11 @@ function entityCardHtml(href: string, content: readonly string[]): string {
     : `<article class="issuer-card">${body}</article>`;
 }
 
-/** What a session records about the Wallet, named as on the session pages. */
+/** What a session records about the Wallet, named as on the session pages; a band below the rest. */
 function capturedValuesHtml(): string {
   return [
-    '<aside class="card launcher-card" aria-labelledby="captured-values-title">',
+    '<section class="captured-band" aria-labelledby="captured-values-title">',
+    '<div class="container">',
     '<div class="section-head">',
     '<h2 id="captured-values-title">Captured values</h2>',
     '<span class="count-chip">10</span>',
@@ -174,7 +175,8 @@ function capturedValuesHtml(): string {
     "</dl>",
     "</section>",
     "</div>",
-    "</aside>",
+    "</div>",
+    "</section>",
   ].join("");
 }
 export function launcherTopbarHtml(): string {
