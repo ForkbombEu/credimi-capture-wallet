@@ -35,7 +35,7 @@ describe("capture issuer server", () => {
     expect(page.text).toContain("<svg");
     expect(page.text).toContain("openid-credential-offer://");
     expect(page.text).toContain(
-      '<img class="brand-logo" src="/assets/credimi_logo.svg" alt="" aria-hidden="true"><span class="brand-name">Wallet metadata capture</span>',
+      '<img class="topbar-logo" src="/assets/credimi_logo.svg" alt="Credimi"><span class="topbar-project-title">Wallet metadata capture</span>',
     );
     expect(page.text).toContain("Scan the offer and accept it in the wallet");
     expect(page.text).toContain('<a class="btn btn-outline btn-md" href="/docs">API docs</a>');

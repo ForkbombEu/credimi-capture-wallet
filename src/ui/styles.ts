@@ -10,10 +10,7 @@ export const APP_CSS = [
   ".topbar { position: sticky; top: 0; z-index: 100; height: auto; min-height: 58px; background: var(--bg); border-bottom: 1px solid var(--border); }",
   ".topbar-inner { width: min(100% - 48px, var(--max-width)); height: auto; min-height: 58px; padding-block: 8px; margin-inline: auto; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 24px; }",
   ".topbar-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 10px; }",
-  ".brand-lockup { display: inline-flex; align-items: center; gap: 10px; color: var(--fg); font-weight: 800; text-decoration: none; }",
-  ".brand-logo { box-sizing: border-box; width: 42px; height: 42px; padding: 4px; object-fit: contain; flex: 0 0 auto; }",
   ".brand-mark { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: var(--radius); background: var(--brand-primary); color: white; font-size: 12px; font-weight: 800; }",
-  ".brand-name { font-size: 14px; font-weight: 700; }",
   ".footer { background: var(--brand-primary); color: white; padding: 32px 0; }",
   ".footer-inner { width: min(100% - 48px, var(--max-width)); margin-inline: auto; }",
   ".footer-content { display: flex; align-items: center; justify-content: space-between; gap: 24px; }",
@@ -126,7 +123,7 @@ export const APP_CSS = [
   ".metadata-row summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 42px; padding: 10px 12px; color: var(--fg); font-size: 13px; font-weight: 700; cursor: pointer; list-style: none; }",
   // A collapsible row ends in a chevron that points down when closed and up when open.
   ".metadata-row summary::-webkit-details-marker { display: none; }",
-  ".metadata-row summary::after { content: '\\02C5'; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; flex: 0 0 auto; box-sizing: border-box; padding-top: 8px; color: var(--fg); font-family: var(--font-mono); font-size: 18px; font-weight: 500; line-height: 20px; }",
+  ".metadata-row summary::after { content: '\\02C5'; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; flex: 0 0 auto; box-sizing: border-box; padding-top: 8px; color: var(--fg); font-family: var(--font-sans); font-size: 18px; font-weight: 500; line-height: 20px; }",
   ".metadata-row[open] summary { border-bottom: 1px solid var(--border); }",
   ".metadata-row[open] summary::after { content: '\\02C4'; }",
   ".metadata-row code { display: block; padding: 12px; overflow-wrap: anywhere; color: var(--fg); font-size: 12px; white-space: pre-wrap; }",
@@ -148,5 +145,5 @@ export const APP_CSS = [
   "@keyframes metadata-flash { 0% { background: var(--warning-bg); box-shadow: 0 0 0 0 color-mix(in oklch, var(--warning) 32%, transparent); } 30% { background: var(--success-bg); box-shadow: 0 0 0 6px color-mix(in oklch, var(--success) 20%, transparent); } 100% { background: var(--bg); box-shadow: var(--shadow-sm); } }",
   "@media (prefers-reduced-motion: reduce) { .metadata-state-waiting::before, .metadata-state-receiving::before, .metadata-flash { animation: none; } }",
   "@media (max-width: 860px) { .topbar { position: static; } .session-layout, .capture-more-groups { grid-template-columns: 1fr; } .footer-content { flex-direction: column; align-items: stretch; } .footer-links { justify-content: flex-start; } }",
-  "@media (max-width: 560px) { .container, .topbar-inner, .footer-inner { width: min(100% - 28px, var(--max-width)); } .card { padding: 18px; } .brand-name { display: none; } .topbar-actions .btn { display: none; } }",
+  "@media (max-width: 560px) { .container, .topbar-inner, .footer-inner { width: min(100% - 28px, var(--max-width)); } .card { padding: 18px; } .topbar-project-title { display: none; } .topbar-actions .btn { display: none; } }",
 ].join("\n");

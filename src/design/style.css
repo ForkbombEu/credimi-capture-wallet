@@ -60,7 +60,7 @@
 
   /* ---------- Color: borders / rings ---------- */
   --border:                  #E4E4E7;   /* input/card hairline */
-  --border-strong:           #9A97B5;   /* table cell divider, rule */
+  --border-strong:           #9A97B5;   /* rules, outlines, hover borders */
   --border-soft:             #C5C5CC;   /* section frame */
   --input:                   var(--border);
   --ring:                    var(--brand-accent);
@@ -100,9 +100,9 @@
   /* Figma source of truth: button/input 6, chip 4, callout 5, alert 8 */
   --radius-xs:               4px;       /* badges, status chips */
   --radius-sm:               5px;       /* callout containers */
-  --radius:                  6px;       /* CANONICAL — buttons, inputs, cards */
+  --radius:                  6px;       /* CANONICAL — inputs, cards */
   --radius-md:               8px;       /* alerts, avatar squares */
-  --radius-lg:               10px;      /* hero cards (rare) */
+  --radius-lg:               10px;      /* buttons, hero cards */
   --radius-xl:               12px;      /* large feature blocks (rare) */
   --radius-pill:             999px;     /* pills */
 
@@ -132,7 +132,10 @@
   /* ---------- Typography: families ---------- */
   --font-sans:    "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-display: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-mono:    "Source Code Pro", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-mono:    "Source Code Pro", ui-monospace, SFMono-Regular, Menlo, monospace;   /* code only */
+  /* Identifiers, dates, versions and counts stay in Inter: tabular digits,
+     slashed zero, and the I/l/1 disambiguation set (DESIGN.md §6). */
+  --font-data-features: "tnum" 1, "zero" 1, "ss02" 1;
 
   /* ---------- Typography: scale (matches Figma masters) ---------- */
   --fs-xs:      12px;   --lh-xs: 1.4;
@@ -147,12 +150,16 @@
   --fs-display: 48px;   --lh-display: 48px;   /* display / page title */
 
   /* ---------- Layout ---------- */
-  --max-width: 1280px;
+  --max-width: 1440px;
   --topbar-height: 56px;
 }
 
 /* --- Reset & Base --- */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* An element with the hidden attribute stays hidden whatever display its component
+   class sets (DESIGN.md §11), so no component needs its own [hidden] rule. */
+[hidden] { display: none !important; }
 
 /*
   Inter and Source Code Pro are vendored in brand/fonts/ (SIL OFL 1.1) and
@@ -226,12 +233,25 @@ pre {
   gap: var(--space-6);
 }
 
+.topbar-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--fg);
+  text-decoration: none;
+}
+
+.topbar-brand:hover { color: var(--fg); }
+
 .topbar-logo {
-  height: 22px;
+  width: 32px;
+  height: 32px;
   flex-shrink: 0;
 }
 
-.topbar-logo img { height: 100%; width: auto; }
+.topbar-project-title {
+  font: 600 var(--fs-md)/var(--lh-md) var(--font-sans);
+}
 
 .topbar-nav {
   display: flex;
@@ -373,6 +393,21 @@ pre {
 .card-grid { display: grid; gap: var(--space-6); }
 .card-grid-2 { grid-template-columns: repeat(2, 1fr); }
 .card-grid-3 { grid-template-columns: repeat(3, 1fr); }
+
+/* Metric cards (DESIGN.md §11 Metric cards): a value in display type above its
+   eyebrow label, four to a row (two on mobile). */
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+.metric-value {
+  display: block;
+  font: 700 var(--fs-3xl)/1 var(--font-display);
+  letter-spacing: -0.007em;
+  color: var(--brand-primary);
+  margin-bottom: var(--space-2);
+}
 
 /* --- Section Headers (legacy) ---
    The colon heading. New pages open sections with .section-intro and title panels with
@@ -555,7 +590,7 @@ pre {
   margin-bottom: var(--space-2);
 }
 
-/* --- Inputs --- */
+/* --- Inputs: search and toolbar (36px); form-field controls are under Form row --- */
 input[type="text"],
 input[type="search"] {
   font-family: var(--font-sans);
@@ -605,7 +640,7 @@ input::placeholder {
 .doc-card h4 a:hover { color: var(--brand-primary); }
 
 .doc-card .doc-id {
-  font-family: var(--font-mono);
+  font-feature-settings: var(--font-data-features);
   font-size: var(--fs-xs);
   color: var(--fg-muted);
 }
@@ -631,7 +666,7 @@ input::placeholder {
 /* --- Evidence card --- */
 .evidence-card h4 { margin-bottom: var(--space-1); }
 .evidence-card .evidence-slug {
-  font-family: var(--font-mono);
+  font-feature-settings: var(--font-data-features);
   font-size: var(--fs-xs);
   color: var(--fg-muted);
   margin-bottom: var(--space-2);
@@ -756,7 +791,7 @@ input::placeholder {
 }
 
 .detail-header .doc-id-display {
-  font-family: var(--font-mono);
+  font-feature-settings: var(--font-data-features);
   font-size: var(--fs-sm);
   color: var(--fg-muted);
   margin-bottom: var(--space-3);
@@ -807,7 +842,7 @@ input::placeholder {
 }
 
 .ref-item .ref-source {
-  font-family: var(--font-mono);
+  font-feature-settings: var(--font-data-features);
   font-size: var(--fs-xs);
   color: var(--fg-muted);
   margin-bottom: 2px;
@@ -877,7 +912,9 @@ input::placeholder {
 
 .edit-link:hover { color: var(--brand-primary); border-color: var(--border-strong); }
 
-/* --- Tabs --- */
+/* --- Tabs (DESIGN.md §11 Tabs) ---
+   Alternate views of one object. The selected tab follows aria-selected (or the
+   legacy .active class); keyboard focus shows the ring inside the tab. */
 .tabs {
   display: flex;
   gap: 0;
@@ -898,9 +935,55 @@ input::placeholder {
 }
 
 .tab-btn:hover { color: var(--fg); }
-.tab-btn.active {
+.tab-btn.active,
+.tab-btn[aria-selected="true"] {
   color: var(--brand-primary);
   border-bottom-color: var(--brand-primary);
+}
+.tab-btn:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+
+/* --- Scrollbars (DESIGN.md §11 Scrollbars) ---
+   Credimi's scrollbar, as on credimi.io: a 10px indigo pill on a transparent
+   track, inset 2px, lighter under the pointer. Blink and WebKit draw it from
+   the pseudo-elements; Firefox, which has none, from scrollbar-color. Blink
+   ignores the pseudo-elements once scrollbar-color is set, hence the guard. */
+:root {
+  --scrollbar-size: 10px;
+  --scrollbar-thumb: var(--brand-primary);
+  --scrollbar-thumb-hover: color-mix(in oklch, var(--brand-primary) 85%, white);
+  --scrollbar-track: transparent;
+}
+
+::-webkit-scrollbar {
+  width: var(--scrollbar-size);
+  height: var(--scrollbar-size);
+  background: transparent;
+}
+
+::-webkit-scrollbar-track { background: var(--scrollbar-track); }
+
+::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+  border: 2px solid transparent;
+  background-clip: content-box;
+  border-radius: var(--radius-pill);
+}
+
+::-webkit-scrollbar-thumb:hover { background-color: var(--scrollbar-thumb-hover); }
+
+::-webkit-scrollbar-corner { background: transparent; }
+
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  }
+}
+
+/* On indigo surfaces the thumb turns translucent white. */
+.scrollbar-on-dark {
+  --scrollbar-thumb: rgba(255,255,255,0.35);
+  --scrollbar-thumb-hover: rgba(255,255,255,0.55);
 }
 
 /* --- Utilities --- */
@@ -917,6 +1000,7 @@ input::placeholder {
 .text-sm { font-size: var(--fs-sm); }
 .text-xs { font-size: var(--fs-xs); }
 .font-mono { font-family: var(--font-mono); }
+.data { font-feature-settings: var(--font-data-features); }
 
 /* --- Page layout: hero band and sections ---
    A page opens with the brand-blue hero band, then a run of sections; each section opens
@@ -1018,7 +1102,6 @@ input::placeholder {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-3);
 }
-.link-cards[hidden] { display: none; }
 .link-card {
   position: relative;
   display: grid;
@@ -1037,7 +1120,8 @@ input::placeholder {
 }
 .link-card-url {
   overflow-wrap: anywhere;
-  font: 400 var(--fs-xs)/1.5 var(--font-mono);
+  font: 400 var(--fs-xs)/1.5 var(--font-sans);
+  font-feature-settings: var(--font-data-features);
   color: var(--fg-muted);
 }
 a.link-card {
@@ -1064,7 +1148,8 @@ a.link-card::after {
 
 /* --- Disclosure ---
    A collapsible panel (such as a form's advanced settings), closed by default. Its
-   summary ends in a chevron that points down when closed and up when open. */
+   summary ends in a chevron that points down when closed and up when open; its
+   content sits in .disclosure-body. */
 .disclosure {
   border: 1px solid var(--border-strong);
   border-radius: var(--radius);
@@ -1089,12 +1174,13 @@ a.link-card::after {
   width: 20px;
   height: 20px;
   padding-top: var(--space-2);
-  font: 500 18px/20px var(--font-mono);
+  font: 500 18px/20px var(--font-sans);
   text-align: center;
   color: var(--fg);
 }
 .disclosure[open] > summary { border-bottom: 1px solid var(--border); }
 .disclosure[open] > summary::after { content: '\02C4'; }
+.disclosure-body { padding: var(--space-4); }
 
 /* --- Form row ---
    A form's controls on one row, bottom-aligned because each field carries its label
@@ -1122,6 +1208,40 @@ a.link-card::after {
   font: 600 var(--fs-base) var(--font-sans);
 }
 .form-field select:focus { outline: 2px solid var(--ring); outline-offset: 2px; }
+.form-row > .form-field-sm { flex: 0 0 140px; }
+.form-row > .form-field-md { flex: 0 0 200px; }
+/* Every control in a form field matches the select: 44px, --radius, --border-strong
+   and a 600 value; a textarea starts at 96px and resizes vertically only. */
+.form-field input:not([type="radio"]):not([type="checkbox"]),
+.form-field textarea {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--fg);
+  font: 600 var(--fs-base) var(--font-sans);
+  box-shadow: none;
+}
+.form-field textarea {
+  min-height: 96px;
+  padding: var(--space-3) 14px;
+  font-weight: 400;
+  line-height: var(--lh-base);
+  resize: vertical;
+}
+.form-field input:not([type="radio"]):not([type="checkbox"]):focus,
+.form-field textarea:focus {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-color: var(--border-strong);
+  box-shadow: none;
+}
+/* A file picker as a button: the label carries the button classes and wraps the
+   native input, which stays focusable and out of sight; the label shows the ring. */
+.btn-file { position: relative; }
+.btn-file:focus-within { outline: 2px solid var(--ring); outline-offset: 2px; }
 
 /* --- Segmented control ---
    One choice out of a few, such as a flow: a rounded rectangle whose checked segment
@@ -1210,9 +1330,10 @@ a.link-card::after {
   color: var(--fg-muted);
 }
 
-/* Shared by the segmented control and the switch: the native input keeps focus and form
-   submission while staying out of sight. */
+/* Shared by the segmented control, the switch and the file button: the native input
+   keeps focus and form submission while staying out of sight. */
 .segmented input,
+.btn-file input,
 .switch input {
   position: absolute;
   width: 1px;
@@ -1262,6 +1383,56 @@ a.link-card::after {
   a.link-card { transition: none; }
 }
 
+/* --- Alerts (DESIGN.md §11 Alerts) ---
+   A bordered note in its variant's color: an 18px Lucide icon, a 500/16 title and a
+   400/14 body, with an optional action (a ghost Dismiss) at the end of the row. Inline
+   alerts sit on 60% white; a floating alert is action feedback, solid white over the
+   page in the bottom-right corner until dismissed. */
+.alert {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  align-items: start;
+  padding: 17px;
+  border: 1px solid currentColor;
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.6);
+}
+.alert-success { color: var(--success-border); }
+.alert-destructive { color: var(--destructive); }
+.alert-info { color: var(--brand-primary); }
+.alert-icon {
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.alert-title { font: 500 var(--fs-md)/1.25 var(--font-sans); }
+.alert-body {
+  margin-top: var(--space-1);
+  font: 400 var(--fs-base)/var(--lh-base) var(--font-sans);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.alert .btn-ghost { color: var(--fg); }
+.alert-floating {
+  position: fixed;
+  right: var(--space-6);
+  bottom: var(--space-6);
+  z-index: 200;
+  width: min(440px, calc(100vw - 2 * var(--space-4)));
+  background: var(--bg);
+  box-shadow: var(--shadow-lg);
+  animation: alert-in 220ms ease-out;
+}
+.alert-floating .alert-body { max-height: 40vh; overflow: auto; }
+@keyframes alert-in { from { opacity: 0; transform: translateY(8px); } }
+@media (prefers-reduced-motion: reduce) { .alert-floating { animation: none; } }
+
 /* --- Responsive --- */
 @media (max-width: 768px) {
   :root {
@@ -1271,6 +1442,7 @@ a.link-card::after {
   }
   .container { padding: 0 var(--space-4); }
   .card-grid-2, .card-grid-3 { grid-template-columns: 1fr; }
+  .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .hero { padding: var(--space-10) 0; }
   .hero h1 { font-size: var(--fs-3xl); }
   .footer-content { flex-direction: column; gap: var(--space-8); }
@@ -1284,7 +1456,10 @@ a.link-card::after {
   .page-section { padding: var(--space-16) 0; }
   .hero-band { padding: var(--space-16) 0 var(--space-12); }
   .link-cards { grid-template-columns: 1fr; }
-  .form-row > * { flex: 1 1 100%; }
+  .form-row > *,
+  .form-row > .form-field-sm,
+  .form-row > .form-field-md { flex: 1 1 100%; }
+  .alert-floating { right: var(--space-4); bottom: var(--space-4); }
   .panel-head { flex-direction: column; align-items: stretch; }
 }
 
@@ -1620,9 +1795,12 @@ body.role-active .tree-leaf.role-highlight a {
   pointer-events: none;
 }
 
-/* Test coverage page */
+/* Data tables (DESIGN.md §11 Tables): the Scoreboard pattern — a white surface
+   on the lavender wash, a lavender header band, hairline rows. */
 .test-table-wrap {
   overflow-x: auto;
+  border-radius: var(--radius);
+  background: var(--bg);
 }
 
 .test-table {
@@ -1633,30 +1811,32 @@ body.role-active .tree-leaf.role-highlight a {
 
 .test-table th {
   text-align: left;
-  padding: var(--space-2) var(--space-3);
-  border-bottom: 2px solid var(--border);
+  height: 40px;
+  padding: 0 var(--space-3);
   font-size: var(--fs-xs);
-  font-weight: 600;
-  color: var(--fg-muted);
+  font-weight: 500;
+  color: var(--brand-primary);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.14em;
   white-space: nowrap;
-  background: var(--bg);
+  background: var(--brand-secondary-strong);
   position: sticky;
   top: 0;
   z-index: 1;
 }
 
 .test-table td {
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-3);
   border-bottom: 1px solid var(--border);
   vertical-align: top;
 }
 
+.test-table tbody tr:last-child td { border-bottom: 0; }
+
 .test-table tr:hover td { background: var(--bg-muted); }
 
 .test-table .test-id {
-  font-family: var(--font-mono);
+  font-feature-settings: var(--font-data-features);
   font-size: var(--fs-xs);
   color: var(--fg-muted);
   white-space: nowrap;

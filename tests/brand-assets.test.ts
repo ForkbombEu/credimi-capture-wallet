@@ -13,7 +13,7 @@ const { config } = serverTestSuite("brand-assets-test-");
  * and fonts are maintained there, so a template update means copying the files and these hashes.
  */
 const CANONICAL_SHA256: Record<string, string> = {
-  "src/design/style.css": "6dcb099f0c86d72b8747cacfe8f07adce6adecff41664d438a1850e65cf7b137",
+  "src/design/style.css": "506f0677f9af501a475fa9bcf84eae9e52e8fb8870191855ad30dc2c319b53a4",
   "src/design/fonts/InterVariable.ttf":
     "29160a80ff49ddcab2c97711247e08b1fab27a484a329ce8b813d820dc559031",
   "src/design/fonts/InterVariable.OFL.txt":

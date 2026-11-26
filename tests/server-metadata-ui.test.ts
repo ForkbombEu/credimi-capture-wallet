@@ -532,7 +532,7 @@ describe("capture issuer server", () => {
     );
     expect(presentation.authorization_request.dcql_query).toEqual(first.verify.dcql_query);
     expect(response.text).toContain(
-      '<img class="brand-logo" src="/assets/credimi_logo.svg" alt="Credimi"><span class="brand-name">Wallet metadata capture</span>',
+      '<img class="topbar-logo" src="/assets/credimi_logo.svg" alt="Credimi"><span class="topbar-project-title">Wallet metadata capture</span>',
     );
     expect(response.text).toContain(
       '<span class="status-chip status-issuer">ISSUER READY</span><span class="status-chip status-wallet">VERIFIER READY</span><a class="btn btn-outline btn-md" href="/docs">API docs</a><a class="btn btn-outline btn-md" href="/openapi.json" download="openapi.json">OpenAPI</a><a class="btn btn-outline btn-md" href="https://github.com/ForkbombEu/credimi-capture-wallet"',
@@ -655,7 +655,7 @@ describe("capture issuer server", () => {
     expect(response.status).toBe(200);
     expect(response.text).toContain("Wallet Metadata Capture Help");
     expect(response.text).toContain(
-      '<img class="brand-logo" src="/assets/credimi_logo.svg" alt="" aria-hidden="true"><span class="brand-name">Wallet metadata capture</span>',
+      '<img class="topbar-logo" src="/assets/credimi_logo.svg" alt="Credimi"><span class="topbar-project-title">Wallet metadata capture</span>',
     );
     expect(response.text).toContain("Credimi Capture Wallet Metadata");
     expect(response.text).toContain("readme-card");
