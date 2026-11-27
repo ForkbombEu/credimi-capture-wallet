@@ -16,9 +16,9 @@ export const attestbookExperimental: IssuerConfiguration = {
   staticCredentialVcts: [],
   importsAttestbookCredentials: true,
   display: {
-    name: "Attestbook experimental issuer",
+    name: "Attestbook issuer",
     description:
-      "SD-JWT VC credential types imported from a subscribed Attestbook rulebook, issued with generated test claim values. Requires key attestation.",
+      "SD-JWT VC and mdoc credential types imported from a subscribed Attestbook rulebook, issued with generated test claim values. Requires key attestation.",
     warning:
       "Experimental: issuance success does not establish EUDI trust or interoperability compliance.",
   },

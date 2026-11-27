@@ -354,9 +354,7 @@ export function launcherTopbarHtml(): string {
 export function issuerLabel(issuer: ResolvedIssuerConfiguration): string {
   return issuer.compliance === "deliberately-nonconforming"
     ? `${issuer.display.name} — deliberately non-conforming`
-    : issuer.compliance === "experimental"
-      ? `${issuer.display.name} — experimental`
-      : issuer.display.name;
+    : issuer.display.name;
 }
 
 function credentialGroupHtml({ issuer, credentials }: IssuerCredentialChoices): string {
