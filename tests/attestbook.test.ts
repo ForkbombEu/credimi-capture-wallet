@@ -351,7 +351,7 @@ describe("Attestbook rulebook compiler", () => {
       format: "dc+sd-jwt",
       vct: "urn:attestbook:membership-card",
       vctSource: "attestation_name",
-      displayName: "Membership card",
+      displayName: "Membership card (SD-JWT VC)",
       proofPolicy: "key-attestation-required",
       claimValueProvider: "faker-js",
     });
@@ -387,7 +387,7 @@ describe("Attestbook rulebook compiler", () => {
     expect(result.definitions[0]).toMatchObject({
       vct: "urn:attestbook:university-diploma-eu",
       vctSource: "attestation_name",
-      displayName: "Ünïversity Diploma (EU)",
+      displayName: "Ünïversity Diploma (EU) (SD-JWT VC)",
     });
     expect(vctForAttestationName("  --  ")).toBeNull();
   });
@@ -460,8 +460,13 @@ describe("Attestbook rulebook compiler", () => {
         credentialConfigurationId: "urn:attestbook:unnamed-doc:mso_mdoc",
       },
     ]);
-    const [, mdl, unnamed] = result.definitions;
-    expect(mdl).toMatchObject({ doctype: "org.iso.18013.5.1.mDL", doctypeSource: "json_schema" });
+    const [sdJwt, mdl, unnamed] = result.definitions;
+    expect(sdJwt?.displayName).toBe("French mDL (SD-JWT VC)");
+    expect(mdl).toMatchObject({
+      doctype: "org.iso.18013.5.1.mDL",
+      doctypeSource: "json_schema",
+      displayName: "French mDL (MDOC)",
+    });
     expect(unnamed).toMatchObject({
       doctype: "urn:attestbook:unnamed-doc",
       doctypeSource: "attestation_name",

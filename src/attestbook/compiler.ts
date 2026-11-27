@@ -27,6 +27,11 @@ const FORMAT_SUFFIX: Readonly<Record<CredentialFormat, string>> = {
   "dc+sd-jwt": "sd_jwt",
   mso_mdoc: "mso_mdoc",
 };
+/** The format label appended to each display name, as the static catalogue labels its formats. */
+const FORMAT_LABEL: Readonly<Record<CredentialFormat, string>> = {
+  "dc+sd-jwt": "SD-JWT VC",
+  mso_mdoc: "MDOC",
+};
 /** The credential type per format, and the schema root property that may pin it. */
 const CREDENTIAL_TYPE: Readonly<Record<CredentialFormat, { label: string; property: string }>> = {
   "dc+sd-jwt": { label: "vct", property: "vct" },
@@ -316,7 +321,7 @@ function compileAttestation(
       format: "dc+sd-jwt",
       vct: type,
       vctSource: source,
-      displayName: typeMetadata?.displayName ?? attestation.name,
+      displayName: `${typeMetadata?.displayName ?? attestation.name} (${FORMAT_LABEL[format]})`,
       claimMetadata: claimMetadata(claims, [], true),
       disclosurePolicy: "issuer-default-selective",
     };
@@ -326,7 +331,7 @@ function compileAttestation(
     format: "mso_mdoc",
     doctype: type,
     doctypeSource: source,
-    displayName: attestation.name,
+    displayName: `${attestation.name} (${FORMAT_LABEL[format]})`,
     // OpenID4VCI Appendix C.2: an mdoc claims path starts with the namespace and the data element.
     claimMetadata: claims.properties.flatMap((namespace) =>
       claimMetadata(namespace.node, [namespace.name], namespace.required),

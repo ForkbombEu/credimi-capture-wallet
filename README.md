@@ -1064,7 +1064,9 @@ the rulebook, so two rulebooks with alike-named types share them. The issued typ
 schema's `vct` or `docType` constraints. An optional SD-JWT VC Type Metadata reference may refine
 display names and disclosure, but its `vct` must equal the issued one or the publication is
 rejected. Two types of one rulebook with the same `vct`, the same doctype, or names that slug alike
-are rejected.
+are rejected. The display name advertised in issuer metadata is the Type Metadata name (SD-JWT VC
+only) or the attestation name, followed by the format, so the two formats of one type are told
+apart: `Italian PID (SD-JWT VC)`, `Italian PID (MDOC)`.
 
 **Claim values.** A schema constrains claims; it does not supply identity data. Every session
 gets synthetic values generated with [faker-js](https://fakerjs.dev), seeded by the session id, for
