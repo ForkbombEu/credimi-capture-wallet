@@ -4,7 +4,7 @@ import { type IncomingMessage, type ServerResponse, createServer } from "node:ht
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SdJwtVcService } from "@credo-ts/core";
+import { Mdoc, SdJwtVcService } from "@credo-ts/core";
 import type { Express } from "express";
 import { type JWK, compactVerify, createLocalJWKSet, decodeJwt, importX509 } from "jose";
 import request from "supertest";
@@ -47,6 +47,7 @@ let config: AppConfig;
 let deviceBoundConfig: AppConfig;
 
 const membershipVct = "urn:attestbook:membership-card";
+const membershipId = `${membershipVct}:sd_jwt`;
 
 function membership(version: number, extra: Record<string, unknown> = {}): FixtureAttestation {
   return {
@@ -312,8 +313,8 @@ describe("Attestbook-defined credentials, end to end", () => {
       active: { version: "1.0", content_digest: v1.contentDigest },
       sync: { state: "idle", failure: null },
     });
-    // The configuration id and the scope are the vct, and nothing else is served.
-    const v1Id = membershipVct;
+    // The configuration id and the scope derive from the name and format; nothing else is served.
+    const v1Id = membershipId;
     expect(await issuerCredentialIds(issuer)).toEqual([v1Id]);
     expect(await advertisedIds(issuer)).toEqual([v1Id]);
 
@@ -566,11 +567,11 @@ describe("Attestbook-defined credentials, end to end", () => {
       active: {
         version: "2.0",
         content_digest: v2.contentDigest,
-        credential_configuration_ids: [membershipVct],
+        credential_configuration_ids: [membershipId],
       },
       last_observed_event: { event_id: v2.id },
     });
-    const v2Id = membershipVct;
+    const v2Id = membershipId;
     expect(await advertisedIds(issuer)).toEqual([v2Id]);
     const v2Metadata = await request(issuer.app).get(
       `/.well-known/openid-credential-issuer/issuers/${issuerId}`,
@@ -710,7 +711,7 @@ describe("Attestbook-defined credentials, end to end", () => {
 
     // An unsupported schema is explained by diagnostics; the issuer stays healthy.
     const v4 = fixture.publish("4.0", [
-      membership(4, { joined: { type: "string", format: "date" } }),
+      membership(4, { joined: { type: "string", format: "email" } }),
     ]);
     expect((await deliver(issuer, v4)).status).toBe(202);
     const rejected = await status(issuer);
@@ -770,7 +771,7 @@ describe("Attestbook-defined credentials, end to end", () => {
       active: { version: "5.0", content_digest: v5.contentDigest },
       sync: { state: "idle", last_trigger: "startup" },
     });
-    expect(await issuerCredentialIds(issuer)).toEqual([membershipVct]);
+    expect(await issuerCredentialIds(issuer)).toEqual([membershipId]);
   });
 
   it("offers the imported credential on the launcher, the issuer page, and the verifier page", async () => {
@@ -781,12 +782,12 @@ describe("Attestbook-defined credentials, end to end", () => {
       .set("Accept", "text/html");
     expect(issuerPage.status).toBe(200);
     expect(issuerPage.text).toContain(
-      `<option value="${membershipVct}" data-format="dc+sd-jwt" data-imported="true">`,
+      `<option value="${membershipId}" data-format="dc+sd-jwt" data-imported="true">`,
     );
 
     const verifierPage = await request(issuer.app).get("/openid4vp");
     expect(verifierPage.status).toBe(200);
-    const dcql = new RegExp(`<option value="${membershipVct}" data-dcql="([^"]+)"`).exec(
+    const dcql = new RegExp(`<option value="${membershipId}" data-dcql="([^"]+)"`).exec(
       verifierPage.text,
     )?.[1];
     if (!dcql) throw new Error("verifier page does not offer the imported credential");
@@ -799,9 +800,98 @@ describe("Attestbook-defined credentials, end to end", () => {
     const launcher = await request(issuer.app).get("/");
     expect(launcher.text).toMatch(
       new RegExp(
-        `<option value="${membershipVct}" data-issuer="${issuerId}" data-dcql="[^"]+" data-imported="true"`,
+        `<option value="${membershipId}" data-issuer="${issuerId}" data-dcql="[^"]+" data-imported="true"`,
       ),
     );
+  });
+
+  it("issues an imported mdoc over OpenID4VCI and requests it by doctype over OpenID4VP", async () => {
+    const namespace = "org.iso.18013.5.1";
+    fixture.publish("7.0", [
+      {
+        name: "Driving Licence",
+        mdocSchema: {
+          type: "object",
+          required: [namespace],
+          properties: {
+            docType: { const: "org.iso.18013.5.1.mDL" },
+            [namespace]: {
+              type: "object",
+              required: ["family_name", "birth_date", "portrait"],
+              properties: {
+                family_name: { type: "string", minLength: 1 },
+                birth_date: { type: "string", format: "date" },
+                portrait: { type: "string", contentEncoding: "base64" },
+                place_of_birth: {
+                  type: "object",
+                  minProperties: 1,
+                  properties: { country: { type: "string" } },
+                },
+              },
+            },
+          },
+        },
+      },
+    ]);
+    const issuer = await startIssuer();
+    const mdlId = "urn:attestbook:driving-licence:mso_mdoc";
+    expect(await status(issuer)).toMatchObject({
+      active: { version: "7.0", credential_configuration_ids: [mdlId] },
+      sync: { state: "idle", failure: null },
+    });
+
+    const metadata = await request(issuer.app).get(
+      `/.well-known/openid-credential-issuer/issuers/${issuerId}`,
+    );
+    const configuration = metadata.body.credential_configurations_supported[mdlId] as JsonRecord;
+    expect(configuration).toMatchObject({
+      format: "mso_mdoc",
+      doctype: "org.iso.18013.5.1.mDL",
+      scope: mdlId,
+      cryptographic_binding_methods_supported: ["cose_key"],
+    });
+    const claimPaths = (
+      (configuration.credential_metadata as JsonRecord).claims as { path: unknown[] }[]
+    ).map((claim) => claim.path);
+    expect(claimPaths).toEqual(
+      expect.arrayContaining([
+        [namespace, "family_name"],
+        [namespace, "place_of_birth", "country"],
+      ]),
+    );
+
+    const { compact, session } = await issuePreAuthorized(issuer, {
+      credential_configuration_id: mdlId,
+    });
+    expect(session.credential_definition).toMatchObject({
+      format: "mso_mdoc",
+      doctype: "org.iso.18013.5.1.mDL",
+      doctype_source: "json_schema",
+    });
+    const mdoc = Mdoc.fromBase64Url(compact);
+    expect(mdoc.docType).toBe("org.iso.18013.5.1.mDL");
+    const elements = mdoc.issuerSignedNamespaces[namespace] ?? {};
+    const generated = session.generated_claims?.claims[namespace] as JsonRecord;
+    expect(elements.family_name).toBe(generated.family_name);
+    expect(String(elements.birth_date)).toBe(generated.birth_date);
+    expect(Buffer.from(elements.portrait as Uint8Array).toString("base64")).toBe(
+      generated.portrait,
+    );
+
+    const verifierPage = await request(issuer.app).get("/openid4vp");
+    const dcql = new RegExp(`<option value="${mdlId}" data-dcql="([^"]+)"`).exec(
+      verifierPage.text,
+    )?.[1];
+    if (!dcql) throw new Error("verifier page does not offer the imported mdoc");
+    const query = JSON.parse(dcql.replaceAll("&quot;", '"')) as {
+      credentials: { format: string; meta: JsonRecord; claims: { path: unknown[] }[] }[];
+    };
+    expect(query.credentials[0]).toMatchObject({
+      format: "mso_mdoc",
+      meta: { doctype_value: "org.iso.18013.5.1.mDL" },
+    });
+    // OpenID4VP Section 7.2: an mdoc claims path pointer is exactly [namespace, data element].
+    expect(query.credentials[0]?.claims.every((claim) => claim.path.length === 2)).toBe(true);
   });
 
   it("advertises no credential configuration before a rulebook version is active", async () => {

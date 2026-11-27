@@ -1,6 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { DISABLED_ATTESTBOOK_SETTINGS } from "../src/attestbook/settings.js";
-import type { AttestbookCredentialDefinition } from "../src/attestbook/types.js";
+import type {
+  AttestbookCredentialDefinition,
+  AttestbookSdJwtCredentialDefinition,
+} from "../src/attestbook/types.js";
 import { attestbookExperimental } from "../src/configurations/attestbook-experimental/index.js";
 import type { ResolvedIssuerConfiguration } from "../src/configurations/types.js";
 import {
@@ -78,7 +81,7 @@ function definition(
     scope?: string;
     vct?: string;
   } = {},
-): AttestbookCredentialDefinition {
+): AttestbookSdJwtCredentialDefinition {
   const id = overrides.credentialConfigurationId ?? "urn:attestbook:membership-card";
   const vct = overrides.vct ?? id;
   return {

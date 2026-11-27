@@ -221,9 +221,13 @@ export function defaultDcqlQuery(credentials: readonly SupportedCredential[]): J
       format: credential.format,
       meta:
         credential.format === "mso_mdoc"
-          ? { doctype_value: PID_MDOC_DOCTYPE }
+          ? { doctype_value: credential.doctype ?? PID_MDOC_DOCTYPE }
           : { vct_values: [credential.vct ?? PID_SD_JWT_VCT] },
-      claims: credential.claimPaths.map((path) => ({ path: [...path] })),
+      // An mdoc claims path pointer is exactly [namespace, data element] (OpenID4VP Section 7.2),
+      // though issuer metadata may also describe paths inside a data element.
+      claims: credential.claimPaths
+        .filter((path) => credential.format !== "mso_mdoc" || path.length === 2)
+        .map((path) => ({ path: [...path] })),
     })),
   };
 }

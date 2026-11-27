@@ -7,6 +7,7 @@ import {
   degreeSdJwtCredentialSignOptions,
   domesticPidMdocCredentialSignOptions,
   domesticPidSdJwtCredentialSignOptions,
+  importedMdocCredentialSignOptions,
   importedSdJwtCredentialSignOptions,
   mdocCredentialSignOptions,
   numericSdJwtCredentialSignOptions,
@@ -116,6 +117,20 @@ export function signingOptionsForCredential(options: {
     }
     const generated = captureSession.generated_claims;
     if (!generated) throw new Error("Capture session has no generated claims");
+    if (definition.format === "mso_mdoc") {
+      return {
+        type: "credentials" as const,
+        format: ClaimFormat.MsoMdoc,
+        credentials: holderJwks.map((holderJwk) =>
+          importedMdocCredentialSignOptions({
+            config: signingConfig,
+            holderJwk,
+            definition,
+            claims: generated.claims,
+          }),
+        ),
+      };
+    }
     return {
       type: "credentials" as const,
       format: ClaimFormat.SdJwtDc,

@@ -7,7 +7,7 @@ const unsupportedType = (name: string) =>
 const uri = "https://schemas.example/example.json";
 
 function diagnostics(schema: Record<string, unknown>) {
-  return compileJsonSchema(schema, attestation, uri).diagnostics;
+  return compileJsonSchema(schema, attestation, uri, "dc+sd-jwt").diagnostics;
 }
 
 function codes(schema: Record<string, unknown>) {
@@ -55,7 +55,7 @@ describe("Attestbook JSON Schema diagnostics", () => {
   it("reports too many claims at the first claim over the node bound", () => {
     const properties: Record<string, unknown> = {};
     for (let index = 0; index < 257; index += 1) properties[`claim_${index}`] = { type: "string" };
-    const result = compileJsonSchema({ type: "object", properties }, attestation, uri);
+    const result = compileJsonSchema({ type: "object", properties }, attestation, uri, "dc+sd-jwt");
     expect(result.claims).toBeNull();
     expect(result.diagnostics).toHaveLength(1);
     expect(result.diagnostics[0]).toMatchObject({
@@ -237,8 +237,8 @@ describe("Attestbook JSON Schema diagnostics", () => {
     expect(result).toEqual([
       {
         code: "claim_too_deep",
-        field: `${uri}#/properties/deep/properties/level_4/properties/level_3/properties/level_2/properties/level_1`,
-        message: "claims may be at most 4 levels deep",
+        field: `${uri}#/properties/deep/properties/level_4/properties/level_3/properties/level_2/properties/level_1/properties/level_0`,
+        message: "claims may be at most 5 levels deep",
       },
     ]);
   });
@@ -330,6 +330,7 @@ describe("Attestbook JSON Schema diagnostics", () => {
       },
       attestation,
       uri,
+      "dc+sd-jwt",
     );
 
     expect(diagnostics).toEqual([]);
@@ -380,6 +381,7 @@ describe("Attestbook JSON Schema diagnostics", () => {
       },
       attestation,
       uri,
+      "dc+sd-jwt",
     );
 
     expect(diagnostics).toEqual([]);
@@ -417,10 +419,14 @@ describe("Attestbook JSON Schema diagnostics", () => {
       },
       attestation,
       uri,
+      "dc+sd-jwt",
     );
 
     expect(result.diagnostics).toEqual([]);
-    expect(result.vct).toMatchObject({ types: ["string"], const: "urn:eudi:pid:it:1" });
+    expect(result.typeIdentifier).toMatchObject({
+      types: ["string"],
+      const: "urn:eudi:pid:it:1",
+    });
     expect(result.claims?.properties.map((property) => property.name)).toEqual(["given_name"]);
     expect(
       codes({
@@ -433,6 +439,116 @@ describe("Attestbook JSON Schema diagnostics", () => {
         field: `${uri}#/properties/vct/type`,
         message: "claim 'vct' must be a string",
       },
+    ]);
+  });
+
+  it("accepts date, date-time and base64 strings and validates their values", () => {
+    const { claims, diagnostics } = compileJsonSchema(
+      {
+        type: "object",
+        properties: {
+          birth_date: { type: "string", format: "date" },
+          signed_at: { type: "string", format: "date-time" },
+          portrait: { type: "string", contentEncoding: "base64", contentMediaType: "image/jpeg" },
+        },
+      },
+      attestation,
+      uri,
+      "dc+sd-jwt",
+    );
+
+    expect(diagnostics).toEqual([]);
+    if (!claims) throw new Error("schema did not compile");
+    expect(
+      claimValueErrors(claims, {
+        birth_date: "1990-02-28",
+        signed_at: "2026-01-01T10:00:00Z",
+        portrait: "/9j/4A==",
+      }),
+    ).toEqual([]);
+    expect(
+      claimValueErrors(claims, {
+        birth_date: "1990-02-30",
+        signed_at: "2026-01-01",
+        portrait: "not base64!",
+      }),
+    ).toEqual([
+      "$.birth_date is not an RFC 3339 full-date",
+      "$.signed_at is not an RFC 3339 date-time",
+      "$.portrait is not base64",
+    ]);
+    expect(
+      codes({
+        type: "object",
+        properties: {
+          email: { type: "string", format: "email" },
+          count: { type: "integer", contentEncoding: "base64" },
+        },
+      }),
+    ).toEqual([
+      {
+        code: "unsupported_schema_keyword",
+        field: `${uri}#/properties/email/format`,
+        message: "format must be 'date' or 'date-time', on a string claim",
+      },
+      {
+        code: "unsupported_schema_keyword",
+        field: `${uri}#/properties/count/contentEncoding`,
+        message: "contentEncoding must be 'base64', on a string claim",
+      },
+    ]);
+  });
+
+  it("compiles an mdoc schema as namespaces of data elements, with docType apart", () => {
+    const result = compileJsonSchema(
+      {
+        type: "object",
+        required: ["org.iso.18013.5.1"],
+        properties: {
+          docType: { const: "org.iso.18013.5.1.mDL" },
+          "org.iso.18013.5.1": {
+            type: "object",
+            required: ["family_name"],
+            properties: {
+              family_name: { type: "string" },
+              driving_privileges: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    codes: {
+                      type: "array",
+                      items: { type: "object", properties: { code: { type: "string" } } },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      attestation,
+      uri,
+      "mso_mdoc",
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.typeIdentifier?.const).toBe("org.iso.18013.5.1.mDL");
+    expect(result.claims?.properties).toMatchObject([
+      { name: "org.iso.18013.5.1", required: true, node: { kind: "object" } },
+    ]);
+  });
+
+  it("rejects an mdoc schema whose root lists data elements instead of namespaces", () => {
+    const result = compileJsonSchema(
+      { type: "object", properties: { family_name: { type: "string" } } },
+      attestation,
+      uri,
+      "mso_mdoc",
+    );
+
+    expect(result.diagnostics.map(({ code, field }) => ({ code, field }))).toEqual([
+      { code: "unsupported_namespace_schema", field: `${uri}#/properties/family_name` },
     ]);
   });
 });

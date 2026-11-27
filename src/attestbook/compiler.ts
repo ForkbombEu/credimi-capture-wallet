@@ -1,7 +1,8 @@
 import { isRecord } from "../shared/json.js";
-import type { CredentialProofPolicy } from "../types.js";
+import type { CredentialFormat, CredentialProofPolicy } from "../types.js";
 import { compileJsonSchema, scalarValueError } from "./json-schema.js";
 import {
+  IMPORTED_FORMATS,
   SD_JWT_VC_FORMAT,
   type VerifiedRulebook,
   type VerifiedSchemaDocument,
@@ -21,6 +22,16 @@ import type {
 const KEY_BINDING = "key";
 const VCT_PREFIX = "urn:attestbook:";
 const MAX_VCT_SLUG_LENGTH = 128;
+/** The configuration id suffix per format; `+` is avoided, form encoding reads it as a space. */
+const FORMAT_SUFFIX: Readonly<Record<CredentialFormat, string>> = {
+  "dc+sd-jwt": "sd_jwt",
+  mso_mdoc: "mso_mdoc",
+};
+/** The credential type per format, and the schema root property that may pin it. */
+const CREDENTIAL_TYPE: Readonly<Record<CredentialFormat, { label: string; property: string }>> = {
+  "dc+sd-jwt": { label: "vct", property: "vct" },
+  mso_mdoc: { label: "doctype", property: "docType" },
+};
 
 export interface CompilationResult {
   /** Empty whenever any error diagnostic is present: a catalogue activates whole or not at all. */
@@ -42,11 +53,12 @@ interface TypeMetadata {
 }
 
 /**
- * Compiles every SD-JWT VC attestation type of a verified rulebook version into an executable
- * credential definition. Attestation types without `dc+sd-jwt` are reported and skipped; any
- * unsupported construct in a selected type is an error that blocks the whole catalogue, so a
- * partially trusted definition is never produced. Every definition takes the importing issuer's
- * proof policy: a rulebook does not choose how holders prove key possession.
+ * Compiles every attestation type of a verified rulebook version into one executable credential
+ * definition per supported format: `dc+sd-jwt` and `mso_mdoc`, each from its own JSON Schema
+ * reference. Attestation types with neither are reported and skipped; any unsupported construct
+ * in a selected type is an error that blocks the whole catalogue, so a partially trusted definition
+ * is never produced. Every definition takes the importing issuer's proof policy: a rulebook does
+ * not choose how holders prove key possession.
  */
 export function compileRulebook(
   rulebook: VerifiedRulebook,
@@ -55,7 +67,7 @@ export function compileRulebook(
   const diagnostics: AttestbookDiagnostic[] = [];
   const definitions: AttestbookCredentialDefinition[] = [];
   const names = new Set<string>();
-  const vcts = new Map<string, string>();
+  const types = new Map<string, string>();
   const ids = new Map<string, string>();
 
   rulebook.document.attestations.forEach((attestation, index) => {
@@ -71,41 +83,69 @@ export function compileRulebook(
       return;
     }
     names.add(attestation.name);
-    if (!attestation.supportedFormats.includes(SD_JWT_VC_FORMAT)) {
+    const formats = IMPORTED_FORMATS.filter((format) =>
+      attestation.supportedFormats.includes(format),
+    );
+    if (formats.length === 0) {
       diagnostics.push({
         severity: "info",
         code: "attestation_format_not_supported",
         attestation: attestation.name,
         field: "supportedFormats",
-        message: "attestation type does not support dc+sd-jwt and is not imported",
+        message: "attestation type supports neither dc+sd-jwt nor mso_mdoc and is not imported",
       });
       return;
     }
-    const definition = compileAttestation(rulebook, attestation, index, proofPolicy, diagnostics);
-    if (!definition) return;
-    const vctOwner = vcts.get(definition.vct);
-    const idOwner = ids.get(definition.credentialConfigurationId);
-    if (vctOwner || idOwner) {
+    if (attestation.bindingType !== KEY_BINDING) {
       diagnostics.push(
-        vctOwner
-          ? error(
-              "duplicate_vct",
-              attestation.name,
-              definition.vctSource === "json_schema" ? "schemaReferences" : "name",
-              `${definition.vctSource === "json_schema" ? "the JSON Schema states" : "name derives"} the same vct as attestation '${vctOwner}'`,
-            )
-          : error(
-              "duplicate_credential_configuration_id",
-              attestation.name,
-              "name",
-              `name derives the same credential configuration id as attestation '${idOwner}'`,
-            ),
+        error(
+          "unsupported_binding_type",
+          attestation.name,
+          "bindingType",
+          `binding type '${attestation.bindingType}' is not supported; only 'key' holder binding is issued`,
+        ),
       );
       return;
     }
-    vcts.set(definition.vct, attestation.name);
-    ids.set(definition.credentialConfigurationId, attestation.name);
-    definitions.push(definition);
+    for (const format of formats) {
+      const definition = compileAttestation(
+        rulebook,
+        attestation,
+        index,
+        format,
+        proofPolicy,
+        diagnostics,
+      );
+      if (!definition) continue;
+      const { label } = CREDENTIAL_TYPE[format];
+      const [type, source] =
+        definition.format === SD_JWT_VC_FORMAT
+          ? [definition.vct, definition.vctSource]
+          : [definition.doctype, definition.doctypeSource];
+      const typeOwner = types.get(`${format} ${type}`);
+      const idOwner = ids.get(definition.credentialConfigurationId);
+      if (typeOwner || idOwner) {
+        diagnostics.push(
+          typeOwner
+            ? error(
+                `duplicate_${label}`,
+                attestation.name,
+                source === "json_schema" ? "schemaReferences" : "name",
+                `${source === "json_schema" ? "the JSON Schema states" : "name derives"} the same ${label} as attestation '${typeOwner}'`,
+              )
+            : error(
+                "duplicate_credential_configuration_id",
+                attestation.name,
+                "name",
+                `name derives the same credential configuration id as attestation '${idOwner}'`,
+              ),
+        );
+        continue;
+      }
+      types.set(`${format} ${type}`, attestation.name);
+      ids.set(definition.credentialConfigurationId, attestation.name);
+      definitions.push(definition);
+    }
   });
 
   if (
@@ -117,7 +157,7 @@ export function compileRulebook(
         "no_supported_attestations",
         null,
         "attestations",
-        "rulebook defines no dc+sd-jwt attestation type",
+        "rulebook defines no dc+sd-jwt or mso_mdoc attestation type",
       ),
     );
   }
@@ -126,10 +166,11 @@ export function compileRulebook(
 }
 
 /**
- * The identifier derived from an attestation name alone: `urn:attestbook:<slug>`. It is the
- * credential configuration id and the OAuth scope, and the vct unless the JSON Schema pins one. It
- * stays the same across rulebook versions and changes when the attestation is renamed. The
- * rulebook is deliberately not part of it, so two rulebooks naming a type alike share it.
+ * The identifier derived from an attestation name alone: `urn:attestbook:<slug>`. Suffixed with the
+ * format it is the credential configuration id and the OAuth scope, and as is it is the vct or
+ * doctype unless the JSON Schema pins one. It stays the same across rulebook versions and changes
+ * when the attestation is renamed. The rulebook is deliberately not part of it, so two rulebooks
+ * naming a type alike share it.
  * @internal
  */
 export function vctForAttestationName(name: string): string | null {
@@ -141,22 +182,15 @@ function compileAttestation(
   rulebook: VerifiedRulebook,
   attestation: AttestbookRulebookAttestation,
   index: number,
+  format: CredentialFormat,
   proofPolicy: CredentialProofPolicy,
   diagnostics: AttestbookDiagnostic[],
 ): AttestbookCredentialDefinition | null {
   const before = diagnostics.length;
-  if (attestation.bindingType !== KEY_BINDING) {
-    diagnostics.push(
-      error(
-        "unsupported_binding_type",
-        attestation.name,
-        "bindingType",
-        `binding type '${attestation.bindingType}' is not supported; only 'key' holder binding is issued`,
-      ),
-    );
-  }
+  const sdJwt = format === SD_JWT_VC_FORMAT;
+  const { label, property } = CREDENTIAL_TYPE[format];
   const documents = attestation.schemaReferences
-    .filter((reference) => reference.formatIdentifier === SD_JWT_VC_FORMAT)
+    .filter((reference) => reference.formatIdentifier === format)
     .map((reference) => rulebook.documents.get(reference.uri))
     .filter((document): document is VerifiedSchemaDocument => document !== undefined);
   const schemas = documents.filter((document) => document.record.kind === "json_schema_2020_12");
@@ -169,11 +203,20 @@ function compileAttestation(
         schemas.length === 0 ? "json_schema_missing" : "ambiguous_json_schema",
         attestation.name,
         "schemaReferences",
-        "exactly one dc+sd-jwt JSON Schema 2020-12 reference is required to derive the claims",
+        `exactly one ${format} JSON Schema 2020-12 reference is required to derive the claims`,
       ),
     );
   }
-  if (typeMetadataDocuments.length > 1) {
+  if (!sdJwt && typeMetadataDocuments.length > 0) {
+    diagnostics.push(
+      error(
+        "type_metadata_not_applicable",
+        attestation.name,
+        "schemaReferences",
+        "SD-JWT VC Type Metadata does not describe an mso_mdoc credential",
+      ),
+    );
+  } else if (typeMetadataDocuments.length > 1) {
     diagnostics.push(
       error(
         "ambiguous_type_metadata",
@@ -185,45 +228,50 @@ function compileAttestation(
   }
   const [schemaDocument] = schemas;
   const compiled = schemaDocument
-    ? compileJsonSchema(schemaDocument.json, attestation.name, schemaDocument.record.uri)
-    : { claims: null, vct: null, diagnostics: [] };
+    ? compileJsonSchema(schemaDocument.json, attestation.name, schemaDocument.record.uri, format)
+    : { claims: null, typeIdentifier: null, diagnostics: [] };
   diagnostics.push(...compiled.diagnostics);
 
-  const nameVct = vctForAttestationName(attestation.name);
-  if (nameVct === null) {
+  const derived = vctForAttestationName(attestation.name);
+  if (derived === null) {
     diagnostics.push(
       error(
-        "vct_unresolved",
+        `${label}_unresolved`,
         attestation.name,
         "name",
         "the attestation name has no letters or digits to derive an identifier from",
       ),
     );
   }
-  // A schema `vct` property constrains the issued vct; one pinned value is the credential type.
-  const pinnedVct = compiled.vct ? pinnedValue(compiled.vct) : null;
-  const vct = pinnedVct ?? nameVct;
-  if (schemaDocument && compiled.vct && vct !== null && scalarValueError(compiled.vct, vct)) {
+  // A schema `vct` or `docType` property constrains the credential type; one pinned value is it.
+  const pinned = compiled.typeIdentifier ? pinnedValue(compiled.typeIdentifier) : null;
+  const type = pinned ?? derived;
+  if (
+    schemaDocument &&
+    compiled.typeIdentifier &&
+    type !== null &&
+    scalarValueError(compiled.typeIdentifier, type)
+  ) {
     diagnostics.push(
       error(
-        "vct_conflict",
+        `${label}_conflict`,
         attestation.name,
-        `${schemaDocument.record.uri}#/properties/vct`,
-        `the JSON Schema does not admit vct '${vct}'`,
+        `${schemaDocument.record.uri}#/properties/${property}`,
+        `the JSON Schema does not admit ${label} '${type}'`,
       ),
     );
   }
-  const [typeMetadataDocument] = typeMetadataDocuments;
+  const [typeMetadataDocument] = sdJwt ? typeMetadataDocuments : [];
   const typeMetadata = typeMetadataDocument
     ? parseTypeMetadata(typeMetadataDocument, attestation.name, diagnostics)
     : null;
-  if (typeMetadata && vct !== null && typeMetadata.vct !== vct) {
+  if (typeMetadata && type !== null && typeMetadata.vct !== type) {
     diagnostics.push(
       error(
         "vct_conflict",
         attestation.name,
         typeMetadataDocument ? `${typeMetadataDocument.record.uri}#/vct` : "vct",
-        `Type Metadata states vct '${typeMetadata.vct}', but ${pinnedVct ? "the JSON Schema states" : "the attestation name derives"} '${vct}'`,
+        `Type Metadata states vct '${typeMetadata.vct}', but ${pinned ? "the JSON Schema states" : "the attestation name derives"} '${type}'`,
       ),
     );
   }
@@ -233,10 +281,11 @@ function compileAttestation(
       : compiled.claims;
 
   if (diagnostics.slice(before).some((entry) => entry.severity === "error")) return null;
-  if (vct === null || nameVct === null || !schemaDocument || !claims) return null;
-  // The configuration id and OAuth scope derive from the name: stable across versions, and unique
-  // within the rulebook (`duplicate_credential_configuration_id`), like the vct (`duplicate_vct`).
-  return {
+  if (type === null || derived === null || !schemaDocument || !claims) return null;
+  // The configuration id and OAuth scope derive from the name and format: stable across versions,
+  // and unique within the rulebook (`duplicate_credential_configuration_id`), like the type.
+  const id = `${derived}:${FORMAT_SUFFIX[format]}`;
+  const common = {
     origin: rulebook.snapshot.origin,
     rulebookId: rulebook.document.rulebookId,
     version: rulebook.document.version,
@@ -247,15 +296,10 @@ function compileAttestation(
       attestationLoS: attestation.attestationLoS,
       bindingType: attestation.bindingType,
     },
-    credentialConfigurationId: nameVct,
-    scope: nameVct,
-    format: "dc+sd-jwt",
-    vct,
-    vctSource: pinnedVct ? "json_schema" : "attestation_name",
-    displayName: typeMetadata?.displayName ?? attestation.name,
+    credentialConfigurationId: id,
+    scope: id,
     claims,
-    claimMetadata: claimMetadata(claims, [], true),
-    schemaReferences: [schemaDocument, ...typeMetadataDocuments].map((document) => ({
+    schemaReferences: [schemaDocument, ...(sdJwt ? typeMetadataDocuments : [])].map((document) => ({
       uri: document.record.uri,
       kind: document.record.kind,
       contentDigest: document.record.contentDigest,
@@ -263,8 +307,31 @@ function compileAttestation(
       hosted: document.reference.hosted !== null,
     })),
     proofPolicy,
-    claimValueProvider: "faker-js",
-    disclosurePolicy: "issuer-default-selective",
+    claimValueProvider: "faker-js" as const,
+  };
+  const source = pinned ? "json_schema" : "attestation_name";
+  if (sdJwt) {
+    return {
+      ...common,
+      format: "dc+sd-jwt",
+      vct: type,
+      vctSource: source,
+      displayName: typeMetadata?.displayName ?? attestation.name,
+      claimMetadata: claimMetadata(claims, [], true),
+      disclosurePolicy: "issuer-default-selective",
+    };
+  }
+  return {
+    ...common,
+    format: "mso_mdoc",
+    doctype: type,
+    doctypeSource: source,
+    displayName: attestation.name,
+    // OpenID4VCI Appendix C.2: an mdoc claims path starts with the namespace and the data element.
+    claimMetadata: claims.properties.flatMap((namespace) =>
+      claimMetadata(namespace.node, [namespace.name], namespace.required),
+    ),
+    disclosurePolicy: "data-element",
   };
 }
 
@@ -278,7 +345,7 @@ function slugify(value: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
-/** The one value a `vct` schema allows: its `const`, or the member of a one-value `enum`. */
+/** The one value a `vct` or `docType` schema allows: its `const`, or a one-value `enum`'s member. */
 function pinnedValue(claim: AttestbookScalarClaim): string | null {
   if (typeof claim.const === "string") return claim.const;
   const [only] = claim.enum ?? [];

@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SdJwtVcService } from "@credo-ts/core";
+import { Mdoc, SdJwtVcService } from "@credo-ts/core";
+import { DateOnly } from "@owf/cose";
 import { exportJWK, generateKeyPair } from "jose";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AttestbookClient } from "../src/attestbook/client.js";
@@ -13,7 +14,8 @@ import { AttestbookFetchError, allowedUrl } from "../src/attestbook/http.js";
 import { claimValueErrors } from "../src/attestbook/json-schema.js";
 import { AttestbookIntegrityError, verifySnapshot } from "../src/attestbook/snapshot.js";
 import type {
-  AttestbookCredentialDefinition,
+  AttestbookMdocCredentialDefinition,
+  AttestbookSdJwtCredentialDefinition,
   AttestbookSnapshot,
 } from "../src/attestbook/types.js";
 import {
@@ -25,7 +27,10 @@ import { DEFAULT_CONFIG } from "../src/config/defaults.js";
 import { createIssuerSigningContext, initIssuer } from "../src/config/key-material.js";
 import { resolvedIssuerConfigurationById } from "../src/configurations/registry.js";
 import { issuerAppConfig } from "../src/configurations/resolve-urls.js";
-import { importedSdJwtCredentialSignOptions } from "../src/credentials/signing.js";
+import {
+  importedMdocCredentialSignOptions,
+  importedSdJwtCredentialSignOptions,
+} from "../src/credentials/signing.js";
 import type { JsonRecord } from "../src/types.js";
 import { AttestbookFixture, type FixtureAttestation } from "./attestbook-fixture.js";
 
@@ -122,12 +127,61 @@ async function compiled(version: string, attestations: FixtureAttestation[]) {
   return compileRulebook(verifySnapshot(snapshot, trust()), "key-attestation-required");
 }
 
-async function definitionOf(version: string, attestation: FixtureAttestation) {
+async function definitionOf(
+  version: string,
+  attestation: FixtureAttestation,
+): Promise<AttestbookSdJwtCredentialDefinition> {
   const result = await compiled(version, [attestation]);
-  const [definition] = result.definitions;
-  if (!definition) throw new Error(JSON.stringify(result.diagnostics));
+  const definition = result.definitions.find((candidate) => candidate.format === "dc+sd-jwt");
+  if (definition?.format !== "dc+sd-jwt") throw new Error(JSON.stringify(result.diagnostics));
   return definition;
 }
+
+async function mdocDefinitionOf(
+  version: string,
+  attestation: FixtureAttestation,
+): Promise<AttestbookMdocCredentialDefinition> {
+  const result = await compiled(version, [attestation]);
+  const definition = result.definitions.find((candidate) => candidate.format === "mso_mdoc");
+  if (definition?.format !== "mso_mdoc") throw new Error(JSON.stringify(result.diagnostics));
+  return definition;
+}
+
+/** An ISO/IEC 18013-5 mDL schema in the namespace layout, with CBOR-typed strings. */
+const mdlSchema = {
+  $schema: "https://json-schema.org/draft/2020-12/schema",
+  type: "object",
+  required: ["org.iso.18013.5.1"],
+  properties: {
+    docType: { const: "org.iso.18013.5.1.mDL" },
+    "org.iso.18013.5.1": {
+      type: "object",
+      required: ["family_name", "birth_date", "portrait", "driving_privileges"],
+      properties: {
+        family_name: { type: "string", minLength: 1, maxLength: 150 },
+        birth_date: { type: "string", format: "date" },
+        issuing_country: { const: "FR" },
+        portrait: { type: "string", contentEncoding: "base64", contentMediaType: "image/jpeg" },
+        driving_privileges: {
+          type: "array",
+          minItems: 1,
+          items: {
+            type: "object",
+            required: ["vehicle_category_code"],
+            properties: {
+              vehicle_category_code: { enum: ["A", "B"] },
+              issue_date: { type: "string", format: "date" },
+              codes: {
+                type: "array",
+                items: { type: "object", properties: { code: { type: "string" } } },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+};
 
 describe("Attestbook webhook signatures", () => {
   // Attestbook API §3.15.2 fixed test vector.
@@ -301,8 +355,8 @@ describe("Attestbook rulebook compiler", () => {
       proofPolicy: "key-attestation-required",
       claimValueProvider: "faker-js",
     });
-    expect(definition?.credentialConfigurationId).toBe("urn:attestbook:membership-card");
-    expect(definition?.scope).toBe("urn:attestbook:membership-card");
+    expect(definition?.credentialConfigurationId).toBe("urn:attestbook:membership-card:sd_jwt");
+    expect(definition?.scope).toBe("urn:attestbook:membership-card:sd_jwt");
     const properties = definition?.claims.properties ?? [];
     expect(properties.find((property) => property.name === "member_id")).toMatchObject({
       required: true,
@@ -364,8 +418,8 @@ describe("Attestbook rulebook compiler", () => {
     expect(definition).toMatchObject({
       vct: "urn:eudi:pid:it:1",
       vctSource: "json_schema",
-      credentialConfigurationId: "urn:attestbook:italian-pid",
-      scope: "urn:attestbook:italian-pid",
+      credentialConfigurationId: "urn:attestbook:italian-pid:sd_jwt",
+      scope: "urn:attestbook:italian-pid:sd_jwt",
     });
     expect(definition.claimMetadata.map((claim) => claim.path)).not.toContainEqual(["vct"]);
     const claims = generateClaims(definition, "pid-seed");
@@ -375,12 +429,62 @@ describe("Attestbook rulebook compiler", () => {
     expect(claimValueErrors(definition.claims, claims)).toEqual([]);
   });
 
+  it("compiles an mdoc per format, with its doctype and namespaced claim paths", async () => {
+    const { docType: _pinned, ...withoutDocType } = mdlSchema.properties;
+    const result = await compiled("2.6", [
+      { name: "French mDL", schema: membershipSchema, mdocSchema: mdlSchema },
+      { name: "Unnamed Doc", mdocSchema: { ...mdlSchema, properties: withoutDocType } },
+    ]);
+
+    expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
+    expect(
+      result.definitions.map(({ attestation, format, credentialConfigurationId }) => ({
+        attestation: attestation.name,
+        format,
+        credentialConfigurationId,
+      })),
+    ).toEqual([
+      {
+        attestation: "French mDL",
+        format: "dc+sd-jwt",
+        credentialConfigurationId: "urn:attestbook:french-mdl:sd_jwt",
+      },
+      {
+        attestation: "French mDL",
+        format: "mso_mdoc",
+        credentialConfigurationId: "urn:attestbook:french-mdl:mso_mdoc",
+      },
+      {
+        attestation: "Unnamed Doc",
+        format: "mso_mdoc",
+        credentialConfigurationId: "urn:attestbook:unnamed-doc:mso_mdoc",
+      },
+    ]);
+    const [, mdl, unnamed] = result.definitions;
+    expect(mdl).toMatchObject({ doctype: "org.iso.18013.5.1.mDL", doctypeSource: "json_schema" });
+    expect(unnamed).toMatchObject({
+      doctype: "urn:attestbook:unnamed-doc",
+      doctypeSource: "attestation_name",
+    });
+    const paths = mdl?.claimMetadata.map((claim) => claim.path) ?? [];
+    expect(paths).toContainEqual(["org.iso.18013.5.1", "family_name"]);
+    expect(paths).toContainEqual([
+      "org.iso.18013.5.1",
+      "driving_privileges",
+      null,
+      "codes",
+      null,
+      "code",
+    ]);
+    expect(paths.every((path) => path.length >= 2)).toBe(true);
+  });
+
   it("keeps the vct, configuration id and scope identical across versions", async () => {
     const first = await compiled("2.2", [membership]);
     const second = await compiled("2.3", [membership]);
 
     expect(second.definitions[0]).toMatchObject({
-      vct: first.definitions[0]?.vct,
+      vct: (first.definitions[0] as AttestbookSdJwtCredentialDefinition | undefined)?.vct,
       credentialConfigurationId: first.definitions[0]?.credentialConfigurationId,
       scope: first.definitions[0]?.scope,
       version: "2.3",
@@ -432,7 +536,12 @@ describe("Attestbook rulebook compiler", () => {
       properties: {
         c: {
           type: "object",
-          properties: { d: { type: "object", properties: { e: { type: "string" } } } },
+          properties: {
+            d: {
+              type: "object",
+              properties: { e: { type: "object", properties: { f: { type: "string" } } } },
+            },
+          },
         },
       },
     };
@@ -442,7 +551,7 @@ describe("Attestbook rulebook compiler", () => {
         schema: {
           type: "object",
           properties: {
-            birthdate: { type: "string", format: "date" },
+            birthdate: { type: "string", format: "email" },
             tuple: { type: "array", items: [{ type: "string" }] },
             iss: { type: "string" },
             nested: { type: "object", properties: { _sd: { type: "string" } } },
@@ -469,7 +578,7 @@ describe("Attestbook rulebook compiler", () => {
         },
       },
       { name: "!!!", schema: membershipSchema },
-      { name: "Mdoc only", supportedFormats: ["mso_mdoc"] },
+      { name: "JWT only", supportedFormats: ["jwt_vc_json"] },
     ]);
 
     expect(result.definitions).toEqual([]);
@@ -493,7 +602,7 @@ describe("Attestbook rulebook compiler", () => {
           attestation: "Unknown Path",
         },
         { severity: "error", code: "vct_unresolved", attestation: "!!!" },
-        { severity: "info", code: "attestation_format_not_supported", attestation: "Mdoc only" },
+        { severity: "info", code: "attestation_format_not_supported", attestation: "JWT only" },
       ]),
     );
     expect(
@@ -576,7 +685,7 @@ describe("generic SD-JWT VC signing options", () => {
     rmSync(dataDir, { recursive: true, force: true });
   });
 
-  async function sign(definition: AttestbookCredentialDefinition, claims: JsonRecord) {
+  async function sign(definition: AttestbookSdJwtCredentialDefinition, claims: JsonRecord) {
     await initIssuer({ data_dir: dataDir });
     const issuer = resolvedIssuerConfigurationById(config, "attestbook-experimental");
     if (!issuer) throw new Error("experimental issuer unavailable");
@@ -641,5 +750,35 @@ describe("generic SD-JWT VC signing options", () => {
     const elements = disclosures.filter((disclosure) => disclosure.length === 2);
     expect(elements).toHaveLength((claims.degrees as unknown[]).length);
     expect(named).toContain("languages");
+  });
+
+  it("encodes mdoc data elements in the CBOR types their schema describes", async () => {
+    const definition = await mdocDefinitionOf("5.2", { name: "French mDL", mdocSchema: mdlSchema });
+    const claims = generateClaims(definition, "mdl-seed");
+    await initIssuer({ data_dir: dataDir });
+    const issuer = resolvedIssuerConfigurationById(config, "attestbook-experimental");
+    if (!issuer) throw new Error("experimental issuer unavailable");
+    const { publicKey } = await generateKeyPair("ES256");
+    const signingConfig = issuerAppConfig(config, issuer);
+
+    const mdoc = await Mdoc.sign(
+      createIssuerSigningContext(signingConfig) as never,
+      importedMdocCredentialSignOptions({
+        config: signingConfig,
+        holderJwk: (await exportJWK(publicKey)) as unknown as JsonRecord,
+        definition,
+        claims,
+      }),
+    );
+
+    const decoded = Mdoc.fromBase64Url(mdoc.base64Url);
+    expect(decoded.docType).toBe("org.iso.18013.5.1.mDL");
+    const elements = decoded.issuerSignedNamespaces["org.iso.18013.5.1"] ?? {};
+    expect(elements.birth_date).toBeInstanceOf(DateOnly);
+    expect(elements.portrait).toBeInstanceOf(Uint8Array);
+    expect(elements.issuing_country).toBe("FR");
+    // CBOR maps inside a data element decode as Maps.
+    const [privilege] = elements.driving_privileges as Map<string, unknown>[];
+    expect(["A", "B"]).toContain(privilege?.get("vehicle_category_code"));
   });
 });

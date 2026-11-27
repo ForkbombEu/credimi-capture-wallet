@@ -1,11 +1,14 @@
-import { SdJwtVcService } from "@credo-ts/core";
+import { Mdoc, SdJwtVcService } from "@credo-ts/core";
 import { exportJWK, generateKeyPair } from "jose";
 import { createIssuerSigningContext } from "../config/key-material.js";
 import { resolvedIssuerConfigurations } from "../configurations/registry.js";
 import { issuerAppConfig } from "../configurations/resolve-urls.js";
 import type { ResolvedIssuerConfiguration } from "../configurations/types.js";
 import { type ImportedCatalogue, credentialRegistry } from "../credentials/registry.js";
-import { importedSdJwtCredentialSignOptions } from "../credentials/signing.js";
+import {
+  importedMdocCredentialSignOptions,
+  importedSdJwtCredentialSignOptions,
+} from "../credentials/signing.js";
 import { errorMessage } from "../shared/errors.js";
 import { isRecord } from "../shared/json.js";
 import type { CaptureStore } from "../state.js";
@@ -417,8 +420,10 @@ export class AttestbookIntegration {
       version: definition.version,
       content_digest: definition.contentDigest,
       attestation: definition.attestation.name,
-      vct: definition.vct,
-      vct_source: definition.vctSource,
+      format: definition.format,
+      ...(definition.format === "dc+sd-jwt"
+        ? { vct: definition.vct, vct_source: definition.vctSource }
+        : { doctype: definition.doctype, doctype_source: definition.doctypeSource }),
     };
     this.store.addEvent(session, "credential_definition_pinned", {
       ...session.credential_definition,
@@ -671,15 +676,22 @@ export class AttestbookIntegration {
   ): Promise<void> {
     const { publicKey } = await generateKeyPair("ES256");
     const signingConfig = issuerAppConfig(this.config, this.issuer);
+    const holderJwk = (await exportJWK(publicKey)) as unknown as JsonRecord;
+    const context = createIssuerSigningContext(signingConfig) as never;
+    if (definition.format === "mso_mdoc") {
+      const signed = await Mdoc.sign(
+        context,
+        importedMdocCredentialSignOptions({ config: signingConfig, holderJwk, definition, claims }),
+      );
+      if (Mdoc.fromBase64Url(signed.base64Url).docType !== definition.doctype) {
+        throw new Error("dry-run credential does not carry the definition's doctype");
+      }
+      return;
+    }
     const service = new SdJwtVcService({} as never);
     const signed = await service.sign(
-      createIssuerSigningContext(signingConfig) as never,
-      importedSdJwtCredentialSignOptions({
-        config: signingConfig,
-        holderJwk: (await exportJWK(publicKey)) as unknown as JsonRecord,
-        definition,
-        claims,
-      }),
+      context,
+      importedSdJwtCredentialSignOptions({ config: signingConfig, holderJwk, definition, claims }),
     );
     if (service.fromCompact(signed.compact).prettyClaims.vct !== definition.vct) {
       throw new Error("dry-run credential does not carry the definition's vct");

@@ -160,6 +160,7 @@ describe("POST /issuers/:issuerConfigurationId/credential", () => {
       content_digest: "stale",
       attestation: "Membership Card",
       vct: "urn:attestbook:membership-card",
+      format: "dc+sd-jwt",
       vct_source: "attestation_name",
     };
     session.credential_definition = pinned;

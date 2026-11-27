@@ -137,7 +137,7 @@ export class CredentialRegistry {
           (credential) =>
             credential.id === id ||
             credential.scope === definition.scope ||
-            credential.vct === definition.vct,
+            (definition.format === "dc+sd-jwt" && credential.vct === definition.vct),
         )
       ) {
         throw new CatalogueConflictError(
@@ -156,7 +156,9 @@ function importedCredential(definition: AttestbookCredentialDefinition): Support
     format: definition.format,
     proofPolicy: definition.proofPolicy,
     displayName: definition.displayName,
-    vct: definition.vct,
+    ...(definition.format === "dc+sd-jwt"
+      ? { vct: definition.vct }
+      : { doctype: definition.doctype }),
     claimPaths: definition.claimMetadata.map((claim) => claim.path),
     attestbook: definition,
   };

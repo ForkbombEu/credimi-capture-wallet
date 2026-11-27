@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { AttestbookCredentialDefinition } from "../src/attestbook/types.js";
+import type { AttestbookSdJwtCredentialDefinition } from "../src/attestbook/types.js";
 import { issuerSigningKeyId, loadIssuerCertificate } from "../src/config/key-material.js";
 import { issuerAppConfig } from "../src/configurations/resolve-urls.js";
 import {
@@ -76,7 +76,7 @@ async function createIssuerSigningEnvironment(prefix: string) {
   };
 }
 
-const importedDefinition: AttestbookCredentialDefinition = {
+const importedDefinition: AttestbookSdJwtCredentialDefinition = {
   origin: "https://attestbook.example.test",
   rulebookId: "rulebook",
   version: "1",

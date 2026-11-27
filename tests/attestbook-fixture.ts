@@ -15,6 +15,8 @@ export interface FixtureAttestation {
   supportedFormats?: string[];
   /** JSON Schema 2020-12 document, hosted by the fixture. */
   schema?: Record<string, unknown>;
+  /** JSON Schema 2020-12 document of the `mso_mdoc` format, hosted by the fixture. */
+  mdocSchema?: Record<string, unknown>;
   /** SD-JWT VC Type Metadata document, hosted by the fixture. */
   typeMetadata?: Record<string, unknown>;
   /** Extra references, as frozen in the snapshot, for documents the fixture does not host. */
@@ -238,14 +240,15 @@ export class AttestbookFixture {
     const references: PublishedVersion["references"] = [];
     const snapshotAttestations = attestations.map((attestation) => {
       const frozen: { formatIdentifier: string; uri: string; integrity: string | null }[] = [];
-      for (const [kind, document] of [
-        ["json_schema_2020_12", attestation.schema],
-        ["sd_jwt_vc_type_metadata", attestation.typeMetadata],
+      for (const [kind, document, formatIdentifier] of [
+        ["json_schema_2020_12", attestation.schema, "dc+sd-jwt"],
+        ["sd_jwt_vc_type_metadata", attestation.typeMetadata, "dc+sd-jwt"],
+        ["json_schema_2020_12", attestation.mdocSchema, "mso_mdoc"],
       ] as const) {
         if (!document) continue;
         const hosted = this.host(kind, document);
         frozen.push({
-          formatIdentifier: "dc+sd-jwt",
+          formatIdentifier,
           uri: this.documentUrl(hosted.id),
           integrity: attestation.unpinned ? null : sri(hosted.bytes),
         });
@@ -257,7 +260,10 @@ export class AttestbookFixture {
         name: attestation.name,
         attestationLoS: "iso_18045_basic",
         bindingType: attestation.bindingType ?? "key",
-        supportedFormats: attestation.supportedFormats ?? ["dc+sd-jwt"],
+        supportedFormats: attestation.supportedFormats ?? [
+          ...(attestation.schema || !attestation.mdocSchema ? ["dc+sd-jwt"] : []),
+          ...(attestation.mdocSchema ? ["mso_mdoc"] : []),
+        ],
         schemaReferences: frozen,
       };
     });

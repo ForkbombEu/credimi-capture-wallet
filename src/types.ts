@@ -785,9 +785,13 @@ export interface SessionCredentialDefinition {
   version: string;
   content_digest: string;
   attestation: string;
-  vct: string;
-  /** Where the issued credential's `vct` came from: the schema's `vct` const or the attestation name. */
-  vct_source: "attestation_name" | "json_schema";
+  format: CredentialFormat;
+  /** SD-JWT VC only: the issued `vct`, and whether the schema's `vct` const or the name gave it. */
+  vct?: string;
+  vct_source?: "attestation_name" | "json_schema";
+  /** mdoc only: the issued doctype, and whether the schema's `docType` const or the name gave it. */
+  doctype?: string;
+  doctype_source?: "attestation_name" | "json_schema";
 }
 
 /**

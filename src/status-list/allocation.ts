@@ -10,7 +10,7 @@ const DEFAULT_COUNTRY = "EU";
 const DEFAULT_EXPIRY_DATE = "2099-12-31";
 
 export function statusListCredentialType(credential: SupportedCredential): string {
-  if (credential.format === "mso_mdoc") return PID_MDOC_DOCTYPE;
+  if (credential.format === "mso_mdoc") return credential.doctype ?? PID_MDOC_DOCTYPE;
   if (credential.vct) return credential.vct;
   throw new Error(`SD-JWT credential '${credential.id}' is missing its vct`);
 }

@@ -108,7 +108,17 @@ export interface AttestbookScalarClaim extends AttestbookClaimNodeBase {
   readonly maximum?: number;
   readonly exclusiveMinimum?: number;
   readonly exclusiveMaximum?: number;
+  /**
+   * A string's JSON Schema `format`: an RFC 3339 `full-date` or `date-time`. In an mdoc it is
+   * encoded as CBOR `full-date` (tag 1004) or `tdate` (tag 0).
+   */
+  readonly format?: AttestbookStringFormat;
+  /** A base64 string's content: CBOR `bstr` in an mdoc. */
+  readonly contentEncoding?: "base64";
+  readonly contentMediaType?: string;
 }
+
+export type AttestbookStringFormat = "date" | "date-time";
 
 export interface AttestbookClaimProperty {
   readonly name: string;
@@ -153,11 +163,7 @@ interface AttestbookValidatedSchemaReference {
   readonly hosted: boolean;
 }
 
-/**
- * The executable form of one attestation type. Everything a session needs to issue it is pinned
- * here, so an issuance completes under the exact definition it was offered with.
- */
-export interface AttestbookCredentialDefinition {
+interface AttestbookCredentialDefinitionBase {
   readonly origin: string;
   readonly rulebookId: string;
   readonly version: string;
@@ -168,28 +174,50 @@ export interface AttestbookCredentialDefinition {
     readonly attestationLoS: string;
     readonly bindingType: string;
   };
-  /** Derived from the attestation name: `urn:attestbook:<slug>`. */
+  /** Derived from the attestation name and format: `urn:attestbook:<slug>:<sd_jwt|mso_mdoc>`. */
   readonly credentialConfigurationId: string;
   readonly scope: string;
-  readonly format: "dc+sd-jwt";
-  readonly vct: string;
-  /**
-   * `json_schema` when the schema's `vct` property pins one value (`const`, or a one-member
-   * `enum`); otherwise `attestation_name`, and the vct equals the credential configuration id.
-   */
-  readonly vctSource: AttestbookVctSource;
   readonly displayName: string;
-  /** The credential's claim structure: the root object of the issued payload. */
-  readonly claims: AttestbookObjectClaim;
   readonly claimMetadata: readonly AttestbookClaimMetadata[];
   readonly schemaReferences: readonly AttestbookValidatedSchemaReference[];
   /** The importing issuer's proof policy. */
   readonly proofPolicy: CredentialProofPolicy;
   readonly claimValueProvider: "faker-js";
+}
+
+/**
+ * The executable form of one attestation type in one format. Everything a session needs to issue
+ * it is pinned here, so an issuance completes under the exact definition it was offered with.
+ */
+export type AttestbookCredentialDefinition =
+  | AttestbookSdJwtCredentialDefinition
+  | AttestbookMdocCredentialDefinition;
+
+export interface AttestbookSdJwtCredentialDefinition extends AttestbookCredentialDefinitionBase {
+  readonly format: "dc+sd-jwt";
+  readonly vct: string;
+  /**
+   * `json_schema` when the schema's `vct` property pins one value (`const`, or a one-member
+   * `enum`); otherwise `attestation_name`, and the vct is `urn:attestbook:<slug>`.
+   */
+  readonly vctSource: AttestbookTypeSource;
+  /** The credential's claim structure: the root object of the issued payload. */
+  readonly claims: AttestbookObjectClaim;
   readonly disclosurePolicy: "issuer-default-selective";
 }
 
-type AttestbookVctSource = "attestation_name" | "json_schema";
+export interface AttestbookMdocCredentialDefinition extends AttestbookCredentialDefinitionBase {
+  readonly format: "mso_mdoc";
+  readonly doctype: string;
+  /** As `vctSource`, for the schema's root `docType` property. */
+  readonly doctypeSource: AttestbookTypeSource;
+  /** The namespaces: each root member is a namespace object whose members are data elements. */
+  readonly claims: AttestbookObjectClaim;
+  /** ISO/IEC 18013-5 discloses each data element, never part of one. */
+  readonly disclosurePolicy: "data-element";
+}
+
+type AttestbookTypeSource = "attestation_name" | "json_schema";
 
 type AttestbookDiagnosticSeverity = "error" | "info";
 

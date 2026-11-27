@@ -1,6 +1,11 @@
-import { Kms, SdJwtVcService, type SdJwtVcSignOptions } from "@credo-ts/core";
+import { Kms, type MdocSignOptions, SdJwtVcService, type SdJwtVcSignOptions } from "@credo-ts/core";
+import { DateOnly } from "@owf/cose";
 import { RESERVED_CLAIM_NAMES, claimValueErrors } from "../attestbook/json-schema.js";
-import type { AttestbookClaimNode, AttestbookCredentialDefinition } from "../attestbook/types.js";
+import type {
+  AttestbookClaimNode,
+  AttestbookMdocCredentialDefinition,
+  AttestbookSdJwtCredentialDefinition,
+} from "../attestbook/types.js";
 import {
   createIssuerSigningContext,
   issuerSigningKeyId,
@@ -212,7 +217,7 @@ export function numericSdJwtCredentialSignOptions(
 export function importedSdJwtCredentialSignOptions(options: {
   config: AppConfig;
   holderJwk: JsonRecord;
-  definition: AttestbookCredentialDefinition;
+  definition: AttestbookSdJwtCredentialDefinition;
   claims: JsonRecord;
   digestAlgorithm?: SdJwtDigestAlgorithm;
   now?: Date;
@@ -239,6 +244,65 @@ export function importedSdJwtCredentialSignOptions(options: {
       claims,
     ) as SdJwtVcSignOptions["disclosureFrame"],
   };
+}
+
+/**
+ * Sign options for an mdoc compiled from an Attestbook rulebook. The claims, one object per
+ * namespace, must satisfy the definition exactly. Data elements are CBOR-encoded as the schema
+ * describes them: a `date` string as `full-date` (tag 1004), a `date-time` string as `tdate`
+ * (tag 0) and `base64` content as `bstr` (ISO/IEC 18013-5, RFC 8943).
+ */
+export function importedMdocCredentialSignOptions(options: {
+  config: AppConfig;
+  holderJwk: JsonRecord;
+  definition: AttestbookMdocCredentialDefinition;
+  claims: JsonRecord;
+  now?: Date;
+}): MdocSignOptions {
+  const { definition, claims } = options;
+  const errors = claimValueErrors(definition.claims, claims);
+  if (errors.length > 0) {
+    throw new Error(
+      `Claims are not issuable for ${definition.credentialConfigurationId}: ${errors.join("; ")}`,
+    );
+  }
+  const now = options.now ?? new Date();
+  const issuerCertificate = loadIssuerCertificate(options.config);
+  issuerCertificate.keyId = issuerSigningKeyId(options.config);
+  return {
+    docType: definition.doctype,
+    validityInfo: {
+      signed: now,
+      validFrom: now,
+      validUntil: new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000),
+    },
+    namespaces: mdocValue(definition.claims, claims) as MdocSignOptions["namespaces"],
+    issuerCertificate,
+    holderKey: Kms.PublicJwk.fromUnknown(options.holderJwk),
+  };
+}
+
+/** A generated claim value in the CBOR types its schema describes. */
+function mdocValue(node: AttestbookClaimNode, value: unknown): unknown {
+  if (value === null) return null;
+  switch (node.kind) {
+    case "scalar":
+      if (typeof value !== "string") return value;
+      if (node.format === "date") return new DateOnly(value);
+      if (node.format === "date-time") return new Date(value);
+      return node.contentEncoding === "base64"
+        ? new Uint8Array(Buffer.from(value, "base64"))
+        : value;
+    case "array":
+      return (value as unknown[]).map((element) => mdocValue(node.items, element));
+    case "object":
+      return Object.fromEntries(
+        Object.entries(value as JsonRecord).map(([name, member]) => {
+          const property = node.properties.find((candidate) => candidate.name === name);
+          return [name, property ? mdocValue(property.node, member) : member];
+        }),
+      );
+  }
 }
 
 /**

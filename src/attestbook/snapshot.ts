@@ -1,4 +1,5 @@
 import { isRecord } from "../shared/json.js";
+import type { CredentialFormat } from "../types.js";
 import { contentDigestSha256, sha256Hex, sriMatches } from "./digest.js";
 import { SAFE_ATTESTBOOK_IDENTIFIER } from "./settings.js";
 import type {
@@ -11,6 +12,9 @@ import type {
 } from "./types.js";
 
 export const SD_JWT_VC_FORMAT = "dc+sd-jwt";
+const MDOC_FORMAT = "mso_mdoc";
+/** The credential formats an attestation type is imported in, each from its own schema. */
+export const IMPORTED_FORMATS: readonly CredentialFormat[] = [SD_JWT_VC_FORMAT, MDOC_FORMAT];
 const MAX_ATTESTATIONS = 64;
 const MAX_REFERENCES = 32;
 
@@ -131,7 +135,7 @@ export function verifyRulebook(
   return document;
 }
 
-/** The SD-JWT VC references whose documents a snapshot must carry. */
+/** The references of imported formats whose documents a snapshot must carry. */
 export function requiredSchemaReferences(
   references: readonly AttestbookSchemaReference[],
   document: AttestbookRulebookDocument,
@@ -139,11 +143,14 @@ export function requiredSchemaReferences(
   return references.filter(
     (reference) =>
       reference.attestation !== null &&
-      reference.formatIdentifier === SD_JWT_VC_FORMAT &&
-      document.attestations.some(
-        (attestation) =>
-          attestation.name === reference.attestation &&
-          attestation.supportedFormats.includes(SD_JWT_VC_FORMAT),
+      IMPORTED_FORMATS.some(
+        (format) =>
+          reference.formatIdentifier === format &&
+          document.attestations.some(
+            (attestation) =>
+              attestation.name === reference.attestation &&
+              attestation.supportedFormats.includes(format),
+          ),
       ),
   );
 }

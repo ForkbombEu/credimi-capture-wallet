@@ -200,7 +200,7 @@ function credentialConfiguration(
   };
 
   return credential.format === "mso_mdoc"
-    ? { ...common, doctype: PID_MDOC_DOCTYPE }
+    ? { ...common, doctype: credential.doctype ?? PID_MDOC_DOCTYPE }
     : { ...common, vct: credential.vct };
 }
 

@@ -4,7 +4,7 @@ import type {
 } from "@credo-ts/openid4vc";
 import request from "supertest";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import type { AttestbookCredentialDefinition } from "../src/attestbook/types.js";
+import type { AttestbookSdJwtCredentialDefinition } from "../src/attestbook/types.js";
 import { issuerAppConfig } from "../src/configurations/resolve-urls.js";
 import { PID_FIXTURE_IDS } from "../src/configurations/shared/pid-fixtures.js";
 import type { ResolvedIssuerConfiguration } from "../src/configurations/types.js";
@@ -96,7 +96,7 @@ const importedDefinition = {
   proofPolicy: "key-attestation-required",
   claimValueProvider: "faker-js",
   disclosurePolicy: "issuer-default-selective",
-} as unknown as AttestbookCredentialDefinition;
+} as unknown as AttestbookSdJwtCredentialDefinition;
 
 let environment: IssuerTestEnvironment;
 let config: IssuerTestEnvironment["config"];
@@ -304,6 +304,7 @@ describe("credential mapping builders", () => {
       content_digest: importedDefinition.contentDigest,
       attestation: importedDefinition.attestation.name,
       vct: importedDefinition.vct,
+      format: "dc+sd-jwt",
       vct_source: "attestation_name",
     };
     session.generated_claims = {
@@ -362,6 +363,7 @@ describe("credential mapping builders", () => {
           content_digest: importedDefinition.contentDigest,
           attestation: importedDefinition.attestation.name,
           vct: importedDefinition.vct,
+          format: "dc+sd-jwt",
           vct_source: "attestation_name",
         };
       },

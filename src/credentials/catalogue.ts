@@ -23,6 +23,8 @@ export interface SupportedCredential {
   proofPolicy: CredentialProofPolicy;
   displayName: string;
   vct?: string;
+  /** An mdoc's doctype; static mdoc credentials use the PID doctype when it is absent. */
+  doctype?: string;
   /**
    * Full claim paths: JSON path segments for SD-JWT VC, with `null` for every element of an
    * array, and `[namespace, element]` for mdoc.

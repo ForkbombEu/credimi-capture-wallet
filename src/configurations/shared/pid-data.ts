@@ -43,7 +43,8 @@ export interface PidSubject {
   readonly sex: number;
 }
 
-const PID_PORTRAIT_JPEG = new Uint8Array(
+/** A real JPEG facial image, so a Wallet can render synthetic portraits. */
+export const PID_PORTRAIT_JPEG = new Uint8Array(
   readFileSync(new URL("../../pid_portrait.jpg", import.meta.url)),
 );
 

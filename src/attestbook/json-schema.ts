@@ -1,4 +1,5 @@
 import { isRecord } from "../shared/json.js";
+import type { CredentialFormat } from "../types.js";
 import type {
   AttestbookArrayClaim,
   AttestbookClaimNode,
@@ -8,11 +9,15 @@ import type {
   AttestbookScalarClaim,
   AttestbookScalarType,
   AttestbookScalarValue,
+  AttestbookStringFormat,
 } from "./types.js";
 
 const JSON_SCHEMA_2020_12 = "https://json-schema.org/draft/2020-12/schema";
-/** Claim path segments below the payload root, counting an array's elements as one. */
-const MAX_CLAIM_DEPTH = 4;
+/**
+ * Claim path segments below the payload root (an mdoc's namespace), counting an array's elements
+ * as one. Five fits ISO/IEC 18013-5 `driving_privileges[].codes[].code`.
+ */
+const MAX_CLAIM_DEPTH = 5;
 const MAX_CLAIM_NODES = 256;
 
 const ANNOTATIONS = ["$comment", "title", "description", "examples"];
@@ -45,7 +50,11 @@ const SCALAR_KEYWORDS = new Set([
   "maximum",
   "exclusiveMinimum",
   "exclusiveMaximum",
+  "format",
+  "contentEncoding",
+  "contentMediaType",
 ]);
+const STRING_FORMATS: readonly AttestbookStringFormat[] = ["date", "date-time"];
 const SCALAR_TYPES: readonly AttestbookScalarType[] = ["string", "integer", "number", "boolean"];
 const STRING_BOUNDS = ["minLength", "maxLength"] as const;
 const NUMBER_BOUNDS = ["minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum"] as const;
@@ -68,8 +77,15 @@ export const RESERVED_CLAIM_NAMES = new Set([
   "status",
 ]);
 
-/** The root property that describes the protocol `vct` rather than a claim. */
-const VCT_CLAIM = "vct";
+/**
+ * The root property that names the credential type instead of a claim, per format: SD-JWT VC's
+ * `vct`, and ISO/IEC 18013-5's `docType` beside an mdoc's namespaces.
+ */
+const TYPE_PROPERTY: Readonly<Record<CredentialFormat, string>> = {
+  "dc+sd-jwt": "vct",
+  mso_mdoc: "docType",
+};
+const VCT_CLAIM = TYPE_PROPERTY["dc+sd-jwt"];
 
 /** SD-JWT's own members, reserved at every level of the payload. */
 function isSdJwtReservedName(name: string): boolean {
@@ -79,20 +95,24 @@ function isSdJwtReservedName(name: string): boolean {
 type Report = (code: string, pointer: string, message: string) => void;
 
 /**
- * Compiles the supported JSON Schema 2020-12 subset into the credential's claim tree: an object
- * root whose members are typed scalars (`string`, `integer`, `number`, `boolean` with their value
- * constraints), objects or arrays, at most four path segments deep. A `type` array may combine
- * scalar types, and any one type with `null`. The root `vct` property is not a claim: it
- * constrains the protocol `vct` and is returned apart. Every other construct is reported rather
- * than ignored, because silently dropping a constraint would issue a credential the schema forbids.
+ * Compiles the supported JSON Schema 2020-12 subset into the credential's claim tree, at most five
+ * path segments deep. Claims are typed scalars (`string`, `integer`, `number`, `boolean` with
+ * their value constraints, and a string's `format` `date` or `date-time` or `contentEncoding`
+ * `base64`), objects or arrays. A `type` array may combine scalar types, and any one type with
+ * `null`. For `dc+sd-jwt` the root's members are the claims; for `mso_mdoc` they are namespaces,
+ * each an object whose members are the data elements. The root `vct` (SD-JWT VC) or `docType`
+ * (mdoc) property is not a claim: it constrains the credential type and is returned apart. Every
+ * other construct is reported rather than ignored, because silently dropping a constraint would
+ * issue a credential the schema forbids.
  */
 export function compileJsonSchema(
   schema: Record<string, unknown>,
   attestation: string,
   uri: string,
+  format: CredentialFormat,
 ): {
   claims: AttestbookObjectClaim | null;
-  vct: AttestbookScalarClaim | null;
+  typeIdentifier: AttestbookScalarClaim | null;
   diagnostics: AttestbookDiagnostic[];
 } {
   const diagnostics: AttestbookDiagnostic[] = [];
@@ -108,38 +128,101 @@ export function compileJsonSchema(
   }
   if (schema.type !== "object") {
     report("unsupported_schema_root", "/type", "the schema root must be of type 'object'");
-    return { claims: null, vct: null, diagnostics };
+    return { claims: null, typeIdentifier: null, diagnostics };
   }
   const counter = { nodes: 0 };
-  const claims = compileObject(schema, "", 0, ROOT_KEYWORDS, report, counter, true);
+  const typeProperty = TYPE_PROPERTY[format];
+  const claims =
+    format === "mso_mdoc"
+      ? compileNamespaces(schema, typeProperty, report, counter)
+      : compileObject(schema, "", 0, ROOT_KEYWORDS, report, counter, true);
   const properties = isRecord(schema.properties) ? schema.properties : {};
-  const vct = VCT_CLAIM in properties ? compileVct(properties[VCT_CLAIM], report, counter) : null;
+  const typeIdentifier =
+    typeProperty in properties
+      ? compileTypeIdentifier(properties[typeProperty], typeProperty, report, counter)
+      : null;
   if (claims && claims.properties.length === 0) {
-    report("schema_without_claims", "/properties", "the schema declares no claim properties");
+    report(
+      "schema_without_claims",
+      "/properties",
+      format === "mso_mdoc"
+        ? "the schema declares no namespace"
+        : "the schema declares no claim properties",
+    );
   }
   const valid = diagnostics.length === 0;
-  return { claims: valid ? claims : null, vct: valid ? vct : null, diagnostics };
+  return {
+    claims: valid ? claims : null,
+    typeIdentifier: valid ? typeIdentifier : null,
+    diagnostics,
+  };
 }
 
 /**
- * The schema of the protocol `vct`, which SD-JWT VC Section 2.2.2.1 makes a string. It is compiled
- * like a claim to read its constraints, but it is never generated or selectively disclosed.
+ * An mdoc schema root: every member but `docType` is a namespace (ISO/IEC 18013-5 Section 7.1),
+ * described by an object schema whose members are its data elements. The namespace is not a
+ * path segment of its own for the depth bound.
  */
-function compileVct(
+function compileNamespaces(
+  schema: Record<string, unknown>,
+  typeProperty: string,
+  report: Report,
+  counter: { nodes: number },
+): AttestbookObjectClaim | null {
+  const shape = validateObjectShape(schema, "", ROOT_KEYWORDS, report, true);
+  if (!shape) return null;
+  let valid = shape.valid;
+  const namespaces: AttestbookClaimProperty[] = [];
+  for (const [name, namespace] of Object.entries(shape.properties)) {
+    if (name === typeProperty) continue;
+    const pointer = `/properties/${escapePointer(name)}`;
+    if (!isRecord(namespace) || namespace.type !== "object") {
+      report(
+        "unsupported_namespace_schema",
+        pointer,
+        `root property '${name}' must be a namespace: an object schema whose properties are data elements`,
+      );
+      valid = false;
+      continue;
+    }
+    const node = compileObject(namespace, pointer, 0, OBJECT_KEYWORDS, report, counter, false);
+    if (!node) {
+      valid = false;
+      continue;
+    }
+    namespaces.push({ name, required: shape.required.includes(name), node });
+  }
+  if (!valid) return null;
+  return {
+    kind: "object",
+    properties: namespaces,
+    additionalProperties: schema.additionalProperties !== false,
+    displayName: typeof schema.title === "string" ? schema.title : null,
+    selectivelyDisclosable: true,
+  };
+}
+
+/**
+ * The schema of the credential type: SD-JWT VC's `vct` (Section 2.2.2.1) or an mdoc's `docType`
+ * (ISO/IEC 18013-5), both strings. It is compiled like a claim to read its constraints, but it is
+ * never generated or disclosed as one.
+ */
+function compileTypeIdentifier(
   schema: unknown,
+  name: string,
   report: Report,
   counter: { nodes: number },
 ): AttestbookScalarClaim | null {
-  const pointer = `/properties/${VCT_CLAIM}`;
+  const pointer = `/properties/${name}`;
   if (!isRecord(schema)) {
     report(
       "unsupported_claim_schema",
       pointer,
-      `claim '${VCT_CLAIM}' must be described by an object schema`,
+      `claim '${name}' must be described by an object schema`,
     );
     return null;
   }
-  const node = compileNode(schema, VCT_CLAIM, pointer, 1, report, counter);
+  const node = compileNode(schema, name, pointer, 1, report, counter);
   if (!node) return null;
   if (
     node.kind !== "scalar" ||
@@ -147,7 +230,11 @@ function compileVct(
     node.types.length !== 1 ||
     node.types[0] !== "string"
   ) {
-    report("unsupported_vct_schema", `${pointer}/type`, `claim '${VCT_CLAIM}' must be a string`);
+    report(
+      name === VCT_CLAIM ? "unsupported_vct_schema" : "unsupported_doctype_schema",
+      `${pointer}/type`,
+      `claim '${name}' must be a string`,
+    );
     return null;
   }
   return node;
@@ -468,6 +555,63 @@ function checkScalarKeywords(
     );
     valid = false;
   }
+  return checkStringEncoding(schema, types, pointer, report) && valid;
+}
+
+/**
+ * A string's `format` (`date` or `date-time`, RFC 3339 `full-date` and `date-time` per JSON Schema
+ * 2020-12 validation Section 7.3.1) or `contentEncoding` `base64` (Section 8.3), which an mdoc
+ * encodes as CBOR `full-date`, `tdate` and `bstr`. One string has at most one of them.
+ */
+function checkStringEncoding(
+  schema: Record<string, unknown>,
+  types: readonly AttestbookScalarType[],
+  pointer: string,
+  report: Report,
+): boolean {
+  let valid = true;
+  const { format, contentEncoding, contentMediaType } = schema;
+  if (
+    format !== undefined &&
+    !(types.includes("string") && STRING_FORMATS.includes(format as AttestbookStringFormat))
+  ) {
+    report(
+      "unsupported_schema_keyword",
+      `${pointer}/format`,
+      "format must be 'date' or 'date-time', on a string claim",
+    );
+    valid = false;
+  }
+  if (
+    contentEncoding !== undefined &&
+    !(types.includes("string") && contentEncoding === "base64")
+  ) {
+    report(
+      "unsupported_schema_keyword",
+      `${pointer}/contentEncoding`,
+      "contentEncoding must be 'base64', on a string claim",
+    );
+    valid = false;
+  }
+  if (
+    contentMediaType !== undefined &&
+    (typeof contentMediaType !== "string" || !contentEncoding)
+  ) {
+    report(
+      "unsupported_schema_keyword",
+      `${pointer}/contentMediaType`,
+      "contentMediaType must be a media type string beside contentEncoding",
+    );
+    valid = false;
+  }
+  if (format !== undefined && contentEncoding !== undefined) {
+    report(
+      "unsupported_schema_keyword",
+      `${pointer}/format`,
+      "format and contentEncoding cannot describe the same string",
+    );
+    valid = false;
+  }
   return valid;
 }
 
@@ -495,6 +639,13 @@ function compileScalar(
     ...(Array.isArray(enumValues) ? { enum: enumValues as (AttestbookScalarValue | null)[] } : {}),
     ...(schema.const !== undefined ? { const: schema.const as AttestbookScalarValue | null } : {}),
     ...bounds,
+    ...(typeof schema.format === "string"
+      ? { format: schema.format as AttestbookStringFormat }
+      : {}),
+    ...(schema.contentEncoding === "base64" ? { contentEncoding: "base64" as const } : {}),
+    ...(typeof schema.contentMediaType === "string"
+      ? { contentMediaType: schema.contentMediaType }
+      : {}),
   };
 }
 
@@ -548,6 +699,8 @@ export function scalarValueError(claim: AttestbookScalarClaim, value: unknown): 
   if (claim.const !== undefined && scalar !== claim.const) return "does not equal the schema const";
   if (claim.enum && !claim.enum.includes(scalar)) return "is not one of the schema enum values";
   if (typeof scalar === "string") {
+    const encodingError = stringEncodingError(claim, scalar);
+    if (encodingError) return encodingError;
     const length = [...scalar].length;
     if (claim.minLength !== undefined && length < claim.minLength)
       return `is shorter than ${claim.minLength}`;
@@ -564,6 +717,28 @@ export function scalarValueError(claim: AttestbookScalarClaim, value: unknown): 
       return `is not below ${claim.exclusiveMaximum}`;
     }
   }
+  return null;
+}
+
+const FULL_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/i;
+const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+
+/** Why a string does not satisfy its claim's `format` or `contentEncoding`, or null. */
+function stringEncodingError(claim: AttestbookScalarClaim, value: string): string | null {
+  if (claim.format === "date") {
+    const date = FULL_DATE.test(value) ? new Date(`${value}T00:00:00Z`) : null;
+    if (!date || Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) {
+      return "is not an RFC 3339 full-date";
+    }
+  }
+  if (
+    claim.format === "date-time" &&
+    !(DATE_TIME.test(value) && !Number.isNaN(Date.parse(value)))
+  ) {
+    return "is not an RFC 3339 date-time";
+  }
+  if (claim.contentEncoding === "base64" && !BASE64.test(value)) return "is not base64";
   return null;
 }
 

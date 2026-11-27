@@ -336,7 +336,7 @@ describe("Attestbook supersession during POST /sessions", () => {
     });
     const response = await request(attestbookApp).post("/sessions").send({
       issuer_configuration_id: "attestbook-experimental",
-      credential_configuration_id: "urn:attestbook:membership-card",
+      credential_configuration_id: "urn:attestbook:membership-card:sd_jwt",
       flow: "pre_authorized_code",
     });
     await activation;
@@ -344,13 +344,13 @@ describe("Attestbook supersession during POST /sessions", () => {
     expect(response.body).toEqual({
       error: "credential_configuration_superseded",
       error_description:
-        "credential configuration 'urn:attestbook:membership-card' was replaced by a newer rulebook version",
+        "credential configuration 'urn:attestbook:membership-card:sd_jwt' was replaced by a newer rulebook version",
     });
   });
   it("rejects PID options for an imported credential before status-reference validation", async () => {
     const response = await request(attestbookApp).post("/sessions").send({
       issuer_configuration_id: "attestbook-experimental",
-      credential_configuration_id: "urn:attestbook:membership-card",
+      credential_configuration_id: "urn:attestbook:membership-card:sd_jwt",
       status_reference: "not-a-fixture",
       fixture_id: "not-a-fixture",
     });

@@ -587,7 +587,7 @@ export function components(issuerIds: readonly string[]): JsonRecord {
       SessionCredentialDefinition: {
         type: "object",
         description:
-          "The exact published Attestbook rulebook version an imported-credential session is pinned to; provenance only, never claim values.",
+          "The exact published Attestbook rulebook version an imported-credential session is pinned to; provenance only, never claim values. An SD-JWT VC carries `vct` and `vct_source`; an mdoc carries `doctype` and `doctype_source`.",
         required: [
           "source",
           "origin",
@@ -595,8 +595,7 @@ export function components(issuerIds: readonly string[]): JsonRecord {
           "version",
           "content_digest",
           "attestation",
-          "vct",
-          "vct_source",
+          "format",
         ],
         properties: {
           source: { type: "string", const: "attestbook" },
@@ -605,8 +604,11 @@ export function components(issuerIds: readonly string[]): JsonRecord {
           version: { type: "string" },
           content_digest: { type: "string", pattern: "^[0-9a-f]{64}$" },
           attestation: { type: "string" },
+          format: { type: "string", enum: ["dc+sd-jwt", "mso_mdoc"] },
           vct: { type: "string" },
           vct_source: { type: "string", enum: ["attestation_name", "json_schema"] },
+          doctype: { type: "string" },
+          doctype_source: { type: "string", enum: ["attestation_name", "json_schema"] },
         },
       },
       SessionGeneratedClaims: {

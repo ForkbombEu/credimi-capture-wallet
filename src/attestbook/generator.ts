@@ -1,5 +1,6 @@
 import { createRequire } from "node:module";
 import { Faker, base, en } from "@faker-js/faker";
+import { PID_PORTRAIT_JPEG } from "../configurations/shared/pid-data.js";
 import { sha256Hex } from "./digest.js";
 import { claimValueErrors, scalarValueError } from "./json-schema.js";
 import type {
@@ -7,6 +8,7 @@ import type {
   AttestbookCredentialDefinition,
   AttestbookScalarClaim,
   AttestbookScalarValue,
+  AttestbookStringFormat,
 } from "./types.js";
 
 /** The exact generator, recorded with every generated claim set: values depend on its version. */
@@ -137,6 +139,8 @@ function scalarCandidate(
       return faker.number.float({ min, max, fractionDigits: 2 });
     }
     case "string": {
+      if (claim.format) return formattedDate(claim.format, name, faker);
+      if (claim.contentEncoding === "base64") return base64Content(claim, faker);
       if (attempt === 0) {
         const named = namedString(name, faker);
         if (scalarValueError(claim, named) === null) return named;
@@ -182,6 +186,27 @@ function numberRange(
   }
   if (min > max) throw new ClaimGenerationError(`${path} has an empty numeric range`);
   return [min, max];
+}
+
+/** An RFC 3339 date in the past or, for an expiry, the future; a birth date by the name. */
+function formattedDate(format: AttestbookStringFormat, name: string, faker: Faker): string {
+  const key = name.toLowerCase();
+  const date = /birth/.test(key)
+    ? faker.date.birthdate()
+    : /expir|valid_until/.test(key)
+      ? faker.date.future({ years: 10 })
+      : faker.date.past({ years: 10 });
+  // Whole seconds in UTC, as the EUDI rulebook template asks of `tdate`.
+  return format === "date" ? isoDate(date) : `${date.toISOString().slice(0, 19)}Z`;
+}
+
+/** Base64 content: the sample JPEG portrait for `image/jpeg`, random bytes otherwise. */
+function base64Content(claim: AttestbookScalarClaim, faker: Faker): string {
+  const bytes =
+    claim.contentMediaType === "image/jpeg"
+      ? PID_PORTRAIT_JPEG
+      : Uint8Array.from({ length: 32 }, () => faker.number.int(255));
+  return Buffer.from(bytes).toString("base64");
 }
 
 /** A value of the kind the claim name suggests, or a few words. */
