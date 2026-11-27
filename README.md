@@ -1243,12 +1243,13 @@ parameter, so it appears only in the Entity Configuration: the unsigned and sign
 metadata at `/.well-known/openid-credential-issuer/issuers/{issuerConfigurationId}` keep their
 existing shape, with no `jwks`.
 
-The access-token JWKS is published by value as OpenID Federation 1.0 §5.2.1 `jwks`, because
-Wallets that trust the issuer through federation, such as the IT-Wallet demo Wallet, verify the
-access token with the keys recorded in the Trust Chain rather than by fetching `jwks_uri`. The
-metadata keeps Credo's `jwks_uri` to the same keys, and publishing fails if the set is empty or
-carries private key members. The ordinary Authorization Server metadata at
-`/.well-known/oauth-authorization-server/issuers/{issuerConfigurationId}` is unchanged.
+The access-token JWKS is published by value as OpenID Federation 1.0 §5.2.1 `jwks`, so the
+keys that verify access tokens are recorded in the Trust Chain. As §5.2.1.1 recommends a single
+JWK Set representation, it replaces the `jwks_uri` of Credo's metadata in the Entity
+Configuration; publishing fails if the set is empty or carries private key members. The ordinary
+Authorization Server metadata at
+`/.well-known/oauth-authorization-server/issuers/{issuerConfigurationId}` is unchanged and keeps
+its `jwks_uri`.
 
 `init` provisions a dedicated ES256/P-256 federation key for every registry issuer, including the
 feature-gated Attestbook issuer, at `data/issuers/<routeSlug>/federation/private.jwk`. It derives

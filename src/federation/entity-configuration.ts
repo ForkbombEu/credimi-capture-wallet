@@ -81,12 +81,18 @@ export async function signIssuerEntityConfiguration(options: {
   // OpenID Federation for Wallet Architectures 1.0, draft 06, §6.3.1.
   const issuerSigningJwks = publishedProtocolJwks(issuer, issuerJwks, "credential signing");
   // OpenID Federation 1.0 §5.2.1 `jwks`, by value, so an access token verifies from the Trust
-  // Chain alone; Credo's metadata keeps its `jwks_uri` to the same keys.
+  // Chain alone. §5.2.1.1 recommends a single JWK Set representation, so it replaces the
+  // `jwks_uri` (and any `signed_jwks_uri`) of Credo's metadata to the same keys.
   const accessTokenJwks = publishedProtocolJwks(
     issuer,
     authorizationServerJwks,
     "access-token signing",
   );
+  const {
+    jwks_uri: _jwksUri,
+    signed_jwks_uri: _signedJwksUri,
+    ...authorizationServerFederationMetadata
+  } = authorizationServerMetadata;
   const privateJwk = loadIssuerFederationPrivateJwk(issuer);
   const jwks = loadIssuerFederationJwks(issuer);
   if (!isPrivateEcJwk(privateJwk)) {
@@ -106,7 +112,10 @@ export async function signIssuerEntityConfiguration(options: {
     authority_hints: [...authorityHints],
     metadata: {
       openid_credential_issuer: { ...issuerMetadata, jwks: issuerSigningJwks },
-      oauth_authorization_server: { ...authorizationServerMetadata, jwks: accessTokenJwks },
+      oauth_authorization_server: {
+        ...authorizationServerFederationMetadata,
+        jwks: accessTokenJwks,
+      },
     },
   })
     .setProtectedHeader({ alg: "ES256", typ: "entity-statement+jwt", kid })

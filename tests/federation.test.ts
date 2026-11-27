@@ -187,11 +187,18 @@ describe("OpenID Federation issuer leaf entities", () => {
       expect(header).toMatchObject({ alg: "ES256", typ: "entity-statement+jwt" });
       expect(payload.authority_hints).toEqual([TRUST_ANCHOR]);
       expect(payload.jwks).toEqual(jwks);
-      // The federated metadata is the live Credo metadata plus each entity type's protocol keys
-      // by value; the ordinary well-known metadata does not carry `jwks`.
+      // The federated metadata is the live Credo metadata with each entity type's protocol keys
+      // by value; the authorization server's `jwks` replaces its `jwks_uri` (OpenID Federation
+      // 1.0 §5.2.1.1), while the ordinary well-known metadata keeps `jwks_uri` and has no `jwks`.
+      const { jwks_uri: jwksUri, ...authorizationServerFederationMetadata } =
+        authorizationServerMetadata;
+      expect(jwksUri).toBe(`${issuer.issuerIdentifier}/jwks.json`);
       expect(payload.metadata).toEqual({
         openid_credential_issuer: { ...issuerMetadata, jwks: issuerJwks },
-        oauth_authorization_server: { ...authorizationServerMetadata, jwks: accessTokenJwks },
+        oauth_authorization_server: {
+          ...authorizationServerFederationMetadata,
+          jwks: accessTokenJwks,
+        },
       });
       expect(authorizationServerMetadata).not.toHaveProperty("jwks");
       expect(issuerMetadata).not.toHaveProperty("jwks");
