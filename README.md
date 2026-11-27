@@ -1027,23 +1027,31 @@ with bounded backoff.
 and exactly one `dc+sd-jwt` JSON Schema 2020-12 reference. The schema root is an object whose
 claims are `string`, `integer`, `number` or `boolean` values (with `enum`, `const`, `minLength`,
 `maxLength`, `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`), nested objects
-(`properties`, `required`, a boolean `additionalProperties`) and arrays (one `items` schema,
-`minItems`, `maxItems`), at most four path segments deep; `title` and `description` are allowed
-everywhere. `format`, `pattern`, `$ref`, combinators, tuple `items`, Type Metadata `extends`, and
-claims named after protocol members (`iss`, `sub`, `iat`, `nbf`, `exp`, `cnf`, `vct`, `status`
-at the top level, `_sd…` and `...` anywhere) are rejected. Every object member and every array
+(`properties`, `required`, a boolean `additionalProperties`, `minProperties`) and arrays (one
+`items` schema, `minItems`, `maxItems`), at most four path segments deep; `title` and
+`description` are allowed everywhere. A claim's `type` may be an array: scalar types may be
+combined (each bound constrains only values of its own type), and any one type may be combined
+with `"null"`; `object` and `array` cannot be combined with other types. `format`, `pattern`,
+`$ref`, combinators, tuple `items`, Type Metadata `extends`, and claims named after protocol
+members (`iss`, `sub`, `iat`, `nbf`, `exp`, `cnf`, `status` at the top level, `_sd…` and `...`
+anywhere) are rejected. Every object member and every array
 element is individually selectively disclosable unless Type Metadata says `sd: "never"` for its
 path (use `null` for "every element", e.g. `["degrees", null, "level"]`). Schema documents must be
 hosted by the trusted Attestbook origin, or come from an `ATTESTBOOK_ALLOWED_SCHEMA_ORIGINS`
 origin with an SRI pin. Any error rejects the whole publication.
 
-**Credential type.** The `vct` is derived from the attestation name:
+**Credential type.** A top-level `vct` property in the schema describes the SD-JWT VC `vct`, not a
+claim: it must be a non-nullable `string`, and its `const` (or one-value `enum`) is the issued
+`vct` (`vct_source: "json_schema"`). It is never generated or selectively disclosed. Without a
+pinned value the `vct` is derived from the attestation name (`vct_source: "attestation_name"`):
 `urn:attestbook:<slug>`, where the slug is the name in lowercase ASCII with diacritics dropped and
 every other run of characters turned into `-` (`Membership Card` → `urn:attestbook:membership-card`).
-It is the same across rulebook versions and changes if the attestation is renamed. It does not
-include the rulebook, so two rulebooks with alike-named types share a `vct`. An optional Type
-Metadata reference may refine display names and disclosure, but its `vct` must equal the derived
-one or the publication is rejected; two types of one rulebook whose names slug alike are rejected.
+That derived identifier is always the credential configuration id and OAuth scope. It is the same
+across rulebook versions and changes if the attestation is renamed. It does not include the
+rulebook, so two rulebooks with alike-named types share it. The issued `vct` must satisfy the
+schema's `vct` constraints. An optional Type Metadata reference may refine display names and
+disclosure, but its `vct` must equal the issued one or the publication is rejected. Two types of one
+rulebook with the same `vct`, or whose names slug alike, are rejected.
 
 **Claim values.** A schema constrains claims; it does not supply identity data. Every session
 gets synthetic values generated with [faker-js](https://fakerjs.dev), seeded by the session id, for
@@ -1056,8 +1064,8 @@ regenerate them exactly. A schema whose constraints no value can meet is rejecte
 imported credentials.
 
 **Inspecting and recovering.** `GET /issuers` lists the active imported ids. Each credential's
-configuration id and OAuth scope are its `vct` (`urn:attestbook:membership-card`), so they stay the
-same across versions and only the active version is advertised. A session keeps the version it was
+configuration id and OAuth scope are derived from its attestation name
+(`urn:attestbook:membership-card`), so they stay the same across versions and only the active version is advertised. A session keeps the version it was
 offered with (`credential_definition` on the session); if a newer version is activated before
 the Wallet requests the credential, the Credential Endpoint refuses that request with
 `invalid_credential_request` and the Wallet must start again from a new offer.

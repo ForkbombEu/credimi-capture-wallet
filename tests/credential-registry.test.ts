@@ -108,7 +108,7 @@ function definition(
           required: true,
           node: {
             kind: "scalar",
-            type: "string",
+            types: ["string"],
             displayName: "Member ID",
             selectivelyDisclosable: true,
           },

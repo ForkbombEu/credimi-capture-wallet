@@ -92,13 +92,16 @@ interface AttestbookClaimNodeBase {
    * each element of its array. The issuer default is true, refined by Type Metadata `sd`.
    */
   readonly selectivelyDisclosable: boolean;
+  /** Whether the schema `type` also admits `null` (a type array naming `"null"`). */
+  readonly nullable?: boolean;
 }
 
 export interface AttestbookScalarClaim extends AttestbookClaimNodeBase {
   readonly kind: "scalar";
-  readonly type: AttestbookScalarType;
-  readonly enum?: readonly AttestbookScalarValue[];
-  readonly const?: AttestbookScalarValue;
+  /** The non-null types the value may have: one, or several from a schema type array. */
+  readonly types: readonly AttestbookScalarType[];
+  readonly enum?: readonly (AttestbookScalarValue | null)[];
+  readonly const?: AttestbookScalarValue | null;
   readonly minLength?: number;
   readonly maxLength?: number;
   readonly minimum?: number;
@@ -117,6 +120,7 @@ export interface AttestbookObjectClaim extends AttestbookClaimNodeBase {
   readonly kind: "object";
   readonly properties: readonly AttestbookClaimProperty[];
   readonly additionalProperties: boolean;
+  readonly minProperties?: number;
 }
 
 export interface AttestbookArrayClaim extends AttestbookClaimNodeBase {
@@ -164,12 +168,16 @@ export interface AttestbookCredentialDefinition {
     readonly attestationLoS: string;
     readonly bindingType: string;
   };
+  /** Derived from the attestation name: `urn:attestbook:<slug>`. */
   readonly credentialConfigurationId: string;
   readonly scope: string;
   readonly format: "dc+sd-jwt";
   readonly vct: string;
-  /** Always derived from the attestation name: `urn:attestbook:<slug>`. */
-  readonly vctSource: "attestation_name";
+  /**
+   * `json_schema` when the schema's `vct` property pins one value (`const`, or a one-member
+   * `enum`); otherwise `attestation_name`, and the vct equals the credential configuration id.
+   */
+  readonly vctSource: AttestbookVctSource;
   readonly displayName: string;
   /** The credential's claim structure: the root object of the issued payload. */
   readonly claims: AttestbookObjectClaim;
@@ -180,6 +188,8 @@ export interface AttestbookCredentialDefinition {
   readonly claimValueProvider: "faker-js";
   readonly disclosurePolicy: "issuer-default-selective";
 }
+
+type AttestbookVctSource = "attestation_name" | "json_schema";
 
 type AttestbookDiagnosticSeverity = "error" | "info";
 

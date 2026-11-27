@@ -606,7 +606,7 @@ export function components(issuerIds: readonly string[]): JsonRecord {
           content_digest: { type: "string", pattern: "^[0-9a-f]{64}$" },
           attestation: { type: "string" },
           vct: { type: "string" },
-          vct_source: { type: "string", const: "attestation_name" },
+          vct_source: { type: "string", enum: ["attestation_name", "json_schema"] },
         },
       },
       SessionGeneratedClaims: {

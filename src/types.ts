@@ -786,8 +786,8 @@ export interface SessionCredentialDefinition {
   content_digest: string;
   attestation: string;
   vct: string;
-  /** Where the issued credential's `vct` came from: always the attestation name. */
-  vct_source: "attestation_name";
+  /** Where the issued credential's `vct` came from: the schema's `vct` const or the attestation name. */
+  vct_source: "attestation_name" | "json_schema";
 }
 
 /**

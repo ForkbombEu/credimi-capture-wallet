@@ -1,6 +1,6 @@
 import { isRecord } from "../shared/json.js";
 import type { CredentialProofPolicy } from "../types.js";
-import { compileJsonSchema } from "./json-schema.js";
+import { compileJsonSchema, scalarValueError } from "./json-schema.js";
 import {
   SD_JWT_VC_FORMAT,
   type VerifiedRulebook,
@@ -14,6 +14,7 @@ import type {
   AttestbookDiagnostic,
   AttestbookObjectClaim,
   AttestbookRulebookAttestation,
+  AttestbookScalarClaim,
 } from "./types.js";
 
 /** TS11/OWF `bindingType` for a credential bound to a holder key, the only binding issued here. */
@@ -55,6 +56,7 @@ export function compileRulebook(
   const definitions: AttestbookCredentialDefinition[] = [];
   const names = new Set<string>();
   const vcts = new Map<string, string>();
+  const ids = new Map<string, string>();
 
   rulebook.document.attestations.forEach((attestation, index) => {
     if (names.has(attestation.name)) {
@@ -81,19 +83,28 @@ export function compileRulebook(
     }
     const definition = compileAttestation(rulebook, attestation, index, proofPolicy, diagnostics);
     if (!definition) return;
-    const owner = vcts.get(definition.vct);
-    if (owner) {
+    const vctOwner = vcts.get(definition.vct);
+    const idOwner = ids.get(definition.credentialConfigurationId);
+    if (vctOwner || idOwner) {
       diagnostics.push(
-        error(
-          "duplicate_vct",
-          attestation.name,
-          "name",
-          `name derives the same vct as attestation '${owner}'`,
-        ),
+        vctOwner
+          ? error(
+              "duplicate_vct",
+              attestation.name,
+              definition.vctSource === "json_schema" ? "schemaReferences" : "name",
+              `${definition.vctSource === "json_schema" ? "the JSON Schema states" : "name derives"} the same vct as attestation '${vctOwner}'`,
+            )
+          : error(
+              "duplicate_credential_configuration_id",
+              attestation.name,
+              "name",
+              `name derives the same credential configuration id as attestation '${idOwner}'`,
+            ),
       );
       return;
     }
     vcts.set(definition.vct, attestation.name);
+    ids.set(definition.credentialConfigurationId, attestation.name);
     definitions.push(definition);
   });
 
@@ -115,9 +126,10 @@ export function compileRulebook(
 }
 
 /**
- * The credential type of an attestation, derived from its name alone: `urn:attestbook:<slug>`.
- * It stays the same across rulebook versions and changes when the attestation is renamed. The
- * rulebook is deliberately not part of it, so two rulebooks naming a type alike share its vct.
+ * The identifier derived from an attestation name alone: `urn:attestbook:<slug>`. It is the
+ * credential configuration id and the OAuth scope, and the vct unless the JSON Schema pins one. It
+ * stays the same across rulebook versions and changes when the attestation is renamed. The
+ * rulebook is deliberately not part of it, so two rulebooks naming a type alike share it.
  * @internal
  */
 export function vctForAttestationName(name: string): string | null {
@@ -174,17 +186,30 @@ function compileAttestation(
   const [schemaDocument] = schemas;
   const compiled = schemaDocument
     ? compileJsonSchema(schemaDocument.json, attestation.name, schemaDocument.record.uri)
-    : { claims: null, diagnostics: [] };
+    : { claims: null, vct: null, diagnostics: [] };
   diagnostics.push(...compiled.diagnostics);
 
-  const vct = vctForAttestationName(attestation.name);
-  if (vct === null) {
+  const nameVct = vctForAttestationName(attestation.name);
+  if (nameVct === null) {
     diagnostics.push(
       error(
         "vct_unresolved",
         attestation.name,
         "name",
-        "the attestation name has no letters or digits to derive a vct from",
+        "the attestation name has no letters or digits to derive an identifier from",
+      ),
+    );
+  }
+  // A schema `vct` property constrains the issued vct; one pinned value is the credential type.
+  const pinnedVct = compiled.vct ? pinnedValue(compiled.vct) : null;
+  const vct = pinnedVct ?? nameVct;
+  if (schemaDocument && compiled.vct && vct !== null && scalarValueError(compiled.vct, vct)) {
+    diagnostics.push(
+      error(
+        "vct_conflict",
+        attestation.name,
+        `${schemaDocument.record.uri}#/properties/vct`,
+        `the JSON Schema does not admit vct '${vct}'`,
       ),
     );
   }
@@ -198,7 +223,7 @@ function compileAttestation(
         "vct_conflict",
         attestation.name,
         typeMetadataDocument ? `${typeMetadataDocument.record.uri}#/vct` : "vct",
-        `Type Metadata states vct '${typeMetadata.vct}', but the attestation name derives '${vct}'`,
+        `Type Metadata states vct '${typeMetadata.vct}', but ${pinnedVct ? "the JSON Schema states" : "the attestation name derives"} '${vct}'`,
       ),
     );
   }
@@ -208,9 +233,9 @@ function compileAttestation(
       : compiled.claims;
 
   if (diagnostics.slice(before).some((entry) => entry.severity === "error")) return null;
-  if (vct === null || !schemaDocument || !claims) return null;
-  // The vct is also the credential configuration id and the OAuth scope: stable across versions,
-  // and unique within the rulebook (`duplicate_vct`).
+  if (vct === null || nameVct === null || !schemaDocument || !claims) return null;
+  // The configuration id and OAuth scope derive from the name: stable across versions, and unique
+  // within the rulebook (`duplicate_credential_configuration_id`), like the vct (`duplicate_vct`).
   return {
     origin: rulebook.snapshot.origin,
     rulebookId: rulebook.document.rulebookId,
@@ -222,11 +247,11 @@ function compileAttestation(
       attestationLoS: attestation.attestationLoS,
       bindingType: attestation.bindingType,
     },
-    credentialConfigurationId: vct,
-    scope: vct,
+    credentialConfigurationId: nameVct,
+    scope: nameVct,
     format: "dc+sd-jwt",
     vct,
-    vctSource: "attestation_name",
+    vctSource: pinnedVct ? "json_schema" : "attestation_name",
     displayName: typeMetadata?.displayName ?? attestation.name,
     claims,
     claimMetadata: claimMetadata(claims, [], true),
@@ -251,6 +276,13 @@ function slugify(value: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+/** The one value a `vct` schema allows: its `const`, or the member of a one-value `enum`. */
+function pinnedValue(claim: AttestbookScalarClaim): string | null {
+  if (typeof claim.const === "string") return claim.const;
+  const [only] = claim.enum ?? [];
+  return claim.enum?.length === 1 && typeof only === "string" ? only : null;
 }
 
 /**

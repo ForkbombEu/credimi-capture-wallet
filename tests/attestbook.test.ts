@@ -308,7 +308,7 @@ describe("Attestbook rulebook compiler", () => {
       required: true,
       node: {
         kind: "scalar",
-        type: "string",
+        types: ["string"],
         minLength: 3,
         displayName: "Member ID",
         selectivelyDisclosable: true,
@@ -336,6 +336,40 @@ describe("Attestbook rulebook compiler", () => {
       displayName: "Ünïversity Diploma (EU)",
     });
     expect(vctForAttestationName("  --  ")).toBeNull();
+  });
+
+  it("takes a vct the JSON Schema pins, keeping the name-derived configuration id", async () => {
+    const definition = await definitionOf("2.5", {
+      name: "Italian PID",
+      schema: {
+        $schema: "https://json-schema.org/draft/2020-12/schema",
+        type: "object",
+        required: ["vct", "issuing_country"],
+        properties: {
+          vct: { type: "string", const: "urn:eudi:pid:it:1" },
+          issuing_country: { type: ["string", "null"], minLength: 2, maxLength: 2 },
+          place_of_birth: {
+            type: "object",
+            properties: { country: { type: "string" }, locality: { type: "string" } },
+            minProperties: 1,
+          },
+        },
+        additionalProperties: false,
+      },
+      typeMetadata: { vct: "urn:eudi:pid:it:1" },
+    });
+
+    expect(definition).toMatchObject({
+      vct: "urn:eudi:pid:it:1",
+      vctSource: "json_schema",
+      credentialConfigurationId: "urn:attestbook:italian-pid",
+      scope: "urn:attestbook:italian-pid",
+    });
+    expect(definition.claimMetadata.map((claim) => claim.path)).not.toContainEqual(["vct"]);
+    const claims = generateClaims(definition, "pid-seed");
+    expect(claims).not.toHaveProperty("vct");
+    expect(claims.issuing_country).toEqual(expect.any(String));
+    expect(claimValueErrors(definition.claims, claims)).toEqual([]);
   });
 
   it("keeps the vct, configuration id and scope identical across versions", async () => {
@@ -407,7 +441,7 @@ describe("Attestbook rulebook compiler", () => {
           properties: {
             birthdate: { type: "string", format: "date" },
             tuple: { type: "array", items: [{ type: "string" }] },
-            vct: { type: "string" },
+            iss: { type: "string" },
             nested: { type: "object", properties: { _sd: { type: "string" } } },
             a: { type: "object", properties: { b: tooDeep } },
           },
@@ -415,6 +449,14 @@ describe("Attestbook rulebook compiler", () => {
       },
       { name: "Unbound", bindingType: "none", schema: membershipSchema },
       { name: "Conflicting", schema: membershipSchema, typeMetadata: { vct: "urn:eudi:pid:1" } },
+      {
+        name: "Schema Conflict",
+        schema: {
+          type: "object",
+          properties: { vct: { type: "string", const: "urn:example:a" }, x: { type: "string" } },
+        },
+        typeMetadata: { vct: "urn:example:b" },
+      },
       {
         name: "Unknown Path",
         schema: membershipSchema,
@@ -441,6 +483,7 @@ describe("Attestbook rulebook compiler", () => {
         { severity: "error", code: "claim_too_deep", attestation: "Unsupported" },
         { severity: "error", code: "unsupported_binding_type", attestation: "Unbound" },
         { severity: "error", code: "vct_conflict", attestation: "Conflicting" },
+        { severity: "error", code: "vct_conflict", attestation: "Schema Conflict" },
         {
           severity: "error",
           code: "type_metadata_claim_not_in_schema",
@@ -455,7 +498,7 @@ describe("Attestbook rulebook compiler", () => {
         .filter((diagnostic) => diagnostic.code === "reserved_claim_name")
         .map((d) => d.field),
     ).toEqual([
-      expect.stringMatching(/#\/properties\/vct$/),
+      expect.stringMatching(/#\/properties\/iss$/),
       expect.stringMatching(/#\/properties\/nested\/properties\/_sd$/),
     ]);
   });

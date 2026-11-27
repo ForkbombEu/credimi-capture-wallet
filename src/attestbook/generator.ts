@@ -91,24 +91,31 @@ function generateScalar(
   name: string,
   path: string,
   faker: Faker,
-): AttestbookScalarValue {
+): AttestbookScalarValue | null {
   if (claim.const !== undefined) return claim.const;
   if (claim.enum) {
     const allowed = claim.enum.filter(
       (value) => scalarValueError({ ...claim, enum: undefined }, value) === null,
     );
+    // A nullable claim still gets a value whenever its enum lists one.
+    const values = allowed.filter((value) => value !== null);
     if (allowed.length === 0)
       throw new ClaimGenerationError(`${path} has no enum value within its constraints`);
-    return faker.helpers.arrayElement(allowed);
+    return faker.helpers.arrayElement(values.length > 0 ? values : allowed);
   }
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
     const candidate = scalarCandidate(claim, name, path, faker, attempt);
     if (scalarValueError(claim, candidate) === null) return candidate;
   }
-  throw new ClaimGenerationError(`${path} has no ${claim.type} value within its constraints`);
+  throw new ClaimGenerationError(
+    `${path} has no ${claim.types.join(" or ")} value within its constraints`,
+  );
 }
 
-/** The first attempt follows the claim name; later ones only aim at the constraints. */
+/**
+ * The first attempt follows the claim name; later ones only aim at the constraints. A union
+ * tries its types in turn, starting with the first declared.
+ */
 function scalarCandidate(
   claim: AttestbookScalarClaim,
   name: string,
@@ -116,7 +123,9 @@ function scalarCandidate(
   faker: Faker,
   attempt: number,
 ): AttestbookScalarValue {
-  switch (claim.type) {
+  const type = claim.types[attempt % claim.types.length];
+  if (type === undefined) throw new ClaimGenerationError(`${path} declares no type`);
+  switch (type) {
     case "boolean":
       return faker.datatype.boolean();
     case "integer": {

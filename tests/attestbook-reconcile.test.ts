@@ -193,7 +193,8 @@ describe("Attestbook reconciliation failures", () => {
           code: "unsupported_claim_type",
           attestation: "Rejected schema",
           field: `${schemaUrl}#/properties/broken/type`,
-          message: "claim 'broken' must declare one type",
+          message:
+            "claim 'broken' must declare string, integer, number, boolean, object or array, optionally with null; object and array cannot be combined with other types",
         },
       ],
     });
@@ -219,7 +220,8 @@ describe("Attestbook reconciliation failures", () => {
           code: "unsupported_claim_type",
           attestation: "Rejected schema",
           field: `${schemaUrl}#/properties/broken/type`,
-          message: "claim 'broken' must declare one type",
+          message:
+            "claim 'broken' must declare string, integer, number, boolean, object or array, optionally with null; object and array cannot be combined with other types",
         },
       ],
     });

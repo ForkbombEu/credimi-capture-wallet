@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { compileJsonSchema } from "../src/attestbook/json-schema.js";
+import { claimValueErrors, compileJsonSchema } from "../src/attestbook/json-schema.js";
 
 const attestation = "Example attestation";
+const unsupportedType = (name: string) =>
+  `claim '${name}' must declare string, integer, number, boolean, object or array, optionally with null; object and array cannot be combined with other types`;
 const uri = "https://schemas.example/example.json";
 
 function diagnostics(schema: Record<string, unknown>) {
@@ -45,7 +47,7 @@ describe("Attestbook JSON Schema diagnostics", () => {
       {
         code: "unsupported_claim_type",
         field: `${uri}#/properties/value/type`,
-        message: "claim 'value' must declare one type",
+        message: unsupportedType("value"),
       },
     ]);
   });
@@ -221,7 +223,7 @@ describe("Attestbook JSON Schema diagnostics", () => {
       {
         code: "unsupported_claim_type",
         field: `${uri}#/properties/a~0b~1c/type`,
-        message: "claim 'a~b/c' must declare one type",
+        message: unsupportedType("a~b/c"),
       },
     ]);
   });
@@ -312,6 +314,124 @@ describe("Attestbook JSON Schema diagnostics", () => {
         code: "unsupported_schema_keyword",
         field: `${uri}#/properties/value/const`,
         message: "const of 'value' must be a string",
+      },
+    ]);
+  });
+
+  it("accepts type arrays: nullable claims and scalar unions with type-specific bounds", () => {
+    const { claims, diagnostics } = compileJsonSchema(
+      {
+        type: "object",
+        properties: {
+          issuing_country: { type: ["string", "null"], minLength: 2, maxLength: 2 },
+          code: { type: ["string", "integer"], minLength: 3, minimum: 100 },
+          address: { type: ["object", "null"], properties: { city: { type: "string" } } },
+        },
+      },
+      attestation,
+      uri,
+    );
+
+    expect(diagnostics).toEqual([]);
+    if (!claims) throw new Error("schema did not compile");
+    expect(claimValueErrors(claims, { issuing_country: null, code: "ABC", address: null })).toEqual(
+      [],
+    );
+    expect(claimValueErrors(claims, { code: 250 })).toEqual([]);
+    expect(claimValueErrors(claims, { issuing_country: "ITA", code: 99 })).toEqual([
+      "$.issuing_country is longer than 2",
+      "$.code is below 100",
+    ]);
+    expect(claimValueErrors(claims, { code: true })).toEqual([
+      "$.code must be a string or integer",
+    ]);
+  });
+
+  it("rejects type arrays that combine object or array with other types", () => {
+    expect(
+      codes({
+        type: "object",
+        properties: {
+          mixed: { type: ["object", "string"], properties: { a: { type: "string" } } },
+          repeated: { type: ["string", "string"] },
+          only_null: { type: ["null"] },
+        },
+      }),
+    ).toEqual(
+      ["mixed", "repeated", "only_null"].map((name) => ({
+        code: "unsupported_claim_type",
+        field: `${uri}#/properties/${name}/type`,
+        message: unsupportedType(name),
+      })),
+    );
+  });
+
+  it("enforces minProperties on nested objects and refuses an invalid one", () => {
+    const { claims, diagnostics } = compileJsonSchema(
+      {
+        type: "object",
+        properties: {
+          place_of_birth: {
+            type: "object",
+            properties: { country: { type: "string" }, locality: { type: "string" } },
+            minProperties: 1,
+          },
+        },
+      },
+      attestation,
+      uri,
+    );
+
+    expect(diagnostics).toEqual([]);
+    if (!claims) throw new Error("schema did not compile");
+    expect(claimValueErrors(claims, { place_of_birth: { country: "IT" } })).toEqual([]);
+    expect(claimValueErrors(claims, { place_of_birth: {} })).toEqual([
+      "$.place_of_birth has fewer than 1 members",
+    ]);
+    expect(
+      codes({
+        type: "object",
+        properties: {
+          place: { type: "object", properties: { a: { type: "string" } }, minProperties: -1 },
+        },
+      }),
+    ).toEqual([
+      {
+        code: "unsupported_schema_keyword",
+        field: `${uri}#/properties/place/minProperties`,
+        message: "minProperties must be a non-negative integer",
+      },
+    ]);
+  });
+
+  it("compiles the root vct apart from the claims, and requires it to be a string", () => {
+    const result = compileJsonSchema(
+      {
+        type: "object",
+        required: ["vct", "given_name"],
+        properties: {
+          vct: { type: "string", const: "urn:eudi:pid:it:1" },
+          given_name: { type: "string" },
+        },
+        additionalProperties: false,
+      },
+      attestation,
+      uri,
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.vct).toMatchObject({ types: ["string"], const: "urn:eudi:pid:it:1" });
+    expect(result.claims?.properties.map((property) => property.name)).toEqual(["given_name"]);
+    expect(
+      codes({
+        type: "object",
+        properties: { vct: { type: ["string", "null"] }, given_name: { type: "string" } },
+      }),
+    ).toEqual([
+      {
+        code: "unsupported_vct_schema",
+        field: `${uri}#/properties/vct/type`,
+        message: "claim 'vct' must be a string",
       },
     ]);
   });

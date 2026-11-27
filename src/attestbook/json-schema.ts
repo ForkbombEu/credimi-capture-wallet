@@ -31,6 +31,7 @@ const OBJECT_KEYWORDS = new Set([
   "properties",
   "required",
   "additionalProperties",
+  "minProperties",
 ]);
 const ARRAY_KEYWORDS = new Set([...ANNOTATIONS, "type", "items", "minItems", "maxItems"]);
 const SCALAR_KEYWORDS = new Set([
@@ -51,7 +52,9 @@ const NUMBER_BOUNDS = ["minimum", "maximum", "exclusiveMinimum", "exclusiveMaxim
 
 /**
  * Top-level claims SD-JWT VC and the issuer control. A schema that names one is rejected rather
- * than allowing claim data to replace a protocol field (SD-JWT VC Section 3.2.2).
+ * than allowing claim data to replace a protocol field (SD-JWT VC Section 3.2.2). The exception is
+ * `vct`: a schema may constrain the credential type, so its `vct` property is compiled apart from
+ * the claims, and the issuer still sets the value.
  */
 export const RESERVED_CLAIM_NAMES = new Set([
   "iss",
@@ -65,6 +68,9 @@ export const RESERVED_CLAIM_NAMES = new Set([
   "status",
 ]);
 
+/** The root property that describes the protocol `vct` rather than a claim. */
+const VCT_CLAIM = "vct";
+
 /** SD-JWT's own members, reserved at every level of the payload. */
 function isSdJwtReservedName(name: string): boolean {
   return name.startsWith("_sd") || name === "...";
@@ -75,15 +81,20 @@ type Report = (code: string, pointer: string, message: string) => void;
 /**
  * Compiles the supported JSON Schema 2020-12 subset into the credential's claim tree: an object
  * root whose members are typed scalars (`string`, `integer`, `number`, `boolean` with their value
- * constraints), objects or arrays, at most four path segments deep. Every other construct is
- * reported rather than ignored, because silently dropping a constraint would issue a credential
- * the schema forbids.
+ * constraints), objects or arrays, at most four path segments deep. A `type` array may combine
+ * scalar types, and any one type with `null`. The root `vct` property is not a claim: it
+ * constrains the protocol `vct` and is returned apart. Every other construct is reported rather
+ * than ignored, because silently dropping a constraint would issue a credential the schema forbids.
  */
 export function compileJsonSchema(
   schema: Record<string, unknown>,
   attestation: string,
   uri: string,
-): { claims: AttestbookObjectClaim | null; diagnostics: AttestbookDiagnostic[] } {
+): {
+  claims: AttestbookObjectClaim | null;
+  vct: AttestbookScalarClaim | null;
+  diagnostics: AttestbookDiagnostic[];
+} {
   const diagnostics: AttestbookDiagnostic[] = [];
   const report: Report = (code, pointer, message) => {
     diagnostics.push({ severity: "error", code, attestation, field: `${uri}#${pointer}`, message });
@@ -97,14 +108,75 @@ export function compileJsonSchema(
   }
   if (schema.type !== "object") {
     report("unsupported_schema_root", "/type", "the schema root must be of type 'object'");
-    return { claims: null, diagnostics };
+    return { claims: null, vct: null, diagnostics };
   }
   const counter = { nodes: 0 };
   const claims = compileObject(schema, "", 0, ROOT_KEYWORDS, report, counter, true);
+  const properties = isRecord(schema.properties) ? schema.properties : {};
+  const vct = VCT_CLAIM in properties ? compileVct(properties[VCT_CLAIM], report, counter) : null;
   if (claims && claims.properties.length === 0) {
     report("schema_without_claims", "/properties", "the schema declares no claim properties");
   }
-  return { claims: diagnostics.length === 0 ? claims : null, diagnostics };
+  const valid = diagnostics.length === 0;
+  return { claims: valid ? claims : null, vct: valid ? vct : null, diagnostics };
+}
+
+/**
+ * The schema of the protocol `vct`, which SD-JWT VC Section 2.2.2.1 makes a string. It is compiled
+ * like a claim to read its constraints, but it is never generated or selectively disclosed.
+ */
+function compileVct(
+  schema: unknown,
+  report: Report,
+  counter: { nodes: number },
+): AttestbookScalarClaim | null {
+  const pointer = `/properties/${VCT_CLAIM}`;
+  if (!isRecord(schema)) {
+    report(
+      "unsupported_claim_schema",
+      pointer,
+      `claim '${VCT_CLAIM}' must be described by an object schema`,
+    );
+    return null;
+  }
+  const node = compileNode(schema, VCT_CLAIM, pointer, 1, report, counter);
+  if (!node) return null;
+  if (
+    node.kind !== "scalar" ||
+    node.nullable ||
+    node.types.length !== 1 ||
+    node.types[0] !== "string"
+  ) {
+    report("unsupported_vct_schema", `${pointer}/type`, `claim '${VCT_CLAIM}' must be a string`);
+    return null;
+  }
+  return node;
+}
+
+type DeclaredType =
+  | { readonly kind: "object" | "array"; readonly nullable: boolean }
+  | {
+      readonly kind: "scalar";
+      readonly types: readonly AttestbookScalarType[];
+      readonly nullable: boolean;
+    };
+
+/**
+ * A schema `type`: one name, or an array of unique names (JSON Schema 2020-12 validation
+ * Section 6.1.1). `null` makes the claim nullable, several scalar types make a union, and `object`
+ * or `array` stand alone. Null when the declaration is outside that subset.
+ */
+function declaredType(type: unknown): DeclaredType | null {
+  const names: unknown[] = Array.isArray(type) ? type : [type];
+  if (names.length === 0 || new Set(names).size !== names.length) return null;
+  const nullable = names.includes("null");
+  const others = names.filter((name) => name !== "null");
+  const [first] = others;
+  if (others.length === 1 && (first === "object" || first === "array")) {
+    return { kind: first, nullable };
+  }
+  if (others.length === 0 || !others.every(isScalarType)) return null;
+  return { kind: "scalar", types: others, nullable };
 }
 
 function compileNode(
@@ -124,18 +196,23 @@ function compileNode(
     report("claim_too_deep", pointer, `claims may be at most ${MAX_CLAIM_DEPTH} levels deep`);
     return null;
   }
-  if (schema.type === "object") {
-    return compileObject(schema, pointer, depth, OBJECT_KEYWORDS, report, counter, false);
-  }
-  if (schema.type === "array") return compileArray(schema, name, pointer, depth, report, counter);
-  if (
-    typeof schema.type !== "string" ||
-    !SCALAR_TYPES.includes(schema.type as AttestbookScalarType)
-  ) {
-    report("unsupported_claim_type", `${pointer}/type`, `claim '${name}' must declare one type`);
+  const declared = declaredType(schema.type);
+  if (!declared) {
+    report(
+      "unsupported_claim_type",
+      `${pointer}/type`,
+      `claim '${name}' must declare string, integer, number, boolean, object or array, optionally with null; object and array cannot be combined with other types`,
+    );
     return null;
   }
-  return compileScalar(schema, schema.type as AttestbookScalarType, name, pointer, report);
+  if (declared.kind === "scalar") {
+    return compileScalar(schema, declared.types, declared.nullable, name, pointer, report);
+  }
+  const node =
+    declared.kind === "object"
+      ? compileObject(schema, pointer, depth, OBJECT_KEYWORDS, report, counter, false)
+      : compileArray(schema, name, pointer, depth, report, counter);
+  return node && declared.nullable ? { ...node, nullable: true } : node;
 }
 
 interface ObjectShape {
@@ -160,6 +237,18 @@ function validateObjectShape(
       "unsupported_schema_keyword",
       `${pointer}/additionalProperties`,
       "only a boolean additionalProperties is supported",
+    );
+    valid = false;
+  }
+  if (
+    keywords.has("minProperties") &&
+    schema.minProperties !== undefined &&
+    !isNonNegativeInteger(schema.minProperties)
+  ) {
+    report(
+      "unsupported_schema_keyword",
+      `${pointer}/minProperties`,
+      "minProperties must be a non-negative integer",
     );
     valid = false;
   }
@@ -207,6 +296,8 @@ function compileProperties(
   const compiled: AttestbookClaimProperty[] = [];
   for (const [name, property] of Object.entries(properties)) {
     const propertyPointer = `${pointer}/properties/${escapePointer(name)}`;
+    // Compiled apart by compileVct: it constrains the protocol vct, not a claim.
+    if (root && name === VCT_CLAIM) continue;
     if ((root && RESERVED_CLAIM_NAMES.has(name)) || isSdJwtReservedName(name)) {
       report(
         "reserved_claim_name",
@@ -260,6 +351,7 @@ function compileObject(
     kind: "object",
     properties: compiled.properties,
     additionalProperties: schema.additionalProperties !== false,
+    ...(typeof schema.minProperties === "number" ? { minProperties: schema.minProperties } : {}),
     displayName: typeof schema.title === "string" ? schema.title : null,
     selectivelyDisclosable: true,
   };
@@ -276,10 +368,7 @@ function compileArray(
   let valid = unknownKeywords(schema, ARRAY_KEYWORDS, pointer, report);
   for (const keyword of ["minItems", "maxItems"] as const) {
     const value = schema[keyword];
-    if (
-      value !== undefined &&
-      !(typeof value === "number" && Number.isInteger(value) && value >= 0)
-    ) {
+    if (value !== undefined && !isNonNegativeInteger(value)) {
       report(
         "unsupported_schema_keyword",
         `${pointer}/${keyword}`,
@@ -310,46 +399,50 @@ function compileArray(
 
 function checkScalarKeywords(
   schema: Record<string, unknown>,
-  type: AttestbookScalarType,
+  types: readonly AttestbookScalarType[],
+  nullable: boolean,
   name: string,
   pointer: string,
   report: Report,
 ): boolean {
   let valid = unknownKeywords(schema, SCALAR_KEYWORDS, pointer, report);
+  const label = types.join(" or ");
   for (const keyword of [...STRING_BOUNDS, ...NUMBER_BOUNDS]) {
     const value = schema[keyword];
     if (value === undefined) continue;
+    // As in JSON Schema, a bound constrains the values of its type and ignores the others.
     const applies = (STRING_BOUNDS as readonly string[]).includes(keyword)
-      ? type === "string"
-      : type === "integer" || type === "number";
+      ? types.includes("string")
+      : types.includes("integer") || types.includes("number");
     if (!applies || typeof value !== "number" || !Number.isFinite(value)) {
       report(
         "unsupported_schema_keyword",
         `${pointer}/${keyword}`,
-        `'${keyword}' does not constrain a ${type} claim`,
+        `'${keyword}' does not constrain a ${label} claim`,
       );
       valid = false;
     }
   }
+  const admits = (value: unknown) =>
+    value === null ? nullable : types.some((type) => scalarOfType(value, type));
+  const valuesLabel = nullable ? `${label} or null` : label;
   const enumValues = schema.enum;
   if (
     enumValues !== undefined &&
-    (!Array.isArray(enumValues) ||
-      enumValues.length === 0 ||
-      !enumValues.every((value) => scalarOfType(value, type)))
+    (!Array.isArray(enumValues) || enumValues.length === 0 || !enumValues.every(admits))
   ) {
     report(
       "unsupported_schema_keyword",
       `${pointer}/enum`,
-      `enum of '${name}' must list ${type} values`,
+      `enum of '${name}' must list ${valuesLabel} values`,
     );
     valid = false;
   }
-  if (schema.const !== undefined && !scalarOfType(schema.const, type)) {
+  if (schema.const !== undefined && !admits(schema.const)) {
     report(
       "unsupported_schema_keyword",
       `${pointer}/const`,
-      `const of '${name}' must be a ${type}`,
+      `const of '${name}' must be a ${valuesLabel}`,
     );
     valid = false;
   }
@@ -358,12 +451,13 @@ function checkScalarKeywords(
 
 function compileScalar(
   schema: Record<string, unknown>,
-  type: AttestbookScalarType,
+  types: readonly AttestbookScalarType[],
+  nullable: boolean,
   name: string,
   pointer: string,
   report: Report,
 ): AttestbookScalarClaim | null {
-  if (!checkScalarKeywords(schema, type, name, pointer, report)) return null;
+  if (!checkScalarKeywords(schema, types, nullable, name, pointer, report)) return null;
   const enumValues = schema.enum;
   const bounds: Record<string, number> = {};
   for (const keyword of [...STRING_BOUNDS, ...NUMBER_BOUNDS]) {
@@ -372,11 +466,12 @@ function compileScalar(
   }
   return {
     kind: "scalar",
-    type,
+    types,
+    ...(nullable ? { nullable } : {}),
     displayName: typeof schema.title === "string" ? schema.title : null,
     selectivelyDisclosable: true,
-    ...(Array.isArray(enumValues) ? { enum: enumValues as AttestbookScalarValue[] } : {}),
-    ...(schema.const !== undefined ? { const: schema.const as AttestbookScalarValue } : {}),
+    ...(Array.isArray(enumValues) ? { enum: enumValues as (AttestbookScalarValue | null)[] } : {}),
+    ...(schema.const !== undefined ? { const: schema.const as AttestbookScalarValue | null } : {}),
     ...bounds,
   };
 }
@@ -414,10 +509,20 @@ function scalarOfType(value: unknown, type: AttestbookScalarType): boolean {
   }
 }
 
+function isScalarType(value: unknown): value is AttestbookScalarType {
+  return SCALAR_TYPES.includes(value as AttestbookScalarType);
+}
+
+function isNonNegativeInteger(value: unknown): boolean {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0;
+}
+
 /** Why a scalar value does not satisfy its claim, or null when it does. */
 export function scalarValueError(claim: AttestbookScalarClaim, value: unknown): string | null {
-  if (!scalarOfType(value, claim.type)) return `must be a ${claim.type}`;
-  const scalar = value as AttestbookScalarValue;
+  if (value === null ? !claim.nullable : !claim.types.some((type) => scalarOfType(value, type))) {
+    return `must be a ${claim.types.join(" or ")}${claim.nullable ? " or null" : ""}`;
+  }
+  const scalar = value as AttestbookScalarValue | null;
   if (claim.const !== undefined && scalar !== claim.const) return "does not equal the schema const";
   if (claim.enum && !claim.enum.includes(scalar)) return "is not one of the schema enum values";
   if (typeof scalar === "string") {
@@ -446,6 +551,7 @@ export function claimValueErrors(node: AttestbookClaimNode, value: unknown, path
     const error = scalarValueError(node, value);
     return error ? [`${path} ${error}`] : [];
   }
+  if (value === null && node.nullable) return [];
   if (node.kind === "array") {
     if (!Array.isArray(value)) return [`${path} must be an array`];
     if (node.minItems !== undefined && value.length < node.minItems)
@@ -458,6 +564,9 @@ export function claimValueErrors(node: AttestbookClaimNode, value: unknown, path
   }
   if (!isRecord(value)) return [`${path} must be an object`];
   const errors: string[] = [];
+  if (node.minProperties !== undefined && Object.keys(value).length < node.minProperties) {
+    errors.push(`${path} has fewer than ${node.minProperties} members`);
+  }
   for (const property of node.properties) {
     const memberPath = `${path}.${property.name}`;
     if (!(property.name in value)) {

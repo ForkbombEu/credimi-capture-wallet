@@ -74,7 +74,7 @@ const importedDefinition = {
         required: true,
         node: {
           kind: "scalar",
-          type: "string",
+          types: ["string"],
           displayName: null,
           selectivelyDisclosable: true,
         },
@@ -84,7 +84,7 @@ const importedDefinition = {
         required: true,
         node: {
           kind: "scalar",
-          type: "boolean",
+          types: ["boolean"],
           displayName: null,
           selectivelyDisclosable: false,
         },
