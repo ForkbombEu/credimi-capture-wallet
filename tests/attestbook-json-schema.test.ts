@@ -3,7 +3,7 @@ import { claimValueErrors, compileJsonSchema } from "../src/attestbook/json-sche
 
 const attestation = "Example attestation";
 const unsupportedType = (name: string) =>
-  `claim '${name}' must declare string, integer, number, boolean, object or array, optionally with null; object and array cannot be combined with other types`;
+  `claim '${name}' must declare string, integer, number, boolean, object or array, optionally with null, or a scalar const or enum; object and array cannot be combined with other types`;
 const uri = "https://schemas.example/example.json";
 
 function diagnostics(schema: Record<string, unknown>) {

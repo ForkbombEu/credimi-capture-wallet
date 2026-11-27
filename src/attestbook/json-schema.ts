@@ -179,6 +179,28 @@ function declaredType(type: unknown): DeclaredType | null {
   return { kind: "scalar", types: others, nullable };
 }
 
+/**
+ * The `type` of a claim schema. Without one, a `const` or `enum` of scalar or null values still
+ * fixes the JSON types its value can have (JSON Schema 2020-12 validation Sections 6.1.2-6.1.3),
+ * so they are the claim's types; otherwise the type is unknown.
+ */
+function claimType(schema: Record<string, unknown>): unknown {
+  if (schema.type !== undefined) return schema.type;
+  const values =
+    schema.const !== undefined ? [schema.const] : Array.isArray(schema.enum) ? schema.enum : [];
+  const names = values.map((value: unknown) =>
+    value === null
+      ? "null"
+      : typeof value === "number" && Number.isInteger(value)
+        ? "integer"
+        : typeof value,
+  );
+  if (names.length === 0 || !names.every((name) => name === "null" || isScalarType(name))) {
+    return undefined;
+  }
+  return [...new Set(names)];
+}
+
 function compileNode(
   schema: Record<string, unknown>,
   name: string,
@@ -196,12 +218,12 @@ function compileNode(
     report("claim_too_deep", pointer, `claims may be at most ${MAX_CLAIM_DEPTH} levels deep`);
     return null;
   }
-  const declared = declaredType(schema.type);
+  const declared = declaredType(claimType(schema));
   if (!declared) {
     report(
       "unsupported_claim_type",
       `${pointer}/type`,
-      `claim '${name}' must declare string, integer, number, boolean, object or array, optionally with null; object and array cannot be combined with other types`,
+      `claim '${name}' must declare string, integer, number, boolean, object or array, optionally with null, or a scalar const or enum; object and array cannot be combined with other types`,
     );
     return null;
   }

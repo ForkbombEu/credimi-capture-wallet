@@ -346,8 +346,10 @@ describe("Attestbook rulebook compiler", () => {
         type: "object",
         required: ["vct", "issuing_country"],
         properties: {
-          vct: { type: "string", const: "urn:eudi:pid:it:1" },
-          issuing_country: { type: ["string", "null"], minLength: 2, maxLength: 2 },
+          // As in the IT-Wallet PID schema: no `type`, the `const` fixes the value.
+          vct: { const: "urn:eudi:pid:it:1" },
+          issuing_country: { const: "IT" },
+          issuing_authority: { type: ["string", "null"], minLength: 1 },
           place_of_birth: {
             type: "object",
             properties: { country: { type: "string" }, locality: { type: "string" } },
@@ -368,7 +370,8 @@ describe("Attestbook rulebook compiler", () => {
     expect(definition.claimMetadata.map((claim) => claim.path)).not.toContainEqual(["vct"]);
     const claims = generateClaims(definition, "pid-seed");
     expect(claims).not.toHaveProperty("vct");
-    expect(claims.issuing_country).toEqual(expect.any(String));
+    expect(claims.issuing_country).toBe("IT");
+    expect(claims.issuing_authority).toEqual(expect.any(String));
     expect(claimValueErrors(definition.claims, claims)).toEqual([]);
   });
 

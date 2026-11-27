@@ -1031,7 +1031,9 @@ claims are `string`, `integer`, `number` or `boolean` values (with `enum`, `cons
 `items` schema, `minItems`, `maxItems`), at most four path segments deep; `title` and
 `description` are allowed everywhere. A claim's `type` may be an array: scalar types may be
 combined (each bound constrains only values of its own type), and any one type may be combined
-with `"null"`; `object` and `array` cannot be combined with other types. `format`, `pattern`,
+with `"null"`; `object` and `array` cannot be combined with other types. A claim with a `const`
+or `enum` of scalar values may omit `type`: the values fix it (`"issuing_country": {"const":
+"IT"}`). `format`, `pattern`,
 `$ref`, combinators, tuple `items`, Type Metadata `extends`, and claims named after protocol
 members (`iss`, `sub`, `iat`, `nbf`, `exp`, `cnf`, `status` at the top level, `_sd…` and `...`
 anywhere) are rejected. Every object member and every array
