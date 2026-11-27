@@ -605,8 +605,11 @@ export class CredoOpenId4VciIssuer {
     };
   }
 
-  /** The JWK Set Credo serves on the jwks endpoint: each key with its thumbprint as `kid`. */
-  private async authorizationServerJwks(issuerConfigurationId: string): Promise<JsonRecord> {
+  /**
+   * The access-token signing JWK Set exactly as Credo serves it on the jwks endpoint: each key
+   * with its thumbprint as `kid`, the `kid` access tokens carry.
+   */
+  async authorizationServerJwks(issuerConfigurationId: string): Promise<{ keys: JsonRecord[] }> {
     const issuer = await this.issuerApi().getIssuerByIssuerId(issuerConfigurationId);
     const publicJwk = issuer.resolvedAccessTokenPublicJwk;
     return {

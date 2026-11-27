@@ -66,6 +66,7 @@ export function registerIssuerMetadataRoutes(app: Express, ctx: ServerContext): 
               authorityHints: config.federation.authority_hints,
               issuerMetadata,
               issuerJwks: loadIssuerJwks(issuerAppConfig(config, issuer)),
+              authorizationServerJwks: await credoIssuer.authorizationServerJwks(issuer.id),
               authorizationServerMetadata,
             }),
           );

@@ -49,6 +49,9 @@ import { issuerFederationRegistration } from "../src/federation/registration.js"
 import { createApp } from "../src/server/app.js";
 import type { AppConfig, JsonRecord } from "../src/types.js";
 
+import { postJson } from "./support/http.js";
+import { type SessionCreateResponse, preAuthorizedToken } from "./support/issuance.js";
+import { generateEs256Key } from "./support/keys.js";
 const TRUST_ANCHOR = "https://federation.test.example";
 const dataDir = mkdtempSync(join(tmpdir(), "capture-wallet-federation-test-"));
 let config: AppConfig;
@@ -177,21 +180,55 @@ describe("OpenID Federation issuer leaf entities", () => {
           .get(`/.well-known/oauth-authorization-server/issuers/${issuer.id}`)
           .expect(200)
       ).body as JsonRecord;
+      const accessTokenJwks = (
+        await request(app).get(`/issuers/${issuer.id}/jwks.json`).expect(200)
+      ).body as JsonRecord;
 
       expect(header).toMatchObject({ alg: "ES256", typ: "entity-statement+jwt" });
       expect(payload.authority_hints).toEqual([TRUST_ANCHOR]);
       expect(payload.jwks).toEqual(jwks);
-      // The federated Credential Issuer metadata is the live Credo metadata plus the issuer's
-      // signing JWKS; the ordinary well-known metadata does not carry `jwks`.
+      // The federated metadata is the live Credo metadata plus each entity type's protocol keys
+      // by value; the ordinary well-known metadata does not carry `jwks`.
       expect(payload.metadata).toEqual({
         openid_credential_issuer: { ...issuerMetadata, jwks: issuerJwks },
-        oauth_authorization_server: authorizationServerMetadata,
+        oauth_authorization_server: { ...authorizationServerMetadata, jwks: accessTokenJwks },
       });
+      expect(authorizationServerMetadata).not.toHaveProperty("jwks");
       expect(issuerMetadata).not.toHaveProperty("jwks");
       expect(issuerMetadata.credential_issuer).toBe(issuer.issuerIdentifier);
       expect(authorizationServerMetadata.issuer).toBe(issuer.issuerIdentifier);
       expect(JSON.stringify(payload.jwks)).not.toContain('"d"');
     }
+  });
+
+  it("lets a Wallet verify an access token with the Entity Configuration's keys alone", async () => {
+    const app = createApp(config);
+    const session = await postJson<SessionCreateResponse>(app, "/sessions", {
+      flow: "pre_authorized_code",
+    });
+    const token = await preAuthorizedToken(
+      app,
+      session,
+      await generateEs256Key(),
+      config.issuer_base_url,
+    );
+    const entityStatement = (
+      await request(app)
+        .get(`/issuers/${session.issuer_configuration_id}/.well-known/openid-federation`)
+        .expect(200)
+    ).text;
+    const metadata = decodeJwt(entityStatement).metadata as {
+      oauth_authorization_server: { jwks: { keys: JWK[] } };
+    };
+    const authorizationServerJwks = metadata.oauth_authorization_server.jwks;
+
+    // The IT-Wallet demo Wallet selects the key by the token's `kid` from this set.
+    expect(authorizationServerJwks.keys.map((key) => key.kid)).toContain(
+      decodeProtectedHeader(token.access_token).kid,
+    );
+    await expect(
+      jwtVerify(token.access_token, createLocalJWKSet(authorizationServerJwks)),
+    ).resolves.toBeDefined();
   });
 
   it("publishes each issuer's credential signing keys separately from its federation keys", async () => {
@@ -258,6 +295,7 @@ describe("OpenID Federation issuer leaf entities", () => {
         issuerMetadata: { credential_issuer: issuer.issuerIdentifier },
         issuerJwks: { keys: [privateSigningJwk] },
         authorizationServerMetadata: { issuer: issuer.issuerIdentifier },
+        authorizationServerJwks: loadIssuerJwks(issuerAppConfig(config, issuer)),
       }),
     ).rejects.toThrow("credential signing JWKS contains private key material");
   });
@@ -273,6 +311,7 @@ describe("OpenID Federation issuer leaf entities", () => {
         issuerMetadata: { credential_issuer: issuer.issuerIdentifier },
         issuerJwks: loadIssuerJwks(issuerAppConfig(config, issuer)),
         authorizationServerMetadata: { issuer: "https://other.example/authorization-server" },
+        authorizationServerJwks: loadIssuerJwks(issuerAppConfig(config, issuer)),
       }),
     ).rejects.toThrow("authorization server metadata identifier does not match");
   });

@@ -14,26 +14,24 @@ const ENTITY_CONFIGURATION_LIFETIME_SECONDS = 60 * 60;
 const PRIVATE_JWK_MEMBERS = ["d", "p", "q", "dp", "dq", "qi", "oth", "k"] as const;
 
 /**
- * The Credential Issuer's protocol signing keys, published as
- * `metadata.openid_credential_issuer.jwks` (OpenID Federation for Wallet Architectures 1.0,
- * draft 06, §6.3.1). They are distinct from the Entity Configuration's top-level `jwks`, which
- * holds only the federation signing keys, so a malformed set fails instead of being published.
+ * A protocol JWK Set published by value in the Entity Configuration's metadata, distinct from its
+ * top-level `jwks`, which holds only the federation signing keys, so a malformed set fails
+ * instead of being published.
  */
-function credentialIssuerSigningJwks(
+function publishedProtocolJwks(
   issuer: ResolvedIssuerConfiguration,
-  issuerJwks: { keys: readonly JsonRecord[] },
+  jwks: { keys: readonly JsonRecord[] },
+  label: string,
 ): { keys: JsonRecord[] } {
-  if (issuerJwks.keys.length === 0) {
-    throw new Error(`Issuer '${issuer.id}' has no credential signing keys to publish`);
+  if (jwks.keys.length === 0) {
+    throw new Error(`Issuer '${issuer.id}' has no ${label} keys to publish`);
   }
-  for (const jwk of issuerJwks.keys) {
+  for (const jwk of jwks.keys) {
     if (PRIVATE_JWK_MEMBERS.some((member) => member in jwk)) {
-      throw new Error(
-        `Issuer '${issuer.id}' credential signing JWKS contains private key material`,
-      );
+      throw new Error(`Issuer '${issuer.id}' ${label} JWKS contains private key material`);
     }
   }
-  return { keys: [...issuerJwks.keys] };
+  return { keys: [...jwks.keys] };
 }
 
 function isPrivateEcJwk(value: unknown): value is JWK {
@@ -65,6 +63,8 @@ export async function signIssuerEntityConfiguration(options: {
   issuerMetadata: JsonRecord;
   /** The issuer's own credential and metadata signing JWKS, never the federation keys. */
   issuerJwks: { keys: readonly JsonRecord[] };
+  /** The authorization server's access-token signing JWKS, as its jwks endpoint serves it. */
+  authorizationServerJwks: { keys: readonly JsonRecord[] };
   authorizationServerMetadata: JsonRecord;
   now?: Date;
 }): Promise<string> {
@@ -73,11 +73,20 @@ export async function signIssuerEntityConfiguration(options: {
     authorityHints,
     issuerMetadata,
     issuerJwks,
+    authorizationServerJwks,
     authorizationServerMetadata,
     now = new Date(),
   } = options;
   validateMetadataIdentifiers(issuer, issuerMetadata, authorizationServerMetadata);
-  const issuerSigningJwks = credentialIssuerSigningJwks(issuer, issuerJwks);
+  // OpenID Federation for Wallet Architectures 1.0, draft 06, §6.3.1.
+  const issuerSigningJwks = publishedProtocolJwks(issuer, issuerJwks, "credential signing");
+  // OpenID Federation 1.0 §5.2.1 `jwks`, by value, so an access token verifies from the Trust
+  // Chain alone; Credo's metadata keeps its `jwks_uri` to the same keys.
+  const accessTokenJwks = publishedProtocolJwks(
+    issuer,
+    authorizationServerJwks,
+    "access-token signing",
+  );
   const privateJwk = loadIssuerFederationPrivateJwk(issuer);
   const jwks = loadIssuerFederationJwks(issuer);
   if (!isPrivateEcJwk(privateJwk)) {
@@ -97,7 +106,7 @@ export async function signIssuerEntityConfiguration(options: {
     authority_hints: [...authorityHints],
     metadata: {
       openid_credential_issuer: { ...issuerMetadata, jwks: issuerSigningJwks },
-      oauth_authorization_server: authorizationServerMetadata,
+      oauth_authorization_server: { ...authorizationServerMetadata, jwks: accessTokenJwks },
     },
   })
     .setProtectedHeader({ alg: "ES256", typ: "entity-statement+jwt", kid })

@@ -1225,13 +1225,14 @@ issuer's existing identifier. It carries live Credo-backed `openid_credential_is
 `oauth_authorization_server` metadata, and publishing fails if either metadata identifier differs
 from that Entity Identifier. The internal chained OAuth server is not a separate federation entity.
 
-The Entity Configuration holds three distinct key sets, never merged:
+The Entity Configuration holds four distinct key sets, never merged:
 
 | Location | Keys | Purpose |
 | --- | --- | --- |
 | top-level `jwks` | the issuer's federation key | signs the Entity Configuration; registered with the Trust Anchor |
 | `metadata.openid_credential_issuer.jwks` | the issuer's credential signing key, with its `kid` and `x5c` | verifies issued SD-JWT VC and mdoc credentials and the signed OpenID4VCI metadata |
 | `metadata.openid_credential_issuer.credential_request_encryption.jwks` | the issuer's encryption key | encrypts Credential Requests, as in ordinary OpenID4VCI metadata |
+| `metadata.oauth_authorization_server.jwks` | the issuer's access-token signing key, with its thumbprint `kid` | verifies access tokens, the same set Credo serves at `/issuers/{issuerConfigurationId}/jwks.json` |
 
 The credential signing JWKS is the issuer's own public `jwks.json`, the same set served at
 `/issuers/{issuerConfigurationId}/credential-jwks.json`; publishing fails if it is empty or carries
@@ -1240,7 +1241,14 @@ private key members. OpenID Federation for Wallet Architectures 1.0, draft 06, ย
 to check that the key that signed a credential is listed there. It is a federation-specific
 parameter, so it appears only in the Entity Configuration: the unsigned and signed OpenID4VCI
 metadata at `/.well-known/openid-credential-issuer/issuers/{issuerConfigurationId}` keep their
-existing shape, with no `jwks`. The Authorization Server metadata is unchanged.
+existing shape, with no `jwks`.
+
+The access-token JWKS is published by value as OpenID Federation 1.0 ยง5.2.1 `jwks`, because
+Wallets that trust the issuer through federation, such as the IT-Wallet demo Wallet, verify the
+access token with the keys recorded in the Trust Chain rather than by fetching `jwks_uri`. The
+metadata keeps Credo's `jwks_uri` to the same keys, and publishing fails if the set is empty or
+carries private key members. The ordinary Authorization Server metadata at
+`/.well-known/oauth-authorization-server/issuers/{issuerConfigurationId}` is unchanged.
 
 `init` provisions a dedicated ES256/P-256 federation key for every registry issuer, including the
 feature-gated Attestbook issuer, at `data/issuers/<routeSlug>/federation/private.jwk`. It derives
