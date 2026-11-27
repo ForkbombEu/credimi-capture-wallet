@@ -363,6 +363,8 @@ export class CredoOpenId4VciIssuer {
       token_endpoint_auth_methods_supported: ["none", "attest_jwt_client_auth"],
       client_attestation_signing_alg_values_supported: ["ES256"],
       client_attestation_pop_signing_alg_values_supported: ["ES256"],
+      // RFC 9396 Section 10; granted by this service at PAR and the token endpoint.
+      authorization_details_types_supported: ["openid_credential"],
     };
   }
 

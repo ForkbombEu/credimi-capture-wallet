@@ -1,6 +1,13 @@
 import type { AppConfig, JsonRecord } from "../types.js";
 import { errorResponses, form, json, response } from "./common.js";
 
+/** The `authorization_details` request parameter (OpenID4VCI 1.0 Section 5.1.1, RFC 9396). */
+const authorizationDetailsParameter: JsonRecord = {
+  type: "string",
+  description:
+    'JSON array of {"type":"openid_credential","credential_configuration_id":"…"} objects naming Credential Configurations of this issuer (and, at the token endpoint, of the offer). Refused with invalid_authorization_details otherwise; claims is accepted but not applied. The Token Response then returns authorization_details with credential_identifiers.',
+};
+
 export function oid4vciPaths(
   config: AppConfig,
   issuerConfigurationIdParameter: JsonRecord,
@@ -53,7 +60,6 @@ export function oid4vciPaths(
               "response_type",
               "client_id",
               "redirect_uri",
-              "scope",
               "code_challenge",
               "code_challenge_method",
             ],
@@ -61,7 +67,12 @@ export function oid4vciPaths(
               response_type: { type: "string", const: "code" },
               client_id: { type: "string" },
               redirect_uri: { type: "string", format: "uri" },
-              scope: { type: "string" },
+              scope: {
+                type: "string",
+                description:
+                  "Required unless authorization_details is sent; then it must include the scope of every requested Credential Configuration.",
+              },
+              authorization_details: authorizationDetailsParameter,
               issuer_state: { type: "string" },
               state: { type: "string" },
               code_challenge: { type: "string" },
@@ -196,6 +207,7 @@ export function oid4vciPaths(
                   },
                   "pre-authorized_code": { type: "string" },
                   tx_code: { type: "string" },
+                  authorization_details: authorizationDetailsParameter,
                 },
               },
               {
@@ -207,6 +219,7 @@ export function oid4vciPaths(
                   code_verifier: { type: "string" },
                   redirect_uri: { type: "string", format: "uri" },
                   client_id: { type: "string" },
+                  authorization_details: authorizationDetailsParameter,
                 },
               },
             ],
@@ -262,9 +275,18 @@ export function oid4vciPaths(
             "application/json": {
               schema: {
                 type: "object",
-                required: ["credential_configuration_id", "proofs"],
+                required: ["proofs"],
                 properties: {
-                  credential_configuration_id: { type: "string" },
+                  credential_configuration_id: {
+                    type: "string",
+                    description:
+                      "Required unless the Token Response returned credential_identifiers; then it must not be sent (OpenID4VCI 1.0 Section 8.2).",
+                  },
+                  credential_identifier: {
+                    type: "string",
+                    description:
+                      "One of the credential_identifiers the Token Response returned in authorization_details.",
+                  },
                   proofs: {
                     type: "object",
                     minProperties: 1,

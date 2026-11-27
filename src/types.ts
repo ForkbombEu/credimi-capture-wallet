@@ -458,6 +458,17 @@ export type CredentialNotificationEvent =
   | "credential_deleted";
 
 /**
+ * An `openid_credential` Authorization Details object as granted in a Token Response
+ * (OpenID4VCI 1.0 Section 6.2): the requested Credential Configuration and the
+ * `credential_identifiers` a Wallet then sends as `credential_identifier` (Section 8.2).
+ */
+export interface GrantedCredentialAuthorizationDetail {
+  type: "openid_credential";
+  credential_configuration_id: string;
+  credential_identifiers: string[];
+}
+
+/**
  * A `notification_id` the issuer delivered in a successful Credential Response, and what it is
  * bound to. The id is not a secret: a Notification Request also needs the access token and DPoP
  * key of the issuance session it was issued under.

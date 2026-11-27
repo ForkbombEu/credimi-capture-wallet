@@ -106,9 +106,18 @@ export async function forwardCredentialRequest(
   capture: Oid4vciHttpRequestCapture | null,
   body: JsonRecord,
   credentialRequestRaw: Oid4vciHttpRequestCapture["body"],
+  /** The Credential Configuration a granted `credential_identifier` resolved to. */
+  credentialConfigurationId?: string,
 ): Promise<void> {
   const { credential_response_encryption: _credentialResponseEncryption, ...credoBody } = body;
-  req.body = credoBody;
+  // Credo-TS issues by `credential_configuration_id` only; the Wallet's own request, with its
+  // `credential_identifier`, stays the captured evidence.
+  if (credentialConfigurationId) {
+    const { credential_identifier: _credentialIdentifier, ...configurationBody } = credoBody;
+    req.body = { ...configurationBody, credential_configuration_id: credentialConfigurationId };
+  } else {
+    req.body = credoBody;
+  }
   req.headers["content-type"] = "application/json";
   return await (await credoOpenId4VciIssuer(config, store)).forward(
     req,

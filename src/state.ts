@@ -10,6 +10,7 @@ import type {
   CredentialOfferMode,
   CredoIssuanceOffer,
   EvidenceMode,
+  GrantedCredentialAuthorizationDetail,
   IssuedCredentialNotification,
   JsonRecord,
   Oid4vciHttpRequestCapture,
@@ -57,6 +58,12 @@ export class CaptureStore {
    * as long as its capture session, and released with it by `discardSession`.
    */
   readonly credentialNotifications = new Map<string, IssuedCredentialNotification>();
+  /**
+   * The `openid_credential` Authorization Details granted to each issuance session, returned in
+   * its Token Responses and resolved from `credential_identifier` at the Credential endpoint.
+   * Kept as long as its capture session, and released with it by `discardSession`.
+   */
+  readonly authorizationDetails = new Map<string, GrantedCredentialAuthorizationDetail[]>();
   /**
    * The `full` form of each ledger capture. It is kept apart from the ledger, which only ever
    * holds the redacted form, and is exposed only through a session created with
@@ -233,6 +240,7 @@ export class CaptureStore {
     if (!this.sessions.delete(sessionId)) return;
     const credoSessionId = this.credoIssuanceSessionIds.get(sessionId);
     this.credoIssuanceSessionIds.delete(sessionId);
+    this.authorizationDetails.delete(sessionId);
     if (credoSessionId) this.captureSessionIdsByCredoSession.delete(credoSessionId);
     for (const [credentialOfferId, captureSessionId] of this.captureSessionIdsByCredentialOffer) {
       if (captureSessionId === sessionId) {

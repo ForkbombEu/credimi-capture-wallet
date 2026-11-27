@@ -11,7 +11,12 @@ import { createApp } from "../src/server/app.js";
 import { CaptureStore } from "../src/state.js";
 import type { JsonRecord, Oid4vciHttpRequestCapture, SessionCapture } from "../src/types.js";
 import { getJson } from "./support/http.js";
-import { type CredentialResponse, credentialNonce, postToken } from "./support/issuance.js";
+import {
+  type CredentialResponse,
+  credentialNonce,
+  postToken,
+  walletAuthorizationCallback,
+} from "./support/issuance.js";
 import { type TestKey, generateEs256Key } from "./support/keys.js";
 import { serverTestSuite } from "./support/server.js";
 const {
@@ -66,25 +71,14 @@ describe("wallet-initiated issuance", () => {
     return ledger.filter((capture) => capture.path === parPath);
   }
 
-  /**
-   * Follows the authorization request through the issuer's chained authorization server and
-   * returns the authorization code the Wallet receives on its redirect URI.
-   */
+  /** The authorization code the Wallet receives once the chained authorization completes. */
   async function authorizationCode(app: Express, requestUri: string): Promise<string> {
-    const authorize = await request(app)
-      .get(`${conformingIssuerPath}/authorize`)
-      .query({ client_id: walletClientId, request_uri: requestUri })
-      .redirects(0);
-    expect(authorize.status).toBe(302);
-    const upstream = new URL(String(authorize.headers.location));
-    expect(upstream.pathname).toBe(`/authorization-servers/${conformingIssuerId}/authorize`);
-    const approved = await request(app).get(`${upstream.pathname}${upstream.search}`).redirects(0);
-    const credoCallback = new URL(String(approved.headers.location));
-    const walletResponse = await request(app)
-      .get(`${credoCallback.pathname}${credoCallback.search}`)
-      .redirects(0);
-    expect(walletResponse.status).toBe(302);
-    const walletCallback = new URL(String(walletResponse.headers.location));
+    const walletCallback = await walletAuthorizationCallback(
+      app,
+      conformingIssuerId,
+      walletClientId,
+      requestUri,
+    );
     expect(walletCallback.origin + walletCallback.pathname).toBe(walletRedirectUri);
     expect(walletCallback.searchParams.get("state")).toBe("wallet-state");
     return String(walletCallback.searchParams.get("code"));

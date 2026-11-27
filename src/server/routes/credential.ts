@@ -2,6 +2,7 @@ import type { AgentContext } from "@credo-ts/core";
 import type { Express, NextFunction } from "express";
 import { resolvedIssuerConfigurationById } from "../../configurations/registry.js";
 import { issuerAppConfig } from "../../configurations/resolve-urls.js";
+import { resolveCredentialIdentifier } from "../../openid4vci/authorization-details.js";
 import { credoOpenId4VciIssuer } from "../../openid4vci/credo-issuer.js";
 import { errorMessage } from "../../shared/errors.js";
 import type { ServerContext } from "../context.js";
@@ -51,6 +52,16 @@ export function registerCredentialRoutes(app: Express, ctx: ServerContext): void
           error_description: `the offer was made under rulebook version ${pinnedVersion}, which is no longer active; request a new offer`,
         });
     }
+    const identifier = resolveCredentialIdentifier(
+      attributed ? store.authorizationDetails.get(attributed.session_id) : undefined,
+      requestBody.body,
+    );
+    if (!identifier.ok) {
+      return res
+        .status(400)
+        .set("Cache-Control", "no-store")
+        .json({ error: identifier.error, error_description: identifier.description });
+    }
     const encryptedResponse = requestBody.responseEncryption
       ? interceptCredentialResponse(res, next, agentContext, requestBody.responseEncryption)
       : null;
@@ -73,6 +84,7 @@ export function registerCredentialRoutes(app: Express, ctx: ServerContext): void
         capture,
         requestBody.body,
         credentialRequestRaw,
+        identifier.credentialConfigurationId,
       );
     } catch (error) {
       return next(error);

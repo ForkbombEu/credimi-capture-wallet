@@ -94,6 +94,32 @@ export async function preAuthorizedToken(
   );
 }
 
+/**
+ * Follows a pushed authorization request through the issuer's chained, auto-approving
+ * authorization server and returns the redirect the Wallet receives on its redirect URI.
+ */
+export async function walletAuthorizationCallback(
+  app: Express,
+  issuerConfigurationId: string,
+  clientId: string,
+  requestUri: string,
+): Promise<URL> {
+  const authorize = await request(app)
+    .get(`${issuerPath(issuerConfigurationId)}/authorize`)
+    .query({ client_id: clientId, request_uri: requestUri })
+    .redirects(0);
+  expect(authorize.status).toBe(302);
+  const upstream = new URL(String(authorize.headers.location));
+  expect(upstream.pathname).toBe(`/authorization-servers/${issuerConfigurationId}/authorize`);
+  const approved = await request(app).get(`${upstream.pathname}${upstream.search}`).redirects(0);
+  const credoCallback = new URL(String(approved.headers.location));
+  const walletResponse = await request(app)
+    .get(`${credoCallback.pathname}${credoCallback.search}`)
+    .redirects(0);
+  expect(walletResponse.status).toBe(302);
+  return new URL(String(walletResponse.headers.location));
+}
+
 export async function credentialProofJwt(
   key: TestKey,
   nonce: string,

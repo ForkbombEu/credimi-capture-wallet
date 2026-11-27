@@ -459,6 +459,11 @@ Credential Request decryption and Credential Response encryption run on the issu
 agent (its KMS and OpenID4VC JWE callbacks) but stay in the service's `/credential` route
 rather than Credo's handler, so an FCAF `credential` response scenario edits the plaintext
 response before it is encrypted, and only a response that is still a success is encrypted.
+OpenID4VCI Authorization Details (`authorization_details` of type `openid_credential`) are
+also handled by the service in front of Credo-TS, which authorizes by `scope` only: they are
+validated at PAR and the token endpoint, returned with `credential_identifiers` in the Token
+Response, and a `credential_identifier` is resolved back to its Credential Configuration. See
+[Authorization Details](CAPTURE_WALLET_API.md#authorization-details).
 
 For each session you can get different information:
 * deeplink:

@@ -1111,6 +1111,24 @@ export function components(issuerIds: readonly string[]): JsonRecord {
           access_token: { type: "string" },
           token_type: { type: "string", const: "DPoP" },
           expires_in: { type: "integer" },
+          authorization_details: {
+            type: "array",
+            description:
+              "Present when authorization_details was requested at PAR or the token endpoint (OpenID4VCI 1.0 Section 6.2).",
+            items: {
+              type: "object",
+              required: ["type", "credential_configuration_id", "credential_identifiers"],
+              properties: {
+                type: { type: "string", const: "openid_credential" },
+                credential_configuration_id: { type: "string" },
+                credential_identifiers: {
+                  type: "array",
+                  minItems: 1,
+                  items: { type: "string" },
+                },
+              },
+            },
+          },
         },
       },
     },
