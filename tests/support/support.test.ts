@@ -14,6 +14,7 @@ import { getJson } from "./http.js";
 import {
   type CredentialResponse,
   createIssuanceSession,
+  credentialNonce,
   credentialProofJwt,
   preAuthorizedToken,
 } from "./issuance.js";
@@ -47,11 +48,12 @@ describe("shared protocol test support", () => {
     const session = await createIssuanceSession(app, { flow: "pre_authorized_code" });
     const dpopKey = await generateEs256Key();
     const token = await preAuthorizedToken(app, session, dpopKey, config.issuer_base_url);
+    const nonce = await credentialNonce(app, session.issuer_configuration_id);
     const walletKey = await generateEs256Key();
     const credentialPath = `${issuerPath(session.issuer_configuration_id)}/credential`;
     const proof = await credentialProofJwt(
       walletKey,
-      token.c_nonce,
+      nonce,
       `${config.issuer_base_url}${issuerPath(session.issuer_configuration_id)}`,
       issuerConfig,
     );

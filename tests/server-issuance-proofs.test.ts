@@ -31,6 +31,7 @@ import { getJson, postJson } from "./support/http.js";
 import {
   type CredentialResponse,
   type SessionCreateResponse,
+  credentialNonce,
   credentialProofJwt,
   keyAttestationJwt,
   preAuthorizedToken,
@@ -129,9 +130,10 @@ describe("capture issuer server", () => {
       config.issuer_base_url,
     );
     const holderKey = await generateEs256Key();
+    const requiredNonce = await credentialNonce(app, requiredSession.issuer_configuration_id);
     const proofWithoutAttestation = await credentialProofJwtWithoutKeyAttestation(
       holderKey,
-      requiredToken.c_nonce,
+      requiredNonce,
     );
     const requiredCredentialPath = issuerProtocolPath(requiredSession, "/credential");
 
@@ -165,9 +167,10 @@ describe("capture issuer server", () => {
       jwtProofDpop,
       config.issuer_base_url,
     );
+    const jwtProofNonce = await credentialNonce(app, jwtProofSession.issuer_configuration_id);
     const acceptedProof = await credentialProofJwtWithoutKeyAttestation(
       holderKey,
-      jwtProofToken.c_nonce,
+      jwtProofNonce,
       `${config.issuer_base_url}${jwtOnlyIssuerPath}`,
     );
     const jwtOnlyCredentialPath = issuerProtocolPath(jwtProofSession, "/credential");
@@ -200,6 +203,7 @@ describe("capture issuer server", () => {
     const dpop = await generateEs256Key();
     const token = await preAuthorizedToken(app, session, dpop, config.issuer_base_url);
     const holderKey = await generateEs256Key();
+    const nonce = await credentialNonce(app, session.issuer_configuration_id);
     const credentialPath = issuerProtocolPath(session, "/credential");
     const credential = await request(app)
       .post(credentialPath)
@@ -211,7 +215,7 @@ describe("capture issuer server", () => {
           jwt: [
             await credentialProofJwtWithoutKeyAttestation(
               holderKey,
-              token.c_nonce,
+              nonce,
               `${config.issuer_base_url}${jwtOnlyIssuerPath}`,
             ),
           ],
@@ -237,6 +241,7 @@ describe("capture issuer server", () => {
       const dpop = await generateEs256Key();
       const token = await preAuthorizedToken(app, session, dpop, config.issuer_base_url);
       const holderKey = await generateEs256Key();
+      const nonce = await credentialNonce(app, session.issuer_configuration_id);
       const credentialPath = issuerProtocolPath(session, "/credential");
       const credential = await request(app)
         .post(credentialPath)
@@ -248,7 +253,7 @@ describe("capture issuer server", () => {
             jwt: [
               await credentialProofJwtWithoutKeyAttestation(
                 holderKey,
-                token.c_nonce,
+                nonce,
                 `${config.issuer_base_url}${jwtOnlyIssuerPath}`,
               ),
             ],
@@ -292,9 +297,10 @@ describe("capture issuer server", () => {
     );
     const walletKey = await generateEs256Key();
     const unrelatedAttestedKey = await generateEs256Key();
+    const invalidNonce = await credentialNonce(app, invalidSession.issuer_configuration_id);
     const mismatchedProof = await credentialProofJwt(
       walletKey,
-      invalidToken.c_nonce,
+      invalidNonce,
       config.issuer_base_url,
       conformingIssuerConfig,
       unrelatedAttestedKey,
@@ -319,7 +325,8 @@ describe("capture issuer server", () => {
     });
     const dpop = await generateEs256Key();
     const token = await preAuthorizedToken(app, session, dpop, config.issuer_base_url);
-    const proof = await conformingProofJwt(walletKey, token.c_nonce);
+    const nonce = await credentialNonce(app, session.issuer_configuration_id);
+    const proof = await conformingProofJwt(walletKey, nonce);
     const credentialPath = issuerProtocolPath(session, "/credential");
     const credential = await request(app)
       .post(credentialPath)
@@ -426,11 +433,12 @@ describe("capture issuer server", () => {
       });
       const dpop = await generateEs256Key();
       const token = await preAuthorizedToken(app, session, dpop, config.issuer_base_url);
+      const nonce = await credentialNonce(app, session.issuer_configuration_id);
       const attestedKey = await generateEs256Key();
       const signingKey = signedByFirstAttestedKey ? attestedKey : await generateEs256Key();
       const proof = await eudiCredentialProofJwt(
         attestedKey,
-        token.c_nonce,
+        nonce,
         `${config.issuer_base_url}${jwtKeyAttestationIssuerPath}`,
         signingKey,
       );
@@ -466,7 +474,8 @@ describe("capture issuer server", () => {
     const dpop = await generateEs256Key();
     const token = await preAuthorizedToken(app, session, dpop, config.issuer_base_url);
     const holderKey = await generateEs256Key();
-    const proof = await conformingProofJwt(holderKey, token.c_nonce);
+    const nonce = await credentialNonce(app, session.issuer_configuration_id);
+    const proof = await conformingProofJwt(holderKey, nonce);
     const responseEncryptionKeyPair = await generateKeyPair("ECDH-ES", {
       crv: "P-256",
       extractable: true,

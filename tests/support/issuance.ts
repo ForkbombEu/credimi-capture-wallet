@@ -27,7 +27,6 @@ export interface SessionCreateResponse extends JsonRecord {
 
 export interface TokenResponse extends JsonRecord {
   access_token: string;
-  c_nonce: string;
 }
 
 export interface CredentialOfferResponse extends JsonRecord {
@@ -61,6 +60,17 @@ export async function postToken(
     .send(body);
   expect(response.status, JSON.stringify(response.body)).toBeLessThan(400);
   return response.body as TokenResponse;
+}
+
+export async function credentialNonce(
+  app: Express,
+  issuerConfigurationId: string,
+): Promise<string> {
+  const response = await request(app).post(`${issuerPath(issuerConfigurationId)}/nonce`);
+  expect(response.status, JSON.stringify(response.body)).toBe(200);
+  const cNonce = (response.body as JsonRecord).c_nonce;
+  expect(cNonce).toEqual(expect.any(String));
+  return String(cNonce);
 }
 
 export async function preAuthorizedToken(

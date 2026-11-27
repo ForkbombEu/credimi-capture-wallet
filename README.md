@@ -394,15 +394,18 @@ available in both modes for capture diagnostics and manual inspection.
 
 By default, the offer contains the `authorization_code` grant. The Wallet uses the
 scope advertised for the offered Credential Configuration and returns the offer's
-`issuer_state` in its Authorization Request. Credo requires PAR, S256 PKCE, and DPoP
-for this flow. Opening Credo's `/authorize` endpoint redirects to
+`issuer_state` in its Authorization Request. Credo requires PAR and S256 PKCE for this
+flow, and DPoP at the token endpoint. A DPoP proof is optional at PAR and the
+authorization endpoint (RFC 9449 Section 10); one that is sent is validated and binds the
+authorization code to its key. Opening Credo's `/authorize` endpoint redirects to
 `/authorization-servers/{issuerConfigurationId}/authorize`; that issuer-specific test
 server immediately approves every valid request and redirects to the matching
 `/issuers/{issuerConfigurationId}/redirect` callback. Credo exchanges the external
 one-time code, then immediately redirects to the Wallet's registered `redirect_uri`
 with a separate Credo authorization code. The Wallet exchanges that code at the
 matching issuer's `/token` endpoint and continues with the nonce and credential
-requests.
+requests. As OpenID4VCI 1.0 specifies, the Token Response carries no `c_nonce`: the
+Wallet obtains one from the Nonce Endpoint.
 
 The fake OAuth server is deliberately not an authentication or consent system. It has
 one issuer-specific internal client, accepts only that issuer's exact callback URI,
@@ -452,9 +455,10 @@ and token issuance, DPoP, nonce and proof validation, holder binding, and SD-JWT
 MDOC signing. The narrowly scoped fake OAuth server only provides the chained,
 auto-approved external authorization step. Express middleware records redacted
 evidence.
-The credential request/response encryption adapter remains narrowly scoped around
-Credo's `/credential` handler because the installed Credo-TS router does not expose
-that encryption extension.
+Credential Request decryption and Credential Response encryption run on the issuer's Credo-TS
+agent (its KMS and OpenID4VC JWE callbacks) but stay in the service's `/credential` route
+rather than Credo's handler, so an FCAF `credential` response scenario edits the plaintext
+response before it is encrypted, and only a response that is still a success is encrypted.
 
 For each session you can get different information:
 * deeplink:
@@ -515,7 +519,7 @@ several, through several scopes or a scope shared by several configurations, get
 `400 access_denied` rather than being narrowed to one. The capture session carries
 `initiated_by: "wallet"`, the default claim values, and no Credential Offer. Its id is
 the `session_id` of the PAR in `GET /oid4vci/requests`. If Credo-TS then refuses the PAR,
-for example for a missing `code_challenge` or DPoP proof, the session is discarded and the
+for example for a missing `code_challenge`, the session is discarded and the
 request stays in the ledger unattributed. An imported Attestbook credential is pinned to
 the active definition with generated values, as for an offer.
 

@@ -24,6 +24,7 @@ import {
 import {
   type CredentialResponse,
   createIssuanceSession,
+  credentialNonce,
   keyAttestationJwt,
   preAuthorizedToken,
 } from "./issuance.js";
@@ -94,7 +95,8 @@ export async function issueMdocCredential(
   const holder = await generateEs256Key();
   const issuerConfig = issuerAppConfig(config, requireIssuer(config, CONFORMING_ISSUER_ID));
   const credentialPath = `${issuerConfigurationPath(session.issuer_configuration_id)}/credential`;
-  const proof = await keyAttestationJwt(issuerConfig, holder, token.c_nonce);
+  const nonce = await credentialNonce(app, session.issuer_configuration_id);
+  const proof = await keyAttestationJwt(issuerConfig, holder, nonce);
   const response = await request(app)
     .post(credentialPath)
     .set("authorization", `DPoP ${token.access_token}`)

@@ -36,7 +36,14 @@ export function oid4vciPaths(
         summary: "Submit an authorization-code request",
         parameters: [
           issuerConfigurationIdParameter,
-          { name: "DPoP", in: "header", required: true, schema: { type: "string" } },
+          {
+            name: "DPoP",
+            in: "header",
+            required: false,
+            description:
+              "Optional at PAR (RFC 9449 Section 10). A proof that is sent is validated and binds the authorization code to its key; DPoP is required at the token endpoint.",
+            schema: { type: "string" },
+          },
         ],
         requestBody: {
           required: true,
@@ -206,9 +213,12 @@ export function oid4vciPaths(
           }),
         },
         responses: {
-          "200": response("DPoP access token and credential nonce.", {
-            $ref: "#/components/schemas/TokenResponse",
-          }),
+          "200": response(
+            "DPoP-bound access token. Credential nonces come from the Nonce Endpoint.",
+            {
+              $ref: "#/components/schemas/TokenResponse",
+            },
+          ),
           "400": errorResponses["400"],
           "401": response("DPoP validation failed.", {
             $ref: "#/components/schemas/Error",

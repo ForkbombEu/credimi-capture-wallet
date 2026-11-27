@@ -6,6 +6,7 @@ import {
   DidDocument,
   DidsModule,
   JsonEncoder,
+  JweService,
   JwsService,
   Kms,
   LogLevel,
@@ -417,6 +418,7 @@ export class CredoOpenId4VpVerifier {
         session,
         body,
         session.authorization_request,
+        verified.verificationSession.responseEncryptionKey,
       );
       return {
         valid: true,
@@ -444,6 +446,7 @@ export class CredoOpenId4VpVerifier {
         session,
         body,
         verificationSession.requestPayload,
+        verificationSession.responseEncryptionKey,
       );
       const authorizationResponse = walletAuthorizationResponse?.response;
       const message = credoErrorMessage(error, verificationSession.errorMessage);
@@ -466,12 +469,14 @@ export class CredoOpenId4VpVerifier {
   /**
    * Captures the Authorization Response from the Wallet, independently of Credo's verification
    * result. Credo retains this payload only after success, while verifier-side failure errors can
-   * contain a different, verifier-built `errorResponse`.
+   * contain a different, verifier-built `errorResponse`. Credo publishes the response encryption
+   * key under its thumbprint, so the published `kid` is mapped to the session's KMS key.
    */
   private async walletAuthorizationResponse(
     session: VpSessionCapture,
     body: JsonRecord,
     authorizationRequestPayload: unknown,
+    responseEncryptionKey: Kms.KmsKeyReference | undefined,
   ): Promise<WalletAuthorizationResponse | undefined> {
     if (!isEncryptedResponseMode(session.response_mode)) {
       const response = normalizeAuthorizationResponse(body);
@@ -480,10 +485,13 @@ export class CredoOpenId4VpVerifier {
 
     const response = typeof body.response === "string" ? body.response : undefined;
     const encryptionJwk = verifierEncryptionJwk(authorizationRequestPayload);
-    if (!response || !encryptionJwk) return undefined;
+    if (!response || !encryptionJwk || typeof encryptionJwk.kid !== "string") return undefined;
 
     try {
-      const decrypt = getOid4vcDecryptJweCallback(this.agent.context);
+      const decrypt = getOid4vcDecryptJweCallback(
+        this.agent.context,
+        responseEncryptionKey ? { [encryptionJwk.kid]: responseEncryptionKey } : {},
+      );
       const decrypted = (await decrypt(response, {
         jwk: encryptionJwk as never,
       })) as { decrypted: boolean; payload?: string };
@@ -559,54 +567,30 @@ export class CredoOpenId4VpVerifier {
 
   /**
    * Encrypts a signed Request Object to the Wallet key negotiated from its `wallet_metadata`, as a
-   * Nested JWT (RFC 9101 Section 4, RFC 7519 Section 5.2). Credo's KMS performs the ECDH-ES key
-   * agreement and content encryption with a fresh ephemeral key; its OpenID4VP verifier API has no
-   * Request Object encryption, and its JWE callback omits the `cty` a Nested JWT requires, so only
-   * the JOSE header and compact serialization are assembled here.
+   * Nested JWT (RFC 9101 Section 4, RFC 7519 Section 5.2). Credo's OpenID4VP verifier API has no
+   * Request Object encryption, so Credo's JWE service is called directly; its KMS performs the
+   * ECDH-ES key agreement with a fresh ephemeral key, and the `cty` a Nested JWT requires is added
+   * to the protected header.
    */
   async encryptRequestObject(
     requestObject: string,
     encryption: RequestObjectEncryption,
   ): Promise<string> {
     const recipient = encryption.recipientJwk;
-    const kms = this.agent.kms;
-    const ephemeral = await kms.createKey({
-      type: { kty: recipient.kty, crv: recipient.crv } as Kms.KmsCreateKeyType,
-    });
-    try {
-      const { kty, crv, x, y } = ephemeral.publicJwk as JsonRecord;
-      const header = JsonEncoder.toBase64Url({
-        alg: encryption.alg,
+    return await this.agent.dependencyManager
+      .resolve(JweService)
+      .encryptJweCompact(this.agent.context, {
+        keyAgreement: {
+          algorithm: encryption.alg,
+          recipient: { publicJwk: Kms.PublicJwk.fromUnknown(recipient) },
+        },
         enc: encryption.enc,
-        cty: "JWT",
-        ...(typeof recipient.kid === "string" ? { kid: recipient.kid } : {}),
-        epk: { kty, crv, x, ...(y === undefined ? {} : { y }) },
-      });
-      const encrypted = await kms.encrypt({
-        key: {
-          keyAgreement: {
-            keyId: ephemeral.keyId,
-            algorithm: "ECDH-ES",
-            externalPublicJwk: recipient as Kms.KmsJwkPublicEcdh,
-          },
+        protectedHeaderOptions: {
+          cty: "JWT",
+          ...(typeof recipient.kid === "string" ? { kid: recipient.kid } : {}),
         },
         data: TypedArrayEncoder.fromUtf8String(requestObject),
-        encryption: {
-          algorithm: encryption.enc,
-          aad: TypedArrayEncoder.fromUtf8String(header),
-        } as Kms.KmsEncryptDataEncryption,
       });
-      if (!encrypted.iv || !encrypted.tag) throw new Error("Expected JWE iv and tag");
-      return [
-        header,
-        "",
-        TypedArrayEncoder.toBase64Url(encrypted.iv),
-        TypedArrayEncoder.toBase64Url(encrypted.encrypted),
-        TypedArrayEncoder.toBase64Url(encrypted.tag),
-      ].join(".");
-    } finally {
-      await kms.deleteKey({ keyId: ephemeral.keyId });
-    }
   }
 
   /**
@@ -643,7 +627,7 @@ export class CredoOpenId4VpVerifier {
     for (const signer of signers) {
       const jws = await jwsService.createJws(this.agent.context, {
         payload,
-        keyId: signer.keyId,
+        key: { keyId: signer.keyId },
         header: {},
         protectedHeaderOptions: { alg: "ES256", typ: "oauth-authz-req+jwt", ...signer.header },
       });

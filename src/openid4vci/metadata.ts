@@ -79,7 +79,7 @@ export async function signCredentialIssuerMetadata(
       iat: Math.floor(now.getTime() / 1000),
       additionalClaims: metadata,
     }),
-    keyId: issuerSigningKeyId(config),
+    key: { keyId: issuerSigningKeyId(config) },
     protectedHeaderOptions: {
       alg: "ES256",
       typ: "openidvci-issuer-metadata+jwt",

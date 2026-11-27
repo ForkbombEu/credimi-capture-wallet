@@ -198,6 +198,8 @@ export class NodeKmsBackend implements Kms.KeyManagementService {
         key: createPrivateKey({ key: privateJwk as unknown as JsonRecord, format: "jwk" }),
         dsaEncoding: "ieee-p1363",
       }),
+      // Credo checks the signing key against `expectedPublicJwk` with the key returned here.
+      publicJwk: publicJwk(privateJwk) as Kms.KmsJwkPublic,
     };
   }
 
@@ -223,8 +225,10 @@ export class NodeKmsBackend implements Kms.KeyManagementService {
   }
 
   /**
-   * ECDH-ES direct key agreement with the ephemeral key `keyAgreement.keyId`, which is what
-   * Credo's JWE encryption asks a backend for. Key wrapping is not implemented.
+   * ECDH-ES direct key agreement with a fresh ephemeral key on the recipient's curve, which is
+   * what Credo's JWE encryption asks a backend for. The `aad` callback receives the ephemeral
+   * public key so the caller can place it in the protected header it authenticates. Key wrapping
+   * is not implemented.
    */
   async encrypt(
     _agentContext: AgentContext,
@@ -238,16 +242,27 @@ export class NodeKmsBackend implements Kms.KeyManagementService {
     if (!isEcdhEsContentEncryption(encryption.algorithm)) {
       throw new Error(`Content encryption '${encryption.algorithm}' is not supported`);
     }
-    return ecdhEsEncrypt({
-      privateJwk: this.requiredKey(keyAgreement.keyId) as NodeJsonWebKey,
+    const { publicKey, privateKey } = await generateKeyPair("ECDH-ES", {
+      extractable: true,
+      crv: keyAgreement.externalPublicJwk.crv,
+    });
+    const { kty, crv, x, y } = await exportJWK(publicKey);
+    const ephemeralPublicJwk = { kty, crv, x, ...(y === undefined ? {} : { y }) };
+    const aad = "aad" in encryption ? encryption.aad : undefined;
+    const encrypted = ecdhEsEncrypt({
+      privateJwk: (await exportJWK(privateKey)) as NodeJsonWebKey,
       recipientPublicJwk: keyAgreement.externalPublicJwk as NodeJsonWebKey,
       enc: encryption.algorithm,
       data: options.data,
-      aad: ("aad" in encryption ? encryption.aad : undefined) ?? new Uint8Array(),
+      aad:
+        (typeof aad === "function"
+          ? aad({ ephemeralPublicJwk: ephemeralPublicJwk as Kms.KmsJwkPublicEcdh })
+          : aad) ?? new Uint8Array(),
       apu: keyAgreement.apu,
       apv: keyAgreement.apv,
       iv: "iv" in encryption ? encryption.iv : undefined,
     });
+    return { ...encrypted, ephemeralPublicJwk: ephemeralPublicJwk as Kms.KmsJwkPublicEcdh };
   }
 
   async decrypt(

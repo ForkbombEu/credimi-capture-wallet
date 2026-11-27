@@ -1,7 +1,15 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomBytes, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { Agent, ConsoleLogger, Kms, LogLevel, MdocApi, X509Module } from "@credo-ts/core";
+import {
+  Agent,
+  ConsoleLogger,
+  Kms,
+  LogLevel,
+  MdocApi,
+  TypedArrayEncoder,
+  X509Module,
+} from "@credo-ts/core";
 import {
   type OpenId4VcIssuanceSessionRecord,
   OpenId4VcIssuanceSessionRepository,
@@ -17,7 +25,7 @@ import {
 } from "@credo-ts/openid4vc";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { attestbookIntegration } from "../attestbook/integration.js";
-import { validateIssuerMaterial } from "../config/key-material.js";
+import { loadIssuerEncryptionPrivateJwk, validateIssuerMaterial } from "../config/key-material.js";
 import { accessTokenPrivateJwkPath, privateJwkPath } from "../config/paths.js";
 import {
   resolvedIssuerConfigurationById,
@@ -175,7 +183,9 @@ export class CredoOpenId4VciIssuer {
             authorizationCodeExpiresInSeconds: config.authorization_code_ttl_seconds,
             accessTokenExpiresInSeconds: config.access_token_ttl_seconds,
             requestUriExpiresInSeconds: config.par_request_uri_ttl_seconds,
-            dpopRequired: true,
+            // DPoP is optional at PAR and the authorization endpoints (a proof sent there still
+            // binds the code to its key) and required at the token endpoint (RFC 9449).
+            dpopRequired: "atTokenEndpoint",
             walletAttestationsRequired: false,
             credentialRequestToCredentialMapper: (options) =>
               runtimeRef.current?.mapCredentialRequest(options) ??
@@ -237,6 +247,7 @@ export class CredoOpenId4VciIssuer {
                   algorithm: signingOptions.algorithm as Kms.KnownJwaSignatureAlgorithm,
                   data: signingOptions.data,
                   keyId: signingOptions.keyId,
+                  expectedPublicJwk: null,
                 });
                 return signed.signature;
               });
@@ -278,7 +289,7 @@ export class CredoOpenId4VciIssuer {
           }
         : { preAuthorizedCodeFlowConfig: {} }),
       authorization: {
-        requireDpop: true,
+        requireDpop: "atTokenEndpoint",
         requireWalletAttestation: false,
       },
       issuanceMetadata: {
@@ -386,8 +397,9 @@ export class CredoOpenId4VciIssuer {
    * Processes a Notification Request (OpenID4VCI 1.0 Section 11). The access token and its DPoP
    * proof are verified by Credo-TS's own resource server, exactly as Credo's Credential endpoint
    * verifies them: signature, issuer, audience, expiry, and the DPoP proof's key binding, method,
-   * public target URI, and access token hash. The issuer requires DPoP, so a request without a
-   * verified proof is refused. The `notification_id` must then have been delivered by this issuer
+   * public target URI, and access token hash. The token endpoint requires DPoP, so every access
+   * token is DPoP-bound and a request without a verified proof is refused. The `notification_id`
+   * must then have been delivered by this issuer
    * in a Credential Response of the issuance session this access token is bound to.
    */
   async receiveNotification(
@@ -527,7 +539,12 @@ export class CredoOpenId4VciIssuer {
     const imported = await this.agent.kms.importKey({
       privateJwk: accessTokenPrivateJwk as never,
     });
-    createdIssuer.accessTokenPublicJwk = imported.publicJwk;
+    // Credo stores its own keys without the KMS key id as `kid`; it publishes the thumbprint.
+    createdIssuer.accessTokenKey = {
+      publicJwk: Kms.PublicJwk.fromUnknown(imported.publicJwk).toJson({ includeKid: false }),
+      keyId: imported.keyId,
+      kmsBackend: imported.backend,
+    };
     await this.issuerApi().updateIssuer(createdIssuer);
     if (temporaryAccessTokenKeyId !== imported.keyId) {
       await this.agent.kms.deleteKey({ keyId: temporaryAccessTokenKeyId });
@@ -586,9 +603,18 @@ export class CredoOpenId4VciIssuer {
     };
   }
 
+  /** The JWK Set Credo serves on the jwks endpoint: each key with its thumbprint as `kid`. */
   private async authorizationServerJwks(issuerConfigurationId: string): Promise<JsonRecord> {
     const issuer = await this.issuerApi().getIssuerByIssuerId(issuerConfigurationId);
-    return { keys: [issuer.resolvedAccessTokenPublicJwk.toJson()] };
+    const publicJwk = issuer.resolvedAccessTokenPublicJwk;
+    return {
+      keys: [
+        {
+          ...publicJwk.toJson({ includeKid: false }),
+          kid: TypedArrayEncoder.toBase64Url(publicJwk.getJwkThumbprint()),
+        },
+      ],
+    };
   }
 
   private async importIssuerKeys(issuer: ResolvedIssuerConfiguration): Promise<void> {
@@ -596,6 +622,14 @@ export class CredoOpenId4VciIssuer {
       await readFile(privateJwkPath(issuer.materialDirectory), "utf8"),
     ) as JsonRecord;
     await this.agent.kms.importKey({ privateJwk: privateJwk as never });
+    // Credential Request decryption and Credential Response encryption run on this agent's KMS,
+    // under the encryption key's own `kid`.
+    const encryptionPrivateJwk = loadIssuerEncryptionPrivateJwk(
+      issuerAppConfig(this.config, issuer),
+    );
+    if (encryptionPrivateJwk) {
+      await this.agent.kms.importKey({ privateJwk: encryptionPrivateJwk as never });
+    }
   }
 
   private listenForIssuanceEvents(): void {
@@ -672,7 +706,7 @@ export class CredoOpenId4VciIssuer {
         authorizationServerUrl: fakeOAuthServer(this.config, this.store, issuer).issuer,
         id: credoSessionId,
         credentialConfigurationIds: [credential.id],
-        requireDpop: true,
+        requireDpop: "atTokenEndpoint",
         requireWalletAttestation: false,
         issuanceMetadata: {
           captureSessionId: session.session_id,

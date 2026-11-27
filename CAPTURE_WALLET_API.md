@@ -157,10 +157,10 @@ revalidates with `If-None-Match`.
 | Method | Path | Required input | Result |
 | --- | --- | --- | --- |
 | `GET` | `/issuers/{issuerConfigurationId}/offers/{credentialOfferId}` | Credential-offer ID from an offer-by-reference deeplink | Credential Offer object. |
-| `POST` | `/issuers/{issuerConfigurationId}/par` | DPoP header; form `response_type=code`, `client_id`, `redirect_uri`, `scope`, `code_challenge`, `code_challenge_method=S256`; optional `issuer_state`, `state` | `201` with `request_uri` and `expires_in`. Without `issuer_state`, starts wallet-initiated issuance. |
+| `POST` | `/issuers/{issuerConfigurationId}/par` | Form `response_type=code`, `client_id`, `redirect_uri`, `scope`, `code_challenge`, `code_challenge_method=S256`; optional `issuer_state`, `state`, and DPoP header (validated when sent; it binds the authorization code to its key) | `201` with `request_uri` and `expires_in`. Without `issuer_state`, starts wallet-initiated issuance. |
 | `GET` | `/issuers/{issuerConfigurationId}/authorize` | Query `client_id` and `request_uri` | Starts the auto-approved authorization-code flow with redirects. |
 | `GET` | `/issuers/{issuerConfigurationId}/redirect` | Chained OAuth callback parameters | Redirects back to the wallet with the issuer authorization code. |
-| `POST` | `/issuers/{issuerConfigurationId}/token` | DPoP header plus either pre-authorized-code or authorization-code form grant | DPoP-bound access token, expiry, credential nonce, and nonce expiry. |
+| `POST` | `/issuers/{issuerConfigurationId}/token` | DPoP header plus either pre-authorized-code or authorization-code form grant | DPoP-bound access token and its expiry. No `c_nonce` (OpenID4VCI 1.0): use the Nonce Endpoint. |
 | `POST` | `/issuers/{issuerConfigurationId}/nonce` | No body | Fresh `c_nonce`. |
 | `POST` | `/issuers/{issuerConfigurationId}/credential` | `Authorization: DPoP …`, DPoP header, and a Credential Request | Credential response containing `credentials[].credential`, plus `notification_id` when notifications are enabled. |
 | `POST` | `/issuers/{issuerConfigurationId}/notification` | Only with `OID4VCI_NOTIFICATIONS_ENABLED=true`. `Authorization: DPoP …`, DPoP header, and an `application/json` Notification Request | `204`; see [Notification Endpoint](#notification-endpoint). |
@@ -299,7 +299,7 @@ matched against the `response.body.c_nonce` of unattributed nonce responses from
 A match gets the session's `session_id` and is appended to its `raw.oid4vci_requests`, after the
 requests already there; order those entries by `at`. A nonce response no Credential Request used
 stays unattributed in `GET /oid4vci/requests`, where a consumer can still match it by `c_nonce` and
-`at`. A `c_nonce` returned in a token response is part of that token request's own capture.
+`at`. Token responses carry no `c_nonce`, as OpenID4VCI 1.0 specifies.
 
 `observed.client_authentication` records the first request carrying `OAuth-Client-Attestation` or
 `OAuth-Client-Attestation-PoP`, in both modes: `method: "wallet_attestation"`, and for each of

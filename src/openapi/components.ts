@@ -1106,13 +1106,11 @@ export function components(issuerIds: readonly string[]): JsonRecord {
       },
       TokenResponse: {
         type: "object",
-        required: ["access_token", "token_type", "expires_in", "c_nonce", "c_nonce_expires_in"],
+        required: ["access_token", "token_type", "expires_in"],
         properties: {
           access_token: { type: "string" },
           token_type: { type: "string", const: "DPoP" },
           expires_in: { type: "integer" },
-          c_nonce: { type: "string" },
-          c_nonce_expires_in: { type: "integer" },
         },
       },
     },

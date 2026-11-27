@@ -1,3 +1,4 @@
+import type { AgentContext } from "@credo-ts/core";
 import type { Express, NextFunction } from "express";
 import { resolvedIssuerConfigurationById } from "../../configurations/registry.js";
 import { issuerAppConfig } from "../../configurations/resolve-urls.js";
@@ -20,9 +21,15 @@ export function registerCredentialRoutes(app: Express, ctx: ServerContext): void
     const issuer = resolvedIssuerConfigurationById(config, req.params.issuerConfigurationId);
     if (!issuer) return res.status(404).json({ error: "issuer_not_found" });
     const issuerConfig = issuerAppConfig(config, issuer);
+    let agentContext: AgentContext;
+    try {
+      agentContext = (await credoOpenId4VciIssuer(config, store)).context;
+    } catch (error) {
+      return next(error);
+    }
     let requestBody: CredentialRequestBody;
     try {
-      requestBody = await readCredentialRequestBody(req, issuerConfig);
+      requestBody = await readCredentialRequestBody(req, issuerConfig, agentContext);
     } catch (error) {
       return res.status(400).json({
         error: "invalid_encryption_parameters",
@@ -45,7 +52,7 @@ export function registerCredentialRoutes(app: Express, ctx: ServerContext): void
         });
     }
     const encryptedResponse = requestBody.responseEncryption
-      ? interceptCredentialResponse(res, next, issuerConfig, requestBody.responseEncryption)
+      ? interceptCredentialResponse(res, next, agentContext, requestBody.responseEncryption)
       : null;
     // Installed after the encryption interceptor so a scenario edits the plaintext response,
     // which is then encrypted only if it is still a success (OpenID4VCI 1.0 Section 8.3.1).

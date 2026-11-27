@@ -1,6 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { AgentContext } from "@credo-ts/core";
 import { CompactEncrypt, compactDecrypt, exportJWK, generateKeyPair, importJWK } from "jose";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadIssuerEncryptionPublicJwk } from "../src/config/key-material.js";
@@ -13,6 +14,8 @@ import {
   decryptCredentialRequest,
   encryptCredentialResponse,
 } from "../src/openid4vci/credential-encryption.js";
+import { credoOpenId4VciIssuer } from "../src/openid4vci/credo-issuer.js";
+import { CaptureStore } from "../src/state.js";
 import type { AppConfig, JsonRecord } from "../src/types.js";
 import {
   CONFORMING_ISSUER_ID,
@@ -22,13 +25,6 @@ import {
 
 const mockState = vi.hoisted(() => ({
   decryptResult: undefined as Record<string, unknown> | undefined,
-  encryptMode: "real" as
-    | "real"
-    | "missingHeader"
-    | "unexpectedSerialization"
-    | "unsupportedDependency",
-  externalPublicJwk: undefined as JsonRecord | undefined,
-  keyId: undefined as string | undefined,
 }));
 const RESPONSE_PUBLIC_JWK: JsonRecord = {
   kty: "EC",
@@ -43,50 +39,17 @@ const RESPONSE_PRIVATE_JWK: JsonRecord = {
 
 vi.mock("@credo-ts/openid4vc", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@credo-ts/openid4vc")>();
-  const core = await import("@credo-ts/core");
   return {
     ...actual,
     getOid4vcDecryptJweCallback: (
-      context: Parameters<typeof actual.getOid4vcDecryptJweCallback>[0],
+      ...callbackArgs: Parameters<typeof actual.getOid4vcDecryptJweCallback>
     ) => {
-      const real = actual.getOid4vcDecryptJweCallback(context);
+      const real = actual.getOid4vcDecryptJweCallback(...callbackArgs);
       return async (...args: Parameters<typeof real>) => {
         if (mockState.decryptResult) {
           return mockState.decryptResult as Awaited<ReturnType<typeof real>>;
         }
         return real(...args);
-      };
-    },
-    getOid4vcEncryptJweCallback: (
-      context: Parameters<typeof actual.getOid4vcEncryptJweCallback>[0],
-    ) => {
-      const real = actual.getOid4vcEncryptJweCallback(context);
-      if (mockState.encryptMode === "real") return real;
-      return async (...args: Parameters<typeof real>) => {
-        const [, compact] = args;
-        if (mockState.encryptMode === "unsupportedDependency") {
-          context.resolve(undefined as never);
-        }
-        const encodedHeader = Buffer.from(
-          mockState.encryptMode === "missingHeader"
-            ? JSON.stringify({})
-            : '{ "alg": "ECDH-ES", "enc": "A256GCM" }',
-        ).toString("base64url");
-        const kms = context.resolve(core.Kms.KeyManagementApi);
-        await kms.encrypt({
-          key: {
-            keyAgreement: {
-              keyId: mockState.keyId as string,
-              algorithm: "ECDH-ES",
-              externalPublicJwk: mockState.externalPublicJwk as never,
-            },
-          },
-          data: Buffer.from(compact),
-          encryption: { algorithm: "A256GCM", aad: Buffer.from(encodedHeader) },
-        });
-        return { encryptionJwk: mockState.externalPublicJwk, jwe: "" } as Awaited<
-          ReturnType<typeof real>
-        >;
       };
     },
   };
@@ -95,18 +58,19 @@ describe("credential encryption", () => {
   let environment: Awaited<ReturnType<typeof createIssuerTestEnvironment>>;
   let config: AppConfig;
   let issuer: ResolvedIssuerConfiguration;
+  let agentContext: AgentContext;
   const temporaryDirectories: string[] = [];
 
   beforeAll(async () => {
     environment = await createIssuerTestEnvironment({ prefix: "credential-encryption-test-" });
     issuer = requireIssuer(environment.config, CONFORMING_ISSUER_ID);
     config = issuerAppConfig(environment.config, issuer);
-    mockState.keyId = loadIssuerEncryptionPublicJwk(config)?.kid as string;
+    const store = new CaptureStore(environment.config);
+    agentContext = (await credoOpenId4VciIssuer(environment.config, store)).context;
   });
 
   beforeEach(() => {
     mockState.decryptResult = undefined;
-    mockState.encryptMode = "real";
   });
 
   afterAll(() => {
@@ -152,32 +116,35 @@ describe("credential encryption", () => {
     await expect(operation).rejects.toBeInstanceOf(CredentialEncryptionError);
     await expect(operation).rejects.toMatchObject({ message });
   }
-
   it("decrypts a credential request JWE", async () => {
     const request = await requestJwe(
       config,
       JSON.stringify({ credential_configuration_id: "eu.pid" }),
     );
-    await expect(decryptCredentialRequest(config, request)).resolves.toEqual({
+    await expect(decryptCredentialRequest(config, agentContext, request)).resolves.toEqual({
       credential_configuration_id: "eu.pid",
     });
   });
 
-  it("rejects unavailable issuer encryption material", async () => {
+  it("rejects unavailable or kid-less issuer encryption material", async () => {
     const missingConfig = configWithDataDir(join(environment.dataDir, "missing"));
     await expectCredentialError(
-      decryptCredentialRequest(missingConfig, "not-a-jwe"),
+      decryptCredentialRequest(missingConfig, agentContext, "not-a-jwe"),
       "Issuer credential request encryption key is unavailable",
     );
+    const privateJwk = JSON.parse(
+      readFileSync(issuerEncryptionPrivateJwkPath(config.data_dir), "utf8"),
+    ) as JsonRecord;
+    privateJwk.kid = undefined;
     await expectCredentialError(
-      encryptCredentialResponse(missingConfig, { jwk: {}, enc: "A256GCM" }, {}),
+      decryptCredentialRequest(configWithPrivateJwk(privateJwk), agentContext, "not-a-jwe"),
       "Issuer credential request encryption key is unavailable",
     );
   });
 
   it("wraps malformed request JWE errors", async () => {
     await expectCredentialError(
-      decryptCredentialRequest(config, "not-a-jwe"),
+      decryptCredentialRequest(config, agentContext, "not-a-jwe"),
       "Jwt is not a valid jwt, unable to decode",
     );
   });
@@ -189,7 +156,7 @@ describe("credential encryption", () => {
     tag[0] ^= 0x01;
     segments[4] = tag.toString("base64url");
     await expectCredentialError(
-      decryptCredentialRequest(config, segments.join(".")),
+      decryptCredentialRequest(config, agentContext, segments.join(".")),
       "Credential Request JWE could not be decrypted",
     );
   });
@@ -197,7 +164,7 @@ describe("credential encryption", () => {
   it("rejects a request with an unsupported content encryption algorithm", async () => {
     const request = await requestJwe(config, JSON.stringify({ ok: true }), { enc: "A128GCM" });
     await expectCredentialError(
-      decryptCredentialRequest(config, request),
+      decryptCredentialRequest(config, agentContext, request),
       "Credential Request JWE must use A256GCM",
     );
   });
@@ -207,7 +174,7 @@ describe("credential encryption", () => {
       alg: "ECDH-ES+A256KW",
     });
     await expectCredentialError(
-      decryptCredentialRequest(config, request),
+      decryptCredentialRequest(config, agentContext, request),
       "Only 'ECDH-ES' is supported as 'alg' value for JARM response decryption",
     );
   });
@@ -219,7 +186,7 @@ describe("credential encryption", () => {
       header: { alg: "ECDH-ES+A256KW", enc: "A256GCM" },
     };
     await expectCredentialError(
-      decryptCredentialRequest(config, "synthetic-jwe"),
+      decryptCredentialRequest(config, agentContext, "synthetic-jwe"),
       "Credential Request JWE must use ECDH-ES",
     );
   });
@@ -233,7 +200,7 @@ describe("credential encryption", () => {
       kid: otherPublicJwk.kid,
     });
     await expectCredentialError(
-      decryptCredentialRequest(config, request),
+      decryptCredentialRequest(config, agentContext, request),
       "Credential Request JWE kid does not identify the issuer encryption key",
     );
   });
@@ -241,14 +208,14 @@ describe("credential encryption", () => {
   it("rejects an invalid JSON request payload", async () => {
     const request = await requestJwe(config, "not-json");
     await expectCredentialError(
-      decryptCredentialRequest(config, request),
+      decryptCredentialRequest(config, agentContext, request),
       "Credential Request JWE payload must be valid JSON",
     );
   });
   it("rejects a non-object JSON request payload", async () => {
     const request = await requestJwe(config, "[]");
     await expectCredentialError(
-      decryptCredentialRequest(config, request),
+      decryptCredentialRequest(config, agentContext, request),
       "Credential Request JWE payload must be a JSON object",
     );
   });
@@ -347,7 +314,7 @@ describe("credential encryption", () => {
     });
     if (!encryption) throw new Error("response encryption metadata was not accepted");
     const response = { credentials: [{ credential: "test" }] };
-    const compact = await encryptCredentialResponse(config, encryption, response);
+    const compact = await encryptCredentialResponse(agentContext, encryption, response);
     const decrypted = await compactDecrypt(compact, keys.privateKey);
     expect(JSON.parse(Buffer.from(decrypted.plaintext).toString("utf8"))).toEqual(response);
   });
@@ -355,41 +322,9 @@ describe("credential encryption", () => {
   it("wraps credential response encryption errors", async () => {
     const keys = await generateKeyPair("ECDH-ES", { crv: "P-256", extractable: true });
     const jwk = { ...(await exportJWK(keys.publicKey)), alg: "ECDH-ES", use: "enc" } as JsonRecord;
-    const encryption = credentialResponseEncryption({
-      credential_response_encryption: { jwk, enc: "A256GCM" },
-    });
-    if (!encryption) throw new Error("response encryption metadata was not accepted");
     await expectCredentialError(
-      encryptCredentialResponse(config, { jwk, enc: "A256GCM" }, {}),
+      encryptCredentialResponse(agentContext, { jwk, enc: "A256GCM" }, {}),
       "Expected kid to be defined on the JWK",
-    );
-    mockState.externalPublicJwk = encryption.jwk;
-    mockState.encryptMode = "missingHeader";
-    await expectCredentialError(
-      encryptCredentialResponse(config, encryption, {}),
-      "JWE protected header must contain alg and enc",
-    );
-
-    mockState.encryptMode = "unexpectedSerialization";
-    await expectCredentialError(
-      encryptCredentialResponse(config, encryption, {}),
-      "Credo KMS produced an unexpected JWE serialization",
-    );
-    mockState.encryptMode = "unsupportedDependency";
-    await expectCredentialError(
-      encryptCredentialResponse(config, encryption, {}),
-      "Unsupported Credo credential encryption dependency",
-    );
-  });
-  it("rejects issuer encryption material without a kid", async () => {
-    const privateJwk = JSON.parse(
-      readFileSync(issuerEncryptionPrivateJwkPath(config.data_dir), "utf8"),
-    ) as JsonRecord;
-    privateJwk.kid = undefined;
-    const noKidConfig = configWithPrivateJwk(privateJwk);
-    await expectCredentialError(
-      encryptCredentialResponse(noKidConfig, { jwk: {}, enc: "A256GCM" }, {}),
-      "Issuer encryption key is missing a kid",
     );
   });
 });

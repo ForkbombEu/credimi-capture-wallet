@@ -13,6 +13,7 @@ import {
   type CredentialOfferResponse,
   type CredentialResponse,
   type SessionCreateResponse,
+  credentialNonce,
   postToken,
   preAuthorizedToken,
 } from "./support/issuance.js";
@@ -250,7 +251,8 @@ describe("capture issuer server", () => {
     const walletKey = await generateEs256Key();
     const dpop = await generateEs256Key();
     const token = await preAuthorizedToken(app, session, dpop, config.issuer_base_url);
-    const proof = await conformingProofJwt(walletKey, token.c_nonce);
+    const nonce = await credentialNonce(app, session.issuer_configuration_id);
+    const proof = await conformingProofJwt(walletKey, nonce);
     const credentialPath = issuerProtocolPath(session, "/credential");
     const credential = await request(app)
       .post(credentialPath)
@@ -293,7 +295,8 @@ describe("capture issuer server", () => {
     const walletKey = await generateEs256Key();
     const dpop = await generateEs256Key();
     const token = await preAuthorizedToken(app, session, dpop, config.issuer_base_url);
-    const proof = await conformingProofJwt(walletKey, token.c_nonce);
+    const nonce = await credentialNonce(app, session.issuer_configuration_id);
+    const proof = await conformingProofJwt(walletKey, nonce);
     const credentialPath = issuerProtocolPath(session, "/credential");
     const credential = await request(app)
       .post(credentialPath)
@@ -330,7 +333,8 @@ describe("capture issuer server", () => {
     const walletKey = await generateEs256Key();
     const dpop = await generateEs256Key();
     const token = await preAuthorizedToken(app, session, dpop, config.issuer_base_url);
-    const proof = await conformingProofJwt(walletKey, token.c_nonce);
+    const nonce = await credentialNonce(app, session.issuer_configuration_id);
+    const proof = await conformingProofJwt(walletKey, nonce);
     const credentialPath = issuerProtocolPath(session, "/credential");
     const credential = await request(app)
       .post(credentialPath)
@@ -516,8 +520,8 @@ describe("capture issuer server", () => {
     expect(token).toMatchObject({
       access_token: expect.any(String),
       token_type: "DPoP",
-      c_nonce: expect.any(String),
     });
+    expect(token).not.toHaveProperty("c_nonce");
 
     const capture = await getJson<SessionCapture>(app, `/sessions/${session.session_id}`);
     expect(capture.status).toBe("token_issued");

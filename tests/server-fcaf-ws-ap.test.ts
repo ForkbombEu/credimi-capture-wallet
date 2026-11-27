@@ -11,6 +11,7 @@ import {
   type CredentialOfferResponse,
   type SessionCreateResponse,
   type TokenResponse,
+  credentialNonce,
   keyAttestationJwt,
   preAuthorizedToken,
 } from "./support/issuance.js";
@@ -255,15 +256,12 @@ describe("capture issuer server", () => {
       const session = await preAuthorizedFull(app);
       const dpop = await generateEs256Key();
       const tokenResponse = await preAuthorizedToken(app, session, dpop, config.issuer_base_url);
+      const nonce = await credentialNonce(app, session.issuer_configuration_id);
       const holderKey = await generateEs256Key();
-      const keyAttestation = await keyAttestationJwt(
-        conformingIssuerConfig,
-        holderKey,
-        tokenResponse.c_nonce,
-      );
+      const keyAttestation = await keyAttestationJwt(conformingIssuerConfig, holderKey, nonce);
       const proof = await new SignJWT({
         aud: `${config.issuer_base_url}${conformingIssuerPath}`,
-        nonce: tokenResponse.c_nonce,
+        nonce,
         iat: Math.floor(Date.now() / 1000),
       })
         .setProtectedHeader({
@@ -297,7 +295,7 @@ describe("capture issuer server", () => {
               typ: "openid4vci-proof+jwt",
               key_attestation: keyAttestation,
             }),
-            payload: expect.objectContaining({ nonce: tokenResponse.c_nonce }),
+            payload: expect.objectContaining({ nonce }),
             error: null,
             source: "proofs.jwt[0]",
             key_attestation: {
@@ -307,7 +305,7 @@ describe("capture issuer server", () => {
                 x5c: expect.any(Array),
               }),
               payload: expect.objectContaining({
-                nonce: tokenResponse.c_nonce,
+                nonce,
                 attested_keys: [holderKey.publicJwk],
               }),
               error: null,
@@ -343,10 +341,11 @@ describe("capture issuer server", () => {
       const session = await preAuthorizedFull(app);
       const dpop = await generateEs256Key();
       const tokenResponse = await preAuthorizedToken(app, session, dpop, config.issuer_base_url);
+      const nonce = await credentialNonce(app, session.issuer_configuration_id);
       const keyAttestation = await keyAttestationJwt(
         conformingIssuerConfig,
         await generateEs256Key(),
-        tokenResponse.c_nonce,
+        nonce,
       );
 
       const { response, capture } = await requestCredential(
@@ -361,7 +360,7 @@ describe("capture issuer server", () => {
         {
           compact: keyAttestation,
           header: expect.objectContaining({ typ: "key-attestation+jwt" }),
-          payload: expect.objectContaining({ nonce: tokenResponse.c_nonce }),
+          payload: expect.objectContaining({ nonce }),
           error: null,
           source: "proofs.attestation[0]",
         },
@@ -510,13 +509,14 @@ describe("capture issuer server", () => {
       });
       const dpop = await generateEs256Key();
       const tokenResponse = await preAuthorizedToken(app, session, dpop, config.issuer_base_url);
+      const nonce = await credentialNonce(app, session.issuer_configuration_id);
 
       const { response, capture } = await requestCredential(
         app,
         session,
         {
           proofs: {
-            jwt: [await conformingProofJwt(await generateEs256Key(), tokenResponse.c_nonce)],
+            jwt: [await conformingProofJwt(await generateEs256Key(), nonce)],
           },
         },
         { dpop, response: tokenResponse },
@@ -542,9 +542,9 @@ describe("capture issuer server", () => {
         body: {
           access_token: { redacted: true, present: true },
           token_type: "DPoP",
-          c_nonce: tokenResponse.c_nonce,
         },
       });
+      expect(byPath("/token")?.body).not.toHaveProperty("c_nonce");
       expect(byPath("/credential")).toMatchObject({
         status: 200,
         body: { credentials: [{ credential: { redacted: true, present: true } }] },
@@ -705,9 +705,10 @@ describe("capture issuer server", () => {
       });
       const dpop = await generateEs256Key();
       const tokenResponse = await preAuthorizedToken(app, session, dpop, config.issuer_base_url);
+      const nonce = await credentialNonce(app, session.issuer_configuration_id);
       const proofs = async () => ({
         proofs: {
-          jwt: [await conformingProofJwt(await generateEs256Key(), tokenResponse.c_nonce)],
+          jwt: [await conformingProofJwt(await generateEs256Key(), nonce)],
         },
       });
 
@@ -756,6 +757,7 @@ describe("capture issuer server", () => {
       });
       const dpop = await generateEs256Key();
       const token = await preAuthorizedToken(app, session, dpop, config.issuer_base_url);
+      const nonce = await credentialNonce(app, session.issuer_configuration_id);
       const responseEncryptionKeyPair = await generateKeyPair("ECDH-ES", {
         crv: "P-256",
         extractable: true,
@@ -769,7 +771,7 @@ describe("capture issuer server", () => {
       const credentialRequest = {
         credential_configuration_id: session.credential_configuration_id,
         proofs: {
-          jwt: [await conformingProofJwt(await generateEs256Key(), token.c_nonce)],
+          jwt: [await conformingProofJwt(await generateEs256Key(), nonce)],
         },
         credential_response_encryption: {
           jwk: {

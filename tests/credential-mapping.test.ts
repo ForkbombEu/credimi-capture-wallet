@@ -28,7 +28,7 @@ import { CaptureStore } from "../src/state.js";
 import type { JsonRecord, SessionCapture } from "../src/types.js";
 import { createIssuerTestEnvironment, issuerPath, requireIssuer } from "./support/environment.js";
 import type { IssuerTestEnvironment } from "./support/environment.js";
-import { credentialProofJwt, preAuthorizedToken } from "./support/issuance.js";
+import { credentialNonce, credentialProofJwt, preAuthorizedToken } from "./support/issuance.js";
 import { dpopProof, generateEs256Key } from "./support/keys.js";
 
 const holderA = {
@@ -657,12 +657,10 @@ describe("credential mapping guards and evidence ordering", () => {
       requireIssuer(config, session.issuer_configuration_id),
     );
     const credentialPath = `${issuerPath(session.issuer_configuration_id)}/credential`;
-    const nonceResponse = await request(app).post(
-      `${issuerPath(session.issuer_configuration_id)}/nonce`,
-    );
+    const nonce = await credentialNonce(app, session.issuer_configuration_id);
     const proof = await credentialProofJwt(
       holder,
-      token.c_nonce,
+      nonce,
       `${config.issuer_base_url}${issuerPath(session.issuer_configuration_id)}`,
       issuerConfig,
     );
@@ -680,7 +678,7 @@ describe("credential mapping guards and evidence ordering", () => {
       .send({
         credential_configuration_id: session.credential_configuration_id,
         proofs: { jwt: [proof] },
-        nonce: nonceResponse.body.c_nonce,
+        nonce,
       });
     expect(response.status).toBe(500);
     expect(response.body).toEqual({ error: "server_error" });

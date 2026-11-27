@@ -184,7 +184,7 @@ async function preAuthorizedToken(harness: Harness, session: SessionResponse, dp
       "pre-authorized_code": String(grant["pre-authorized_code"]),
     });
   expect(token.status, JSON.stringify(token.body)).toBe(200);
-  return token.body as { access_token: string; c_nonce?: string };
+  return token.body as { access_token: string };
 }
 
 async function requestCredential(

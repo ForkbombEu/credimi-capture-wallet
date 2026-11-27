@@ -11,7 +11,7 @@ import { createApp } from "../src/server/app.js";
 import { CaptureStore } from "../src/state.js";
 import type { JsonRecord, Oid4vciHttpRequestCapture, SessionCapture } from "../src/types.js";
 import { getJson } from "./support/http.js";
-import { type CredentialResponse, postToken } from "./support/issuance.js";
+import { type CredentialResponse, credentialNonce, postToken } from "./support/issuance.js";
 import { type TestKey, generateEs256Key } from "./support/keys.js";
 import { serverTestSuite } from "./support/server.js";
 const {
@@ -66,6 +66,30 @@ describe("wallet-initiated issuance", () => {
     return ledger.filter((capture) => capture.path === parPath);
   }
 
+  /**
+   * Follows the authorization request through the issuer's chained authorization server and
+   * returns the authorization code the Wallet receives on its redirect URI.
+   */
+  async function authorizationCode(app: Express, requestUri: string): Promise<string> {
+    const authorize = await request(app)
+      .get(`${conformingIssuerPath}/authorize`)
+      .query({ client_id: walletClientId, request_uri: requestUri })
+      .redirects(0);
+    expect(authorize.status).toBe(302);
+    const upstream = new URL(String(authorize.headers.location));
+    expect(upstream.pathname).toBe(`/authorization-servers/${conformingIssuerId}/authorize`);
+    const approved = await request(app).get(`${upstream.pathname}${upstream.search}`).redirects(0);
+    const credoCallback = new URL(String(approved.headers.location));
+    const walletResponse = await request(app)
+      .get(`${credoCallback.pathname}${credoCallback.search}`)
+      .redirects(0);
+    expect(walletResponse.status).toBe(302);
+    const walletCallback = new URL(String(walletResponse.headers.location));
+    expect(walletCallback.origin + walletCallback.pathname).toBe(walletRedirectUri);
+    expect(walletCallback.searchParams.get("state")).toBe("wallet-state");
+    return String(walletCallback.searchParams.get("code"));
+  }
+
   it("issues a credential to a Wallet that starts issuance without a Credential Offer", async () => {
     const store = new CaptureStore(config);
     const app = createApp(config, store);
@@ -105,28 +129,13 @@ describe("wallet-initiated issuance", () => {
     );
 
     // Authorization runs through the issuer's chained authorization server, as for an offer.
-    const authorize = await request(app)
-      .get(`${conformingIssuerPath}/authorize`)
-      .query({ client_id: walletClientId, request_uri: String(pushed.body.request_uri) })
-      .redirects(0);
-    expect(authorize.status).toBe(302);
-    const upstream = new URL(String(authorize.headers.location));
-    expect(upstream.pathname).toBe(`/authorization-servers/${conformingIssuerId}/authorize`);
-    const approved = await request(app).get(`${upstream.pathname}${upstream.search}`).redirects(0);
-    const credoCallback = new URL(String(approved.headers.location));
-    const walletResponse = await request(app)
-      .get(`${credoCallback.pathname}${credoCallback.search}`)
-      .redirects(0);
-    expect(walletResponse.status).toBe(302);
-    const walletCallback = new URL(String(walletResponse.headers.location));
-    expect(walletCallback.origin + walletCallback.pathname).toBe(walletRedirectUri);
-    expect(walletCallback.searchParams.get("state")).toBe("wallet-state");
+    const code = await authorizationCode(app, String(pushed.body.request_uri));
 
     const token = await postToken(
       app,
       {
         grant_type: "authorization_code",
-        code: String(walletCallback.searchParams.get("code")),
+        code,
         code_verifier: codeVerifier,
         redirect_uri: walletRedirectUri,
         client_id: walletClientId,
@@ -138,6 +147,7 @@ describe("wallet-initiated issuance", () => {
     expect(token.token_type).toBe("DPoP");
 
     const credentialPath = `${conformingIssuerPath}/credential`;
+    const nonce = await credentialNonce(app, conformingIssuerId);
     const credential = await request(app)
       .post(credentialPath)
       .set("authorization", `DPoP ${token.access_token}`)
@@ -145,7 +155,7 @@ describe("wallet-initiated issuance", () => {
       .send({
         credential_configuration_id: sdJwtId,
         proofs: {
-          jwt: [await conformingProofJwt(walletKey, token.c_nonce, walletKey, walletClientId)],
+          jwt: [await conformingProofJwt(walletKey, nonce, walletKey, walletClientId)],
         },
       });
     expect(credential.status, JSON.stringify(credential.body)).toBe(200);
@@ -169,7 +179,7 @@ describe("wallet-initiated issuance", () => {
     expect(issued.raw?.credential_request).toMatchObject({ credential_configuration_id: sdJwtId });
     expect(
       (issued.raw?.oid4vci_requests ?? []).map((capture) => capture.path.split("/").pop()),
-    ).toEqual(["par", "authorize", "redirect", "token", "credential"]);
+    ).toEqual(["par", "authorize", "redirect", "token", "credential", "nonce"]);
   });
 
   it("keeps concurrent wallet-initiated sessions and their evidence apart", async () => {
@@ -218,17 +228,16 @@ describe("wallet-initiated issuance", () => {
 
     const refusals = [
       // A scope no credential configuration of this issuer carries.
-      [walletParBody("urn:example:not-issued", codeVerifier), dpop, "invalid_scope"],
+      [walletParBody("urn:example:not-issued", codeVerifier), "invalid_scope"],
       // Several credential configurations in one session are refused, not narrowed to one.
-      [walletParBody(`${sdJwt.scope} ${mdoc.scope}`, codeVerifier), dpop, "access_denied"],
+      [walletParBody(`${sdJwt.scope} ${mdoc.scope}`, codeVerifier), "access_denied"],
       // Malformed: no scope names anything to issue.
-      [walletParBody(undefined, codeVerifier), dpop, "invalid_scope"],
-      // Accepted by the issuer, then refused by Credo's PKCE and DPoP requirements.
-      [walletParBody(sdJwt.scope), dpop, "invalid_request"],
-      [walletParBody(sdJwt.scope, codeVerifier), undefined, "invalid_dpop_proof"],
+      [walletParBody(undefined, codeVerifier), "invalid_scope"],
+      // Accepted by the issuer, then refused by Credo's PKCE requirement.
+      [walletParBody(sdJwt.scope), "invalid_request"],
     ] as const;
-    for (const [body, key, error] of refusals) {
-      const refused = await postWalletPar(app, body, key);
+    for (const [body, error] of refusals) {
+      const refused = await postWalletPar(app, body, dpop);
       expect(refused.status, JSON.stringify(refused.body)).toBe(400);
       expect(refused.body).toMatchObject({ error });
     }
@@ -237,5 +246,36 @@ describe("wallet-initiated issuance", () => {
     const captures = await parLedger(app);
     expect(captures).toHaveLength(refusals.length);
     expect(captures.map((capture) => capture.session_id)).toEqual(refusals.map(() => null));
+  });
+
+  it("accepts a PAR without DPoP and requires DPoP at the token endpoint", async () => {
+    const store = new CaptureStore(config);
+    const app = createApp(config, store);
+    const configuration = await supportedConfiguration(app, sdJwtId);
+    const codeVerifier = randomBytes(48).toString("base64url");
+
+    const pushed = await postWalletPar(app, walletParBody(configuration.scope, codeVerifier));
+    expect(pushed.status, JSON.stringify(pushed.body)).toBe(201);
+    const [session] = [...store.sessions.values()];
+    expect(session?.observed.dpop_jwk.observed).toBe(false);
+
+    const code = await authorizationCode(app, String(pushed.body.request_uri));
+    const tokenBody = {
+      grant_type: "authorization_code",
+      code,
+      code_verifier: codeVerifier,
+      redirect_uri: walletRedirectUri,
+      client_id: walletClientId,
+    };
+    const withoutDpop = await request(app)
+      .post(`${conformingIssuerPath}/token`)
+      .type("form")
+      .send(tokenBody);
+    expect(withoutDpop.status, JSON.stringify(withoutDpop.body)).toBe(400);
+    expect(withoutDpop.body).toMatchObject({ error: "invalid_dpop_proof" });
+
+    const dpop = await generateEs256Key();
+    const token = await postToken(app, tokenBody, dpop, config.issuer_base_url, conformingIssuerId);
+    expect(token.token_type).toBe("DPoP");
   });
 });

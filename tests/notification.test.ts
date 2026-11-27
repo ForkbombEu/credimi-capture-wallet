@@ -25,6 +25,7 @@ import {
 import { createApp } from "../src/server/app.js";
 import type { AppConfig, JsonRecord, SessionCapture } from "../src/types.js";
 import { createIssuerTestEnvironmentFactory } from "./support/environment.js";
+import { credentialNonce } from "./support/issuance.js";
 import { type TestKey, dpopProof, generateEs256Key } from "./support/keys.js";
 
 const environment = createIssuerTestEnvironmentFactory({
@@ -150,7 +151,7 @@ async function preAuthorizedSession(
     session,
     dpop,
     accessToken: String(token.body.access_token),
-    cNonce: String(token.body.c_nonce),
+    cNonce: await credentialNonce(app, issuerId),
   };
 }
 

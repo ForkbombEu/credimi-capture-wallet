@@ -1,3 +1,4 @@
+import type { AgentContext } from "@credo-ts/core";
 import type { NextFunction, Request, Response } from "express";
 import type { ResolvedIssuerConfiguration } from "../configurations/types.js";
 import { credentialRegistry } from "../credentials/registry.js";
@@ -26,6 +27,7 @@ export type CredentialRequestBody = {
 export async function readCredentialRequestBody(
   req: Request,
   issuerConfig: AppConfig,
+  agentContext: AgentContext,
 ): Promise<CredentialRequestBody> {
   const encryptedRequest = req.is("application/jwt") === "application/jwt";
   let body: JsonRecord;
@@ -35,7 +37,7 @@ export async function readCredentialRequestBody(
         "Encrypted Credential Request body must be a compact JWE",
       );
     }
-    body = await decryptCredentialRequest(issuerConfig, req.body);
+    body = await decryptCredentialRequest(issuerConfig, agentContext, req.body);
   } else {
     body = { ...(req.body as JsonRecord) };
   }
@@ -123,7 +125,7 @@ export async function forwardCredentialRequest(
 export function interceptCredentialResponse(
   res: Response,
   next: NextFunction,
-  issuerConfig: AppConfig,
+  agentContext: AgentContext,
   responseEncryption: CredentialResponseEncryption,
 ): { isPending: () => boolean } {
   const send = res.send.bind(res);
@@ -155,7 +157,7 @@ export function interceptCredentialResponse(
 
     const statusCode = res.statusCode;
     pending = true;
-    void encryptCredentialResponse(issuerConfig, responseEncryption, json)
+    void encryptCredentialResponse(agentContext, responseEncryption, json)
       .then((jwe) => {
         pending = false;
         settled = true;

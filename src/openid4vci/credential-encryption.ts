@@ -1,20 +1,6 @@
-import { randomBytes } from "node:crypto";
-import { Kms } from "@credo-ts/core";
+import { type AgentContext, Kms } from "@credo-ts/core";
 import { getOid4vcDecryptJweCallback, getOid4vcEncryptJweCallback } from "@credo-ts/openid4vc";
-import {
-  CompactEncrypt,
-  type CompactJWEHeaderParameters,
-  type JWK,
-  type KeyLike,
-  compactDecrypt,
-  exportJWK,
-  generateKeyPair,
-  importJWK,
-} from "jose";
-import {
-  loadIssuerEncryptionPrivateJwk,
-  loadIssuerEncryptionPublicJwk,
-} from "../config/key-material.js";
+import { loadIssuerEncryptionPublicJwk } from "../config/key-material.js";
 import { errorMessage } from "../shared/errors.js";
 import { asRecord } from "../shared/json.js";
 import type { AppConfig, JsonRecord } from "../types.js";
@@ -29,17 +15,24 @@ export interface CredentialResponseEncryption {
 
 export class CredentialEncryptionError extends Error {}
 
+/**
+ * Decrypts a Credential Request JWE (OpenID4VCI 1.0 Section 10) with the issuer encryption key the
+ * Credo agent imported under its own `kid`.
+ */
 export async function decryptCredentialRequest(
   config: AppConfig,
+  agentContext: AgentContext,
   compactJwe: string,
 ): Promise<JsonRecord> {
   const issuerPublicJwk = loadIssuerEncryptionPublicJwk(config);
-  if (!issuerPublicJwk) {
+  if (!issuerPublicJwk || typeof issuerPublicJwk.kid !== "string") {
     throw new CredentialEncryptionError("Issuer credential request encryption key is unavailable");
   }
 
   try {
-    const decrypt = getOid4vcDecryptJweCallback(createCredentialEncryptionContext(config) as never);
+    const decrypt = getOid4vcDecryptJweCallback(agentContext, {
+      [issuerPublicJwk.kid]: { keyId: issuerPublicJwk.kid },
+    });
     const result = (await decrypt(compactJwe, {
       jwk: issuerPublicJwk as never,
     })) as {
@@ -123,13 +116,14 @@ export function credentialResponseEncryption(
   };
 }
 
+/** Encrypts a Credential Response to the Wallet's key with the Credo agent's KMS. */
 export async function encryptCredentialResponse(
-  config: AppConfig,
+  agentContext: AgentContext,
   encryption: CredentialResponseEncryption,
   response: JsonRecord,
 ): Promise<string> {
   try {
-    const encrypt = getOid4vcEncryptJweCallback(createCredentialEncryptionContext(config) as never);
+    const encrypt = getOid4vcEncryptJweCallback(agentContext);
     const result = await encrypt(
       {
         method: "jwk",
@@ -143,158 +137,6 @@ export async function encryptCredentialResponse(
   } catch (error) {
     throw new CredentialEncryptionError(errorMessage(error));
   }
-}
-
-function createCredentialEncryptionContext(config: AppConfig): object {
-  const issuerPrivateJwk = loadIssuerEncryptionPrivateJwk(config);
-  if (!issuerPrivateJwk) {
-    throw new CredentialEncryptionError("Issuer credential request encryption key is unavailable");
-  }
-  const kms = new CredentialEncryptionKms(issuerPrivateJwk);
-  const resolve = (token: unknown) => {
-    if (token === Kms.KeyManagementApi) return kms;
-    throw new CredentialEncryptionError("Unsupported Credo credential encryption dependency");
-  };
-  return {
-    resolve,
-    dependencyManager: { resolve },
-    config: {
-      logger: { error: () => undefined },
-    },
-  };
-}
-
-class CredentialEncryptionKms {
-  private readonly privateJwks = new Map<string, JWK>();
-
-  constructor(issuerPrivateJwk: JsonRecord) {
-    if (typeof issuerPrivateJwk.kid !== "string") {
-      throw new CredentialEncryptionError("Issuer encryption key is missing a kid");
-    }
-    this.privateJwks.set(issuerPrivateJwk.kid, issuerPrivateJwk as unknown as JWK);
-  }
-
-  async createKey({ type }: { type: JsonRecord }): Promise<{
-    keyId: string;
-    publicJwk: JsonRecord;
-  }> {
-    const curve = typeof type.crv === "string" ? type.crv : "P-256";
-    const { publicKey, privateKey } = await generateKeyPair(CREDENTIAL_JWE_ALG, {
-      crv: curve,
-      extractable: true,
-    } as never);
-    const keyId = randomBytes(16).toString("base64url");
-    const exportedPublicJwk = await exportJWK(publicKey);
-    const publicJwk = {
-      x: exportedPublicJwk.x,
-      crv: exportedPublicJwk.crv,
-      kty: exportedPublicJwk.kty,
-      ...(exportedPublicJwk.y ? { y: exportedPublicJwk.y } : {}),
-    };
-    const privateJwk = { ...(await exportJWK(privateKey)), kid: keyId };
-    this.privateJwks.set(keyId, privateJwk);
-    return { keyId, publicJwk };
-  }
-
-  async deleteKey({ keyId }: { keyId: string }): Promise<boolean> {
-    return this.privateJwks.delete(keyId);
-  }
-
-  async getPublicKey({ keyId }: { keyId: string }): Promise<JsonRecord | null> {
-    const privateJwk = this.privateJwks.get(keyId);
-    return privateJwk ? publicJwk(privateJwk) : null;
-  }
-
-  async encrypt(options: {
-    key: {
-      keyAgreement: {
-        keyId: string;
-        externalPublicJwk: JsonRecord;
-        apu?: Uint8Array;
-        apv?: Uint8Array;
-      };
-    };
-    data: Uint8Array;
-    encryption: { algorithm: string; aad: Uint8Array };
-  }): Promise<{
-    encrypted: Uint8Array;
-    iv: Uint8Array;
-    tag: Uint8Array;
-  }> {
-    const keyAgreement = options.key.keyAgreement;
-    const privateJwk = this.requiredPrivateJwk(keyAgreement.keyId);
-    const encodedHeader = Buffer.from(options.encryption.aad).toString("utf8");
-    const header = parseJsonRecord(
-      Buffer.from(encodedHeader, "base64url").toString("utf8"),
-      "JWE protected header",
-    );
-    if (typeof header.alg !== "string" || typeof header.enc !== "string") {
-      throw new CredentialEncryptionError("JWE protected header must contain alg and enc");
-    }
-    const compact = await new CompactEncrypt(options.data)
-      .setProtectedHeader(header as unknown as CompactJWEHeaderParameters)
-      .setKeyManagementParameters({
-        epk: (await importJWK(privateJwk, CREDENTIAL_JWE_ALG)) as KeyLike,
-        apu: keyAgreement.apu,
-        apv: keyAgreement.apv,
-      })
-      .encrypt(
-        await importJWK(keyAgreement.externalPublicJwk as unknown as JWK, CREDENTIAL_JWE_ALG),
-      );
-    const [actualHeader, encryptedKey, iv, ciphertext, tag] = compact.split(".");
-    if (actualHeader !== encodedHeader || encryptedKey !== "" || !iv || !ciphertext || !tag) {
-      throw new CredentialEncryptionError("Credo KMS produced an unexpected JWE serialization");
-    }
-    return {
-      encrypted: Buffer.from(ciphertext, "base64url"),
-      iv: Buffer.from(iv, "base64url"),
-      tag: Buffer.from(tag, "base64url"),
-    };
-  }
-
-  async decrypt(options: {
-    encrypted: Uint8Array;
-    decryption: {
-      aad: Uint8Array;
-      iv: Uint8Array;
-      tag: Uint8Array;
-    };
-    key: { keyAgreement: { keyId: string } };
-  }): Promise<{ data: Uint8Array }> {
-    const privateJwk = this.requiredPrivateJwk(options.key.keyAgreement.keyId);
-    const compact = [
-      Buffer.from(options.decryption.aad).toString("utf8"),
-      "",
-      Buffer.from(options.decryption.iv).toString("base64url"),
-      Buffer.from(options.encrypted).toString("base64url"),
-      Buffer.from(options.decryption.tag).toString("base64url"),
-    ].join(".");
-    const decrypted = await compactDecrypt(
-      compact,
-      await importJWK(privateJwk, CREDENTIAL_JWE_ALG),
-    );
-    return { data: decrypted.plaintext };
-  }
-
-  private requiredPrivateJwk(keyId: string): JWK {
-    const privateJwk = this.privateJwks.get(keyId);
-    if (!privateJwk) throw new CredentialEncryptionError(`Unknown KMS key '${keyId}'`);
-    return privateJwk;
-  }
-}
-
-function publicJwk(privateJwk: JWK): JsonRecord {
-  const {
-    d: _d,
-    p: _p,
-    q: _q,
-    dp: _dp,
-    dq: _dq,
-    qi: _qi,
-    oth: _oth,
-    ...publicKey
-  } = privateJwk as unknown as JsonRecord;
-  return publicKey;
 }
 
 function containsPrivateJwkMaterial(jwk: JsonRecord): boolean {

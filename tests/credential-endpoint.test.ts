@@ -10,7 +10,7 @@ import type { SessionCredentialDefinition } from "../src/types.js";
 import { createIssuerTestEnvironment, issuerPath, requireIssuer } from "./support/environment.js";
 import type { IssuerTestEnvironment } from "./support/environment.js";
 import type { SessionCreateResponse } from "./support/issuance.js";
-import { credentialProofJwt, preAuthorizedToken } from "./support/issuance.js";
+import { credentialNonce, credentialProofJwt, preAuthorizedToken } from "./support/issuance.js";
 import { dpopProof, generateEs256Key } from "./support/keys.js";
 
 let environment: IssuerTestEnvironment | undefined;
@@ -49,10 +49,11 @@ async function preparedCredentialRequest() {
     environment?.config.issuer_base_url ?? "",
   );
   const holder = await generateEs256Key();
+  const nonce = await credentialNonce(app, session.issuer_configuration_id);
   const credentialPath = `${issuerPath(session.issuer_configuration_id)}/credential`;
   const proof = await credentialProofJwt(
     holder,
-    token.c_nonce,
+    nonce,
     `${environment?.config.issuer_base_url}${issuerPath(session.issuer_configuration_id)}`,
     issuerConfig,
   );
